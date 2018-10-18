@@ -111,11 +111,11 @@ module MU
           
           lambda_properties = {
             code: {},
-            function_name:@mu_name,
-            handler:@config['handler'],
-            publish:true,
-            role:role_arn,
-            runtime:@config['runtime'],
+            function_name: @mu_name,
+            handler: @config['handler'],
+            publish: true,
+            role: role_arn,
+            runtime: @config['runtime'],
           }
 
           if @config['code']['zip_file']
@@ -125,6 +125,9 @@ module MU
           else
             lambda_properties[:code][:s3_bucket] = @config['code']['s3_bucket']
             lambda_properties[:code][:s3_key] = @config['code']['s3_key']
+            if @config['code']['s3_object_version']
+              lambda_properties[:code][:s3_object_version] = @config['code']['s3_object_version']
+            end
           end
            
           if @config.has_key?('timeout')
@@ -161,15 +164,16 @@ module MU
              lambda_properties[:vpc_config] = vpc_conf
           end
 
-          @config['tags'] ||= []
+          MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
+        end
 
-          lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
-          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
-          get_function=  MU::Cloud::AWS.lambda(@config['region']).get_function(
+        def groom
+          desc = MU::Cloud::AWS.lambda(@config['region']).get_function(
             function_name: @mu_name
           )
-          func_arn = get_function.configuration.function_arn if !get_function.empty?
-          
+          func_arn = desc.configuration.function_arn if !desc.empty?
+
+#          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
           
           ### The most common triggers can be ==> SNS, S3, Cron, API-Gateway
           ### API-Gateway => no direct way of getting api gateway id.
@@ -179,38 +183,44 @@ module MU
 
           ### to add or to not add triggers
           ### triggers must exist prior
-          if  @config.has_key?('trigger') and !@config['trigger']['type'].nil? and !@config['trigger']['name'].nil?
-            trigger_arn = assume_trigger_arns(@config['trigger']['type'])
+          if @config['triggers']
+            @config['triggers'].each { |tr|
+              trigger_arn = assume_trigger_arns(tr['service'], tr['name'])
 
-            trigger_properties = {
-              action: "lambda:InvokeFunction", 
-              function_name: @mu_name, 
-              principal: "#{@config['trigger']['type'].downcase}.amazonaws.com", 
-              source_arn: trigger_arn, 
-              statement_id: "#{@mu_name}-ID-1",
+              trigger_properties = {
+                action: "lambda:InvokeFunction", 
+                function_name: @mu_name, 
+                principal: "#{tr['service'].downcase}.amazonaws.com", 
+                source_arn: trigger_arn, 
+                statement_id: "#{@mu_name}-ID-1",
+              }
+              p trigger_arn
+              p trigger_properties           
+
+              MU.log trigger_properties, MU::DEBUG
+              begin
+                add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
+              rescue Aws::Lambda::Errors::ResourceConflictException
+# XXX check properly for existence
+              end
+              adjust_trigger(tr['service'], trigger_arn, func_arn, @mu_name) 
             }
-            p trigger_arn
-            p trigger_properties           
-
-            MU.log trigger_properties, MU::DEBUG
-            add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
-            adjust_trigger(@config['trigger']['type'], trigger_arn, func_arn, @mu_name) 
           
           end 
-          return lambda_func
         end
 
 
-
-        def assume_trigger_arns(type)
-          supported_triggers = %w(sns events event cloudwatch_event)
-          if supported_triggers.include?(type.downcase)
+        def assume_trigger_arns(svc, name)
+          supported_triggers = %w(apigateway sns events event cloudwatch_event)
+          if supported_triggers.include?(svc.downcase)
             arn = nil
-            case type.downcase
+            case svc.downcase
             when 'sns'
-              arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{@config['trigger']['name']}"              
+              arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{name}"
             when 'alarm','events', 'event', 'cloudwatch_event'
-              arn = "arn:aws:events:#{@config['region']}:#{MU.account_number}:rule/#{@config['trigger']['name']}"
+              arn = "arn:aws:events:#{@config['region']}:#{MU.account_number}:rule/#{name}"
+            when 'apigateway'
+              arn = "arn:aws:apigateway:#{@config['region']}:#{MU.account_number}:#{name}"
             when 's3'
               arn = ''
             end
@@ -244,6 +254,8 @@ module MU
                 }
               ]
             })
+          when 'apigateway'
+            MU.log "Creation of API Gateway integrations not yet implemented, you'll have to do this manually", MU::WARN, details: "(because we'll basically have to implement all of APIG for this)"
           end 
         end
 

@@ -447,6 +447,7 @@ module MU
               MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
             end
           end
+					loadSubnets
 
           MU.log "VPC #{@mu_name} created", details: @config
         end
