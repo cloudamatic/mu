@@ -24,7 +24,7 @@ if node['deployment'].has_key?('storage_pools')
   case node['platform']
   when 'ubuntu'
     package "nfs-common"
-  when platform_family?('rhel')
+  when "rhel", "amazon", "centos"
     package %w{nfs-utils nfs4-acl-tools}
   end
 
