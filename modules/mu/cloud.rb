@@ -97,6 +97,9 @@ module MU
     # Stub base class; real implementations generated at runtime
     class MsgQueue;
     end
+    # Stub base class; real implementations generated at runtime
+    class Api;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -251,6 +254,17 @@ module MU
         :cfg_name => "function",
         :cfg_plural => "functions",
         :interface => self.const_get("Function"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Api => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "api",
+        :cfg_plural => "apis",
+        :interface => self.const_get("Api"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
