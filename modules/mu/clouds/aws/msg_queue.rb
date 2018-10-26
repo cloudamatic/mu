@@ -53,6 +53,7 @@ module MU
             attributes: attrs
           )
           sleep 1
+					MU.log "SQS queue #{@config['name']} is at: #{resp.queue_url}", MU::SUMMARY
           @cloud_id = resp.queue_url
         end
 

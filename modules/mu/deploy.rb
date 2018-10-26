@@ -401,6 +401,19 @@ module MU
         }
       end
 
+      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
+         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
+        require 'slack-notifier'
+        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
+
+        slack.ping "Mu deployment #{MU.appname} *\"#{MU.handle}\"* (`#{MU.deploy_id}`) successfully completed on *#{$MU_CFG['hostname']}* (#{$MU_CFG['public_address']})", channel: $MU_CFG['slack']['channel']
+        if MU.summary.size > 0
+          MU.summary.each { |msg|
+            slack.ping msg, channel: $MU_CFG['slack']['channel']
+          }
+        end
+      end
+
     end
 
     private
@@ -429,7 +442,7 @@ To:  #{admin_addrs.join(", ")}>
 MIME-Version: 1.0
 Content-type: text/html
 Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id}) successfully completed
-		
+    
 <br>
 <pre>#{$str}</pre>
 MESSAGE_END
@@ -497,7 +510,7 @@ MESSAGE_END
     #########################################################################
     def setThreadDependencies(services)
       if services.nil? or services.size < 1
-#				MU.log "Got nil service list in setThreadDependencies for called from #{caller_locations(1,1)[0].label}", MU::DEBUG
+#        MU.log "Got nil service list in setThreadDependencies for called from #{caller_locations(1,1)[0].label}", MU::DEBUG
         return
       end
 
