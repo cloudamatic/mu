@@ -325,6 +325,7 @@ module MU
             if override_runlist
               cmd = cmd + " -o '#{override_runlist}'"
             end
+            resp = nil
             Timeout::timeout(timeout) {
               resp = winrm.run(cmd) do |stdout, stderr|
                 if stdout
