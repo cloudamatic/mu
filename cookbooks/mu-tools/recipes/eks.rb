@@ -69,12 +69,6 @@ EOH
     Chef::Log.info("I don't know how to turn #{node['platform']} #{node[:platform_version].to_s} into a Kubernetes worker, hopefully it's pre-configured")
   end
 
-  # in brand new accounts where no load balancer has been created, something
-  # has to do this before EKS has to, because by default it can't
-  execute "aws iam create-service-linked-role --aws-service-name 'elasticloadbalancing.amazonaws.com'" do
-    not_if "aws iam list-roles | grep /aws-service-role/elasticloadbalancing.amazonaws.com/"
-  end
-
   service "docker" do
     action [:start, :enable]
   end
