@@ -28,6 +28,42 @@ module MU
             description: @deploy.deploy_id
           )
           @cloud_id = resp.id
+          pp resp
+
+        end
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          @config['methods'].each { |m|
+            resp = MU::Cloud::AWS.apig(@config['region']).put_method(
+              rest_api_id: @cloud_id,
+              http_method: m['type']
+            )
+          }
+
+          resp = MU::Cloud::AWS.apig(@config['region']).create_deployment(
+            rest_api_id: @cloud_id,
+            stage_name: @deploy.environment,
+#            cache_cluster_enabled: false,
+#            cache_cluster_size: 0.5,
+          )
+          deployment_id = resp.id
+
+          resp = MU::Cloud::AWS.apig(@config['region']).create_stage(
+            rest_api_id: @cloud_id,
+            stage_name: @deploy.environment,
+            deployment_id: deployment_id,
+#            cache_cluster_enabled: false,
+#            cache_cluster_size: 0.5,
+          )
+# deployment => stage
+#          resp = MU::Cloud::AWS.apig(@config['region']).create_authorizer(
+#            rest_api_id: @cloud_id,
+#          )
+
+#          resp = MU::Cloud::AWS.apig(@config['region']).create_vpc_link(
+#          )
+ 
         end
 
         # @return [Struct]
@@ -73,6 +109,17 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching API.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+          if cloud_id
+            return MU::Cloud::AWS.apig(@config['region']).get_rest_api(
+              rest_api_id: cloud_id
+            )
+          end
+#          resp = MU::Cloud::AWS.apig(region).get_rest_apis
+#          if resp and resp.items
+#            resp.items.each { |api|
+#            }
+#          end
+          nil
         end
 
         # Cloud-specific configuration properties.

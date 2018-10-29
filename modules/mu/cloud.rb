@@ -257,7 +257,7 @@ module MU
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods
+        :instance => generic_instance_methods + [:groom]
       },
       :Api => {
         :has_multiples => false,
@@ -268,7 +268,7 @@ module MU
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods
+        :instance => generic_instance_methods + [:groom]
       },
       :ContainerCluster => {
         :has_multiples => false,
