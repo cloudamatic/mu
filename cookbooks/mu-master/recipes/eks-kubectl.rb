@@ -33,3 +33,9 @@ remote_file "/opt/mu/bin/aws-iam-authenticator" do
   mode 0755
   not_if "test -f /opt/mu/bin/aws-iam-authenticator"
 end
+
+# in brand new accounts where no load balancer has been created, something
+# has to do this before EKS has to, because by default it can't
+execute "aws iam create-service-linked-role --aws-service-name 'elasticloadbalancing.amazonaws.com'" do
+  not_if "aws iam list-roles | grep /aws-service-role/elasticloadbalancing.amazonaws.com/"
+end

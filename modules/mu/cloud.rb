@@ -1063,7 +1063,7 @@ module MU
                 reboot(true)
                 sleep 30
               end
-            rescue WinRM::WinRMError => e
+            rescue WinRM::WinRMError, HTTPClient::ConnectTimeoutError => e
               retries, rebootable_fails = handleWindowsFail(e, retries, rebootable_fails, max_retries: 10, reboot_on_problems: true, retry_interval: 30)
               retry
             end
