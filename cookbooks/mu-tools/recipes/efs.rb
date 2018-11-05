@@ -48,7 +48,7 @@ if node['deployment'].has_key?('storage_pools')
           endpoint = target['ip_address']
         end
 
-        if node[:platform_family] == "rhel" and node[:platform_version].to_i < 6
+        if node[:platform_family] == "rhel" and node[:platform_version].to_i < 6 and node['platform'] != "amazon"
           service "portmap" do
             action [:enable, :start]
           end

@@ -20,7 +20,7 @@ module MU
       # Base configuration schema for a ContainerCluster
       # @return [Hash]
       def self.schema
-        {
+        base = {
           "type" => "object",
           "description" => "Create a cluster of container hosts.",
           "required" => ["name", "cloud", "instance_type", "instance_count"],
@@ -83,6 +83,13 @@ module MU
             }
           }
         }
+        MU::Config::Server.common_properties.keys.each { |k|
+          if !base["properties"][k]
+            base["properties"][k] = MU::Config::Server.common_properties[k].dup
+          end
+        }
+
+        base
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::container_clusters}, bare and unvalidated.

@@ -622,6 +622,12 @@ module MU
               ]
               worker_pool["run_list"] = ["mu-tools::eks"]
 							worker_pool["run_list"].concat(cluster["run_list"]) if cluster["run_list"]
+              MU::Config::Server.common_properties.keys.each { |k|
+                if cluster[k] and !worker_pool[k]
+                  worker_pool[k] = cluster[k]
+                end
+              }
+
             end
 
             configurator.insertKitten(worker_pool, "server_pools")
