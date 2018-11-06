@@ -523,6 +523,13 @@ module MU
             "ami_id" => {
               "type" => "string",
               "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified."
+            },
+            "run_list" => {
+              "type" => "array",
+              "items" => {
+                  "type" => "string",
+                  "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes."
+              }
             }
           }
           [toplevel_required, schema]
@@ -614,6 +621,13 @@ module MU
                 }
               ]
               worker_pool["run_list"] = ["mu-tools::eks"]
+							worker_pool["run_list"].concat(cluster["run_list"]) if cluster["run_list"]
+              MU::Config::Server.common_properties.keys.each { |k|
+                if cluster[k] and !worker_pool[k]
+                  worker_pool[k] = cluster[k]
+                end
+              }
+
             end
 
             configurator.insertKitten(worker_pool, "server_pools")
