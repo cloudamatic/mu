@@ -56,6 +56,61 @@ module MU
         region.match(/^us-gov-/)
       end
 
+      # @param resources [Array<String>]: The cloud provider identifier of the resource to untag
+      # @param key [String]: The name of the tag to remove
+      # @param value [String]: The value of the tag to remove
+      # @param region [String]: The cloud provider region
+      def self.removeTag(key, value, resources = [], region: myRegion)
+        MU::Cloud::AWS.ec2(region).delete_tags(
+          resources: resources,
+          tags: [
+            {
+              key: key,
+              value: value
+            }
+          ]
+        )
+      end
+
+      # Tag EC2 resources. 
+      #
+      # @param resources [Array<String>]: The cloud provider identifier of the resource to tag
+      # @param key [String]: The name of the tag to create
+      # @param value [String]: The value of the tag
+      # @param region [String]: The cloud provider region
+      # @return [void,<Hash>]
+      def self.createTag(key, value, resources = [], region: myRegion)
+  
+        if !MU::Cloud::CloudFormation.emitCloudFormation
+          begin
+            MU::Cloud::AWS.ec2(region).create_tags(
+              resources: resources,
+              tags: [
+                {
+                  key: key,
+                  value: value
+                }
+              ]
+            )
+          rescue Aws::EC2::Errors::ServiceError => e
+            MU.log "Got #{e.inspect} tagging #{resources.size.to_s} resources with #{key}=#{value}", MU::WARN, details: resources if attempts > 1
+            if attempts < 5
+              attempts = attempts + 1
+              sleep 15
+              retry
+            else
+              raise e
+            end
+          end
+          MU.log "Created tag #{key} with value #{value}", MU::DEBUG, details: resources
+        else
+          return {
+            "Key" =>  key,
+            "Value" => value
+          }
+        end
+      end
+
       @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
@@ -442,11 +497,39 @@ module MU
         @@efs_api[region]
       end
 
+      # Amazon's Lambda API
+      def self.lambda(region = MU.curRegion)
+        region ||= myRegion
+        @@lambda_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Lambda", region: region)
+        @@lambda_api[region]
+      end
+
+      # Amazon's API Gateway API
+      def self.apig(region = MU.curRegion)
+        region ||= myRegion
+        @@apig_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "APIGateway", region: region)
+        @@apig_api[region]
+      end
+      
+      # Amazon's Cloudwatch Events API
+      def self.cloudwatch_events(region = MU.cureRegion)
+        region ||= myRegion
+        @@cloudwatch_events_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchEvents", region: region)
+        @@cloudwatch_events_api
+      end
+
       # Amazon's ECS API
       def self.ecs(region = MU.curRegion)
         region ||= myRegion
         @@ecs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ECS", region: region)
         @@ecs_api[region]
+      end
+
+      # Amazon's EKS API
+      def self.eks(region = MU.curRegion)
+        region ||= myRegion
+        @@eks_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EKS", region: region)
+        @@eks_api[region]
       end
 
       # Amazon's Pricing API
@@ -711,7 +794,7 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::EC2::Errors::IncorrectInstanceState, Aws::IAM::Errors::Throttling => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling => e
             if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
               MU.log e.inspect, MU::ERR
               raise e
@@ -755,7 +838,11 @@ module MU
       @@sns_api = {}
       @@sqs_api = {}
       @@efs_api ={}
+      @@lambda_api ={}
+      @@cloudwatch_events_api = {}
+      @@apig_api ={}
       @@ecs_api ={}
+      @@eks_api ={}
       @@pricing_api ={}
       @@ssm_api ={}
       @@elasticsearch_api ={}

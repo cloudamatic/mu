@@ -73,7 +73,8 @@ module MU
                    reraise_thread: nil,
                    stack_conf: nil,
                    no_artifacts: false,
-                   deploy_id: nil)
+                   deploy_id: nil,
+                   deploy_obj: nil)
       MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
       @verbosity = verbosity
@@ -98,9 +99,10 @@ module MU
       @original_config = Marshal.load(Marshal.dump(stack_conf))
       @original_config.freeze
       @admins = stack_conf["admins"]
+      @mommacat = deploy_obj
 
       if deploy_id
-        @mommacat = MU::MommaCat.new(deploy_id)
+        @mommacat ||= MU::MommaCat.new(deploy_id)
         @updating = true
       else
         @environment = environment
@@ -337,6 +339,7 @@ module MU
         end
       end
 
+
       # Send notifications
       sendMail
       if @mommacat.numKittens(clouds: ["AWS"]) > 0
@@ -391,13 +394,41 @@ module MU
         MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
       end
 
+
+      if MU.summary.size > 0
+        MU.summary.each { |msg|
+          puts msg
+        }
+      end
+
+      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
+         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
+        require 'slack-notifier'
+        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
+
+        slack.ping "Mu deployment #{MU.appname} *\"#{MU.handle}\"* (`#{MU.deploy_id}`) successfully completed on *#{$MU_CFG['hostname']}* (#{$MU_CFG['public_address']})", channel: $MU_CFG['slack']['channel']
+        if MU.summary.size > 0
+          MU.summary.each { |msg|
+            slack.ping msg, channel: $MU_CFG['slack']['channel']
+          }
+        end
+      end
+
     end
 
     private
 
     def sendMail()
 
-      $str = JSON.pretty_generate(@mommacat.deployment)
+      $str = ""
+
+      if MU.summary.size > 0
+        MU.summary.each { |msg|
+          $str += msg+"\n"
+        }
+      end
+
+      $str += JSON.pretty_generate(@mommacat.deployment)
 
       admin_addrs = @admins.map { |admin|
         admin['name']+" <"+admin['email']+">"
@@ -411,7 +442,7 @@ To:  #{admin_addrs.join(", ")}>
 MIME-Version: 1.0
 Content-type: text/html
 Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id}) successfully completed
-		
+    
 <br>
 <pre>#{$str}</pre>
 MESSAGE_END
@@ -479,7 +510,7 @@ MESSAGE_END
     #########################################################################
     def setThreadDependencies(services)
       if services.nil? or services.size < 1
-#				MU.log "Got nil service list in setThreadDependencies for called from #{caller_locations(1,1)[0].label}", MU::DEBUG
+#        MU.log "Got nil service list in setThreadDependencies for called from #{caller_locations(1,1)[0].label}", MU::DEBUG
         return
       end
 
@@ -496,7 +527,7 @@ MESSAGE_END
         @dependency_threads["#{name}_create"]=["mu_create_container"]
         @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
 
-        MU.log "Setting dependencies for #{name}", MU::DEBUG
+        MU.log "Setting dependencies for #{name}", MU::DEBUG, details: resource["dependencies"]
         if resource["dependencies"] != nil then
           resource["dependencies"].each { |dependency|
             parent_class = nil
@@ -508,11 +539,21 @@ MESSAGE_END
             }
 
             parent_type = parent_class.cfg_name
+
+            # our groom thread will always need to wait on our parent's create
             parent = parent_type+"_"+dependency["name"]+"_create"
             addDependentThread(parent, "#{name}_groom")
-            if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "create"
+
+            # should our creation thread also wait on our parent's create?
+            if !resource["no_create_wait"] and
+               (resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
+               dependency['phase'] == "create" or
+               (parent_class.deps_wait_on_my_creation and parent_type != res_type))
               addDependentThread(parent, "#{name}_create")
             end
+
+
+            # how about our groom thread waiting on our parents' grooms?
             if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
               parent = parent_type+"_"+dependency["name"]+"_groom"
               addDependentThread(parent, "#{name}_groom")
@@ -553,7 +594,7 @@ MESSAGE_END
           MU.log "Launching thread #{threadname}", MU::DEBUG
           begin
             if service['#MUOBJECT'].nil?
-              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice)
+              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
             end
           rescue Exception => e
             MU::MommaCat.unlockAll
@@ -568,15 +609,17 @@ MESSAGE_END
             raise e
           end
           begin
-            MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
+            MU.log "Checking whether to run #{service['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG
             if !@updating or mode != "create"
               myservice = run_this_method.call
             else
+
               # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
               opts = {}
               if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
                 opts['classic'] = service['classic'] ? true : false
               end
+
               found = MU::MommaCat.findStray(service['cloud'],
                                  service["#MU_CLOUDCLASS"].cfg_name,
                                  name: service['name'],
@@ -588,23 +631,32 @@ MESSAGE_END
                                  flags: opts,
                                  dummy_ok: false
                                 )
-              found = found.delete_if { |x| x.cloud_id.nil? }
+
+              found = found.delete_if { |x|
+                x.cloud_id.nil? and x.cloudobj.cloud_id.nil?
+              }
+
               if found.size == 0
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue"
-# XXX account for multiples?
+                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
 # XXX only know LBs to be safe, atm
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
                 end
               else
                 real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
-                if !real_descriptor and
-                   service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
-                  MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
+
+                if !real_descriptor and (
+                    service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
+                   )
+                  MU.log "Invoking #{run_this_method.to_s} #{service['name']} #{service['name']}", MU::NOTICE
                   myservice = run_this_method.call
                 end
 #MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']}", MU::NOTICE

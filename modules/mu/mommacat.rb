@@ -409,7 +409,7 @@ module MU
       config.close
 
       @original_config = new_conf
-      save!
+#      save! # XXX this will happen later, more sensibly
       MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
     end
 
@@ -427,9 +427,9 @@ module MU
       has_multiples = attrs[:has_multiples]
 
       @kitten_semaphore.synchronize {
-        @kittens[type] = {} if @kittens[type].nil?
+        @kittens[type] ||= {}
         if has_multiples
-          @kittens[type][name] = {} if @kittens[type][name].nil?
+          @kittens[type][name] ||= {}
           @kittens[type][name][object.mu_name] = object
         else
           @kittens[type][name] = object
@@ -785,7 +785,7 @@ module MU
     # or load if that hasn't been done already.
     def SSHKey
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if !@ssh_key_name.nil?
-      if numKittens(types: ["Server", "ServerPool"]) == 0
+      if numKittens(types: ["Server", "ServerPool", "ContainerCluster"]) == 0
         return []
       end
       @ssh_key_name="deploy-#{MU.deploy_id}"
@@ -1074,6 +1074,8 @@ module MU
         end
         MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
 
+        # See if the thing we're looking for is a member of the deploy that's
+        # asking after it.
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
           handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
@@ -1081,7 +1083,7 @@ module MU
         end
 
         kittens = {}
-        # Search our deploys for matching resources
+        # Search our other deploys for matching resources
         if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 
@@ -1234,7 +1236,7 @@ module MU
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only})", MU::DEBUG, details: @kittens
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}). Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
         @kittens[type].each { |sib_class, data|
           next if !name.nil? and name != sib_class
           if has_multiples
@@ -1247,7 +1249,7 @@ module MU
                 return obj
               elsif mu_name.nil? and cloud_id.nil?
                 obj = data.values.first
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.keys
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[2]}", MU::WARN, details: data.keys
                 return data.values.first
               end
             end
@@ -1281,7 +1283,7 @@ module MU
     # @param data [Hash]: The resource's metadata.
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
-    def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil)
+    def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
       return if @no_artifacts
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're saving the latest and greatest
@@ -1323,7 +1325,7 @@ module MU
           @deployment[type][key] = data
           MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
         end
-        save!(key)
+        save!(key) if !delayed_save
       else
         have_deploy = true
         if @deployment[type].nil? or @deployment[type][key].nil?
@@ -1353,7 +1355,7 @@ module MU
             @deployment.delete(type)
           end
         end
-        save!
+        save! if !delayed_save
 
       end
       MU::MommaCat.unlock("deployment-notification")
@@ -1361,6 +1363,7 @@ module MU
 
     # Tag a resource. Defaults to applying our MU deployment identifier, if no
     # arguments other than the resource identifier are given.
+    # XXX this belongs in the cloud layer(s)
     #
     # @param resource [String]: The cloud provider identifier of the resource to tag
     # @param tag_name [String]: The name of the tag to create
@@ -2313,6 +2316,11 @@ MESSAGE_END
       results[cert_cn]
     end
 
+    # @return [String]: The Mu Master filesystem directory holding metadata for the current deployment
+    def deploy_dir
+      MU::MommaCat.deploy_dir(@deploy_id)
+    end
+
     private
 
     # Check to see whether a given resource name is unique across all
@@ -2374,10 +2382,6 @@ MESSAGE_END
       end
       deploy_path = File.expand_path(path+"/"+deploy_id)
       return Dir.exist?(deploy_path)
-    end
-
-    def deploy_dir
-      MU::MommaCat.deploy_dir(@deploy_id)
     end
 
 
@@ -2502,6 +2506,8 @@ MESSAGE_END
           Dir.entries(deploy_root).each { |deploy|
             this_deploy_dir = deploy_root+"/"+deploy
             next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir)
+            next if deploy_id and deploy_id != deploy
+
             if !File.size?(this_deploy_dir+"/deployment.json")
               MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::DEBUG
               next
@@ -2513,6 +2519,7 @@ MESSAGE_END
 
               next
             end
+
             @deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
             MU.log "Caching deploy #{deploy}", MU::DEBUG
             lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
@@ -2680,8 +2687,8 @@ MESSAGE_END
     end
 
     @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty}
-    @catnouns = %w{bastet bobcat catnip cheetah dot felix jaguar kitty leopard lion lynx maru mittens moggy neko ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew quat eek ziggy}
-    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal}
+    @catnouns = %w{bastet biscuits bobcat catnip cheetah chonk dot felix jaguar kitty leopard lion lynx maru mittens moggy neko nip ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew quat eek ziggy}
+    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline furever fumbs havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal}
     @catwords = @catadjs + @catnouns + @catmixed
 
     @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}

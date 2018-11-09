@@ -156,6 +156,17 @@ module Mutools
       return siblings
     end
 
+    def get_first_nameserver
+      if File.exists?("/etc/resolv.conf")
+        File.readlines("/etc/resolv.conf").each { |l|
+          l.chomp!
+          if l.match(/^nameserver (\d+\.\d+\.\d+\.\d+)$/)
+            return Regexp.last_match(1)
+          end
+        }
+      end
+    end
+
     def get_deploy_secret
       uri = URI("https://#{get_mu_master_ips.first}:2260/rest/bucketname")
       http = Net::HTTP.new(uri.hostname, uri.port)
@@ -213,9 +224,11 @@ module Mutools
         if secret.nil?
           raise "Failed to fetch deploy secret, and I can't communicate with Momma Cat without it"
         end
-        Chef::Log.info("Sending Momma Cat #{action} request to #{uri}")
+
+        Chef::Log.info("Sending Momma Cat #{action} request to #{uri} from #{get_aws_metadata("meta-data/instance-id")}")
         req.set_form_data(
           "mu_id" => mu_get_tag_value("MU-ID"),
+          "mu_instance_id" => get_aws_metadata("meta-data/instance-id") || get_google_metadata("name"),
           "mu_resource_name" => node[:service_name],
           "mu_resource_type" => res_type,
           "mu_user" => node[:deployment][:mu_user] || node[:deployment][:chef_user],

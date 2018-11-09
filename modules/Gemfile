@@ -28,7 +28,7 @@ gem 'rack'
 gem 'thin'
 gem 'berkshelf', '~> 6.3.1'
 gem 'pg', '< 1.0'
-gem 'mysql'
+gem 'mysql2'
 gem 'ruby-wmi'
 gem 'chef-vault', "< 3"
 gem 'net-ssh', "~> 3.2.0"
@@ -45,3 +45,4 @@ gem 'rubocop', '= 0.52.1'
 gem 'foodcritic', '= 12.3.0'
 gem 'inspec', '~> 1.51.18'
 gem 'addressable', '< 2.5'
+gem 'slack-notifier'

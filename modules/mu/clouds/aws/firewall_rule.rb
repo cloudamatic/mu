@@ -51,7 +51,6 @@ module MU
           vpc_id = @vpc.cloud_id if !@vpc.nil?
           groupname = @mu_name
           description = groupname
-
           MU.log "Creating EC2 Security Group #{groupname}"
 
           sg_struct = {
@@ -61,6 +60,7 @@ module MU
           if !vpc_id.nil?
             sg_struct[:vpc_id] = vpc_id
           end
+
           begin
             secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
@@ -137,6 +137,7 @@ module MU
               MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
           )
           sg_data["group_id"] = @cloud_id
+          sg_data["cloud_id"] = @cloud_id
           return sg_data
         end
 
@@ -244,17 +245,15 @@ module MU
               ingress_to_revoke = Array.new
               egress_to_revoke = Array.new
               sg.ip_permissions.each { |hole|
-
-                hole_hash = MU.structToHash(hole)
-                if !hole_hash[:user_id_group_pairs].nil?
-                  hole[:user_id_group_pairs].each { |group_ref|
-                    group_ref.delete(:group_name) if group_ref.is_a?(Hash)
-                  }
-                end
                 ingress_to_revoke << MU.structToHash(hole)
                 ingress_to_revoke.each { |rule|
-                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
+                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs] .size == 0
                     rule.delete(:user_id_group_pairs)
+                  elsif !rule[:user_id_group_pairs].nil?
+                    rule[:user_id_group_pairs].each { |group_ref|
+                      group_ref = MU.structToHash(group_ref)
+                      group_ref.delete(:group_name) if group_ref[:group_id]
+                    }
                   end
 
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
@@ -271,16 +270,15 @@ module MU
                 }
               }
               sg.ip_permissions_egress.each { |hole|
-                hole_hash = MU.structToHash(hole)
-                if !hole_hash[:user_id_group_pairs].nil? and hole_hash[:user_id_group_pairs].is_a?(Hash)
-                  hole[:user_id_group_pairs].each { |group_ref|
-                    group_ref.delete(:group_name)
-                  }
-                end
                 egress_to_revoke << MU.structToHash(hole)
                 egress_to_revoke.each { |rule|
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
+                  elsif !rule[:user_id_group_pairs].nil?
+                    rule[:user_id_group_pairs].each { |group_ref|
+                      group_ref = MU.structToHash(group_ref)
+                      group_ref.delete(:group_name) if group_ref[:group_id]
+                    }
                   end
 
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
@@ -297,6 +295,7 @@ module MU
                 }
               }
               begin
+
                 if ingress_to_revoke.size > 0
                   MU::Cloud::AWS.ec2(region).revoke_security_group_ingress(
                       group_id: sg.group_id,
@@ -395,7 +394,7 @@ module MU
   	              acl["dependencies"] << {
     	              "type" => "firewall_rule",
       	            "name" => sg_name,
-        	          "phase" => "groom"
+                    "no_create_wait" => true
 	                }
                 elsif sg_name == acl['name']
                   acl['self_referencing'] = true
@@ -490,18 +489,20 @@ module MU
           ec2_rules = []
           if rules != nil
             rules.uniq!
+
             rules.each { |rule|
-              ec2_rule = Hash.new
-              rule['proto'] = "tcp" if rule['proto'].nil? or rule['proto'].empty?
+              ec2_rule = {}
+
+              rule['proto'] ||= "tcp"
               ec2_rule[:ip_protocol] = rule['proto']
 
               p_start = nil
               p_end = nil
               if rule['port_range']
-                p_start, p_end = rule['port_range'].split(/\s*-\s*/)
+                p_start, p_end = rule['port_range'].to_s.split(/\s*-\s*/)
               elsif rule['port']
-                p_start = rule['port']
-                p_end = rule['port']
+                p_start = rule['port'].to_i
+                p_end = rule['port'].to_i
               elsif rule['proto'] != "icmp"
                 raise MuError, "Can't create a TCP or UDP security group rule without specifying ports: #{rule}"
               end
@@ -540,6 +541,7 @@ module MU
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
 # is weak.
 # Try to find one by name in this deploy
+
                   found = MU::MommaCat.findStray(
                     "AWS",
                     "loadbalancers",
@@ -559,6 +561,7 @@ module MU
                     end
                   end
                   lb = found.first
+
                   if !lb.nil? and !lb.cloud_desc.nil?
                     lb.cloud_desc.security_groups.each { |lb_sg|
                       ec2_rule[:user_id_group_pairs] << {
@@ -586,7 +589,7 @@ module MU
                       found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], deploy_id: MU.deploy_id, calling_deploy: @deploy)
                     end
                     if found_sgs.nil? or found_sgs.size == 0
-                      raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"
+                      raise MuError, "Attempted to reference non-existent Security Group #{sg_name} while building #{@mu_name}"
                     end
                     sg = found_sgs.first
                   end
