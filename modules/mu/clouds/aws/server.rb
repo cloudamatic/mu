@@ -347,7 +347,7 @@ module MU
         # are requested.
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [Array<String>]: The ARN of the instance.
-        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
+        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, canned_policies: [], cloudformation_data: {})
           policies = Hash.new
 
           cfm_role_name = cfm_prof_name = nil
@@ -383,12 +383,14 @@ module MU
               }
             }
           end
+          arn = nil
           if !cloudformation_data.nil? and cloudformation_data.size == 0
             begin
               resp = MU::Cloud::AWS.iam.create_role(
                 role_name: rolename,
                 assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
               )
+              resp.role.arn
               MU.log "Creating IAM role and policies for '#{rolename}' nodes"
             rescue Aws::IAM::Errors::EntityAlreadyExists => e
               MU.log "IAM role #{rolename} already exists, updating"
@@ -419,6 +421,14 @@ module MU
           end
 
           begin
+            MU::Cloud::AWS.iam.get_role(role_name: rolename)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
+          end
+
+          begin
             resp = MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
             )
@@ -429,21 +439,30 @@ module MU
           end
 
           begin
+            MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
+          end
+
+          begin
             MU::Cloud::AWS.iam.add_role_to_instance_profile(
               instance_profile_name: rolename,
               role_name: rolename
             )
           rescue Aws::IAM::Errors::LimitExceeded => e
             # also ok
+            # XXX is it though?
           end
 
-          begin
-            MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
-# XXX figure out what the real exception is and catch that
-          rescue Exception => e
-            MU.log e.inspect, MU::WARN
-            sleep 10
-            retry
+          if canned_policies
+            canned_policies.each { |pname|
+              MU::Cloud::AWS.iam.attach_role_policy(
+                policy_arn: "arn:aws:iam::aws:policy/#{pname}",
+                role_name: rolename
+              )
+            }
           end
 
           return [rolename, cfm_role_name, cfm_prof_name, resp.instance_profile.arn]
@@ -686,7 +705,7 @@ module MU
           end
           node, config, deploydata = describe(cloud_id: @cloud_id)
           instance = cloud_desc
-          raise MuError, "Couldn't find instance of #{@mu_name} (#{@cloud_id})" if !instance
+          raise MuError, "Couldn't find instance #{@mu_name} (#{@cloud_id})" if !instance
           @cloud_id = instance.instance_id
           return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
@@ -1344,6 +1363,7 @@ module MU
               lb.registerNode(@cloud_id)
             }
           end
+          MU.log %Q{Server #{@config['name']} private IP is #{@deploydata["private_ip_address"]}#{@deploydata["public_ip_address"] ? ", public IP is "+@deploydata["public_ip_address"] : ""}}, MU::SUMMARY
 
           # Let us into any databases we depend on.
           # This is probelmtic with autscaling - old ips are not removed, and access to the database can easily be given at the BoK level
@@ -2228,6 +2248,13 @@ module MU
             "iam_role" => {
               "type" => "string",
               "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+            },
+            "canned_iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "IAM policies to attach, pre-defined by Amazon (e.g. AmazonEKSWorkerNodePolicy)",
+                "type" => "string"
+              }
             },
             "iam_policies" => {
               "type" => "array",

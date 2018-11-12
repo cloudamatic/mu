@@ -5,6 +5,7 @@
       name: rhel7
       size: m3.medium
       platform: rhel71
+      scrub_groomer: true
       run_list:
       - recipe[mu-tools::updates]
       - recipe[mu-tools::apply_security]

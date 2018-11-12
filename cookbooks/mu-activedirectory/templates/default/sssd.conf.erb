@@ -11,8 +11,8 @@ krb5_realm = <%= @domain.upcase %>
 ldap_id_mapping = True
 ldap_schema = ad
 ldap_use_tokengroups = False
-<% if node[:ad][:domain_sid] %>
-ldap_idmap_default_domain_sid = <%= node[:ad][:domain_sid] %>
+<% if node['ad']['domain_sid'] %>
+ldap_idmap_default_domain_sid = <%= node['ad']['domain_sid'] %>
 <% end rescue NoMethodError %>
 ldap_idmap_range_min = 10000
 ldap_idmap_range_max = 40000

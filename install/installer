@@ -2,7 +2,7 @@
 
 BOLD=`tput bold`
 NORM=`tput sgr0`
-CHEF_CLIENT_VERSION="12.21.31-1"
+CHEF_CLIENT_VERSION="14.4.56"
 if [ "$MU_BRANCH" == "" ];then
   MU_BRANCH="i_yam_what_i_yam" # GIT HOOK EDITABLE DO NOT TOUCH
   mydir="`dirname $0`"
@@ -13,7 +13,7 @@ if [ "$MU_BRANCH" == "" ];then
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
-DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
+DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
 #IS_AMAZON=0
 if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
   DIST_VERSION=6

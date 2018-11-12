@@ -17,7 +17,7 @@
 # limitations under the License.
 
 
-if !node[:application_attributes][:skip_recipes].include?('clamav')
+if !node['application_attributes']['skip_recipes'].include?('clamav')
   if platform_family?("rhel")
     include_recipe "yum-epel"
     if node['platform_version'].to_i >= 7

@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'trollop'
+require 'optimist'
 require 'json'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-c] [-w] [-l] [-d] [-a] [-e <environment>] [-p <platform>] [-m <mode>] [-o <chefopts>] [-x <command>] [ deploy_id|node_name [ ... ] ]
@@ -33,16 +33,17 @@ Usage:
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
   opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs, chefupgrade", :require => false, :default => "chefrun", :type => :string
   opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
+  opt :winrm, "Force WinRM connection. Disable SSH fallback", :require => false, :default => false, :type => :boolean
   opt :info, "List a particular node attribute", :require => false, :default => 'nodename', :type => :string
 end
 
 MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
 
 if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs", "chefupgrade"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs, chefupgrade")
+  Optimist::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs, chefupgrade")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
-  Trollop::die(:platform, "--platform must be one of: linux, windows")
+  Optimist::die(:platform, "--platform must be one of: linux, windows")
 end
 if !$opts[:xecute] and !$opts[:override_chef_runlist] and !$opts[:mode_given]
   $opts[:list] = true
@@ -51,7 +52,7 @@ if $opts[:override_chef_runlist] and !$opts[:mode_given]
   $opts[:mode_given] = true
 end
 if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:list]
-  Trollop::educate
+  Optimist::educate
   exit 1
 end
 
@@ -235,65 +236,105 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
         done = false
         begin
           serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+
+          # Generate the command if attemting a chef run
           if chefrun
-            cmd = serverobj.windows? ? "chef-client --no-fips" : "chef-client || sudo chef-client"
+            cmd = serverobj.windows? ? "powershell -Command chef-client" : "chef-client || sudo chef-client"
             cmd += " -o '#{chef_runlist}'" if chef_runlist
           end
+
           MU.log "Running '#{cmd}' on #{nodename} (##{count})" if !print_output
+
+          # Set Variables to catch the output and exit code of the execution
           output = nil
           exitcode = -1
+
+          # Determine which protocols to attempt
           if serverobj.windows?
+            attempt_winrm = true
+            if $opts[:winrm]
+              attempt_ssh = false
+            else
+              attempt_ssh = true
+            end
+          else
+            attempt_winrm = false
+            attempt_ssh = true
+          end
+
+          # Attempt WinRM Connection, and Fall back to SSH
+          if attempt_winrm
+            exec_protocol = 'WinRM'
+            
+            # Attempt to make a connection and exec the command
             resp = nil
             begin
               shell = serverobj.getWinRMSession(0, timeout: 10, winrm_retries: 1)
               resp = shell.run(cmd)
             rescue MU::MuError => e
             end
-            if !resp or resp.exitcode != 0
-              MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::WARN
-              if chefrun and serverobj.windows?
-                cmd = "chef-client.bat --no-fips"
-                cmd += " -o '#{chef_runlist}'" if chef_runlist
+
+            if resp
+              # WINRM CONNECTION AND EXECUTION SUCCESS
+              output = resp.stdout if resp.stdout
+              exitcode = resp.exitcode if resp.exitcode
+
+              if exitcode.eql? 0
+                attempt_ssh = false
+              else
+                puts resp.stderr if resp.stderr
+                puts output
               end
-              puts resp.stderr if resp and resp.stderr
-              puts resp.stdout if resp and resp.stdout
-              output = nil
-            else
-              output = resp.stdout
-              exitcode = resp.exitcode
+            end
+
+            if exitcode != 0
+              if attempt_ssh
+                MU.log "#{nodename} WinRM exec failed, trying SSH", MU::NOTICE
+              else
+                MU.log "#{nodename} WinRM exec failed, NOT trying SSH", MU::WARN
+              end
             end
           end
-          if !output
-            # maybe this should use getSSHSession, for the sake of symmetry
+
+          if attempt_ssh
+            exec_protocol = 'SSH'
+
+            # this should use getSSHSession, for the sake of symmetry
             output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
             exitcode = $?.exitstatus
-            # XXX Some Windows nodes need --no-fips right now. And some don't
-            # know what that is. Try to accommodate both.
-            if chefrun and serverobj.windows? and exitcode != 0
-              cmd = "chef-client.bat"
-              cmd += " -o '#{chef_runlist}'" if chef_runlist
-              output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
-              exitcode = $?.exitstatus
-            end
           end
+
           if exitcode != 0
-            if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
-              MU.log "#{nodename} encountered transient Windows/Chef ConnectServer error, retrying", MU::WARN
-            elsif print_output
-              done = true
-              puts "#{nodename} - #{output}" if output.match(/[^\s]/)
-              MU.log "#{nodename} did not exit cleanly", MU::WARN
+
+            if output
+
+              if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
+                MU.log "#{nodename} encountered transient Windows/Chef ConnectServer error, retrying", MU::WARN
+              elsif print_output
+                done = true
+                puts "#{nodename} - #{output}" if output.match(/[^\s]/)
+                MU.log "#{nodename} did not exit cleanly", MU::WARN
+              else
+                done = true
+                MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+              end
+
             else
               done = true
-              MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+              MU.log "#{nodename} did not exit cleanly", MU::WARN
             end
+
             exit exitcode if done
+
           else
-            MU.log "#{nodename} complete"
+            MU.log "#{nodename} complete via #{exec_protocol}"
             done = true
           end
+
         end until done
+
         puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
+
       }
       $children[child] = nodename
       while $children.size >= $opts[:concurrent] - 1
@@ -360,25 +401,25 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         end
         resp.auto_scaling_groups.each { |asg|
           launch = MU::Cloud::AWS.autoscale.describe_launch_configurations(
-              launch_configuration_names: [asg.launch_configuration_name]
+            launch_configuration_names: [asg.launch_configuration_name]
           ).launch_configurations.first
 
           olduserdata = Base64.decode64(launch.user_data)
 
           userdata = MU::Cloud::AWS::Server.fetchUserdata(
-              platform: server["platform"],
-              template_variables: {
-                  "deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
-                  "deploySSHKey" => mommacat.ssh_public_key,
-                  "muID" => muid,
-                  "muUser" => MU.chef_user,
-                  "publicIP" => MU.mu_public_ip,
-                  "resourceName" => svr_class,
-                  "windowsAdminName" => server['windows_admin_username'],
-                  "skipApplyUpdates" => server['skipinitialupdates'],
-                  "resourceType" => "server_pool"
-              },
-              custom_append: server['userdata_script']
+            platform: server["platform"],
+            template_variables: {
+              "deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
+              "deploySSHKey" => mommacat.ssh_public_key,
+              "muID" => muid,
+              "muUser" => MU.chef_user,
+              "publicIP" => MU.mu_public_ip,
+              "resourceName" => svr_class,
+              "windowsAdminName" => server['windows_admin_username'],
+              "skipApplyUpdates" => server['skipinitialupdates'],
+              "resourceType" => "server_pool"
+            },
+            custom_append: server['userdata_script']
           )
 
           # Figure out which devices are embedded in the AMI already.
@@ -451,8 +492,8 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
           end
 
           MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-              auto_scaling_group_name: pool_name,
-              launch_configuration_name: pool_name+"-TMP"
+            auto_scaling_group_name: pool_name,
+            launch_configuration_name: pool_name+"-TMP"
           )
 
           # ...now back to an identical one with the "real" name
@@ -473,11 +514,11 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               associate_public_ip_address: launch.associate_public_ip_address
           )
           MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-              auto_scaling_group_name: pool_name,
-              launch_configuration_name: pool_name
+            auto_scaling_group_name: pool_name,
+            launch_configuration_name: pool_name
           )
           MU::Cloud::AWS.autoscale.delete_launch_configuration(
-              launch_configuration_name: pool_name+"-TMP"
+            launch_configuration_name: pool_name+"-TMP"
           )
 
           MU.log "Launch Configuration #{asg.launch_configuration_name} replaced"

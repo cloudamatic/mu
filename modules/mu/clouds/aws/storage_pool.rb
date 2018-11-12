@@ -263,20 +263,33 @@ module MU
 
           if @config['mount_points'] && !@config['mount_points'].empty?
             @config['mount_points'].each { |mp|
+              subnet = nil
+              dependencies
+              mp_vpc = if mp['vpc'] and mp['vpc']['vpc_name']
+                @deploy.findLitterMate(type: "vpc", name: mp['vpc']['vpc_name'])
+# XXX non-sibling, findStray version
+              end
+
               mount_targets = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
                 file_system_id: storage_pool.file_system_id
               ).mount_targets
 
               mount_target = nil
-              mount_targets.map{ |t| mount_target = t if t.subnet_id == mp['vpc']['subnet_id']}
+              subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
+              mp_vpc.subnets.each { |subnet_obj|
+                mount_targets.map { |t|
+                  if subnet_cidr_obj.contains(t.ip_address)
+                    mount_target = t
+                    subnet = subnet_obj.cloud_desc
+                  end
+                }
+                break if mount_target
+              }
 
               # mount_target = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
                 # mount_target_id: mp["cloud_id"]
               # ).mount_targets.first
 
-              subnet = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
-                subnet_ids: [mount_target.subnet_id]
-              ).subnets.first
 
               targets[mp["name"]] = {
                 "owner_id" => mount_target.owner_id,

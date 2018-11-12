@@ -88,6 +88,7 @@ module MU
           @config["subnet_group_name"] = @mu_name
           MU.log "Using the database identifier #{@config['identifier']}"
 
+
           if @config["create_cluster"]
             getPassword
             createSubnetGroup
@@ -404,6 +405,8 @@ module MU
 
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+          MU.log "Database #{@config['name']} is at #{database.endpoint.address}", MU::SUMMARY
+          MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'
@@ -411,6 +414,7 @@ module MU
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
+
             localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
             if localdeploy_rule.nil?
               raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
@@ -420,6 +424,7 @@ module MU
             mod_config = Hash.new
             mod_config[:vpc_security_group_ids] = vpc_sg_ids
             mod_config[:db_instance_identifier] = @config["identifier"]
+
             MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
             MU.log "Modified database #{@config['identifier']} with new security groups: #{mod_config}", MU::NOTICE
           end
@@ -582,7 +587,7 @@ module MU
         def createSubnetGroup
           # Finding subnets, creating security groups/adding holes, create subnet group
           subnet_ids = []
-
+          vpc_id = nil
           if @config['vpc'] and !@config['vpc'].empty?
             raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
 
@@ -594,12 +599,18 @@ module MU
               else
                 subnet_objects= []
                 @config["vpc"]["subnets"].each { |subnet|
-                  subnet_objects << @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                  sobj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                  if sobj.nil?
+                    MU.log "Got nil result from @vpc.getSubnet(cloud_id: #{subnet["subnet_id"]}, name: #{subnet["subnet_name"]})", MU::WARN
+                  else
+                    subnet_objects << sobj
+                  end
                 }
                 subnet_objects
               end
 
             subnets.each{ |subnet|
+              next if subnet.nil?
               if @config["publicly_accessible"]
                 subnet_ids << subnet.cloud_id if !subnet.private?
               elsif !@config["publicly_accessible"]
@@ -640,6 +651,17 @@ module MU
               @config["publicly_accessible"] = true
               using_default_vpc = true
               MU.log "Using default VPC for cache cluster #{@config['identifier']}"
+            end
+          end
+
+          if @config['creation_style'] == "existing"
+            srcdb = MU::Cloud::AWS.rds(@config['region']).describe_db_instances(
+              db_instance_identifier: @config['identifier']
+            )
+            srcdb_vpc = srcdb.db_instances.first.db_subnet_group.vpc_id
+            if srcdb_vpc != vpc_id
+              MU.log "#{self} is deploying into #{vpc_id}, but our source database, #{@config['identifier']}, is in #{srcdb_vpc}", MU::ERR
+              raise MuError, "Can't use 'existing' to deploy into a different VPC from the source database; try 'new_snapshot' instead"
             end
           end
 
@@ -970,7 +992,7 @@ module MU
 
           deploy_struct = {}
           my_dbs.each { |db|
-          deploy_struct = 
+            deploy_struct = 
             if db["create_cluster"]
               db["identifier"] = @mu_name.downcase if db["identifier"].nil?
               cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'])
@@ -1023,10 +1045,12 @@ module MU
                     dnsrec['name'] = database.db_instance_identifier if !dnsrec.has_key?('name')
                     dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
                   }
+                  # XXX this should be a call to @deploy.nameKitten
+                  MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
                 end
-                # XXX this should be a call to @deploy.nameKitten
-                MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
               end
+
+              database = cloud_desc
 
               vpc_sg_ids = Array.new
               database.vpc_security_groups.each { |vpc_sg|
@@ -1440,14 +1464,16 @@ module MU
             end
           end
 
-          db['ingress_rules'] ||= []
-          fwname = "database"+db['name']
-          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region'], "optional_tags" => db['optional_tags'] }
-          acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
-          acl["vpc"] = db['vpc'].dup if db['vpc']
-          ok = false if !configurator.insertKitten(acl, "firewall_rules")
-          db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
-          db["add_firewall_rules"] << {"rule_name" => fwname}
+          if db["creation_style"] == "existing"
+            begin
+              MU::Cloud::AWS.rds(db['region']).describe_db_instances(
+                db_instance_identifier: db['identifier']
+              )
+            rescue Aws::RDS::Errors::DBInstanceNotFound => e
+              MU.log "Source database #{db['identifier']} was specified for #{db['name']}, but no such database exists in #{db['region']}", MU::ERR
+              ok = false
+            end
+          end
 
           if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
             MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
@@ -1506,7 +1532,6 @@ module MU
           end
 
           if db["vpc"]
-            puts db['vpc']["subnet_pref"]
             if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
               MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true

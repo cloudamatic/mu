@@ -1,33 +1,28 @@
 name 'mu-tools'
 maintainer 'Mu'
 maintainer_email 'mu-developers@googlegroups.com'
-license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
-#
-# Licensed under the BSD-3 license (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License in the root of the project or at
-#
-#     http://egt-labs.com/mu/LICENSE.html
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.'
+license 'BSD-3-Clause'
 description 'Mu-specific platform capabilities'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
+source_url 'https://github.com/cloudamatic/mu'
+issues_url 'https://github.com/cloudamatic/mu/issues'
+chef_version '>= 14.0' if respond_to?(:chef_version)
 version '1.0.4'
-depends "oracle-instantclient"
+
+%w( amazon centos redhat windows ).each do |os|
+	supports os
+end
+
+depends "oracle-instantclient", '~> 1.1.0'
 depends "nagios"
-depends "database"
-depends "postgresql"
-depends "build-essential", '~> 8.0'
+depends "database", '~> 6.1.1'
+depends "postgresql", '~> 7.1.0'
 depends "mu-utility"
-depends "java"
-depends "windows", '= 3.2.0'
+depends "java", '~> 2.2.0'
+depends "windows", '~> 5.1.1'
 depends "mu-splunk"
-depends "chef-vault"
-depends "poise-python"
-depends "yum-epel"
+depends "chef-vault", '~> 3.1.1'
+depends "poise-python", '~> 1.7.0'
+depends "yum-epel", '~> 3.2.0'
 depends "mu-firewall"
 depends "mu-activedirectory"

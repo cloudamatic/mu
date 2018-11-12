@@ -20,5 +20,6 @@
   chef_gem gem do
     compile_time true
     action :install
+		only_if { !get_google_metadata("name").nil? }
   end
 }

@@ -189,6 +189,19 @@ cd $MU_LIBDIR/modules
 /usr/local/ruby-current/bin/bundle clean --force
 cd
 
+chef_major="`/opt/chef/bin/chef-apply --version | awk '{print $2}' | cut -d\. -f1`"
+if [ "$chef_major" == "12" ];then
+  DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
+  # IS_AMAZON=0
+  if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
+    DIST_VERSION=6
+  # IS_AMAZON=1
+  elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+    DIST_VERSION="6"
+  fi
+  rpm -Uvh https://packages.chef.io/files/stable/chef/14.4.56/el/${DIST_VERSION}/chef-14.4.56-1.el${DIST_VERSION}.x86_64.rpm
+fi
+
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
 for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do

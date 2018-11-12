@@ -9,7 +9,7 @@
 
 ::Chef::Recipe.send(:include, Chef::Mixin::ShellOut)
 
-case node[:platform]
+case node['platform']
   when "centos"
     include_recipe "mu-glusterfs"
 
@@ -53,5 +53,5 @@ case node[:platform]
     directory "/run/samba"
 
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end

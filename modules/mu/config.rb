@@ -677,32 +677,40 @@ module MU
     # subnets.
     # @param ip_block [String]: CIDR of the network to subdivide
     # @param subnets_desired [Integer]: Number of subnets we want back
+    # @param max_mask [Integer]: The highest netmask we're allowed to use for a subnet (various by cloud provider)
     # @return [MU::Config::Tail]: Resulting subnet tails, or nil if an error occurred.
-    def divideNetwork(ip_block, subnets_desired)
-      cidr = NetAddr::CIDR.create(ip_block.to_s)
-      # Round the number of addresses we're splitting into down to the nearest power
-      # of two so they'll fit in the available bit space
-      raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
-      avail_addrs = 2 ** (32 - cidr.bits)
-      subnet_size = ((avail_addrs/subnets_desired) >> 1)
-#          subnet_bits = 32 - (subnet_size).to_s(2).size
+    def divideNetwork(ip_block, subnets_desired, max_mask = 28)
+      cidr = NetAddr::IPv4Net.parse(ip_block.to_s)
+
+      # Ugly but reliable method of landing on the right subnet size
+      subnet_bits = cidr.netmask.prefix_len
       begin
-        subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => subnets_desired)
+        subnet_bits += 1
+
+        if subnet_bits > max_mask
+          MU.log "Can't subdivide #{cidr.to_s} into #{subnets_desired.to_s}", MU::ERR
+          raise MuError, "Subnets smaller than /#{max_mask} not permitted"
+        end
+      end while cidr.subnet_count(subnet_bits) < subnets_desired
+
+      if cidr.subnet_count(subnet_bits) > subnets_desired
+        MU.log "Requested #{subnets_desired.to_s} subnets from #{cidr.to_s}, leaving #{(cidr.subnet_count(subnet_bits)-subnets_desired).to_s} unused /#{subnet_bits.to_s}s available", MU::NOTICE
+      end
+
+      begin
+        subnets = []
+        (0..subnets_desired).each { |x|
+          subnets << cidr.nth_subnet(subnet_bits, x).to_s
+        }
       rescue RuntimeError => e
         if e.message.match(/exceeds subnets available for allocation/)
           MU.log e.message, MU::ERR
-          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
+          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.netmask.prefix_len} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
           return nil
         else
           raise e
         end
       end
-
-      # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
-      # it's annoying, so we end up using the IP space inefficiently. Lop
-      # off the extra subnets we end up with and don't want. It would be
-      # nice if we just did all this math ourselves and did it better.
-      subnets.slice!(subnets_desired,subnets.size-1) if subnets.size > subnets_desired
 
       subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
       subnets
@@ -737,6 +745,39 @@ module MU
         }
         @kittens[type].delete(deletia) if !deletia.nil?
       }
+    end
+
+    # FirewallRules can reference other FirewallRules, which means we need to do
+    # an extra pass to make sure we get all intra-stack dependencies correct.
+    # @param acl [Hash]: The configuration hash for the FirewallRule to check
+    # @return [Hash]
+    def resolveIntraStackFirewallRefs(acl)
+      acl["rules"].each { |acl_include|
+        if acl_include['sgs']
+          acl_include['sgs'].each { |sg_ref|
+            if haveLitterMate?(sg_ref, "firewall_rules")
+              acl["dependencies"] ||= []
+              found = false
+              acl["dependencies"].each { |dep|
+                if dep["type"] == "firewall_rule" and dep["name"] == sg_ref
+                  dep["no_create_wait"] = true
+                  found = true
+                end
+              }
+              if !found
+                acl["dependencies"] << {
+                  "type" => "firewall_rule",
+                  "name" => sg_ref,
+                  "no_create_wait" => true
+                }
+              end
+              siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
+              insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            end
+          }
+        end
+      }
+      acl
     end
 
     # Insert a resource into the current stack
@@ -794,7 +835,11 @@ module MU
           }
 
           siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
-          insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+          # things that live in subnets need their VPCs to be fully
+          # resolved before we can proceed
+          if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
+            insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+          end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
@@ -831,31 +876,22 @@ module MU
       end
 
       # Does it have generic ingress rules?
-      if !descriptor['ingress_rules'].nil?
-        fwname = cfg_name+descriptor['name']
+      fwname = cfg_name+descriptor['name']
+
+      if !haveLitterMate?(fwname, "firewall_rules") and
+         (descriptor['ingress_rules'] or
+         ["server", "server_pool", "database"].include?(cfg_name))
+        descriptor['ingress_rules'] ||= []
+
         acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
-        ok = false if !insertKitten(acl, "firewall_rules")
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
-				acl["rules"].each { |acl_include|
-					if acl_include['sgs']
-						acl_include['sgs'].each { |sg_ref|
-							if haveLitterMate?(sg_ref, "firewall_rules")
-								descriptor["dependencies"] << {
-									"type" => "firewall_rule",
-									"name" => sg_ref,
-									"phase" => "groom"
-								}
-                siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
-                insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
-							end
-						}
-					end
-				}
+        acl = resolveIntraStackFirewallRefs(acl)
+        ok = false if !insertKitten(acl, "firewall_rules")
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -869,7 +905,7 @@ module MU
           end
         }
       end
-        
+
       # Does it want to know about Storage Pools?
       if !descriptor["storage_pools"].nil?
         descriptor["storage_pools"].each { |sp|
@@ -891,9 +927,9 @@ module MU
               "name" => acl_include["rule_name"]
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
           elsif acl_include["rule_name"]
-            MU.log shortclass+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+            MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
           end
         }
@@ -1435,6 +1471,7 @@ module MU
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
+
       schema_fields = ["region", "us_only", "scrub_mu_isms"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
@@ -1452,6 +1489,7 @@ module MU
         end
         kitten['region'] ||= $MU_CFG['aws']['region']
       end
+
       kitten['us_only'] ||= @config['us_only']
       kitten['us_only'] ||= false
 
@@ -1499,6 +1537,20 @@ module MU
         }
       }
 
+      @kittens["firewall_rules"].each { |acl|
+        acl = resolveIntraStackFirewallRefs(acl)
+      }
+
+      # Make sure validation has been called for all on-the-fly generated
+      # resources.
+      types.each { |type|
+        @kittens[type].each { |descriptor|
+          if !descriptor["#MU_VALIDATED"]
+            ok = false if !insertKitten(descriptor, type)
+          end
+        }
+      }
+
       # add some default holes to allow dependent instances into databases
       @kittens["databases"].each { |db|
         if db['port'].nil?
@@ -1508,8 +1560,7 @@ module MU
           db['port'] = 1521 if db['engine'].match(/^oracle\-/)
         end
 
-        ruleset = haveLitterMate?("database"+db['name'], "firewall_rule")
-
+        ruleset = haveLitterMate?("database"+db['name'], "firewall_rules")
         if ruleset
           ["server_pools", "servers"].each { |type|
             shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
@@ -1526,7 +1577,7 @@ module MU
                   ruleset["dependencies"] << {
                     "name" => cfg_name+server['name'],
                     "type" => "firewall_rule",
-                    "phase" => "groom"
+                    "no_create_wait" => true
                   }
                 end
               }
@@ -1548,7 +1599,7 @@ module MU
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
-      raise ValidationError if !ok
+#      raise ValidationError if !ok
 
 # XXX Does commenting this out make sense? Do we want to apply it to top-level
 # keys and ignore resources, which validate when insertKitten is called now?
@@ -1694,9 +1745,14 @@ module MU
                     "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
                 },
                 "phase" => {
-                    "type" => "string",
-                    "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
-                    "enum" => ["create", "groom"]
+                  "type" => "string",
+                  "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
+                  "enum" => ["create", "groom"]
+                },
+                "no_create_wait" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
                 }
             }
         }

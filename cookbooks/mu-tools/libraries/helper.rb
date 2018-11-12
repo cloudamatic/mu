@@ -156,6 +156,17 @@ module Mutools
       return siblings
     end
 
+    def get_first_nameserver
+      if File.exists?("/etc/resolv.conf")
+        File.readlines("/etc/resolv.conf").each { |l|
+          l.chomp!
+          if l.match(/^nameserver (\d+\.\d+\.\d+\.\d+)$/)
+            return Regexp.last_match(1)
+          end
+        }
+      end
+    end
+
     def get_deploy_secret
       uri = URI("https://#{get_mu_master_ips.first}:2260/rest/bucketname")
       http = Net::HTTP.new(uri.hostname, uri.port)
@@ -182,9 +193,11 @@ module Mutools
           next if !File.exists?(gsutil)
           Chef::Log.info("Fetching deploy secret: #{gsutil} cp gs://#{bucket}/#{filename} -")
           if File.exists?("/usr/bin/python2.7")
-            secret = %x{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
+            # secret = %x{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
+            secret = shell_out("CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
           else
-            secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+            # secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+            secret = shell_out("#{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
           end
           break if !secret.nil? and !secret.empty?
         }
@@ -197,8 +210,8 @@ module Mutools
 
       return nil if secret.nil? or secret.empty?
 
-      if node[:deployment] and node[:deployment][:public_key]
-        deploykey = OpenSSL::PKey::RSA.new(node[:deployment][:public_key])
+      if node['deployment'] and node['deployment']['public_key']
+        deploykey = OpenSSL::PKey::RSA.new(node['deployment']['public_key'])
         Base64.urlsafe_encode64(deploykey.public_encrypt(secret))
       end
     end
@@ -206,19 +219,22 @@ module Mutools
     def mommacat_request(action, arg)
       uri = URI("https://#{get_mu_master_ips.first}:2260/")
       req = Net::HTTP::Post.new(uri)
-      res_type = (node[:deployment].has_key?(:server_pools) and node[:deployment][:server_pools].has_key?(node[:service_name])) ? "server_pool" : "server"
+      res_type = (node['deployment'].has_key?(:server_pools) and node['deployment']['server_pools'].has_key?(node['service_name'])) ? "server_pool" : "server"
       response = nil
       begin
         secret = get_deploy_secret
         if secret.nil?
           raise "Failed to fetch deploy secret, and I can't communicate with Momma Cat without it"
         end
-        Chef::Log.info("Sending Momma Cat #{action} request to #{uri}")
+
+        Chef::Log.info("Sending Momma Cat #{action} request to #{uri} from #{get_aws_metadata("meta-data/instance-id")}")
         req.set_form_data(
           "mu_id" => mu_get_tag_value("MU-ID"),
+          "mu_resource_name" => node['service_name'],
+          "mu_instance_id" => get_aws_metadata("meta-data/instance-id") || get_google_metadata("name"),
           "mu_resource_name" => node[:service_name],
           "mu_resource_type" => res_type,
-          "mu_user" => node[:deployment][:mu_user] || node[:deployment][:chef_user],
+          "mu_user" => node['deployment']['mu_user'] || node['deployment']['chef_user'],
           "mu_deploy_secret" => secret,
           action => arg
         )
@@ -253,7 +269,7 @@ module Mutools
 
     def get_mu_master_ips
       master_ips = []
-      master_ips << "127.0.0.1" if node[:name] == "MU-MASTER"
+      master_ips << "127.0.0.1" if node.name == "MU-MASTER"
       master = search(:node, "name:MU-MASTER")
       master.each { |server|
         if server.has_key?("ec2")

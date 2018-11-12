@@ -17,6 +17,14 @@ updates_run=0
 need_reboot=0
 instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 region="`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/[a-z]$//'`"
+
+# cleanse inherited ephemeral devices that don't actually exist
+for d in r s t u ;do
+	if [ ! -f "/dev/xvd$d" ];then
+		sed -Ein "s'^(/dev/xvd$d)'#\\1'" /etc/fstab
+	fi
+done
+
 if [ -f /etc/debian_version ];then
 	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
 		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
@@ -63,13 +71,16 @@ elif [ -x /usr/bin/yum ];then
 		userdata_dir="/var/lib/cloud/instance"
 	fi
 	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
-		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
+    cat /etc/rc.d/rc.local | grep -v '^/bin/sh /var/lib/cloud/instances/' >> /tmp/rc.local.$$
+		echo "/bin/sh $userdata_dir/user-data.txt" >> /tmp/rc.local.$$
+    mv /tmp/rc.local.$$ /etc/rc.d/rc.local
 	fi
 
   sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
 
 	if [ $version == 7 ];then
 		chmod 755 /etc/rc.d/rc.local
+    systemctl reset-failed sshd.service
 	fi
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
 	# Ugh, rando EPEL mirror
@@ -159,7 +170,9 @@ deploykey="<%= $mu.deployKey %>"
 instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 
 # Make double-sure sshd is actually up
-service sshd restart
+if ! ( netstat -na | grep LISTEN | grep ':22 ' );then
+  service sshd start
+fi
 
 /usr/bin/curl -k --data mu_id="<%= $mu.muID %>" --data mu_resource_name="<%= $mu.resourceName %>" --data mu_resource_type="<%= $mu.resourceType %>" --data mu_instance_id="$instance_id" --data mu_bootstrap="1" --data mu_user="<%= $mu.muUser %>" --data mu_deploy_secret="`/opt/chef/embedded/bin/ruby encrypt_deploy_secret.rb`" https://<%= $mu.publicIP %>:2260/
 /bin/rm -f <%= $mu.muID %>-secret mu_deploy_key.pub chef-install.sh encrypt_deploy_secret.rb

@@ -36,13 +36,15 @@ module MU
           if cloud_id and cloud_id.match(/^https:\/\//)
             @url = cloud_id.clone
             @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
-          else
+          elsif cloud_id and !cloud_id.empty?
             @cloud_id = cloud_id.to_s
           end
 
           if !mu_name.nil?
             @mu_name = mu_name
-            @cloud_id = MU::Cloud::Google.nameStr(@mu_name) if @cloud_id.nil? or @cloud_id == ""
+            if @cloud_id.nil? or @cloud_id.empty?
+              @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
+            end
             loadSubnets
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
@@ -116,7 +118,10 @@ module MU
         # Describe this VPC
         # @return [Hash]
         def notify
-          @config
+          base = MU.structToHash(cloud_desc)
+          base["cloud_id"] = @cloud_id
+          base.merge!(@config.to_h)
+          base
         end
 
         # Describe this VPC from the cloud platform's perspective
@@ -126,7 +131,7 @@ module MU
 
           resp = MU::Cloud::Google.compute.get_network(@config['project'], @cloud_id)
           if @cloud_id.nil? or @cloud_id == ""
-            MU.log "Couldn't describe #{self}, @cloud_id undefined", MU::ERR
+            MU.log "Couldn't describe #{self}, @cloud_id #{@cloud_id.nil? ? "undefined" : "empty" }", MU::ERR
             return nil
           end
 
@@ -174,17 +179,21 @@ module MU
               )
 
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
+
+              url = peer_obj.first.cloudobj.url || peer_obj.first.cloudobj.deploydata['self_link']
               peerreq = MU::Cloud::Google.compute(:NetworksAddPeeringRequest).new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-peer-"+count.to_s),
                 auto_create_routes: true,
-                peer_network: peer_obj.first.cloudobj.url
+                peer_network: url
               )
-              MU.log "Peering #{@mu_name} with #{peer_obj.first.cloudobj.url}", details: peerreq
+
+              MU.log "Peering #{@mu_name} with #{url}", details: peerreq
               MU::Cloud::Google.compute.add_network_peering(
                 @config['project'],
                 @cloud_id,
                 peerreq
               )
+
             }
           end
         end
@@ -346,7 +355,7 @@ module MU
             dummy_ok: true,
             calling_deploy: @deploy
           )
-
+# XXX wat
           return nil if found.nil? || found.empty?
           if found.size > 1
             found.each { |nat|
@@ -514,7 +523,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               if vpc['regions'].nil? or vpc['regions'].empty?
                 vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
               end
-              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size)
+              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size, 29)
               ok = false if blocks.nil?
 
               vpc["subnets"] = []
@@ -541,7 +550,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # table, so that the routes therein will only apply to the portion of
           # our network we want them to.
           if vpc['route_tables'].size > 1
-            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2)
+            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2, 29)
             peernames = []
             vpc['route_tables'].each { |tbl|
               peernames << vpc['name']+"-"+tbl['name']
@@ -569,7 +578,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               vpc["subnets"].each { |subnet|
                 newvpc["subnets"] << subnet if subnet["route_table"] == tbl["name"]
               }
-              ok = false if !configurator.insertKitten(newvpc, "vpcs")
+              ok = false if !configurator.insertKitten(newvpc, "vpcs", true)
             }
             configurator.removeKitten(vpc['name'], "vpcs")
           else
@@ -682,13 +691,15 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           route["priority"] ||= 999
           if route['gateway'] == "#NAT"
             if !route['nat_host_name'].nil? or !route['nat_host_id'].nil?
+                sleep 5
               nat_instance = findBastion(
                 nat_name: route["nat_host_name"],
                 nat_cloud_id: route["nat_host_id"]
               )
-              if nat_instance.nil?
+              if nat_instance.nil? or nat_instance.cloud_desc.nil?
                 raise MuError, "Failed to find NAT host for #NAT route in #{@mu_name} (#{route})"
               end
+
               routeobj = ::Google::Apis::ComputeBeta::Route.new(
                 name: routename,
                 next_hop_instance: nat_instance.cloud_desc.self_link,
@@ -736,8 +747,16 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           end
 
           if route['gateway'] != "#DENY"
-            MU.log "Creating route #{routename} in project #{@config['project']}", details: routeobj
-            resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
+            begin
+              MU::Cloud::Google.compute.get_route(@config['project'], routename)
+            rescue ::Google::Apis::ClientError, MU::MuError => e
+              if e.message.match(/notFound/)
+                MU.log "Creating route #{routename} in project #{@config['project']}", details: routeobj
+                resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
+              else
+                # TODO can't update GCP routes, would have to delete and re-create
+              end
+            end
           end
         end
 

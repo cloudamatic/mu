@@ -34,9 +34,9 @@ firewall_rule "Chef Server ports on 127.0.0.1 (2)" do
   source "127.0.0.1/32"
 end
 if node.has_key?(:local_ipv4)
-  firewall_rule "Chef Server ports on #{node[:local_ipv4]}" do
+  firewall_rule "Chef Server ports on #{node['local_ipv4']}" do
     port local_chef_ports
-    source "#{node[:local_ipv4]}/32"
+    source "#{node['local_ipv4']}/32"
   end
 end
 
@@ -52,9 +52,9 @@ firewall_rule "Mu Master Consul ports on 127.0.0.1" do
   source "127.0.0.1/32"
 end
 if node.has_key?(:local_ipv4)
-  firewall_rule "Mu Master Consul ports on #{node[:local_ipv4]}" do
+  firewall_rule "Mu Master Consul ports on #{node['local_ipv4']}" do
     port [8300, 8301, 8302, 8400, 8500, 8600]
-    source "#{node[:local_ipv4]}/32"
+    source "#{node['local_ipv4']}/32"
   end
 end
 
@@ -63,8 +63,8 @@ firewall_rule "Mu Master Jenkins ports on 127.0.0.1" do
   source "127.0.0.1/32"
 end
 if node.has_key?(:local_ipv4)
-  firewall_rule "Mu Master Jenkins ports on #{node[:local_ipv4]}" do
+  firewall_rule "Mu Master Jenkins ports on #{node['local_ipv4']}" do
     port [8080]
-    source "#{node[:local_ipv4]}/32"
+    source "#{node['local_ipv4']}/32"
   end
 end

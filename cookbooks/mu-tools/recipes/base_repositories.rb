@@ -1,4 +1,3 @@
-#
 # Cookbook Name:: mu-tools
 # Recipe:: base_repositories
 #
@@ -18,11 +17,11 @@
 #
 # Install the EPEL yum repository for CentOS.
 
-if !node[:application_attributes][:skip_recipes].include?('base_repositories')
+if !node['application_attributes']['skip_recipes'].include?('base_repositories')
   case node['platform_family']
-    when "rhel"
+    when "rhel", "redhat"
       # Workaround for EOL CentOS 5 repos
-      if node[:platform] != "amazon" and node[:platform_version].to_i == 5
+      if node['platform'] != "amazon" and node['platform_version'].to_i == 5
         cookbook_file "/etc/yum.repos.d/CentOS-Base.repo" do
           source "CentOS-Base.repo"
         end

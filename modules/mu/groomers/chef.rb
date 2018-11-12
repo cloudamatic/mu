@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#	  http://egt-labs.com/mu/LICENSE.html
+#    http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -259,6 +259,7 @@ module MU
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
+        timeout = @server.windows? ? 1800 : 600
         pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
@@ -268,7 +269,7 @@ module MU
         end
         if @server.deploy.original_config.has_key?('parameters')
           MU.log "Setting node:#{@server.mu_name} parameters", MU::DEBUG, details: @server.deploy.original_config['parameters']
-          chef_node.normal.mu_parameters = @server.deploy.original_config['parameters']
+          chef_node.normal['mu_parameters'] = @server.deploy.original_config['parameters']
           chef_node.save
         end
         saveDeployData
@@ -296,11 +297,13 @@ module MU
               upgrade_cmd = try_upgrade ? "curl -L https://chef.io/chef/install.sh | version=#{MU.chefVersion} sh &&" : ""
               cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
-            retval = ssh.exec!(cmd) { |ch, stream, data|
-              puts data
-              output << data
-              raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
-              raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+            Timeout::timeout(timeout) {
+              retval = ssh.exec!(cmd) { |ch, stream, data|
+                puts data
+                output << data
+                raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
+                raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+              }
             }
           else
             MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
@@ -322,16 +325,19 @@ module MU
             if override_runlist
               cmd = cmd + " -o '#{override_runlist}'"
             end
-            resp = winrm.run(cmd) do |stdout, stderr|
-              if stdout
-                print stdout if output
-                output << stdout
+            resp = nil
+            Timeout::timeout(timeout) {
+              resp = winrm.run(cmd) do |stdout, stderr|
+                if stdout
+                  print stdout if output
+                  output << stdout
+                end
+                if stderr
+                  MU.log stderr, MU::ERR
+                  output << stderr
+                end
               end
-              if stderr
-                MU.log stderr, MU::ERR
-                output << stderr
-              end
-            end
+            }
             if resp.exitcode != 0
               raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
@@ -429,9 +435,9 @@ module MU
         remove_cmd = nil
         if !@server.windows?
           if @server.config['ssh_user'] == "root"
-            remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
+            remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
           else
-            remove_cmd = "sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
+            remove_cmd = "sudo yum -y erase chef ; sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
           end
           guardfile = "/opt/mu_installed_chef"
 
@@ -442,7 +448,7 @@ module MU
               ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
             rescue IOError => e
               # TO DO - retry this in a cleaner way
-              MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE
+              MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE, details: %Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}}
               ssh = @server.getSSHSession(15)
               ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
             end
@@ -520,7 +526,8 @@ module MU
         stashHostSSLCertSecret
         if !@config['cleaned_chef']
           begin
-            preClean(true)
+            leave_ours = @config['scrub_groomer'] ? false : true
+            preClean(leave_ours)
           rescue RuntimeError => e
             MU.log e.inspect, MU::ERR
             sleep 10
@@ -579,14 +586,14 @@ module MU
           end
 
           # XXX this seems to break Knife Bootstrap
-          #			if vault_access.size > 0
-          #				v = {}
-          #				vault_access.each { |vault|
-          #					v[vault['vault']] = [] if v[vault['vault']].nil?
-          #					v[vault['vault']] << vault['item']
-          #				}
-          #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
-          #			end
+          #      if vault_access.size > 0
+          #        v = {}
+          #        vault_access.each { |vault|
+          #          v[vault['vault']] = [] if v[vault['vault']].nil?
+          #          v[vault['vault']] << vault['item']
+          #        }
+          #        kb.config[:bootstrap_vault_json] = JSON.generate(v)
+          #      end
 
           kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
           kb.config[:run_list] = run_list
@@ -718,12 +725,13 @@ retry
             }
           end
 
-          if chef_node.normal.deployment != @server.deploy.deployment
+          if chef_node.normal['deployment'] != @server.deploy.deployment
             MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
-            chef_node.normal.deployment.merge!(@server.deploy.deployment)
+            chef_node.normal['deployment'].merge!(@server.deploy.deployment)
+            chef_node.normal['deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
             chef_node.save
           end
-          return chef_node[:deployment]
+          return chef_node['deployment']
         rescue Net::HTTPServerException => e
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
         end
@@ -812,46 +820,46 @@ retry
         system_name = chef_node['fqdn'] if !chef_node['fqdn'].nil?
         MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
 
-        chef_node.normal.app = @config['application_cookbook'] if @config['application_cookbook'] != nil
-        chef_node.normal.service_name = @config["name"]
-        chef_node.normal.windows_admin_username = @config['windows_admin_username']
+        chef_node.normal.app = @config['application_cookbook'] if !@config['application_cookbook'].nil?
+        chef_node.normal["service_name"] = @config["name"]
+        chef_node.normal["windows_admin_username"] = @config['windows_admin_username']
         chef_node.chef_environment = MU.environment.downcase
         if @server.config['cloud'] == "AWS"
-          chef_node.normal.ec2 = MU.structToHash(@server.cloud_desc)
+          chef_node.normal["ec2"] = MU.structToHash(@server.cloud_desc)
         end
 
         if @server.windows?
-          chef_node.normal.windows_admin_username = @config['windows_admin_username']
-          chef_node.normal.windows_auth_vault = @server.mu_name
-          chef_node.normal.windows_auth_item = "windows_credentials"
-          chef_node.normal.windows_auth_password_field = "password"
-          chef_node.normal.windows_auth_username_field = "username"
-          chef_node.normal.windows_ec2config_password_field = "ec2config_password"
-          chef_node.normal.windows_ec2config_username_field = "ec2config_username"
-          chef_node.normal.windows_sshd_password_field = "sshd_password"
-          chef_node.normal.windows_sshd_username_field = "sshd_username"
+          chef_node.normal['windows_admin_username'] = @config['windows_admin_username']
+          chef_node.normal['windows_auth_vault'] = @server.mu_name
+          chef_node.normal['windows_auth_item'] = "windows_credentials"
+          chef_node.normal['windows_auth_password_field'] = "password"
+          chef_node.normal['windows_auth_username_field'] = "username"
+          chef_node.normal['windows_ec2config_password_field'] = "ec2config_password"
+          chef_node.normal['windows_ec2config_username_field'] = "ec2config_username"
+          chef_node.normal['windows_sshd_password_field'] = "sshd_password"
+          chef_node.normal['windows_sshd_username_field'] = "sshd_username"
         end
 
         # If AD integration has been requested for this node, give Chef what it'll need.
         if !@config['active_directory'].nil?
-          chef_node.normal.ad.computer_name = @server.mu_windows_name
-          chef_node.normal.ad.node_class = @config['name']
-          chef_node.normal.ad.domain_name = @config['active_directory']['domain_name']
-          chef_node.normal.ad.node_type = @config['active_directory']['node_type']
-          chef_node.normal.ad.domain_operation = @config['active_directory']['domain_operation']
-          chef_node.normal.ad.domain_controller_hostname = @config['active_directory']['domain_controller_hostname'] if @config['active_directory'].has_key?('domain_controller_hostname')
-          chef_node.normal.ad.netbios_name = @config['active_directory']['short_domain_name']
-          chef_node.normal.ad.computer_ou = @config['active_directory']['computer_ou'] if @config['active_directory'].has_key?('computer_ou')
-          chef_node.normal.ad.domain_sid = @config['active_directory']['domain_sid'] if @config['active_directory'].has_key?('domain_sid')
-          chef_node.normal.ad.dcs = @config['active_directory']['domain_controllers']
-          chef_node.normal.ad.domain_join_vault = @config['active_directory']['domain_join_vault']['vault']
-          chef_node.normal.ad.domain_join_item = @config['active_directory']['domain_join_vault']['item']
-          chef_node.normal.ad.domain_join_username_field = @config['active_directory']['domain_join_vault']['username_field']
-          chef_node.normal.ad.domain_join_password_field = @config['active_directory']['domain_join_vault']['password_field']
-          chef_node.normal.ad.domain_admin_vault = @config['active_directory']['domain_admin_vault']['vault']
-          chef_node.normal.ad.domain_admin_item = @config['active_directory']['domain_admin_vault']['item']
-          chef_node.normal.ad.domain_admin_username_field = @config['active_directory']['domain_admin_vault']['username_field']
-          chef_node.normal.ad.domain_admin_password_field = @config['active_directory']['domain_admin_vault']['password_field']
+          chef_node.normal['ad']['computer_name'] = @server.mu_windows_name
+          chef_node.normal['ad']['node_class'] = @config['name']
+          chef_node.normal['ad']['domain_name'] = @config['active_directory']['domain_name']
+          chef_node.normal['ad']['node_type'] = @config['active_directory']['node_type']
+          chef_node.normal['ad']['domain_operation'] = @config['active_directory']['domain_operation']
+          chef_node.normal['ad']['domain_controller_hostname'] = @config['active_directory']['domain_controller_hostname'] if @config['active_directory'].has_key?('domain_controller_hostname')
+          chef_node.normal['ad']['netbios_name'] = @config['active_directory']['short_domain_name']
+          chef_node.normal['ad']['computer_ou'] = @config['active_directory']['computer_ou'] if @config['active_directory'].has_key?('computer_ou')
+          chef_node.normal['ad']['domain_sid'] = @config['active_directory']['domain_sid'] if @config['active_directory'].has_key?('domain_sid')
+          chef_node.normal['ad']['dcs'] = @config['active_directory']['domain_controllers']
+          chef_node.normal['ad']['domain_join_vault'] = @config['active_directory']['domain_join_vault']['vault']
+          chef_node.normal['ad']['domain_join_item'] = @config['active_directory']['domain_join_vault']['item']
+          chef_node.normal['ad']['domain_join_username_field'] = @config['active_directory']['domain_join_vault']['username_field']
+          chef_node.normal['ad']['domain_join_password_field'] = @config['active_directory']['domain_join_vault']['password_field']
+          chef_node.normal['ad']['domain_admin_vault'] = @config['active_directory']['domain_admin_vault']['vault']
+          chef_node.normal['ad']['domain_admin_item'] = @config['active_directory']['domain_admin_vault']['item']
+          chef_node.normal['ad']['domain_admin_username_field'] = @config['active_directory']['domain_admin_vault']['username_field']
+          chef_node.normal['ad']['domain_admin_password_field'] = @config['active_directory']['domain_admin_vault']['password_field']
         end
 
         # Amazon-isms, possibly irrelevant
@@ -865,10 +873,10 @@ retry
                 }
             }
         }
-        chef_node.normal.awscli = awscli_region_widget
+        chef_node.normal['awscli'] = awscli_region_widget
 
         if !@server.cloud.nil?
-          chef_node.normal.cloudprovider = @server.cloud
+          chef_node.normal['cloudprovider'] = @server.cloud
 
           # XXX In AWS this is an OpenStruct-ish thing, but it may not be in
           # others.
@@ -884,7 +892,7 @@ retry
           }
         end
 
-        chef_node.normal.tags = tags
+        chef_node.normal['tags'] = tags
         chef_node.save
 
         # If we have a database make sure we grant access to that vault.

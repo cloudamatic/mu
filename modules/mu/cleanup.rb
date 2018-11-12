@@ -15,7 +15,7 @@
 require 'json'
 require 'net/http'
 require 'net/smtp'
-require 'trollop'
+require 'optimist'
 require 'fileutils'
 
 Thread.abort_on_exception = true
@@ -119,8 +119,13 @@ module MU
                   MU.dupGlobals(parent_thread_id)
                   flags = { "project" => project }
                   MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
+                  MU::Cloud::Function.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Function"]) > 0
                   MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-                  MU::Cloud::ContainerCluster.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ContainerCluster"]) > 0
+                  begin
+                    MU::Cloud::ContainerCluster.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ContainerCluster"]) > 0
+                  rescue Seahorse::Client::NetworkingError => e
+                    MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
+                  end
                   MU::Cloud::SearchDomain.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["SearchDomain"]) > 0
                   MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
                   if provider == "AWS"
@@ -210,7 +215,7 @@ module MU
         q = Chef::Search::Query.new
         begin
           q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-            next if item.is_a?(Fixnum)
+            next if item.is_a?(Integer)
             item.each { |node|
               deadnodes << node.name
             }
@@ -220,7 +225,7 @@ module MU
 
         begin
           q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-            next if item.is_a?(Fixnum)
+            next if item.is_a?(Integer)
             item.each { |node|
               deadnodes << node.name
             }

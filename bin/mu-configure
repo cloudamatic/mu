@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'trollop'
+require 'optimist'
 require 'simple-password-gen'
 require 'socket'
 require 'open-uri'
@@ -181,7 +181,7 @@ $CONFIGURABLES = {
 AMROOT = Process.uid == 0
 HOMEDIR = Etc.getpwuid(Process.uid).dir
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
   EOS
   required = []
@@ -817,7 +817,7 @@ if AMROOT
   pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
   if cur_chef_version != pref_chef_version
     puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
-    chef_installer = open("https://www.chef.io/chef/install.sh").read
+    chef_installer = open("https://omnitruck.chef.io/install.sh").read
     File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
       f.puts chef_installer
     }
