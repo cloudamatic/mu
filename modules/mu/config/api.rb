@@ -31,6 +31,17 @@ module MU
           "name" => {"type" => "string"},
           "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
+          "methods" => {
+            "type" => "array",
+            "items" => {
+              "type" => "object",
+              "description" => "Method, as in HTTP method",
+              "required" => ["path", "type"],
+              "path" => {
+                "type" => "string"
+              },
+            }
+          }
         }
       } 
       end

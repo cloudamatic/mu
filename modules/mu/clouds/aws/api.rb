@@ -28,18 +28,43 @@ module MU
             description: @deploy.deploy_id
           )
           @cloud_id = resp.id
-          pp resp
+          generate_methods
 
+
+        end
+
+        def generate_methods
+          resp = MU::Cloud::AWS.apig(@config['region']).get_resources(
+            rest_api_id: @cloud_id,
+          )
+          root_resource = resp.items.first.id
+
+          # TODO guard this crap
+          @config['methods'].each { |m|
+            resp = MU::Cloud::AWS.apig(@config['region']).create_resource(
+              rest_api_id: @cloud_id,
+              parent_id: root_resource,
+              path_part: m['path']
+            )
+            parent_id = resp.id
+            resp = MU::Cloud::AWS.apig(@config['region']).put_method(
+              rest_api_id: @cloud_id,
+              resource_id: parent_id,
+              authorization_type: m['auth'],
+              http_method: m['type']
+            )
+            resp = MU::Cloud::AWS.apig(@config['region']).put_integration(
+              rest_api_id: @cloud_id,
+              resource_id: parent_id,
+              type: "HTTP",
+              http_method: m['type']
+            )
+          }
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @config['methods'].each { |m|
-            resp = MU::Cloud::AWS.apig(@config['region']).put_method(
-              rest_api_id: @cloud_id,
-              http_method: m['type']
-            )
-          }
+          generate_methods
 
           resp = MU::Cloud::AWS.apig(@config['region']).create_deployment(
             rest_api_id: @cloud_id,
@@ -127,7 +152,19 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "methods" => {
+              "items" => {
+                "properties" => {
+                  "auth" => {
+                    "type" => "string",
+                    "enum" => ["NONE", "CUSTOM", "AWS_IAM", "COGNITO_USER_POOLS"],
+                    "default" => "NONE"
+                  }
+                }
+              }
+            }
+          }
           [toplevel_required, schema]
         end
 
