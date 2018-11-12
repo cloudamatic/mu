@@ -66,7 +66,7 @@ EOH
     package "kubelet"
     package "kubectl"
   else
-    Chef::Log.info("I don't know how to turn #{node['platform']} #{node[:platform_version].to_s} into a Kubernetes worker, hopefully it's pre-configured")
+    Chef::Log.info("I don't know how to turn this #{node['platform']} AMI (#{node[:platform_version].to_s}) into a Kubernetes worker, hopefully it's the official, pre-configured AMI")
   end
 
   service "docker" do

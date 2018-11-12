@@ -108,8 +108,10 @@ module MU
               }
             end
 
+            resp = nil
             begin
-              MU::Cloud::AWS.eks(@config['region']).create_cluster(
+              MU.log "Creating EKS cluster #{@mu_name}"
+              resp = MU::Cloud::AWS.eks(@config['region']).create_cluster(
                 name: @mu_name,
                 version: @config['kubernetes']['version'],
                 role_arn: role_arn,
@@ -136,11 +138,17 @@ module MU
                 retry
               end
             rescue Aws::EKS::Errors::InvalidParameterException => e
-              if e.message.match(/role with arn: #{role_arn}, (could not be assumed|does not exist)/)
+              if e.message.match(/role with arn: #{Regexp.quote(role_arn)}.*?(could not be assumed|does not exist)/)
                 sleep 5
                 retry
+              else
+                MU.log e.message, MU::WARN, details: role_arn
+                sleep 5
+                retry
+                puts e.message
               end
             end
+
             status = nil
             retries = 0
             begin
@@ -156,7 +164,7 @@ module MU
             rescue Aws::EKS::Errors::ResourceNotFoundException => e
               if retries < 30
                 if retries > 0 and (retries % 3) == 0
-                  MU.log "Got #{e.message} trying to describe EKS cluster #{@mu_name}, waiting and retrying", MU::WARN
+                  MU.log "Got #{e.message} trying to describe EKS cluster #{@mu_name}, waiting and retrying", MU::WARN, details: resp
                 end
                 sleep 30
                 retries += 1
@@ -515,6 +523,13 @@ module MU
             "ami_id" => {
               "type" => "string",
               "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified."
+            },
+            "run_list" => {
+              "type" => "array",
+              "items" => {
+                  "type" => "string",
+                  "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes."
+              }
             }
           }
           [toplevel_required, schema]
@@ -606,6 +621,13 @@ module MU
                 }
               ]
               worker_pool["run_list"] = ["mu-tools::eks"]
+							worker_pool["run_list"].concat(cluster["run_list"]) if cluster["run_list"]
+              MU::Config::Server.common_properties.keys.each { |k|
+                if cluster[k] and !worker_pool[k]
+                  worker_pool[k] = cluster[k]
+                end
+              }
+
             end
 
             configurator.insertKitten(worker_pool, "server_pools")
