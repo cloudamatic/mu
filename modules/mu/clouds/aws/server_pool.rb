@@ -203,9 +203,58 @@ module MU
               max_size: @config['max_size']
             )
           end
+
+          if @config['scale_in_protection']
+            need_instances = @config['scale_in_protection'].match(/^\d+$/) ? @config['scale_in_protection'].to_i : @config['min_size']
+            setScaleInProtection(need_instances)
+          end
+
           MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
 
           return asg
+        end
+
+        # Make sure we have a set of instances with scale-in protection set which jives with our config
+        # @param need_instances [Integer]: The number of instanceswhich must have scale-in protection set
+        def setScaleInProtection(need_instances = @config['min_size'])
+          live_instances = []
+          begin
+            desc = MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
+
+            live_instances = desc.instances.map { |i| i.instance_id }
+            already_set = 0
+            desc.instances.each { |i|
+              already_set += 1 if i.protected_from_scale_in
+            }
+            if live_instances.size < need_instances
+              sleep 5
+            elsif already_set > need_instances
+              unset_me = live_instances.sample(already_set - need_instances)
+              MU.log "Disabling scale-in protection for #{unset_me.size.to_s} instances in #{@mu_name}", MU::NOTICE, details: unset_me
+              MU::Cloud::AWS.autoscale(@config['region']).set_instance_protection(
+                auto_scaling_group_name: @mu_name,
+                instance_ids: unset_me,
+                protected_from_scale_in: false
+              )
+            elsif already_set < need_instances
+              live_instances = live_instances.sample(need_instances)
+              MU.log "Enabling scale-in protection for #{@config['scale_in_protection']} instances in #{@mu_name}", details: live_instances
+              begin
+                MU::Cloud::AWS.autoscale(@config['region']).set_instance_protection(
+                  auto_scaling_group_name: @mu_name,
+                  instance_ids: live_instances,
+                  protected_from_scale_in: true
+                )
+              rescue Aws::AutoScaling::Errors::ValidationError => e
+                if e.message.match(/not in InService/i)
+                  sleep 5
+                  retry
+                else
+                  raise e
+                end
+              end
+            end
+          end while live_instances.size < need_instances
         end
 
         # List out the nodes that are members of this pool
@@ -290,6 +339,7 @@ module MU
           asg_options.delete(:tags)
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
+          asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
 					if asg_options[:target_group_arns]
             MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
@@ -299,6 +349,18 @@ module MU
   				end
 
           MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(asg_options)
+
+          if @config['scale_in_protection']
+            if @config['scale_in_protection'] == "all"
+              setScaleInProtection(listNodes.size)
+            elsif @config['scale_in_protection'] == "initial"
+              setScaleInProtection(@config['min_size'])
+            elsif @config['scale_in_protection'].match(/^\d+$/)
+              setScaleInProtection(@config['scale_in_protection'].to_i)
+            end
+          else
+            setScaleInProtection(0)
+          end
 
         end
 
@@ -399,6 +461,11 @@ module MU
 
                 }
               }
+            },
+            "scale_in_protection" => {
+              "type" => "string",
+              "description" => "Protect instances from scale-in termination. Can be 'all', 'initial' (essentially 'min_size'), or an number; note the number needs to be a string, so put it in quotes",
+              "pattern" => "^(all|initial|\\d+)$"
             },
             "termination_policies" => {
               "type" => "array",
@@ -820,11 +887,15 @@ module MU
             MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
           end
 
+          lc_attempts = 0
           begin
             MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
-            MU.log e.message, MU::WARN
-            sleep 10
+            if lc_attempts > 3
+              MU.log "Got error while creating #{@mu_name} Launch Config: #{e.message}, retrying in 10s", MU::WARN
+            end
+            sleep 5
+            lc_attempts += 1
             retry
           end
 
