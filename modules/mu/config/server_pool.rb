@@ -144,15 +144,6 @@ module MU
                     }
                 }
             },
-            "termination_policies" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "type" => "String",
-                    "default" => "Default",
-                    "enum" => ["Default", "OldestInstance", "NewestInstance", "OldestLaunchConfiguration", "ClosestToNextInstanceHour"]
-                }
-            },
             #XXX this needs its own primitive and discovery mechanism
             "zones" => {
               "type" => "array",

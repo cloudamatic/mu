@@ -342,6 +342,7 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          
           schema = {
             "generate_iam_role" => {
               "type" => "boolean",
@@ -399,6 +400,15 @@ module MU
                 }
               }
             },
+            "termination_policies" => {
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "type" => "String",
+                "default" => "Default",
+                "enum" => MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -430,6 +440,13 @@ module MU
         def self.validateConfig(pool, configurator)
           ok = true
 
+          if pool["termination_policy"]
+            valid_policies = MU::Cloud::AWS.autoscale(pool['region']).describe_termination_policy_types.termination_policy_types
+            if !valid_policies.include?(pool["termination_policy"])
+              ok = false
+              MU.log "Termination policy #{pool["termination_policy"]} is not valid in region #{pool['region']}", MU::ERR, details: valid_policies
+            end
+          end
 
           if !pool["schedule"].nil?
             pool["schedule"].each { |s|
