@@ -279,11 +279,13 @@ module MU
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
           asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
+          tg_arns = []
 					if asg_options[:target_group_arns]
             MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
               target_group_arns: asg_options[:target_group_arns]
             )
+            tg_arns = asg_options[:target_group_arns].dup
             asg_options.delete(:target_group_arns)
   				end
 
@@ -306,13 +308,41 @@ module MU
               policy_params = {
                 :auto_scaling_group_name => @mu_name,
                 :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
-                :adjustment_type => policy['type'],
                 :policy_type => policy['policy_type']
               }
 
               if policy["policy_type"] == "SimpleScaling"
                 policy_params[:cooldown] = policy['cooldown']
                 policy_params[:scaling_adjustment] = policy['adjustment']
+                policy_params[:adjustment_type] = policy['type']
+              elsif policy["policy_type"] == "TargetTrackingScaling"
+                def strToSym(hash)
+                  newhash = {}
+                  hash.each_pair { |k, v|
+                    if v.is_a?(Hash)
+                      newhash[k.to_sym] = strToSym(v)
+                    else
+                      newhash[k.to_sym] = v
+                    end
+                  }
+                  newhash
+                end
+                policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
+                   policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
+                  lb_path = nil
+                  lb = @deploy.deployment["loadbalancers"].values.first
+                  if @deploy.deployment["loadbalancers"].size > 1
+                    MU.log "Multiple load balancers attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
+                  end
+                  if lb["targetgroups"].size > 1
+                    MU.log "Multiple target groups attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
+                  end
+                  lb_path = lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"].values.first.split(/:/)[5]
+
+                  policy_params[:target_tracking_configuration][:predefined_metric_specification][:resource_label] = lb_path
+                end
+                policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
               elsif policy["policy_type"] == "StepScaling"
                 step_adjustments = []
                 policy['step_adjustments'].each{|step|
@@ -321,9 +351,12 @@ module MU
                 policy_params[:metric_aggregation_type] = policy['metric_aggregation_type']
                 policy_params[:step_adjustments] = step_adjustments
                 policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
+                policy_params[:adjustment_type] = policy['type']
               end
 
               policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
+              pp policy_params
+              # XXX remove before put
               resp = MU::Cloud::AWS.autoscale(@config['region']).put_scaling_policy(policy_params)
 
               # If we are creating alarms for scaling policies we need to have the autoscaling policy ARN
@@ -477,6 +510,154 @@ module MU
                 "enum" => MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types
               }
             },
+            "scaling_policies" => {
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "type" => "object",
+                "required" => ["name"],
+                "additionalProperties" => false,
+                "description" => "A custom AWS Autoscale scaling policy for this pool.",
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "alarms" => MU::Config::Alarm.inline,
+                  "type" => {
+                    "type" => "string",
+                    "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
+                    "description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current capacity for SimpleScaling and StepScaling. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
+                  },
+                  "adjustment" => {
+                    "type" => "integer",
+                    "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity. Used only when policy_type is set to 'SimpleScaling'"
+                  },
+                  "cooldown" => {
+                    "type" => "integer",
+                    "default" => 1,
+                    "description" => "The amount of time, in seconds, after a scaling activity completes and before the next scaling activity can start."
+                  },
+                  "min_adjustment_magnitude" => {
+                    "type" => "integer",
+                    "description" => "Used when 'type' is set to 'PercentChangeInCapacity', the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
+                  },
+                  "policy_type" => {
+                    "type" => "string",
+                    "enum" => ["SimpleScaling", "StepScaling", "TargetTrackingScaling"],
+                    "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value provided. Defaults to 'SimpleScaling'.",
+                    "default" => "SimpleScaling"
+                  },
+                  "metric_aggregation_type" => {
+                    "type" => "string",
+                    "enum" => ["Minimum", "Maximum", "Average"],
+                    "description" => "Defaults to 'Average' if not specified. Required when policy_type is set to 'StepScaling'",
+                    "default" => "Average"
+                  },
+                  "step_adjustments" => {
+                    "type" => "array",
+                    "minItems" => 1,
+                    "items" => {
+                      "type" => "object",
+                      "title" => "admin",
+                      "description" => "Requires policy_type 'StepScaling'",
+                      "required" => ["adjustment"],
+                      "additionalProperties" => false,
+                      "properties" => {
+                        "adjustment" => {
+                          "type" => "integer",
+                          "description" => "The number of instances by which to scale at this specific step. Postive value when adding capacity, negative value when removing capacity"
+                        },
+                        "lower_bound" => {
+                          "type" => "integer",
+                          "description" => "The lower bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being added this value will most likely be 0"
+                        },
+                        "upper_bound" => {
+                          "type" => "integer",
+                          "description" => "The upper bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being removed this value will most likely be 0"
+                        }
+                      }
+                    }
+                  },
+                  "estimated_instance_warmup" => {
+                    "type" => "integer",
+                    "description" => "Required when policy_type is set to 'StepScaling'"
+                  },
+                  "target_tracking_configuration" => {
+                    "type" => "object",
+                    "description" => "Required when policy_type is set to 'TargetTrackingScaling' https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/TargetTrackingConfiguration.html",
+                    "required" => ["target_value"],
+                    "additionalProperties" => false,
+                    "properties" => {
+                      "target_value" => {
+                        "type" => "float",
+                        "description" => "The target value for the metric."
+                      },
+                      "disable_scale_in" => {
+                        "type" => "boolean",
+                        "description" => "If set to true, new instances created by this policy will not be subject to termination by scaling in.",
+                        "default" => false
+                      },
+                      "predefined_metric_specification" => {
+                        "type" => "object",
+                        "description" => "A predefined metric. You can specify either a predefined metric or a customized metric. https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/PredefinedMetricSpecification.html",
+                        "additionalProperties" => false,
+                        "required" => ["predefined_metric_type"],
+                        "properties" => {
+                          "predefined_metric_type" => {
+                            "type" => "string",
+                            "enum" => ["ASGAverageCPUUtilization", "ASGAverageNetworkIn", "ASGAverageNetworkOut", "ALBRequestCountPerTarget"],
+                            "default" => "ASGAverageCPUUtilization"
+                          }
+                        }
+                      },
+                      "customized_metric_specification" => {
+                        "type" => "object",
+                        "description" => "A customized metric. You can specify either a predefined metric or a customized metric. https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/TargetTrackingConfiguration.html#customized_metric_specification-instance_method",
+                        "additionalProperties" => false,
+                        "required" => ["metric_name", "namespace", "statistic"],
+                        "properties" => {
+                          "metric_name" => {
+                            "type" => "string",
+                            "description" => "The name of the attribute to monitor eg. CPUUtilization."
+                          },
+                          "namespace" => {
+                            "type" => "string",
+                            "description" => "The name of container 'metric_name' belongs to eg. 'AWS/ApplicationELB'"
+                          },
+                          "statistic" => {
+                            "type" => "string",
+                            "enum" => ["Average", "Minimum", "Maximum", "SampleCount", "Sum"]
+                          },
+                          "unit" => {
+                            "type" => "string",
+                            "description" => "Associated with the 'metric', usually something like Megabits or Seconds"
+                          },
+                          "dimensions" => {
+                            "type" => "array",
+                            "description" => "What to monitor XXX dig up an example",
+                            "items" => {
+                              "type" => "object",
+                              "additionalProperties" => false,
+                              "required" => ["name", "value"],
+                              "properties" => {
+                                "name" => {
+                                  "type" => "string",
+                                  "description" => "XXX dig up an example"
+                                },
+                                "value" => {
+                                  "type" => "string",
+                                  "description" => "XXX dig up an example"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -592,9 +773,27 @@ module MU
                   MU.log "You must specify 'cooldown' and 'adjustment' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
                   ok = false
                 end
+                unless policy['type']
+                  MU.log "You must specify a 'type' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
+                  ok = false
+                end
+              elsif policy["policy_type"] == "TargetTrackingScaling"
+                unless policy["target_tracking_configuration"]
+                  MU.log "You must specify 'target_tracking_configuration' when 'policy_type' is set to 'TargetTrackingScaling'", MU::ERR
+                  ok = false
+                end
+                unless policy["target_tracking_configuration"]["customized_metric_specification"] or
+                       policy["target_tracking_configuration"]["predefined_metric_specification"]
+                  MU.log "Your target_tracking_configuration must specify one of customized_metric_specification or predefined_metric_specification when 'policy_type' is set to 'TargetTrackingScaling'", MU::ERR
+                  ok = false
+                end
               elsif policy["policy_type"] == "StepScaling"
                 if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
                   MU.log "You must specify 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+                unless policy['type']
+                  MU.log "You must specify a 'type' when 'policy_type' is set to 'StepScaling'", MU::ERR
                   ok = false
                 end
   
