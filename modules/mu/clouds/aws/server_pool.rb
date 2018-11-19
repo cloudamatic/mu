@@ -324,7 +324,7 @@ module MU
             # Delete any scaling policies we're not configured for
             ext_pols.each { |ext|
               if !legit_policies.include?(ext.policy_name)
-                MU.log "Scaling policy #{ext.policy_name} is not named in scaling_policies, removing from #{@mu_name}", MU::NOTICE
+                MU.log "Scaling policy #{ext.policy_name} is not named in scaling_policies, removing from #{@mu_name}", MU::NOTICE, details: ext
                 MU::Cloud::AWS.autoscale(@config['region']).delete_policy(
                   auto_scaling_group_name: @mu_name,
                   policy_name: ext.policy_name
@@ -789,7 +789,7 @@ module MU
             if pool[sp]
               pool['scaling_policies'] ||= []
               pool['scaling_policies'] << {
-                'name' => 'alb',
+                'name' => scale_aliases[sp],
                 'adjustment' => 1,
                 'policy_type' => "TargetTrackingScaling",
                 'estimated_instance_warmup' => 60,

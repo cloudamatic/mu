@@ -1,0 +1,71 @@
+<% if $complexity == 'complex' %>
+name: <%= server_pools_name %>
+cloud: AWS
+alarms:
+- comparison_operator: "GreaterThanThreshold"
+  metric_name: "HTTPCode_Target_5XX_Count"
+  evaluation_periods: 1
+  name: "HTTP_Target_500_Count"
+  period: 60
+  statistic: "Sum"
+  threshold: 10
+  enable_notifications: true
+  notification_endpoint: 'admin@example.com'
+  namespace: "AWS/ApplicationELB"
+scale_in_protection: "initial"
+scale_with_cpu: 50.0
+scaling_policies:
+- name: simplediskreads
+  policy_type: SimpleScaling
+  adjustment: 1
+  cooldown: 60
+  type: ChangeInCapacity
+  alarms:
+  - name: simplenetwork
+    namespace: "AWS/EC2"
+    metric_name: DiskReadBytes
+    period: 60
+    evaluation_periods: 1
+    comparison_operator: GreaterThanThreshold
+    statistic: Sum
+    threshold: 1073741824
+- name: trackingnetworkin
+  policy_type: TargetTrackingScaling
+  estimated_instance_warmup: 600
+  target_tracking_configuration:
+    target_value: 250.0
+    predefined_metric_specification: ASGAverageNetworkIn
+termination_policies:
+- "OldestInstance"
+wait_for_nodes: 1
+min_size: 2
+max_size: 2
+schedule:
+- action_name: scale-down-over-night
+  recurrence: "30 6 * * *"
+  min_size: 1
+  max_size: 1
+- action_name: scale-up-during-the-day
+  recurrence: "30 12 * * *"
+  min_size: 2
+  max_size: 2
+ingress_rules:
+- port: 80
+  hosts:
+  - 0.0.0.0/0
+- port: 443
+  hosts:
+  - 0.0.0.0/0
+basis:
+  launch_config:
+    name: <%= server_pools_name %>
+    size: t2.medium
+<% else %>
+name: <%= server_pools_name %>
+min_size: 1
+max_size: 1
+basis:
+  launch_config:
+    name: <%= server_pools_name %>
+    size: t2.small
+<% end %>
