@@ -576,6 +576,52 @@ module MU
     @@mySSLDir
   end
 
+  # Recursively compare two hashes. Intended to see when cloud API descriptions
+  # of existing resources differ from proposed changes so we know when to
+  # bother updating.
+  # @param hash1 [Hash]: The first hash
+  # @param hash2 [Hash]: The second hash
+  # @param missing_is_default [Boolean]: Assume that any element missing from hash2 but present in hash1 is a default value to be ignored
+  # @return [Boolean]
+  def self.hashCmp(hash1, hash2, missing_is_default: false)
+    return false if hash1.nil?
+    hash2.each_pair { |k, v|
+      if hash1[k].nil?
+        return false
+      end
+    }
+    if !missing_is_default
+      hash1.each_pair { |k, v|
+        if hash2[k].nil?
+          return false
+        end
+      }
+    end
+
+    hash1.each_pair { |k, v|
+      if hash1[k].is_a?(Array) 
+        return false if !missing_is_default and hash2[k].nil?
+        if !hash2[k].nil?
+          hash2[k].each { |item|
+            if !hash1[k].include?(item)
+              return false
+            end
+          }
+        end
+      elsif hash1[k].is_a?(Hash) and !hash2[k].nil?
+        result = hashCmp(hash1[k], hash2[k])
+        return false if !result
+      else
+        if missing_is_default
+          return false if !hash2[k].nil? and hash1[k] != hash2[k]
+        else
+          return false if hash1[k] != hash2[k]
+        end
+      end
+    }
+    true
+  end
+
   # Recursively turn a Ruby OpenStruct into a Hash
   # @param struct [OpenStruct]
   # @return [Hash]

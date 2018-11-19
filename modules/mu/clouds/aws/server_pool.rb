@@ -213,18 +213,11 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['schedule']
-            resp = MU::Cloud::AWS.autoscale(@config['region']).describe_scheduled_actions(
+            ext_actions = MU::Cloud::AWS.autoscale(@config['region']).describe_scheduled_actions(
               auto_scaling_group_name: @mu_name
-            )
-            if resp and resp.scheduled_update_group_actions
-              resp.scheduled_update_group_actions.each { |s|
-                MU.log "Removing scheduled action #{s.scheduled_action_name} from AutoScale group #{@mu_name}"
-                MU::Cloud::AWS.autoscale(@config['region']).delete_scheduled_action(
-                  auto_scaling_group_name: @mu_name,
-                  scheduled_action_name: s.scheduled_action_name
-                )
-              }
-            end
+            ).scheduled_update_group_actions
+
+
             @config['schedule'].each { |s|
               sched_config = {
                 :auto_scaling_group_name => @mu_name,
@@ -236,10 +229,27 @@ module MU
               ['start_time', 'end_time'].each { |flag|
                 sched_config[flag.to_sym] = Time.parse(s[flag]) if s[flag]
               }
-              MU.log "Adding scheduled action to AutoScale group #{@mu_name}", MU::NOTICE, details: sched_config
-              MU::Cloud::AWS.autoscale(@config['region']).put_scheduled_update_group_action(
-                sched_config
-              )
+              action_already_correct = false
+              ext_actions.each { |ext|
+                if s['action_name'] == ext.scheduled_action_name
+                  if !MU.hashCmp(MU.structToHash(ext), sched_config, missing_is_default: true)
+                    MU.log "Removing scheduled action #{s['action_name']} from AutoScale group #{@mu_name}"
+                    MU::Cloud::AWS.autoscale(@config['region']).delete_scheduled_action(
+                      auto_scaling_group_name: @mu_name,
+                      scheduled_action_name: s['action_name']
+                    )
+                  else
+                    action_already_correct = true
+                  end
+                  break
+                end
+              }
+              if !action_already_correct
+                MU.log "Adding scheduled action to AutoScale group #{@mu_name}", MU::NOTICE, details: sched_config
+                MU::Cloud::AWS.autoscale(@config['region']).put_scheduled_update_group_action(
+                  sched_config
+                )
+              end
             }
           end
 
@@ -280,14 +290,14 @@ module MU
           asg_options[:max_size] = @config["max_size"]
           asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
           tg_arns = []
-					if asg_options[:target_group_arns]
+          if asg_options[:target_group_arns]
             MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
               target_group_arns: asg_options[:target_group_arns]
             )
             tg_arns = asg_options[:target_group_arns].dup
             asg_options.delete(:target_group_arns)
-  				end
+          end
 
           MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(asg_options)
 
@@ -304,10 +314,15 @@ module MU
           end
 
           if @config["scaling_policies"] and @config["scaling_policies"].size > 0
+            ext_pols = MU::Cloud::AWS.autoscale(@config['region']).describe_policies(
+              auto_scaling_group_name: @mu_name
+            ).scaling_policies
+
             @config["scaling_policies"].each { |policy|
+              policy_name = @deploy.getResourceName("#{@config['name']}-#{policy['name']}")
               policy_params = {
                 :auto_scaling_group_name => @mu_name,
-                :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
+                :policy_name => policy_name,
                 :policy_type => policy['policy_type']
               }
 
@@ -355,9 +370,26 @@ module MU
               end
 
               policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
-              pp policy_params
-              # XXX remove before put
-              resp = MU::Cloud::AWS.autoscale(@config['region']).put_scaling_policy(policy_params)
+
+              policy_already_correct = false
+              ext_pols.each { |ext|
+                if ext.policy_name == policy_name
+                  if !MU.hashCmp(MU.structToHash(ext), policy_params, missing_is_default: true)
+                    MU::Cloud::AWS.autoscale(@config['region']).delete_policy(
+                      auto_scaling_group_name: @mu_name,
+                      policy_name: policy_name
+                    )
+                  else
+                    policy_already_correct = true
+                  end
+                  break
+                end
+              }
+              if !policy_already_correct
+                MU.log "Putting scaling policy #{policy_name} for #{@mu_name}", MU::NOTICE, details: policy_params
+                resp = MU::Cloud::AWS.autoscale(@config['region']).put_scaling_policy(policy_params)
+              end
+
 
               # If we are creating alarms for scaling policies we need to have the autoscaling policy ARN
               # To make life easier we're creating the alarms here
