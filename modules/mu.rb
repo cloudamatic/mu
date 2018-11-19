@@ -609,7 +609,7 @@ module MU
           }
         end
       elsif hash1[k].is_a?(Hash) and !hash2[k].nil?
-        result = hashCmp(hash1[k], hash2[k])
+        result = hashCmp(hash1[k], hash2[k], missing_is_default: missing_is_default)
         return false if !result
       else
         if missing_is_default

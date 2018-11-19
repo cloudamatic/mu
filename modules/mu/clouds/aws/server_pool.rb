@@ -313,10 +313,24 @@ module MU
             setScaleInProtection(0)
           end
 
+          ext_pols = MU::Cloud::AWS.autoscale(@config['region']).describe_policies(
+            auto_scaling_group_name: @mu_name
+          ).scaling_policies
           if @config["scaling_policies"] and @config["scaling_policies"].size > 0
-            ext_pols = MU::Cloud::AWS.autoscale(@config['region']).describe_policies(
-              auto_scaling_group_name: @mu_name
-            ).scaling_policies
+            legit_policies = []
+            @config["scaling_policies"].each { |policy|
+              legit_policies << @deploy.getResourceName("#{@config['name']}-#{policy['name']}")
+            }
+            # Delete any scaling policies we're not configured for
+            ext_pols.each { |ext|
+              if !legit_policies.include?(ext.policy_name)
+                MU.log "Scaling policy #{ext.policy_name} is not named in scaling_policies, removing from #{@mu_name}", MU::NOTICE
+                MU::Cloud::AWS.autoscale(@config['region']).delete_policy(
+                  auto_scaling_group_name: @mu_name,
+                  policy_name: ext.policy_name
+                )
+              end
+            }
 
             @config["scaling_policies"].each { |policy|
               policy_name = @deploy.getResourceName("#{@config['name']}-#{policy['name']}")
@@ -533,6 +547,22 @@ module MU
               "description" => "Protect instances from scale-in termination. Can be 'all', 'initial' (essentially 'min_size'), or an number; note the number needs to be a string, so put it in quotes",
               "pattern" => "^(all|initial|\\d+)$"
             },
+            "scale_with_alb_traffic" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ALBRequestCountPerTarget with some reasonable defaults"
+            },
+            "scale_with_cpu" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ASGAverageCPUUtilization with some reasonable defaults"
+            },
+            "scale_with_network_in" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ASGAverageNetworkIn with some reasonable defaults"
+            },
+            "scale_with_network_out" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ASGAverageNetworkOut with some reasonable defaults"
+            },
             "termination_policies" => {
               "type" => "array",
               "minItems" => 1,
@@ -630,17 +660,10 @@ module MU
                         "default" => false
                       },
                       "predefined_metric_specification" => {
-                        "type" => "object",
                         "description" => "A predefined metric. You can specify either a predefined metric or a customized metric. https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/PredefinedMetricSpecification.html",
-                        "additionalProperties" => false,
-                        "required" => ["predefined_metric_type"],
-                        "properties" => {
-                          "predefined_metric_type" => {
-                            "type" => "string",
-                            "enum" => ["ASGAverageCPUUtilization", "ASGAverageNetworkIn", "ASGAverageNetworkOut", "ALBRequestCountPerTarget"],
-                            "default" => "ASGAverageCPUUtilization"
-                          }
-                        }
+                        "type" => "string",
+                        "enum" => ["ASGAverageCPUUtilization", "ASGAverageNetworkIn", "ASGAverageNetworkOut", "ALBRequestCountPerTarget"],
+                        "default" => "ASGAverageCPUUtilization"
                       },
                       "customized_metric_specification" => {
                         "type" => "object",
@@ -666,7 +689,7 @@ module MU
                           },
                           "dimensions" => {
                             "type" => "array",
-                            "description" => "What to monitor XXX dig up an example",
+                            "description" => "What resource to monitor with the alarm we are implicitly declaring",
                             "items" => {
                               "type" => "object",
                               "additionalProperties" => false,
@@ -674,11 +697,11 @@ module MU
                               "properties" => {
                                 "name" => {
                                   "type" => "string",
-                                  "description" => "XXX dig up an example"
+                                  "description" => "The type of resource we're monitoring, e.g. InstanceId or AutoScalingGroupName"
                                 },
                                 "value" => {
                                   "type" => "string",
-                                  "description" => "XXX dig up an example"
+                                  "description" => "The name or cloud identifier of the resource we're monitoring"
                                 }
                               }
                             }
@@ -755,6 +778,29 @@ module MU
             }
           end
 
+          scale_aliases = {
+            "scale_with_alb_traffic" => "ALBRequestCountPerTarget",
+            "scale_with_cpu" => "ASGAverageCPUUtilization",
+            "scale_with_network_in" => "ASGAverageNetworkIn",
+            "scale_with_network_out" => "ASGAverageNetworkOut"
+          }
+
+          scale_aliases.keys.each { |sp|
+            if pool[sp]
+              pool['scaling_policies'] ||= []
+              pool['scaling_policies'] << {
+                'name' => 'alb',
+                'adjustment' => 1,
+                'policy_type' => "TargetTrackingScaling",
+                'estimated_instance_warmup' => 60,
+                'target_tracking_configuration' => {
+                  'target_value' => pool[sp],
+                  'predefined_metric_specification' => scale_aliases[sp]
+                }
+              }
+            end
+          }
+
           if !pool["basis"]["launch_config"].nil?
             launch = pool["basis"]["launch_config"]
             launch['iam_policies'] ||= pool['iam_policies']
@@ -818,6 +864,12 @@ module MU
                        policy["target_tracking_configuration"]["predefined_metric_specification"]
                   MU.log "Your target_tracking_configuration must specify one of customized_metric_specification or predefined_metric_specification when 'policy_type' is set to 'TargetTrackingScaling'", MU::ERR
                   ok = false
+                end
+                # we gloss over an annoying layer of indirection in the API here
+                if policy["target_tracking_configuration"]["predefined_metric_specification"]
+                  policy["target_tracking_configuration"]["predefined_metric_specification"] = {
+                    "predefined_metric_type" => policy["target_tracking_configuration"]["predefined_metric_specification"]
+                  }
                 end
               elsif policy["policy_type"] == "StepScaling"
                 if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
