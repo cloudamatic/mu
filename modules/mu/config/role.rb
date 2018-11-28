@@ -26,13 +26,12 @@ module MU
           "description" => "Set up a cloud provider role for mapping permissions to other entities",
           "properties" => {
             "name" => { "type" => "string" },
-            }
           }
         }
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::role}, bare and unvalidated.
-      # @param queue [Hash]: The resource to process and validate
+      # @param role [Hash]: The resource to process and validate
       # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(role, configurator)

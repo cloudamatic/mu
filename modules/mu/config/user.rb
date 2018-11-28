@@ -25,13 +25,24 @@ module MU
           "additionalProperties" => false,
           "description" => "Set up a cloud provider user or machine account",
           "properties" => {
-            "name" => { "type" => "string" }
+            "name" => {
+              "type" => "string",
+              "description" => "The name of the account to create or associate."
+            },
+            "groups" => {
+              "type" => "array",
+              "description" => "One or more groups to associate with this user.",
+              "items" => {
+                "type" => "string",
+                "description" => "Name of a group of which this user should be a member. If there is a 'group' resource defined with this name in this Basket of Kittens, we will use that; if not, and if there is an existing cloud provider group in the appropriate account/project that matches, we will use that; if neither of those exists, we will implicitly create a matching group if it had been declared in this Basket of Kittens."
+              }
+            }
           }
         }
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::user}, bare and unvalidated.
-      # @param queue [Hash]: The resource to process and validate
+      # @param user [Hash]: The resource to process and validate
       # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(user, configurator)
