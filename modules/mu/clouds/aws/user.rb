@@ -38,12 +38,42 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+
+          begin
+            resp = MU::Cloud::AWS.iam.get_user(user_name: @mu_name)
+            if !@config['use_if_exists']
+              raise MuError, "IAM user #{@mu_name} already exists and fail_if_exists is true"
+            end
+
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log "Creating IAM user #{@mu_name}"
+            MU::Cloud::AWS.iam.create_user(
+              user_name: @mu_name,
+              tags: get_tag_params
+            )
+          end
+
+
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          resp = MU::Cloud::AWS.iam.list_user_tags(user_name: @mu_name)
+pp resp
+          tag_param = get_tag_params
+          if @config['use_if_exists']
+            tag_param.reject! { |t|
+              resp.tags.map { |x| x.key }.include?(t[:key])
+            }
+          end
+
+          if tag_param.size > 0
+            MU.log "Updating tags on IAM user #{@mu_name}", MU::NOTICE, details: tag_param
+            MU::Cloud::AWS.iam.tag_user(user_name: @mu_name, tags: tag_param)
+          end
           raise "NAH"
         end
+
 
         # Return the metadata for this user cofiguration
         # @return [Hash]
@@ -82,11 +112,16 @@ module MU
               "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user."
             },
             "tags" => MU::Config.tags_primitive,
-            "unique" => {
+            "optional_tags" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER)."
+            },
+            "unique_name" => {
               "type" => "boolean",
               "default" => false,
               "description" => "Instead of creating/updating a user account with
- the exact name specificed in the 'name' field, generate a unique-per-deploy Mu-
+ the exact name specified in the 'name' field, generate a unique-per-deploy Mu-
 style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
             },
           }
@@ -101,6 +136,29 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
           ok = true
 
           ok
+        end
+
+        private
+
+        def get_tag_params
+          @config['tags'] ||= []
+          MU::MommaCat.listStandardTags.each_pair { |key, value|
+            @config['tags'] << { "key" => key, "value" => value }
+          }
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              @config['tags'] << { "key" => key, "value" => value }
+            }
+          end
+
+          if @config['use_if_exists']
+            @config['tags'] << { "key" => "MU-NO-DELETE", "value" => "true" }
+          end
+
+          @config['tags'].map { |t|
+            { :key => t["key"], :value => t["value"] }
+          }
         end
 
       end

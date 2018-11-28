@@ -29,6 +29,11 @@ module MU
               "type" => "string",
               "description" => "The name of the account to create or associate."
             },
+            "use_if_exists" => {
+              "type" => "boolean",
+              "description" => "If we attempt to create or associate a user that already exists, simply modify that user in-place and use it, rather than throwing an error. If this flag is set, the user will *not* be deleted on cleanup, nor will we overwrite any existing tags on cloud platforms that support user tagging.",
+              "default" => true
+            },
             "groups" => {
               "type" => "array",
               "description" => "One or more groups to associate with this user.",

@@ -95,7 +95,7 @@ module MU
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => {
                 "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER).",
                 "default" => true
             },
             "add_firewall_rules" => MU::Config::FirewallRule.reference,

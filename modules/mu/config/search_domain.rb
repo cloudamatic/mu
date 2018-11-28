@@ -36,7 +36,7 @@ module MU
             },
             "optional_tags" => {
               "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER).",
             },
             "instance_count" => {
               "type" => "integer",
