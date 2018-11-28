@@ -133,10 +133,12 @@ module MU
 # XXX I think this is a NOOP?
       end
     end
+
     # Accessor for our Basket of Kittens schema definition, with various
     # cloud-specific details merged so we can generate documentation for them.
     def self.docSchema
       docschema = Marshal.load(Marshal.dump(@@schema))
+      only_children = {}
       MU::Cloud.resource_types.each_pair { |classname, attrs|
         MU::Cloud.supportedClouds.each { |cloud|
           begin
@@ -146,16 +148,55 @@ module MU
           end
           res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
           required, res_schema = res_class.schema(self)
+          res_schema.each { |key, cfg|
+            if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
+              only_children[attrs[:cfg_plural]] ||= {}
+              only_children[attrs[:cfg_plural]][key] ||= {}
+              only_children[attrs[:cfg_plural]][key][cloud] = cfg
+            end
+          }
+        }
+      }
+
+      # recursively chase down description fields in arrays and objects of our
+      # schema and prepend stuff to them for documentation
+      def self.prepend_descriptions(prefix, cfg)
+        cfg["description"] ||= ""
+        cfg["description"] = prefix+cfg["description"]
+        if cfg["type"] == "array" and cfg["items"]
+          cfg["items"] = prepend_descriptions(prefix, cfg["items"])
+        elsif cfg["type"] == "object" and cfg["properties"]
+          cfg["properties"].each_pair { |key, subcfg|
+            cfg["properties"][key] = prepend_descriptions(prefix, cfg["properties"][key])
+          }
+        end
+        cfg
+      end
+
+      MU::Cloud.resource_types.each_pair { |classname, attrs|
+        MU::Cloud.supportedClouds.each { |cloud|
+          res_class = nil
+          begin
+            res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
+          rescue MU::Cloud::MuCloudResourceNotImplemented
+            next
+          end
+          required, res_schema = res_class.schema(self)
           next if required.size == 0 and res_schema.size == 0
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
-            cfg["description"] = cloud.upcase+": "+cfg["description"]
+            cfg["description"] = "+"+cloud.upcase+"+: "+cfg["description"]
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
               MU.log "Munging #{cloud}-specific #{classname.to_s} schema into BasketofKittens => #{attrs[:cfg_plural]} => #{key}", MU::DEBUG, details: docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
             else
+              if only_children[attrs[:cfg_plural]][key]
+                prefix = "**("+only_children[attrs[:cfg_plural]][key].keys.map{ |x| x.upcase }.join(", ")+" ONLY)** "
+                cfg = prepend_descriptions(prefix, cfg)
+              end
+
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
             end
             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
@@ -166,6 +207,7 @@ module MU
           docschema['required'].uniq!
         }
       }
+
       docschema
     end
 
