@@ -1116,6 +1116,17 @@ module MU
     # Configuration chunk for creating resource tags as an array of key/value
     # pairs.
     # @return [Hash]
+    def self.optional_tags_primitive
+      {
+        "type" => "boolean",
+        "description" => "Tag the resource with our optional tags (+MU-HANDLE+, +MU-MASTER-NAME+, +MU-OWNER+).",
+        "default" => true
+      }
+    end
+
+    # Configuration chunk for creating resource tags as an array of key/value
+    # pairs.
+    # @return [Hash]
     def self.tags_primitive
       {
         "type" => "array",

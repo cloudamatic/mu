@@ -34,6 +34,16 @@ module MU
               "description" => "If we attempt to create or associate a user that already exists, simply modify that user in-place and use it, rather than throwing an error. If this flag is set, the user will *not* be deleted on cleanup, nor will we overwrite any existing tags on cloud platforms that support user tagging.",
               "default" => true
             },
+            "create_api_keys" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Create a set of cloud API keys for this user. Keys will be shared via Scratchpad for one-time retrieval."
+            },
+            "preserve_on_cleanup" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "If we create user ourselves, as opposed to re-using an existing one, this will instruct Mu to leave the user intact during the cleanup process."
+            },
             "groups" => {
               "type" => "array",
               "description" => "One or more groups to associate with this user.",

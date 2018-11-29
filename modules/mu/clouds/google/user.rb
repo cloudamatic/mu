@@ -89,7 +89,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(user, configurator)
           ok = true
-
+# XXX create_api_keys only valid for machine accounts?
           ok
         end
 

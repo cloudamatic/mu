@@ -40,11 +40,7 @@ module MU
             "region" => MU::Config.region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER).",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "alarms" => MU::Config::Alarm.inline,
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => MU::Config::FirewallRule.reference,

@@ -168,14 +168,16 @@ module MU
               end
             }
           }
+          MU::Cloud::User.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["User"]) > 0
         }
+
+        # knock over region-agnostic resources
 
         @regionthreads.each do |t|
           t.join
         end
         @projectthreads = []
 
-        # knock over region-agnostic resources
 
         projects["Google"].each { |project|
           @projectthreads << Thread.new {

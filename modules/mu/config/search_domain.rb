@@ -29,14 +29,11 @@ module MU
             "region" => MU::Config.region_primitive,
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET + MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
             "tags" => MU::Config.tags_primitive,
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "add_firewall_rules" => MU::Config::FirewallRule.reference,
             "ingress_rules" => {
               "type" => "array",
               "items" => MU::Config::FirewallRule.ruleschema
-            },
-            "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER).",
             },
             "instance_count" => {
               "type" => "integer",

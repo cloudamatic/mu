@@ -41,11 +41,7 @@ module MU
             "min_size" => {"type" => "integer"},
             "max_size" => {"type" => "integer"},
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER).",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "desired_capacity" => {
                 "type" => "integer",
                 "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."

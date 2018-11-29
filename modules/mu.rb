@@ -632,7 +632,7 @@ module MU
     rescue NameError
     end
 
-    if struct.is_a?(Struct) or google_struct
+    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or google_struct
 
       hash = struct.to_h
       hash.each_pair { |key, value|

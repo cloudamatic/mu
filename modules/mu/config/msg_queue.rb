@@ -28,10 +28,7 @@ module MU
             "name" => { "type" => "string" },
             "region" => MU::Config.region_primitive,
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER).",
-            }
+            "optional_tags" => MU::Config.optional_tags_primitive
           }
         }
       end

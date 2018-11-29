@@ -46,16 +46,13 @@ module MU
             "default" => 3
           },
           "tags" => MU::Config.tags_primitive,
+          "optional_tags" => MU::Config.optional_tags_primitive,
           "memory" => {
             "type" => "integer",
             "default" => 128,
             "description" => "Memory to allocation for function, in MB. The value must be a multiple of 64 MB."
           },
           "dependencies" => MU::Config.dependencies_primitive,
-          "optional_tags" => {
-            "type" => "boolean",
-            "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER)."
-          },
           "triggers" => {
             "type" => "array",
             "items" => {

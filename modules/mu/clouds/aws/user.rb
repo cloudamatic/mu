@@ -40,46 +40,85 @@ module MU
         def create
 
           begin
-            resp = MU::Cloud::AWS.iam.get_user(user_name: @mu_name)
+            MU::Cloud::AWS.iam.get_user(user_name: @mu_name, path: @config['path'])
             if !@config['use_if_exists']
               raise MuError, "IAM user #{@mu_name} already exists and fail_if_exists is true"
             end
-
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Creating IAM user #{@mu_name}"
+            @config['path'] ||= "/"+@deploy.deploy_id+"/"
+            MU.log "Creating IAM user #{@config['path']}/#{@mu_name}"
+            tags = get_tag_params
             MU::Cloud::AWS.iam.create_user(
               user_name: @mu_name,
-              tags: get_tag_params
+              path: @config['path'],
+              tags: tags
             )
           end
-
 
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
           resp = MU::Cloud::AWS.iam.list_user_tags(user_name: @mu_name)
-pp resp
-          tag_param = get_tag_params
-          if @config['use_if_exists']
-            tag_param.reject! { |t|
-              resp.tags.map { |x| x.key }.include?(t[:key])
-            }
-          end
+
+          ext_tags = resp.tags.map { |t| t.to_h }
+          tag_param = get_tag_params(true)
+          tag_param.reject! { |t| ext_tags.include?(t) }
 
           if tag_param.size > 0
             MU.log "Updating tags on IAM user #{@mu_name}", MU::NOTICE, details: tag_param
             MU::Cloud::AWS.iam.tag_user(user_name: @mu_name, tags: tag_param)
           end
-          raise "NAH"
+          # Note: We don't delete tags, because we often share user accounts
+          # managed outside of Mu. We have no way of know what tags might come
+          # from other things, so we err on the side of caution instead of 
+          # deleting stuff.
+
+          if @config['create_console_password']
+            begin
+              MU::Cloud::AWS.iam.get_login_profile(user_name: @mu_name)
+            rescue Aws::IAM::Errors::NoSuchEntity
+              pw = Password.pronounceable(12..14)
+              retries = 0
+              begin
+                MU::Cloud::AWS.iam.create_login_profile(
+                  user_name: @mu_name,
+                  password: pw
+                )
+                scratchitem = MU::Master.storeScratchPadSecret("AWS Console password for user #{@mu_name}: #{pw}")
+                MU.log "User #{@mu_name}'s AWS Console password can be retrieved from: https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}", MU::SUMMARY
+              rescue Aws::IAM::Errors::PasswordPolicyViolation => e
+                if retries < 1
+                  pw = MU.generateWindowsPassword
+                  retries += 1
+                  sleep 1
+                  retry
+                else
+                  MU.log "Error setting password for #{e.message}", MU::WARN
+                end
+              end
+            end
+          end
+
+          if @config['create_api_keys']
+            resp = MU::Cloud::AWS.iam.list_access_keys(
+              user_name: @mu_name
+            )
+            if resp.access_key_metadata.size == 0
+              resp = MU::Cloud::AWS.iam.create_access_key(
+                user_name: @mu_name
+              )
+              scratchitem = MU::Master.storeScratchPadSecret("AWS Access Key and Secret for user #{@mu_name}:\nKEY: #{resp.access_key.access_key_id}\nSECRET: #{resp.access_key.secret_access_key}")
+              MU.log "User #{@mu_name}'s AWS Key and Secret can be retrieved from: https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}", MU::SUMMARY
+            end
+          end
         end
 
 
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          {
-          }
+          MU.structToHash(MU::Cloud::AWS.iam.get_user(user_name: @mu_name).user)
         end
 
         # Remove all users associated with the currently loaded deployment.
@@ -88,6 +127,43 @@ pp resp
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          resp = MU::Cloud::AWS.iam.list_users
+
+          # XXX this response includes a tags attribute, but it's always empty,
+          # even when the user is tagged. So we go through the extra call for
+          # each user. Inefficient. Probably Amazon's bug.
+          resp.users.each { |u|
+            tags = MU::Cloud::AWS.iam.list_user_tags(
+              user_name: u.user_name
+            ).tags
+            has_nodelete = false
+            has_ourdeploy = false
+            tags.each { |tag|
+              if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                has_ourdeploy = true
+              elsif tag.key == "MU-NO-DELETE" and tag.value == "true"
+                has_nodelete = true
+              end
+            }
+            if has_ourdeploy and !has_nodelete
+              MU.log "Deleting IAM user #{u.path}#{u.user_name}"
+              if !@noop
+                begin
+                  profile = MU::Cloud::AWS.iam.get_login_profile(
+                    user_name: u.user_name
+                  )
+                  MU.log "Deleting IAM login profile for #{u.user_name}"
+                  MU::Cloud::AWS.iam.delete_login_profile(
+                    user_name: u.user_name
+                  )
+                rescue Aws::IAM::Errors::NoSuchEntity
+                end
+                MU::Cloud::AWS.iam.delete_user(user_name: u.user_name)
+              end
+            end
+          }
+
+#          MU.log "CLEANUP CALLED ON AWS::USER", MU::WARN, details: resp
         end
 
         # Locate an existing user group.
@@ -97,6 +173,13 @@ pp resp
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           found = nil
+
+          resp = MU::Cloud::AWS.iam.get_user(user_name: cloud_id)
+          if resp and resp.user
+            found ||= {}
+            found[cloud_id] = resp.user
+          end
+
           MU.log "IN User.find cloud_id: #{cloud_id}", MU::WARN, details: flags
           found
         end
@@ -111,12 +194,13 @@ pp resp
               "type" => "string",
               "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user."
             },
-            "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-              "type" => "boolean",
-              "default" => true,
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER)."
+            "path" => {
+              "type" => "string",
+              "description" => "AWS IAM users can be namespaced with a path (ex: +/organization/unit/user+). If not specified, and if we do not see a matching existing user under +/+ with +use_if_exists+ set, we will prepend the deploy identifier to the path of users we create. Ex: +/IAMTESTS-DEV-2018112910-GR/myuser+.",
+              "pattern" => '^\/(?:[^\/]+(?:\/[^\/]+)*\/$)?'
             },
+            "tags" => MU::Config.tags_primitive,
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "unique_name" => {
               "type" => "boolean",
               "default" => false,
@@ -124,6 +208,11 @@ pp resp
  the exact name specified in the 'name' field, generate a unique-per-deploy Mu-
 style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
             },
+            "create_console_password" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Generate a password for this user, for use logging into the AWS Console. It will be shared via Scratchpad for one-time retrieval."
+            }
           }
           [toplevel_required, schema]
         end
@@ -140,19 +229,22 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
 
         private
 
-        def get_tag_params
+        def get_tag_params(strip_std = false)
           @config['tags'] ||= []
-          MU::MommaCat.listStandardTags.each_pair { |key, value|
-            @config['tags'] << { "key" => key, "value" => value }
-          }
 
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each { |key, value|
+          if !strip_std
+            MU::MommaCat.listStandardTags.each_pair { |key, value|
               @config['tags'] << { "key" => key, "value" => value }
             }
+
+            if @config['optional_tags']
+              MU::MommaCat.listOptionalTags.each { |key, value|
+                @config['tags'] << { "key" => key, "value" => value }
+              }
+            end
           end
 
-          if @config['use_if_exists']
+          if @config['preserve_on_cleanup']
             @config['tags'] << { "key" => "MU-NO-DELETE", "value" => "true" }
           end
 
