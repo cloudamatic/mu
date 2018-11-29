@@ -29,11 +29,18 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+#          @mu_name ||= @deploy.getResourceName(@config["name"])
+          @mu_name ||= @config["name"]
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          bind_user
+        end
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          bind_user
         end
 
         # Return the metadata for this user cofiguration
@@ -69,15 +76,20 @@ module MU
           schema = {
             "name" => {
               "type" => "string",
-              "description" => "This must be the email address of an existing Google user account (foo@gmail.com), or of a federated GSuite or Cloud Identity domain account from your organization."
+              "description" => "This must be the email address of an existing Google user account (+foo@gmail.com+), or of a federated GSuite or Cloud Identity domain account from your organization."
             },
             "roles" => {
               "type" => "array",
               "description" => "One or more Google IAM roles to associate with this user.",
+              "default" => ["roles/viewer"],
               "items" => {
                 "type" => "string",
-                "description" => "Name of a Google IAM role to associate, such as roles/viewer"
+                "description" => "Name of a Google IAM role to associate. Google Cloud human user accounts (as distinct from service accounts) are not created directly; pre-existing Google accounts are associated with a project by being bound to one or more roles in that project. If no roles are specified, we default to +roles/viewer+, which permits read-only access project-wide."
               }
+            },
+            "project" => {
+              "type" => "string",
+              "description" => "The project into which to deploy resources"
             }
           }
           [toplevel_required, schema]
@@ -89,8 +101,57 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(user, configurator)
           ok = true
+
+          # admin_directory only works in a GSuite environment
+          if !user['name'].match(/@gmail\.com$/i) and $MU_CFG['google']['masquerade_as']
+# XXX flesh this check out
+            pp MU::Cloud::Google.admin_directory.get_user(user['name'])
+          end
+
 # XXX create_api_keys only valid for machine accounts?
           ok
+        end
+
+        private
+
+        def bind_user
+          bindings = []
+          ext_policy = MU::Cloud::Google.resource_manager.get_project_iam_policy(
+            @config['project']
+          )
+
+          change_needed = false
+          @config['roles'].each { |role|
+            seen = false
+            ext_policy.bindings.each { |b|
+              if b.role == role
+                seen = true
+                if !b.members.include?("user:"+@config['name'])
+                  change_needed = true
+                  b.members << "user:"+@config['name']
+                end
+              end
+            }
+            if !seen
+              ext_policy.bindings << MU::Cloud::Google.resource_manager(:Binding).new(
+                role: role,
+                members: ["user:"+@config['name']]
+              )
+              change_needed = true
+            end
+          }
+
+          if change_needed
+            req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
+              policy: ext_policy
+            )
+            MU.log "Adding #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
+
+            MU::Cloud::Google.resource_manager.set_project_iam_policy(
+              @config['project'],
+              req_obj
+            )
+          end
         end
 
       end

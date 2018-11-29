@@ -381,6 +381,24 @@ module MU
         end
       end
 
+      # GCP's AdminDirectory Service API
+      # @param subclass [<Google::Apis::AdminDirectoryV1>]: If specified, will return the class ::Google::Apis::AdminDirectoryV1::subclass instead of an API client instance
+      def self.admin_directory(subclass = nil)
+        require 'google/apis/admin_directory_v1'
+    
+        if subclass.nil?
+          begin
+            @@admin_directory_api ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly'], masquerade: $MU_CFG['google']['masquerade_as'])
+          rescue Signet::AuthorizationError => e
+            MU.log "Cannot masquerade as #{$MU_CFG['google']['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
+            raise e
+          end
+          return @@admin_directory_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
+        end
+      end
+
       # Google's Cloud Resource Manager API
       # @param subclass [<Google::Apis::CloudresourcemanagerV1>]: If specified, will return the class ::Google::Apis::CloudresourcemanagerV1::subclass instead of an API client instance
       def self.resource_manager(subclass = nil)
@@ -458,9 +476,13 @@ module MU
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil)
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
+          if masquerade
+            @api.authorization.sub = masquerade
+            @api.authorization.fetch_access_token!
+          end
         end
 
         # Generic wrapper for deleting Compute resources
@@ -715,6 +737,7 @@ module MU
       @@logging_api = nil
       @@resource_api = nil
       @@service_api = nil
+      @@admin_directory_api = nil
     end
   end
 end

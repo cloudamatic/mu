@@ -158,6 +158,18 @@ module MU
                   )
                 rescue Aws::IAM::Errors::NoSuchEntity
                 end
+                keys = MU::Cloud::AWS.iam.list_access_keys(
+                  user_name: u.user_name
+                )
+                if keys.access_key_metadata.size > 0
+                  keys.access_key_metadata.each { |key|
+                    MU.log "Deleting IAM access key #{key.access_key_id} for #{u.user_name}"
+                    keys = MU::Cloud::AWS.iam.delete_access_key(
+                      user_name: u.user_name,
+                      access_key_id: key.access_key_id
+                    )
+                  }
+                end
                 MU::Cloud::AWS.iam.delete_user(user_name: u.user_name)
               end
             end
