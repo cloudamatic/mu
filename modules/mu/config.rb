@@ -161,8 +161,9 @@ module MU
       # recursively chase down description fields in arrays and objects of our
       # schema and prepend stuff to them for documentation
       def self.prepend_descriptions(prefix, cfg)
-        cfg["description"] ||= ""
-        cfg["description"] = prefix+cfg["description"]
+#        cfg["description"] ||= ""
+#        cfg["description"] = prefix+cfg["description"]
+        cfg["prefix"] = prefix
         if cfg["type"] == "array" and cfg["items"]
           cfg["items"] = prepend_descriptions(prefix, cfg["items"])
         elsif cfg["type"] == "object" and cfg["properties"]
@@ -193,7 +194,7 @@ module MU
               MU.log "Munging #{cloud}-specific #{classname.to_s} schema into BasketofKittens => #{attrs[:cfg_plural]} => #{key}", MU::DEBUG, details: docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
             else
               if only_children[attrs[:cfg_plural]][key]
-                prefix = "**("+only_children[attrs[:cfg_plural]][key].keys.map{ |x| x.upcase }.join(", ")+" ONLY)** "
+                prefix = only_children[attrs[:cfg_plural]][key].keys.map{ |x| x.upcase }.join(" & ")+" ONLY"
                 cfg = prepend_descriptions(prefix, cfg)
               end
 
@@ -1676,7 +1677,7 @@ module MU
 
     # Emit our Basket of Kittesn schema in a format that YARD can comprehend
     # and turn into documentation.
-    def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false)
+    def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
       return if schema.nil?
       if schema["type"] == "object"
         printme = Array.new
@@ -1705,7 +1706,7 @@ module MU
               req = false
             end
 
-            printme << self.printSchema(dummy_kitten_class, class_hierarchy+ [name], prop, false, req)
+            printme << self.printSchema(dummy_kitten_class, class_hierarchy+ [name], prop, false, req, prefix: schema["prefix"])
           }
           printme << "# @!endgroup"
         end
@@ -1741,7 +1742,8 @@ module MU
         end
 
         docstring = "\n"
-        docstring = docstring + "# **REQUIRED.**\n" if required
+        docstring = docstring + "# **REQUIRED**\n" if required
+        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
         docstring = docstring + "#\n"
         docstring = docstring + "# @return [#{type}]\n"
@@ -1750,7 +1752,7 @@ module MU
         return docstring
 
       elsif schema["type"] == "array"
-        return self.printSchema(dummy_kitten_class, class_hierarchy, schema['items'], true, required)
+        return self.printSchema(dummy_kitten_class, class_hierarchy, schema['items'], true, required, prefix: prefix)
       else
         name = class_hierarchy.last
         if schema['type'].nil?
@@ -1763,15 +1765,23 @@ module MU
           type = schema['type'].capitalize
         end
         docstring = "\n"
-        docstring = docstring + "# **REQUIRED.**\n" if required and schema['default'].nil?
-        docstring = docstring + "# Default: `#{schema['default']}`\n" if !schema['default'].nil?
+
+        prefixes = []
+        prefixes << "# **REQUIRED**" if required and schema['default'].nil?
+        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
+        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
         if !schema['enum'].nil?
-          docstring = docstring + "# Must be one of: `#{schema['enum'].join(', ')}.`\n"
+          prefixes << "# **Must be one of: `#{schema['enum'].join(', ')}`**"
         elsif !schema['pattern'].nil?
           # XXX unquoted regex chars confuse the hell out of YARD. How do we
           # quote {}[] etc in YARD-speak?
-          docstring = docstring + "# Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`.\n"
+          prefixes << "# **Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`**"
         end
+
+        if prefixes.size > 0
+          docstring += prefixes.join(",\n")+" - \n"
+        end
+
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
         docstring = docstring + "#\n"
         docstring = docstring + "# @return [#{type}]\n"
