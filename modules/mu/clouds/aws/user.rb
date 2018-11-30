@@ -29,7 +29,7 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-          @mu_name ||= if @config['unique']
+          @mu_name ||= if @config['unique_name']
             @deploy.getResourceName(@config["name"])
           else
             @config['name']
@@ -42,7 +42,7 @@ module MU
           begin
             MU::Cloud::AWS.iam.get_user(user_name: @mu_name, path: @config['path'])
             if !@config['use_if_exists']
-              raise MuError, "IAM user #{@mu_name} already exists and fail_if_exists is true"
+              raise MuError, "IAM user #{@mu_name} already exists and use_if_exists is false"
             end
           rescue Aws::IAM::Errors::NoSuchEntity => e
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
@@ -118,7 +118,9 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          MU.structToHash(MU::Cloud::AWS.iam.get_user(user_name: @mu_name).user)
+          descriptor = MU.structToHash(MU::Cloud::AWS.iam.get_user(user_name: @mu_name).user)
+          descriptor["cloud_id"] = @mu_name
+          descriptor
         end
 
         # Remove all users associated with the currently loaded deployment.
@@ -186,13 +188,15 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           found = nil
 
-          resp = MU::Cloud::AWS.iam.get_user(user_name: cloud_id)
-          if resp and resp.user
-            found ||= {}
-            found[cloud_id] = resp.user
+          begin
+            resp = MU::Cloud::AWS.iam.get_user(user_name: cloud_id)
+            if resp and resp.user
+              found ||= {}
+              found[cloud_id] = resp.user
+            end
+          rescue ::Aws::IAM::Errors::NoSuchEntity
           end
 
-          MU.log "IN User.find cloud_id: #{cloud_id}", MU::WARN, details: flags
           found
         end
 
@@ -235,6 +239,32 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(user, configurator)
           ok = true
+
+          if user['groups']
+            user['groups'].each { |group|
+              need_dependency = false
+              if configurator.haveLitterMate?(group, "groups")
+                need_dependency = true
+              else
+                found = MU::Cloud::AWS::Group.find(cloud_id: group)
+                if found.nil? or found.empty? 
+                  groupdesc = {
+                    "name" => group
+                  }
+                  configurator.insertKitten(groupdesc, "groups")
+                  need_dependency = true
+                end
+              end
+
+              if need_dependency
+                user["dependencies"] ||= []
+                user["dependencies"] << {
+                  "type" => "group",
+                  "name" => group
+                }
+              end
+            }
+          end
 
           ok
         end

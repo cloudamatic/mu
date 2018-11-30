@@ -815,7 +815,10 @@ module MU
                 }
               end
               siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
-              insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+              if !siblingfw["#MU_VALIDATED"]
+# XXX raise failure somehow
+                insertKitten(siblingfw, "firewall_rules")
+              end
             end
           }
         end
@@ -881,7 +884,9 @@ module MU
           # things that live in subnets need their VPCs to be fully
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
-            insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+            if !siblingvpc["#MU_VALIDATED"]
+              ok = false if !insertKitten(siblingvpc, "vpcs")
+            end
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
@@ -970,7 +975,9 @@ module MU
               "name" => acl_include["rule_name"]
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            if !siblingfw["#MU_VALIDATED"]
+              ok = false if !insertKitten(siblingfw, "firewall_rules")
+            end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -1653,7 +1660,7 @@ module MU
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
-#      raise ValidationError if !ok
+      raise ValidationError if !ok
 
 # XXX Does commenting this out make sense? Do we want to apply it to top-level
 # keys and ignore resources, which validate when insertKitten is called now?

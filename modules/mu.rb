@@ -632,7 +632,14 @@ module MU
     rescue NameError
     end
 
-    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or google_struct
+    aws_struct = false
+    begin
+      aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
+    rescue NameError
+    end
+
+    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
+       google_struct or aws_struct
 
       hash = struct.to_h
       hash.each_pair { |key, value|

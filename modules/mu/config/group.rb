@@ -35,6 +35,11 @@ module MU
                 "type" => "string",
                 "description" => "One or more user accounts to add to this group."
               }
+            },
+            "use_if_exists" => {
+              "type" => "boolean",
+              "description" => "If we attempt to create or associate a group that already exists, simply group that user in-place and use it, rather than throwing an error. If this flag is set, the group will *not* be deleted on cleanup.",
+              "default" => true
             }
           }
         }
