@@ -24,17 +24,24 @@ module MU
           "type" => "object",
           "additionalProperties" => false,
           "description" => "Set up a cloud provider user or machine account",
+          "required" => ["name", "type"],
           "properties" => {
             "name" => {
               "type" => "string",
               "description" => "The name of the account to create or associate."
+            },
+            "type" => {
+              "type" => "string",
+              "description" => "Indicates whether to create or associate an account meant for interactive human use, or for a machine or service.",
+              "enum" => ["interactive", "service"],
+              "default" => "interactive"
             },
             "use_if_exists" => {
               "type" => "boolean",
               "description" => "If we attempt to create or associate a user that already exists, simply modify that user in-place and use it, rather than throwing an error. If this flag is set, the user will *not* be deleted on cleanup, nor will we overwrite any existing tags on cloud platforms that support user tagging.",
               "default" => true
             },
-            "create_api_keys" => {
+            "create_api_key" => {
               "type" => "boolean",
               "default" => false,
               "description" => "Create a set of cloud API keys for this user. Keys will be shared via Scratchpad for one-time retrieval."
@@ -42,14 +49,14 @@ module MU
             "preserve_on_cleanup" => {
               "type" => "boolean",
               "default" => false,
-              "description" => "If we create user ourselves, as opposed to re-using an existing one, this will instruct Mu to leave the user intact during the cleanup process."
+              "description" => "Leave the user intact during the cleanup process. If we are re-using an existing user, rather than creating one ourselves, this option has no effect- that user will always be left intact."
             },
             "groups" => {
               "type" => "array",
               "description" => "One or more groups to associate with this user.",
               "items" => {
                 "type" => "string",
-                "description" => "Name of a group of which this user should be a member. If there is a 'group' resource defined with this name in this Basket of Kittens, we will use that; if not, and if there is an existing cloud provider group in the appropriate account/project that matches, we will use that; if neither of those exists, we will implicitly create a matching group if it had been declared in this Basket of Kittens."
+                "description" => "One or more groups to associate with this user. If there is a 'group' resource defined with this name in this Basket of Kittens, we will use that; if not, and if there is an existing cloud provider group in the appropriate account/project that matches, we will use that; if neither of those exists, we will implicitly create a matching group if it had been declared in this Basket of Kittens."
               }
             }
           }
@@ -62,6 +69,7 @@ module MU
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(user, configurator)
         ok = true
+
         ok
       end
 

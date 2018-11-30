@@ -36,7 +36,7 @@ module MU
         def create
         end
 
-        # Return the metadata for this group cofiguration
+        # Return the metadata for this group configuration
         # @return [Hash]
         def notify
           {

@@ -73,26 +73,6 @@ module MU
         flags["project"] ||= MU::Cloud::Google.defaultProject
         name = deploy_id+"-secret"
 
-        resp = MU::Cloud::Google.iam.list_project_service_accounts(
-          "projects/"+flags["project"]
-        )
-
-        # XXX this doesn't belong here; it's global, and it's not really a
-        # server-specific thing
-        if resp and resp.accounts and MU.deploy_id
-          resp.accounts.each { |sa|
-            if sa.display_name.match(/^#{Regexp.quote(MU.deploy_id.downcase)}-/)
-              begin
-                MU.log "Deleting service account #{sa.name}", details: sa
-                if !noop
-                  MU::Cloud::Google.iam.delete_project_service_account(sa.name)
-                end
-              rescue ::Google::Apis::ClientError => e
-                raise e if !e.message.match(/^notFound: /)
-              end
-            end
-          }
-        end
       end
 
       # Grant access to appropriate Cloud Storage objects in our log/secret bucket for a deploy member.

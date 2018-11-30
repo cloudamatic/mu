@@ -189,7 +189,7 @@ module MU
           )
         end
 
-        # Return the metadata for this log cofiguration
+        # Return the metadata for this log configuration
         # @return [Hash]
         def notify
           {

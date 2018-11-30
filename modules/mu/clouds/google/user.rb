@@ -29,23 +29,75 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-#          @mu_name ||= @deploy.getResourceName(@config["name"])
-          @mu_name ||= @config["name"]
+          @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          bind_user
+          if @config['type'] == "interactive"
+            bind_human_user
+          else
+            req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
+              account_id: @deploy.getResourceName(@config["name"], max_length: 30).downcase,
+              service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
+                display_name: @mu_name
+              )
+            )
+            MU.log "Creating service account #{@mu_name}"
+            MU::Cloud::Google.iam.create_service_account(
+              "projects/"+@config['project'],
+              req_obj
+            )
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          bind_user
+          if @config['type'] == "interactive"
+            bind_human_user
+          else
+            if @config['create_api_key']
+              resp = MU::Cloud::Google.iam.list_project_service_account_keys(
+                cloud_desc.name
+              )
+              if resp.keys.size == 0
+                MU.log "Generating API keys for service account #{@mu_name}"
+                resp = MU::Cloud::Google.iam.create_service_account_key(
+                  cloud_desc.name
+                )
+                scratchitem = MU::Master.storeScratchPadSecret("Google Cloud Service Account credentials for #{@mu_name}:\n<pre style='text-align:left;'>#{resp.private_key_data}</pre>")
+                MU.log "User #{@mu_name}'s Google Cloud Service Account credentials can be retrieved from: https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}", MU::SUMMARY
+              end
+            end
+          end
         end
 
-        # Return the metadata for this user cofiguration
+        def cloud_desc
+          if @config['type'] == "interactive"
+            return nil
+          else
+            resp = MU::Cloud::Google.iam.list_project_service_accounts(
+              "projects/"+@config["project"]
+            )
+
+            if resp and resp.accounts
+              resp.accounts.each { |sa|
+                if sa.display_name and sa.display_name == @mu_name
+                  return sa
+                end
+              }
+            end
+          end
+        end
+
+        # Return the metadata for this user configuration
         # @return [Hash]
         def notify
+          description = MU.structToHash(cloud_desc)
+          if description
+            description.delete(:etag)
+            return description
+          end
           {
           }
         end
@@ -56,6 +108,25 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject
+          resp = MU::Cloud::Google.iam.list_project_service_accounts(
+            "projects/"+flags["project"]
+          )
+
+          if resp and resp.accounts and MU.deploy_id
+            resp.accounts.each { |sa|
+              if sa.display_name and sa.display_name.match(/^#{Regexp.quote(MU.deploy_id)}-/i)
+                begin
+                  MU.log "Deleting service account #{sa.name}", details: sa
+                  if !noop
+                    MU::Cloud::Google.iam.delete_project_service_account(sa.name)
+                  end
+                rescue ::Google::Apis::ClientError => e
+                  raise e if !e.message.match(/^notFound: /)
+                end
+              end
+            }
+          end
         end
 
         # Locate an existing user group.
@@ -65,6 +136,19 @@ module MU
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           found = nil
+          resp = MU::Cloud::Google.iam.list_project_service_accounts(
+            "projects/"+flags["project"]
+          )
+
+          if resp and resp.accounts
+            resp.accounts.each { |sa|
+              if sa.display_name and sa.display_name == cloud_id
+                found ||= {}
+                found[cloud_id] = sa
+              end
+            }
+          end
+
           found
         end
 
@@ -78,13 +162,17 @@ module MU
               "type" => "string",
               "description" => "This must be the email address of an existing Google user account (+foo@gmail.com+), or of a federated GSuite or Cloud Identity domain account from your organization."
             },
+            "type" => {
+              "type" => "string",
+              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys"
+            },
             "roles" => {
               "type" => "array",
               "description" => "One or more Google IAM roles to associate with this user.",
               "default" => ["roles/viewer"],
               "items" => {
                 "type" => "string",
-                "description" => "Name of a Google IAM role to associate. Google Cloud human user accounts (as distinct from service accounts) are not created directly; pre-existing Google accounts are associated with a project by being bound to one or more roles in that project. If no roles are specified, we default to +roles/viewer+, which permits read-only access project-wide."
+                "description" => "One or more Google IAM roles to associate with this user. Google Cloud human user accounts (as distinct from service accounts) are not created directly; pre-existing Google accounts are associated with a project by being bound to one or more roles in that project. If no roles are specified, we default to +roles/viewer+, which permits read-only access project-wide."
               }
             },
             "project" => {
@@ -103,18 +191,22 @@ module MU
           ok = true
 
           # admin_directory only works in a GSuite environment
-          if !user['name'].match(/@gmail\.com$/i) and $MU_CFG['google']['masquerade_as']
-# XXX flesh this check out
+          if !user['name'].match(/@/i) and $MU_CFG['google']['masquerade_as']
+            # XXX flesh this check out, need to test with a GSuite site
             pp MU::Cloud::Google.admin_directory.get_user(user['name'])
           end
 
-# XXX create_api_keys only valid for machine accounts?
+          if user['type'] != "service" and user["create_api_key"]
+            MU.log "Only service accounts can have API keys in Google Cloud", MU::ERR
+            ok = false
+          end
+
           ok
         end
 
         private
 
-        def bind_user
+        def bind_human_user
           bindings = []
           ext_policy = MU::Cloud::Google.resource_manager.get_project_iam_policy(
             @config['project']

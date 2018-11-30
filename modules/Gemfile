@@ -37,7 +37,7 @@ gem 'nokogiri', "~> 1.8.4"
 gem 'solve', '~> 4.0.0'
 gem 'net-ldap'
 gem 'googleauth', "~> 0.6.6"
-gem 'google-api-client', '~> 0.19.8'
+gem 'google-api-client', "~> 0.25.0"
 gem 'chef-sugar'
 gem 'winrm', '~> 2.2.3'
 gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :branch => "winrm_cert_auth"

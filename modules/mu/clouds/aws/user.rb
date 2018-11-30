@@ -85,7 +85,7 @@ module MU
                   user_name: @mu_name,
                   password: pw
                 )
-                scratchitem = MU::Master.storeScratchPadSecret("AWS Console password for user #{@mu_name}: #{pw}")
+                scratchitem = MU::Master.storeScratchPadSecret("AWS Console password for user #{@mu_name}:\n<pre>#{pw}</pre>")
                 MU.log "User #{@mu_name}'s AWS Console password can be retrieved from: https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}", MU::SUMMARY
               rescue Aws::IAM::Errors::PasswordPolicyViolation => e
                 if retries < 1
