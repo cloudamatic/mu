@@ -34,6 +34,12 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          bind_group
+        end
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          bind_group
         end
 
         # Return the metadata for this group configuration
@@ -67,6 +73,23 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "name" => {
+              "type" => "string",
+              "description" => "This must be the email address of an existing Google Group (+foo@googlegroups.com+), or of a federated GSuite or Cloud Identity domain group from your organization."
+            },
+            "roles" => {
+              "type" => "array",
+              "description" => "One or more Google IAM roles to associate with this group.",
+              "default" => ["roles/viewer"],
+              "items" => {
+                "type" => "string",
+                "description" => "One or more Google IAM roles to associate with this group. Google Cloud groups are not created directly; pre-existing Google Groups are associated with a project by being bound to one or more roles in that project. If no roles are specified, we default to +roles/viewer+, which permits read-only access project-wide."
+              }
+            },
+            "project" => {
+              "type" => "string",
+              "description" => "The project into which to deploy resources"
+            }
           }
           [toplevel_required, schema]
         end
@@ -77,8 +100,62 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(group, configurator)
           ok = true
+          if group['members'] and group['members'].size > 0 and
+             !$MU_CFG['google']['masquerade_as']
+            MU.log "Cannot change Google group memberships in non-GSuite environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
+            ok = false
+          end
 
           ok
+        end
+
+        private
+
+        def bind_group
+          bindings = []
+          ext_policy = MU::Cloud::Google.resource_manager.get_project_iam_policy(
+            @config['project']
+          )
+
+          change_needed = false
+          @config['roles'].each { |role|
+            seen = false
+            ext_policy.bindings.each { |b|
+              if b.role == role
+                seen = true
+                if !b.members.include?("user:"+@config['name'])
+                  change_needed = true
+                  b.members << "group:"+@config['name']
+                end
+              end
+            }
+            if !seen
+              ext_policy.bindings << MU::Cloud::Google.resource_manager(:Binding).new(
+                role: role,
+                members: ["group:"+@config['name']]
+              )
+              change_needed = true
+            end
+          }
+
+          if change_needed
+            req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
+              policy: ext_policy
+            )
+            MU.log "Adding group #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
+
+            begin
+              MU::Cloud::Google.resource_manager.set_project_iam_policy(
+                @config['project'],
+                req_obj
+              )
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/does not exist/i) and !$MU_CFG['google']['masquerade_as']
+                raise MuError, "Group #{@config['name']} does not exist, and we cannot create Google groups in non-GSuite environments.\nVisit https://groups.google.com to manage groups."
+              end
+              raise e
+            end
+          end
         end
 
       end

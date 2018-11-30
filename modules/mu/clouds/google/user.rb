@@ -196,6 +196,12 @@ module MU
             pp MU::Cloud::Google.admin_directory.get_user(user['name'])
           end
 
+          if user['groups'] and user['groups'].size > 0 and
+             !$MU_CFG['google']['masquerade_as']
+            MU.log "Cannot change Google group memberships in non-GSuite environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
+            ok = false
+          end
+
           if user['type'] != "service" and user["create_api_key"]
             MU.log "Only service accounts can have API keys in Google Cloud", MU::ERR
             ok = false
@@ -239,10 +245,17 @@ module MU
             )
             MU.log "Adding #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
 
-            MU::Cloud::Google.resource_manager.set_project_iam_policy(
-              @config['project'],
-              req_obj
-            )
+            begin
+              MU::Cloud::Google.resource_manager.set_project_iam_policy(
+                @config['project'],
+                req_obj
+              )
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/does not exist/i) and !$MU_CFG['google']['masquerade_as']
+                raise MuError, "User #{@config['name']} does not exist, and we cannot create Google user in non-GSuite environments.\nVisit https://accounts.google.com to create new accounts."
+              end
+              raise e
+            end
           end
         end
 

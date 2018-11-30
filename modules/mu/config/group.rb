@@ -24,8 +24,18 @@ module MU
           "type" => "object",
           "additionalProperties" => false,
           "description" => "Set up a cloud provider group for containing accounts/groups",
+          "required" => ["name"],
           "properties" => {
-            "name" => { "type" => "string" },
+            "name" => {
+              "type" => "string"
+            },
+            "members" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "One or more user accounts to add to this group."
+              }
+            }
           }
         }
       end
