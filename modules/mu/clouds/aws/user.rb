@@ -112,6 +112,40 @@ module MU
               MU.log "User #{@mu_name}'s AWS Key and Secret can be retrieved from: https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}", MU::SUMMARY
             end
           end
+
+          if @config['iam_policies']
+            @config['iam_policies'].each { |policy|
+              policy_name = @deploy.getResourceName(policy.keys.first)
+              arn = "arn:aws:iam::"+MU.account_number+":policy/#{@deploy.deploy_id}/#{policy_name}"
+              resp = begin
+                MU::Cloud::AWS.iam.get_policy(
+                  policy_arn: arn
+                )
+# XXX oh yeah well what about when it's been updated? do we maybe belong in our own first-class resource?
+              rescue Aws::IAM::Errors::NoSuchEntity => e
+                resp = MU::Cloud::AWS.iam.create_policy(
+                  policy_name: policy_name,
+                  path_prefix: "/"+@deploy.deploy_id+"/",
+                  policy_document: JSON.generate(policy.values.first),
+                  description: "Generated from inline policy document for user #{@cloud_id}",
+                )
+              end
+
+              resp = MU::Cloud::AWS.iam.list_attached_user_policies(
+                path_prefix: "/"+@deploy.deploy_id+"/",
+                user_name: @cloud_id
+              )
+
+              if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(policy_name)
+                MU.log "Attaching policy #{policy_name} to user #{@cloud_id}", MU::NOTICE
+                MU::Cloud::AWS.iam.attach_user_policy(
+                  policy_arn: arn,
+                  user_name: @cloud_id
+                )
+              end
+            }
+          end
+
         end
 
 
@@ -129,6 +163,43 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+
+          # XXX this doesn't belong here; maybe under roles, maybe as its own stupid first-class resource
+          resp = MU::Cloud::AWS.iam.list_policies(
+            path_prefix: "/"+MU.deploy_id+"/"
+          )
+          if resp and resp.policies
+            resp.policies.each { |policy|
+              MU.log "Deleting policy /#{MU.deploy_id}/#{policy.policy_name}"
+              if !noop
+                attachments = MU::Cloud::AWS.iam.list_entities_for_policy(
+                  policy_arn: policy.arn
+                )
+                attachments.policy_users.each { |u|
+                  MU::Cloud::AWS.iam.detach_user_policy(
+                    user_name: u.user_name,
+                    policy_arn: policy.arn
+                  )
+                }
+                attachments.policy_groups.each { |g|
+                  MU::Cloud::AWS.iam.detach_role_policy(
+                    group_name: g.group_name,
+                    policy_arn: policy.arn
+                  )
+                }
+                attachments.policy_roles.each { |r|
+                  MU::Cloud::AWS.iam.detach_role_policy(
+                    role_name: r.role_name,
+                    policy_arn: policy.arn
+                  )
+                }
+                MU::Cloud::AWS.iam.delete_policy(
+                  policy_arn: policy.arn
+                )
+              end
+            }
+          end
+
           resp = MU::Cloud::AWS.iam.list_users
 
           # XXX this response includes a tags attribute, but it's always empty,
@@ -238,6 +309,13 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
               "type" => "boolean",
               "default" => false,
               "description" => "Generate a password for this user, for use logging into the AWS Console. It will be shared via Scratchpad for one-time retrieval."
+            },
+            "iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "A key (name) with a value that is an Amazon-compatible policy document. This is not the recommended method for granting permissions- we suggest listing +roles+ for the user instead. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",
+                "type" => "object"
+              }
             }
           }
           [toplevel_required, schema]

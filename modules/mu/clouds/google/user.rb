@@ -72,6 +72,7 @@ module MU
           end
         end
 
+        # Retrieve the cloud descriptor for this resource.
         def cloud_desc
           if @config['type'] == "interactive"
             return nil

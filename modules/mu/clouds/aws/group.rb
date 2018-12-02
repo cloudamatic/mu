@@ -123,6 +123,15 @@ module MU
             resp.groups.each { |g|
               MU.log "Deleting IAM group #{g.path}#{g.group_name}"
               if !noop
+                desc = MU::Cloud::AWS.iam.get_group(
+                  group_name: g.group_name
+                )
+                desc.users.each { |u|
+                  MU::Cloud::AWS.iam.remove_user_from_group(
+                    user_name: u.user_name,
+                    group_name: g.group_name
+                  )
+                }
                 MU::Cloud::AWS.iam.delete_group(
                   group_name: g.group_name
                 )
