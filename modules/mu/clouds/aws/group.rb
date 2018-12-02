@@ -49,7 +49,7 @@ module MU
             end
           rescue Aws::IAM::Errors::NoSuchEntity => e
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
-            MU.log "Creating IAM group #{@config['path']}/#{@mu_name}"
+            MU.log "Creating IAM group #{@config['path']}#{@mu_name}"
             MU::Cloud::AWS.iam.create_group(
               group_name: @mu_name,
               path: @config['path']
@@ -106,6 +106,19 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          resp = MU::Cloud::AWS.iam.list_groups(
+            path_prefix: "/"+MU.deploy_id+"/"
+          )
+          if resp and resp.groups
+            resp.groups.each { |g|
+              MU.log "Deleting IAM group #{g.path}#{g.group_name}"
+              if !noop
+                MU::Cloud::AWS.iam.delete_group(
+                  group_name: g.group_name
+                )
+              end
+            }
+          end
         end
 
         # Locate an existing group group.

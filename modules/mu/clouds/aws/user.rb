@@ -151,6 +151,16 @@ module MU
               MU.log "Deleting IAM user #{u.path}#{u.user_name}"
               if !@noop
                 begin
+                  groups = MU::Cloud::AWS.iam.list_groups_for_user(
+                    user_name: u.user_name
+                  ).groups
+
+                  groups.each { |g|
+                    MU::Cloud::AWS.iam.remove_user_from_group(
+                      user_name: u.user_name,
+                      group_name: g.group_name
+                    )
+                  }
                   profile = MU::Cloud::AWS.iam.get_login_profile(
                     user_name: u.user_name
                   )
@@ -247,7 +257,8 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
                 need_dependency = true
               else
                 found = MU::Cloud::AWS::Group.find(cloud_id: group)
-                if found.nil? or found.empty? 
+                if found.nil? or found.empty? or (configurator.updating and
+                   found.values.first.group.path == "/"+configurator.updating+"/")
                   groupdesc = {
                     "name" => group
                   }

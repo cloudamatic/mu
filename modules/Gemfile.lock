@@ -356,7 +356,7 @@ DEPENDENCIES
   color
   colorize
   foodcritic (~> 14.1.0)
-  google-api-client
+  google-api-client (~> 0.25.0)
   googleauth (~> 0.6.6)
   json-schema
   knife-windows!

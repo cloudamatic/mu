@@ -40,7 +40,7 @@ module MU
     end
 
     generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
-    generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
+    generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config, :cloud_desc]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -1397,7 +1397,8 @@ module MU
                (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
               if deploydata.nil? or !deploydata.is_a?(Hash)
-                raise MuError, "#{self}'s notify method did not return a Hash of deployment data"
+                MU.log "#{self}'s notify method did not return a Hash of deployment data", MU::WARN
+                deploydata = {}
               end
               deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
