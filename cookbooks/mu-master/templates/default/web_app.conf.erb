@@ -38,6 +38,10 @@
   ProxyPass /nagios/ https://localhost:8443/nagios/
   ProxyPassReverse /nagios/ https://localhost:8443/nagios/
 
+  ProxyPass /cloudamatic.png !
+  ProxyPass /docs/ !
+  ProxyPass /index.html !
+
   # Everything else should go to the Chef API endpoint
   ProxyPass / https://localhost:7443/
   ProxyPassReverse / https://localhost:7443/

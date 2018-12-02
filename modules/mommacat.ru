@@ -70,7 +70,7 @@ required_vars = ["mu_id", "mu_deploy_secret", "mu_resource_name", "mu_resource_t
 # Use a template to generate a pleasant-looking HTML page for simple messages
 # and errors.
 def genHTMLMessage(title: "", headline: "", msg: "", template: $MU_CFG['html_template'], extra_vars: {})
-  logo_url = "http://#{$MU_CFG['public_address']}/cloudamatic.png"
+  logo_url = "/cloudamatic.png"
   page = "<img src='#{logo_url}'><h1>#{title}</h1>#{msg}"
   vars = {
     "title" => title,
