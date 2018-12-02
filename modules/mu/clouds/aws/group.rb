@@ -61,26 +61,36 @@ module MU
         def groom
           if @config['members']
             ext = cloud_desc.users.map { |u| u.user_name }
+
             @config['members'].each { |user|
               next if ext.include?(user)
 
               userid = user
               userdesc = @deploy.findLitterMate(name: user, type: "users")
-              if userdesc
-                userid = userdesc.cloud_id
-                found = MU::Cloud::AWS::User.find(cloud_id: userid)
-                if found.size == 1
-                  userdesc = found.values.first
-                  MU.log "Adding IAM user #{userdesc.path}#{userdesc.user_name} to group #{@mu_name}", MU::NOTICE
-                  MU::Cloud::AWS.iam.add_user_to_group(
-                    user_name: userid,
-                    group_name: @mu_name
-                  )
-                else
-                  MU.log "IAM user #{userid} doesn't seem to exist, can't add to group #{@mu_name}", MU::ERR
-                end
+              userid = userdesc.cloud_id if userdesc
+              found = MU::Cloud::AWS::User.find(cloud_id: userid)
+              if found.size == 1
+                userdesc = found.values.first
+                MU.log "Adding IAM user #{userdesc.path}#{userdesc.user_name} to group #{@mu_name}", MU::NOTICE
+                MU::Cloud::AWS.iam.add_user_to_group(
+                  user_name: userid,
+                  group_name: @mu_name
+                )
+              else
+                MU.log "IAM user #{userid} doesn't seem to exist, can't add to group #{@mu_name}", MU::ERR
               end
             }
+            
+            if @config['purge_extra_members']
+              extras = cloud_desc.users.map { |u| u.user_name } - @config['members']
+              extras.each { |user_name|
+                MU.log "Purging user #{user_name} from IAM group #{@cloud_id}", MU::NOTICE
+                MU::Cloud::AWS.iam.remove_user_from_group(
+                  user_name: user_name,
+                  group_name: @cloud_id
+                )
+              }
+            end
           end
         end
 

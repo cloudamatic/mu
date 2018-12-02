@@ -36,6 +36,11 @@ module MU
                 "description" => "One or more user accounts to add to this group."
               }
             },
+            "purge_extra_members" => {
+              "type" => "boolean",
+              "description" => "Our +members+ list, by default, only adds the listed accounts to the group. If +purge_extra_members+ is +true+, it will remove any users that are not our list. Use with caution when managing groups created manually or managed by other applications.",
+              "default" => false
+            },
             "use_if_exists" => {
               "type" => "boolean",
               "description" => "If we attempt to create or associate a group that already exists, simply group that user in-place and use it, rather than throwing an error. If this flag is set, the group will *not* be deleted on cleanup.",
