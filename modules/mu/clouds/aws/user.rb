@@ -114,38 +114,10 @@ module MU
           end
 
           if @config['iam_policies']
-            @config['iam_policies'].each { |policy|
-              policy_name = @deploy.getResourceName(policy.keys.first)
-              arn = "arn:aws:iam::"+MU.account_number+":policy/#{@deploy.deploy_id}/#{policy_name}"
-              resp = begin
-                MU::Cloud::AWS.iam.get_policy(
-                  policy_arn: arn
-                )
-# XXX oh yeah well what about when it's been updated? do we maybe belong in our own first-class resource?
-              rescue Aws::IAM::Errors::NoSuchEntity => e
-                resp = MU::Cloud::AWS.iam.create_policy(
-                  policy_name: policy_name,
-                  path_prefix: "/"+@deploy.deploy_id+"/",
-                  policy_document: JSON.generate(policy.values.first),
-                  description: "Generated from inline policy document for user #{@cloud_id}",
-                )
-              end
-
-              resp = MU::Cloud::AWS.iam.list_attached_user_policies(
-                path_prefix: "/"+@deploy.deploy_id+"/",
-                user_name: @cloud_id
-              )
-
-              if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(policy_name)
-                MU.log "Attaching policy #{policy_name} to user #{@cloud_id}", MU::NOTICE
-                MU::Cloud::AWS.iam.attach_user_policy(
-                  policy_arn: arn,
-                  user_name: @cloud_id
-                )
-              end
-            }
+             @dependencies["role"].each_pair { |rolename, roleobj|
+               roleobj.cloudobj.bindTo("user", @cloud_id)
+             }
           end
-
         end
 
 
@@ -313,7 +285,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
             "iam_policies" => {
               "type" => "array",
               "items" => {
-                "description" => "A key (name) with a value that is an Amazon-compatible policy document. This is not the recommended method for granting permissions- we suggest listing +roles+ for the user instead. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",
+                "description" => "A key (name) with a value that is an Amazon-compatible policy document. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",
                 "type" => "object"
               }
             }
@@ -327,6 +299,20 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(user, configurator)
           ok = true
+
+          if user['iam_policies'] and user['iam_policies'].size > 0
+            roledesc = {
+              "name" => user["name"]+"role",
+              "bare_policies" => true,
+              "iam_policies" => user['iam_policies'].dup
+            }
+            configurator.insertKitten(roledesc, "roles")
+            user["dependencies"] ||= []
+            user["dependencies"] << {
+              "type" => "role",
+              "name" => user["name"]+"role"
+            }
+          end
 
           if user['groups']
             user['groups'].each { |group|

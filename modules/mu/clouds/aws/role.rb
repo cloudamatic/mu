@@ -138,16 +138,11 @@ module MU
                 )
               end
 
-              if !@config['bare_policies'] and
-                 !attached_policies.map { |p| p.policy_name }.include?(policy_name)
-                MU.log "Attaching IAM policy #{policy_name} to role #{@mu_name}"
-                MU::Cloud::AWS.iam.attach_role_policy(
-                  policy_arn: arn,
-                  role_name: @mu_name
-                )
-              end
-
             }
+          end
+
+          if !@config['bare_policies'] and @config['iam_policies']
+            bindTo("role", @mu_name)
           end
         end
 
@@ -275,22 +270,60 @@ module MU
           found
         end
 
+        # Attach this role or group of loose policies to the specified entity.
+        # @param entitytype [String]: The type of entity (user, group or role for policies; instance_profile for roles)
         def bindTo(entitytype, entityname)
-        end
+          if entitytype == "instance_profile"
+              MU.log "bindTo(#{entitytype}, #{entityname})", MU::WARN
+          elsif ["user", "group", "role"].include?(entitytype)
+            mypolicies = MU::Cloud::AWS.iam.list_policies(
+              path_prefix: "/"+@deploy.deploy_id+"/"
+            ).policies
+            mypolicies.reject! { |p|
+              !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
+            }
 
-        def bindPolicyto(policyname, entitytype, entityname)
-          if entitytype == "user"
-            resp = MU::Cloud::AWS.iam.list_attached_user_policies(
-              path_prefix: "/"+@deploy.deploy_id+"/",
-              user_name: entityname
-            )
-            if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(policy_name)
-              MU.log "Attaching policy #{policy_name} to user #{entityname}", MU::NOTICE
-              MU::Cloud::AWS.iam.attach_user_policy(
-                policy_arn: arn,
-                user_name: entityname
-              )
-            end
+            mypolicies.each { |p|
+              if entitytype == "user"
+                resp = MU::Cloud::AWS.iam.list_attached_user_policies(
+                  path_prefix: "/"+@deploy.deploy_id+"/",
+                  user_name: entityname
+                )
+                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                  MU.log "Attaching policy #{p.policy_name} to user #{entityname}", MU::NOTICE
+                  MU::Cloud::AWS.iam.attach_user_policy(
+                    policy_arn: p.arn,
+                    user_name: entityname
+                  )
+                end
+              elsif entitytype == "group"
+                resp = MU::Cloud::AWS.iam.list_attached_group_policies(
+                  path_prefix: "/"+@deploy.deploy_id+"/",
+                  group_name: entityname
+                )
+                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                  MU.log "Attaching policy #{p.policy_name} to group #{entityname}", MU::NOTICE
+                  MU::Cloud::AWS.iam.attach_group_policy(
+                    policy_arn: p.arn,
+                    group_name: entityname
+                  )
+                end
+              elsif entitytype == "role"
+                resp = MU::Cloud::AWS.iam.list_attached_role_policies(
+                  path_prefix: "/"+@deploy.deploy_id+"/",
+                  role_name: entityname
+                )
+                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                  MU.log "Attaching policy #{p.policy_name} to role #{entityname}", MU::NOTICE
+                  MU::Cloud::AWS.iam.attach_role_policy(
+                    policy_arn: p.arn,
+                    role_name: entityname
+                  )
+                end
+              end
+            }
+          else
+            raise MuError, "Invalid entitytype '#{entitytype}' passed to MU::Cloud::AWS::Role.bindTo. Must be be one of: user, group, role, instance_profile"
           end
         end
 
@@ -299,6 +332,7 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+# XXX canned policies from Amazon what what
           schema = {
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,

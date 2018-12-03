@@ -92,6 +92,12 @@ module MU
               }
             end
           end
+
+          if @config['iam_policies']
+             @dependencies["role"].each_pair { |rolename, roleobj|
+               roleobj.cloudobj.bindTo("group", @cloud_id)
+             }
+          end
         end
 
         # Fetch the AWS API description of this group
@@ -175,6 +181,13 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-GROUP-FOO+. This parameter wil
               "description" => "AWS IAM groups can be namespaced with a path (ex: +/organization/unit/group+). If not specified, and if we do not see a matching existing group under +/+ with +use_if_exists+ set, we will prepend the deploy identifier to the path of groups we create. Ex: +/IAMTESTS-DEV-2018112910-GR/mygroup+.",
               "pattern" => '^\/(?:[^\/]+(?:\/[^\/]+)*\/$)?'
             },
+            "iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "A key (name) with a value that is an Amazon-compatible policy document. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",
+                "type" => "object"
+              }
+            }
           }
           [toplevel_required, schema]
         end
@@ -185,6 +198,20 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-GROUP-FOO+. This parameter wil
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(group, configurator)
           ok = true
+
+          if group['iam_policies'] and group['iam_policies'].size > 0
+            roledesc = {
+              "name" => group["name"]+"role",
+              "bare_policies" => true,
+              "iam_policies" => group['iam_policies'].dup
+            }
+            configurator.insertKitten(roledesc, "roles")
+            group["dependencies"] ||= []
+            group["dependencies"] << {
+              "type" => "role",
+              "name" => group["name"]+"role"
+            }
+          end
 
           if !group['use_if_exists'] and group['unique_name'].nil?
             group['unique_name'] = true
