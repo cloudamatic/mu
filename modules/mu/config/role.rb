@@ -15,7 +15,7 @@
 module MU
   class Config
     # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/role.rb
-    class User
+    class Role
 
       # Base configuration schema for a Group
       # @return [Hash]
@@ -25,7 +25,10 @@ module MU
           "additionalProperties" => false,
           "description" => "Set up a cloud provider role for mapping permissions to other entities",
           "properties" => {
-            "name" => { "type" => "string" },
+            "name" => {
+              "type" => "string",
+              "description" => "The name of a cloud provider role to create"
+            },
           }
         }
       end

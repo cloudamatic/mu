@@ -109,6 +109,9 @@ module MU
     # Stub base class; real implementations generated at runtime
     class Group;
     end
+    # Stub base class; real implementations generated at runtime
+    class Role;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -340,6 +343,17 @@ module MU
         :cfg_name => "group",
         :cfg_plural => "groups",
         :interface => self.const_get("Group"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Role => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "role",
+        :cfg_plural => "roles",
+        :interface => self.const_get("Role"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
@@ -1397,8 +1411,8 @@ module MU
                (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
               if deploydata.nil? or !deploydata.is_a?(Hash)
-                MU.log "#{self}'s notify method did not return a Hash of deployment data", MU::WARN
-                deploydata = {}
+                MU.log "#{self} notify method did not return a Hash of deployment data", MU::WARN
+                deploydata = MU.structToHash(@cloudobj.cloud_desc)
               end
               deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?

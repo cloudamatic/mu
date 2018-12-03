@@ -746,6 +746,7 @@ module MU
         "us-west-1" => "US West (N. California)",
         "us-west-2" => "US West (Oregon)",
         "us-gov-west-1" => "AWS GovCloud (US)",
+        "us-gov-east-1" => "AWS GovCloud (US)",
         "ap-northeast-1" => "Asia Pacific (Tokyo)",
         "ap-northeast-2" => "Asia Pacific (Seoul)",
         "ap-south-1" => "Asia Pacific (Mumbai)",

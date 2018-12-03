@@ -168,8 +168,9 @@ module MU
               end
             }
           }
+          MU::Cloud::Role.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Role"]) > 0
+          MU::Cloud::Group.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Group"]) > 0
           MU::Cloud::User.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["User"]) > 0
-          MU::Cloud::Group.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["User"]) > 0
         }
 
         # knock over region-agnostic resources
