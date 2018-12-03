@@ -348,11 +348,18 @@ module MU
                 "description" => "The name of a service which is allowed to assume this role, such as +ec2.amazonaws.com+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html#roles-creatingrole-service-api. For an unofficial list of service names, see https://gist.github.com/shortjared/4c1e3fe52bdfa47522cfe5b41e5d6f22"
               }
             },
+            "allowed_siblings" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+# XXX structure like dependencies, resolve to ARN, e.g. log group for VPC flow logs
+              }
+            },
             "allowed_entities" => {
               "type" => "array",
               "items" => {
                 "type" => "string",
-                "description" => "An IAM resource or full ARN which should be permitted to assume this role, like +saml-provider/egt-labs-saml-idp+ or +arn:aws:iam::616552976502:saml-provider/egt-labs-saml-idp+."
+                "description" => "The name of an IAM resource or full ARN which should be permitted to assume this role, like +saml-provider/egt-labs-saml-idp+ or +arn:aws:iam::616552976502:saml-provider/egt-labs-saml-idp+."
               }
             },
             "iam_policies" => {
