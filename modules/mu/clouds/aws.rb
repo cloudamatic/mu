@@ -32,6 +32,14 @@ module MU
     class AWS
       @@myRegion_var = nil
 
+      # Any cloud-specific instance methods we require our resource
+      # implementations to have, above and beyond the ones specified by
+      # {MU::Cloud}
+      # @return [Array<Symbol>]
+      def self.required_instance_methods
+        [:arn]
+      end
+
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion

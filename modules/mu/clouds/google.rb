@@ -27,6 +27,14 @@ module MU
       @@myRegion_var = nil
       @@authorizers = {}
 
+      # Any cloud-specific instance methods we require our resource
+      # implementations to have, above and beyond the ones specified by
+      # {MU::Cloud}
+      # @return [Array<Symbol>]
+      def self.required_instance_methods
+        []
+      end
+
       # If we've configured Google as a provider, or are simply hosted in GCP, 
       # decide what our default region is.
       def self.myRegion

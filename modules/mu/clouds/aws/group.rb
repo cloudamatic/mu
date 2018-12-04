@@ -100,6 +100,13 @@ module MU
           end
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.arn
+        end
+
+
         # Fetch the AWS API description of this group
         # return [Struct]
         def cloud_desc

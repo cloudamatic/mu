@@ -233,6 +233,12 @@ module MU
 #          MU.log "CLEANUP CALLED ON AWS::USER", MU::WARN, details: resp
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.arn
+        end
+
         # Locate an existing user group.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.

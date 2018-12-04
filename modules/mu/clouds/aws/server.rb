@@ -258,7 +258,7 @@ module MU
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-                  MU::Cloud::AWS::Server.removeIAMProfile(@mu_name)
+#                  MU::Cloud::AWS::Server.removeIAMProfile(@mu_name)
                   MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
                 }
               end
@@ -1429,6 +1429,12 @@ module MU
           MU::MommaCat.unlock(@cloud_id+"-groom")
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU.account_number+":instance/"+@cloud_id
+        end
+
         def cloud_desc
           max_retries = 5
           retries = 0
@@ -2021,7 +2027,7 @@ module MU
           }
 
           name_tags.each { |mu_name|
-            MU::Cloud::AWS::Server.removeIAMProfile(mu_name)
+#            MU::Cloud::AWS::Server.removeIAMProfile(mu_name)
           }
 
           # Wait for all of the instances to finish cleanup before proceeding
@@ -2121,7 +2127,7 @@ module MU
               }
 
 							if !noop
-	              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
+#	              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
                 if !server_obj.nil? and !server_obj.config.nil?
 			            MU.mommacat.notify(MU::Cloud::Server.cfg_plural, server_obj.config['name'], {}, mu_name: server_obj.mu_name, remove: true) if MU.mommacat
 								end

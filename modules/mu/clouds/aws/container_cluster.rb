@@ -348,6 +348,16 @@ module MU
           end
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          if @config['flavor'] == "EKS"
+            cloud_desc.arn
+          else
+            cloud_desc.cluster_arn
+          end
+        end
+
         # Return the metadata for this ContainerCluster
         # @return [Hash]
         def notify
@@ -486,7 +496,7 @@ module MU
                   rescue Aws::EKS::Errors::ResourceNotFoundException
                     # this is what we want
                   end
-                  MU::Cloud::AWS::Server.removeIAMProfile(cluster)
+#                  MU::Cloud::AWS::Server.removeIAMProfile(cluster)
                 end
               end
             }

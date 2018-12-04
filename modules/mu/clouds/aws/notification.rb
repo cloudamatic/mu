@@ -33,6 +33,12 @@ module MU
           }
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sns:"+@config['region']+":"+MU.account_number+":"+@cloud_id
+        end
+
         # Locate an existing notification.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
@@ -40,6 +46,7 @@ module MU
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching notification.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           # Not implemented
+          # XXX well it fuckin' needs to be
         end
 
         # Cloud-specific configuration properties.

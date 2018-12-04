@@ -452,6 +452,12 @@ module MU
           ).auto_scaling_groups.first
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.auto_scaling_group_arn
+        end
+
         # Retrieve deployment metadata for this Autoscale group
         # @return [Hash]
         def notify
@@ -967,7 +973,7 @@ module MU
               end
             end
 
-            MU::Cloud::AWS::Server.removeIAMProfile(resource_id)
+#            MU::Cloud::AWS::Server.removeIAMProfile(resource_id)
 
             # Generally there should be a launch_configuration of the same name
             # XXX search for these independently, too?

@@ -81,6 +81,12 @@ module MU
           end
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.arn
+        end
+
         # Return the metadata for this SearchDomain rule
         # @return [Hash]
         def notify
@@ -124,7 +130,7 @@ module MU
               resp = MU::Cloud::AWS.iam.list_roles(marker: marker)
               resp.roles.each{ |role|
                 # XXX Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-                MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
+#                MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
               }
               marker = resp.marker
             end while resp.is_truncated

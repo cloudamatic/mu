@@ -293,8 +293,23 @@ module MU
           return nil
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.role_arn
+        end
+
         # placeholder
-        def self.find
+        def self.find(cloud_id: nil)
+          found = nil
+          resp = MU::Cloud::AWS::Collection.describe_stacks(
+            stack_name: cloud_id
+          )
+          if resp and resp.stacks
+            found[cloud_id] = resp.stacks.first
+          end
+
+          found
         end
 
         # placeholder

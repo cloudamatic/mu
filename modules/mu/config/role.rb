@@ -29,6 +29,49 @@ module MU
               "type" => "string",
               "description" => "The name of a cloud provider role to create"
             },
+            "policies" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "A policy to grant or deny permissions.",
+                "required" => ["permissions"],
+                "additionalProperties" => false,
+                "properties" => {
+                  "flag" => {
+                    "type" => "string",
+                    "enum" => ["allow", "deny"],
+                    "default" => "allow"
+                  },
+                  "permissions" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
+                    }
+                  },
+                  "targets" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "Entities to which this policy will grant or deny access.",
+                      "required" => ["identifier"],
+                      "additionalProperties" => false,
+                      "properties" => {
+                        "type" => {
+                          "type" => "string",
+                          "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
+                          "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }
+                        },
+                        "identifier" => {
+                          "type" => "string",
+                          "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       end

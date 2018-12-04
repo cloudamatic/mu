@@ -83,6 +83,12 @@ module MU
 
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sqs:"+@config['region']+":"+MU.account_number+":"+@cloud_id
+        end
+
         # Retrieve the AWS descriptor for this SQS queue. AWS doesn't exactly
         # provide one; if you want real information for SQS ask notify()
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes

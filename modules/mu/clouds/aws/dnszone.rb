@@ -860,6 +860,12 @@ module MU
           ok
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          nil # no such animal in Route53
+        end
+
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
         # @param region [String]: The cloud provider region

@@ -19,6 +19,7 @@ module MU
       class Log < MU::Cloud::Log
         @deploy = nil
         @config = nil
+
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
@@ -41,7 +42,6 @@ module MU
             else
               @mu_name
             end
-
 
           tags = MU::MommaCat.listStandardTags
           if @config['optional_tags']
@@ -189,6 +189,17 @@ module MU
           )
         end
 
+        # Return the cloud descriptor for the Log Group
+        def cloud_desc
+          MU::Cloud::AWS::Log.find(cloud_id: @cloud_id).values.first
+        end
+
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.arn
+        end
+
         # Return the metadata for this log configuration
         # @return [Hash]
         def notify
@@ -240,7 +251,7 @@ module MU
             MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
               match_string = "#{MU.deploy_id}.*CloudTrail"
               # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
+#              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
             }
           end
         end
@@ -253,11 +264,13 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           found = nil
           if !cloud_id.nil? and !cloud_id.match(/^arn:/i)
-            found = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
+            found ||= {}
+            found[cloud_id] = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
           else
             resp = MU::Cloud::AWS.cloudwatchlogs(region).describe_log_groups.log_groups.each { |group|
               if group.arn == cloud_id or group.arn.sub(/:\*$/, "") == cloud_id
-                found = group
+                found ||= {}
+                found[group.log_group_name] = group
                 break
               end
             }

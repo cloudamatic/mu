@@ -18,6 +18,14 @@ module MU
     # Support for Amazon Web Services as a provisioning layer.
     class CloudFormation
 
+      # Any cloud-specific instance methods we require our resource
+      # implementations to have, above and beyond the ones specified by
+      # {MU::Cloud}
+      # @return [Array<Symbol>]
+      def self.required_instance_methods
+        []
+      end
+
       @@cloudformation_mode = false
 
       # Toggle ourselves into a mode that will emit a CloudFormation template

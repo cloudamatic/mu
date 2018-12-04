@@ -293,8 +293,11 @@ module MU
 
         end
 
-
-
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.function_arn
+        end
 
         # Locate an existing function.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.

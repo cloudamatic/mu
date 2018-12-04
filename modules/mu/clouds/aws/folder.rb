@@ -36,6 +36,11 @@ module MU
         def create
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+        end
+
         # Return the metadata for this log configuration
         # @return [Hash]
         def notify

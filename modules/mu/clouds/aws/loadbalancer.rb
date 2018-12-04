@@ -545,6 +545,16 @@ module MU
           notify
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          if @config['classic']
+            "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticloadbalancing:"+@config['region']+":"+MU.account_number+":loadbalancer/"+@cloud_id
+          else
+            cloud_desc.load_balancer_arn
+          end
+        end
+
         # Wrapper for cloud_desc method that deals with elb vs. elb2 resources.
         def cloud_desc
           if @config['classic']

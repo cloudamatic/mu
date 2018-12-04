@@ -91,6 +91,12 @@ module MU
           @cloud_id = @mu_name
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.alarm_arn
+        end
+
         # Return the metadata for this Alarm rule
         # @return [Hash]
         def notify

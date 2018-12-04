@@ -479,7 +479,6 @@ module MU
               end
             end
           end
-
           iam_policy = '{
             "Version": "2012-10-17",
             "Statement": [
@@ -557,6 +556,12 @@ module MU
             log_group_name: log_group_name,
             deliver_logs_permission_arn: iam_role_arn
           )
+        end
+
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU.account_number+":vpc/"+@cloud_id
         end
 
         # Describe this VPC
@@ -1210,7 +1215,7 @@ module MU
             MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
               match_string = "#{MU.deploy_id}.*TRAFFIC-LOG"
               # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
+#              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
             }
           end
         end
@@ -1254,7 +1259,7 @@ module MU
         # @param vpc [Hash]: The resource to process and validate
         # @param config [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(vpc, config)
+        def self.validateConfig(vpc, configurator)
           ok = true
 
           if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
@@ -1268,6 +1273,61 @@ module MU
                 "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
               }
             ]
+          end
+
+          if vpc["enable_traffic_logging"]
+            logdesc = {
+              "name" => vpc['name']+"loggroup",
+            }
+            logdesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
+#            logdesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
+            configurator.insertKitten(logdesc, "logs")
+            vpc['dependencies'] ||= []
+            vpc['dependencies'] << {
+              "type" => "log",
+              "name" => vpc['name']+"loggroup"
+            }
+
+            roledesc = {
+              "name" => vpc['name']+"logrole",
+              "can_assume" => [
+                {
+                  "entity_id" => "vpc-flow-logs.amazonaws.com",
+                  "entity_type" => "service"
+                }
+              ],
+              "policies" => [
+                {
+                  "permissions" => [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:DescribeLogGroups",
+                    "logs:DescribeLogStreams",
+                    "logs:PutLogEvents"
+                  ],
+                  "targets" => [
+                    {
+                      "type" => "log",
+                      "identifier" => vpc['name']+"loggroup"
+                    }
+                  ]
+                }
+              ],
+              "dependencies" => [
+                {
+                  "type" => "log",
+                  "name" => vpc['name']+"loggroup"
+                }
+              ]
+            }
+            roledesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
+            roledesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
+            configurator.insertKitten(roledesc, "roles")
+            vpc['dependencies'] ||= []
+            vpc['dependencies'] << {
+              "type" => "role",
+              "name" => vpc['name']+"logrole"
+            }
           end
 
           subnet_routes = Hash.new
@@ -1315,7 +1375,7 @@ module MU
                 private_rtbs << table['name']
                 route.delete("gateway") if route['gateway'] == '#INTERNET'
               end
-              if !route['nat_host_name'].nil? and config.haveLitterMate?(route['nat_host_name'], "server") and !subnet_routes.nil? and !subnet_routes.empty?
+              if !route['nat_host_name'].nil? and configurator.haveLitterMate?(route['nat_host_name'], "server") and !subnet_routes.nil? and !subnet_routes.empty?
                 subnet_routes[table['name']].each { |subnet|
                   nat_routes[subnet] = route['nat_host_name']
                 }
@@ -1374,7 +1434,7 @@ module MU
               # turn into a hash so we can use list parameters easily
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
-            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size, 28)
+            subnets = configurator.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size, 28)
 
             ok = false if subnets.nil?
             vpc['subnets'] = []

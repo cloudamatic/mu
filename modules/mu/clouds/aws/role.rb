@@ -62,6 +62,14 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+
+          if @config['policies'] and !@config['policies'].empty?
+            @config['iam_policies'] ||= []
+            @config['policies'].each { |policy|
+              pp convert_policy_to_iam
+            }
+          end
+
           if !@config['bare_policies']
             resp = MU::Cloud::AWS.iam.get_role(
               role_name: @mu_name
@@ -146,6 +154,17 @@ module MU
           end
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          desc = cloud_desc
+          if desc["role"]
+            desc["role"].arn
+          else
+            nil
+          end
+        end
+
         # Return a hash containing a +role+ element and a +policies+ element,
         # populated with one or both depending on what this resource has
         # defined.
@@ -197,7 +216,7 @@ module MU
             )
           }
           attachments.policy_groups.each { |g|
-            MU::Cloud::AWS.iam.detach_role_policy(
+            MU::Cloud::AWS.iam.detach_group_policy(
               group_name: g.group_name,
               policy_arn: policy_arn
             )
@@ -332,6 +351,15 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          aws_resource_types = MU::Cloud.resource_types.keys.reject { |t|
+            begin
+              MU::Cloud.loadCloudType("AWS", t)
+              false
+            rescue MuCloudResourceNotImplemented
+              true
+            end
+          }.map { |t| MU::Cloud.resource_types[t][:cfg_name] }.sort
+
 # XXX canned policies from Amazon what what
           schema = {
             "tags" => MU::Config.tags_primitive,
@@ -341,32 +369,33 @@ module MU
               "default" => false,
               "description" => "Do not create a role, but simply create the policies specified in +iam_policies+ for direct attachment to other entities."
             },
-            "allowed_services" => {
-              "type" => "array",
-              "items" => {
-                "type" => "string",
-                "description" => "The name of a service which is allowed to assume this role, such as +ec2.amazonaws.com+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html#roles-creatingrole-service-api. For an unofficial list of service names, see https://gist.github.com/shortjared/4c1e3fe52bdfa47522cfe5b41e5d6f22"
-              }
-            },
-            "allowed_siblings" => {
+            "can_assume" => {
               "type" => "array",
               "items" => {
                 "type" => "object",
-# XXX structure like dependencies, resolve to ARN, e.g. log group for VPC flow logs
-              }
-            },
-            "allowed_entities" => {
-              "type" => "array",
-              "items" => {
-                "type" => "string",
-                "description" => "The name of an IAM resource or full ARN which should be permitted to assume this role, like +saml-provider/egt-labs-saml-idp+ or +arn:aws:iam::616552976502:saml-provider/egt-labs-saml-idp+."
+                "description" => "Entities which are permitted to assume this role. Can be services, IAM objects, or other Mu resources.",
+                "required" => ["entity_type", "entity_id"],
+                "properties" => {
+                  "entity_type" => {
+                    "type" => "string",
+                    "description" => "Type of entity which will be permitted to assume this role. See +entity_id+ for details.",
+                    "enum" => ["service", "iam"]+aws_resource_types
+                  },
+                  "entity_id" => {
+                    "type" => "string",
+                    "description" => "An identifier appropriate for the +entity_type+ which is allowed to assume this role- see details for valid formats.
+                    **service**: The name of a service which is allowed to assume this role, such as +ec2.amazonaws.com+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html#roles-creatingrole-service-api. For an unofficial list of service names, see https://gist.github.com/shortjared/4c1e3fe52bdfa47522cfe5b41e5d6f22
+                    **iam**: The name of an IAM resource or full ARN which should be permitted to assume this role, like +saml-provider/egt-labs-saml-idp+ or +arn:aws:iam::616552976502:saml-provider/egt-labs-saml-idp+.
+                    **#{aws_resource_types.join(", ")}**: A resource of one of these Mu types, declared elsewhere in this stack with a name specified in +entity_id+, for which Mu will attempt to resolve the appropriate *iam* or *service* identifier."
+                  }
+                }
               }
             },
             "iam_policies" => {
               "type" => "array",
               "items" => {
-                "description" => "A key (name) with a value that is an Amazon-compatible policy document. This is not the recommended method for granting permissions- we suggest listing +roles+ for the user instead. See https://docs.aws.amazon.com/IAM/latest/RoleGuide/access_policies_examples.html for example policies.",
-                "type" => "object"
+                "type" => "object",
+                "description" => "A key (name) with a value that is a raw Amazon-compatible policy document. This is not the recommended method for granting permissions- we suggest listing +roles+ for the user instead. See https://docs.aws.amazon.com/IAM/latest/RoleGuide/access_policies_examples.html for example policies.",
               }
             }
           }
@@ -385,17 +414,62 @@ module MU
             ok = false
           end
 
-          if (!role['allowed_services'] or role['allowed_services'].empty?) and
-             (!role['allowed_entities'] or role['allowed_entities'].empty?) and
+          if (!role['can_assume'] or role['can_assume'].empty?) and
              !role["bare_policies"]
-            MU.log "IAM role #{role['name']} must specify at least one of allowed_services or allowed_entities", MU::ERR
+            MU.log "IAM role #{role['name']} must specify at least one can_assume entry", MU::ERR
             ok = false
           end
+
 
           ok
         end
 
         private
+
+        # Convert entries from the cloud-neutral @config['policies'] list into
+        # AWS syntax.
+        def convert_policy_to_iam
+          iam_policies = []
+          if @config['policies']
+            @config['policies'].each { |policy|
+              doc = {
+                "Version" => "2012-10-17",
+                "Statement" => [
+                  {
+                    "Sid" => "SOMETHING",
+                    "Effect" => policy['flag'].capitalize,
+                    "Action" => [],
+                    "Resource" => []
+                  }
+                ]
+              }
+              policy["permissions"].each { |perm|
+                doc["Statement"].first["Action"] << perm
+              }
+              if policy["targets"]
+                policy["targets"].each { |target|
+                  if target["type"]
+                    puts target['type']
+                    sibling = @deploy.findLitterMate(
+                      name: target["identifier"],
+                      type: target["type"]
+                    )
+                    if sibling
+                      doc["Statement"].first["Resource"] << sibling.cloudobj.arn
+                    else
+                      raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy in role #{@mu_name}"
+                    end
+                  else
+                    doc["Statement"].first["Resource"] << target
+                  end
+                }
+              end
+              iam_policies << doc
+            }
+          end
+
+          iam_policies
+        end
 
         def get_tag_params(strip_std = false)
           @config['tags'] ||= []
@@ -423,15 +497,19 @@ module MU
           }
 
           statements = []
-          if @config['allowed_services']
-            @config['allowed_services'].each { |svc|
-              statements << {
+          if @config['can_assume']
+            @config['can_assume'].each { |svc|
+              statement = {
                 "Effect" => "Allow",
                 "Action" => "sts:AssumeRole",
-                "Principal" => {
-                  "Service" => svc
-                }
+                "Principal" => {}
               }
+              if svc["entity_type"] == "service"
+                statement["Principal"]["Service"] = svc["entity_id"]
+              else
+# XXX raw IAM thingies, references to other kids
+              end
+              statements << statement
             }
           end
 

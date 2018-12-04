@@ -509,6 +509,7 @@ module MU
       end
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
         @@resource_types[type.to_sym][:class].each { |class_method|
           if !myclass.respond_to?(class_method) or myclass.method(class_method).owner.to_s != "#<Class:#{myclass}>"
@@ -516,6 +517,11 @@ module MU
           end
         }
         @@resource_types[type.to_sym][:instance].each { |instance_method|
+          if !myclass.public_instance_methods.include?(instance_method)
+            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+          end
+        }
+        cloudclass.required_instance_methods.each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end

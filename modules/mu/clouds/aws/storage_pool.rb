@@ -103,6 +103,12 @@ module MU
           return @cloud_id
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticfilesystem:"+@config['region']+":"+MU.account_number+":file-system/"+@cloud_id
+        end
+
         # Locate an existing storage pool and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region
