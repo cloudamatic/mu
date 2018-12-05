@@ -33,7 +33,7 @@ module MU
               "type" => "array",
               "items" => {
                 "type" => "object",
-                "description" => "A policy to grant or deny permissions.",
+                "description" => "Policies which grant or deny permissions.",
                 "required" => ["permissions"],
                 "additionalProperties" => false,
                 "properties" => {
@@ -60,7 +60,7 @@ module MU
                         "type" => {
                           "type" => "string",
                           "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
-                          "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }
+                          "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
                         },
                         "identifier" => {
                           "type" => "string",

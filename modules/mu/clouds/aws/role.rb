@@ -367,7 +367,7 @@ module MU
             "bare_policies" => {
               "type" => "boolean",
               "default" => false,
-              "description" => "Do not create a role, but simply create the policies specified in +iam_policies+ for direct attachment to other entities."
+              "description" => "Do not create a role, but simply create the policies specified in +policies+ and/or +iam_policies+ for direct attachment to other entities."
             },
             "can_assume" => {
               "type" => "array",

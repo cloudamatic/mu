@@ -1788,7 +1788,11 @@ module MU
         end
 
         if prefixes.size > 0
-          docstring += prefixes.join(",\n")+" - \n"
+          docstring += prefixes.join(",\n")
+          if schema['description'] and schema['description'].size > 1
+            docstring += " - "
+          end
+          docstring += "\n"
         end
 
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?

@@ -164,8 +164,17 @@ module MU
           end
 
           if @config["enable_traffic_logging"]
-            @config["log_group_name"] = @mu_name unless @config["log_group_name"]
-            trafficLogging(log_group_name: @config["log_group_name"], resource_id: vpc_id, traffic_type: @config["traffic_type_to_log"])
+            loggroup = @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs")
+            logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
+
+            MU.log "Enabling traffic logging on VPC #{@mu_name} to log group #{loggroup.mu_name}"
+            MU::Cloud::AWS.ec2(@config['region']).create_flow_logs(
+              resource_ids: [@cloud_id],
+              resource_type: "VPC",
+              traffic_type: "ALL",
+              log_group_name: loggroup.mu_name,
+              deliver_logs_permission_arn: logrole.cloudobj.arn
+            )
           end
 
           nat_gateways = []
@@ -341,8 +350,16 @@ module MU
                 end
 
                 if subnet["enable_traffic_logging"]
-                  subnet["log_group_name"] = @mu_name unless subnet["log_group_name"]
-                  trafficLogging(log_group_name: subnet["log_group_name"], resource_id: subnet_id, resource_type: "Subnet", traffic_type: subnet["traffic_type_to_log"])
+                  loggroup = @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs")
+                  logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
+                  MU.log "Enabling traffic logging on Subnet #{subnet_name} in VPC #{@mu_name} to log group #{loggroup.mu_name}"
+                  MU::Cloud::AWS.ec2(@config['region']).create_flow_logs(
+                    resource_ids: [subnet_id],
+                    resource_type: "Subnet",
+                    traffic_type: subnet["traffic_type_to_log"],
+                    log_group_name: loggroup.mu_name,
+                    deliver_logs_permission_arn: logrole.cloudobj.arn
+                  )
                 end
               }
             }
@@ -450,112 +467,6 @@ module MU
 					loadSubnets
 
           MU.log "VPC #{@mu_name} created", details: @config
-        end
-
-        # Configure IP traffic logging on a given VPC/Subnet. Logs are saved in cloudwatch based on the network interface ID of each instance.
-        # @param log_group_name [String]: The name of the CloudWatch log group all logs will be saved in.
-        # @param resource_id [String]: The cloud provider's identifier of the resource that traffic logging will be enabled on.
-        # @param resource_type [String]: What resource type to enable logging on (VPC or Subnet).
-        # @param traffic_type [String]: What traffic to log (ALL, ACCEPT or REJECT).
-        def trafficLogging(log_group_name: nil, resource_id: nil, resource_type: "VPC", traffic_type: "ALL")
-          if log_group_name == @mu_name
-            log_group = MU::Cloud::AWS::Log.getLogGroupByName(log_group_name, region: @config["region"])
-            unless log_group
-              retries = 0
-              begin 
-                MU::Cloud::AWS.cloudwatchlogs(@config["region"]).create_log_group(
-                  log_group_name: log_group_name
-                )
-              rescue Aws::CloudWatchLogs::Errors::OperationAbortedException
-                if retries < 10
-                  MU.log "Failed to create log group #{log_group_name}, retrying a few times", MU::NOTICE
-                  sleep 10
-                  retry
-                else
-                  raise MuError, "Failed to create log group, giving up"
-                end
-              rescue Aws::CloudWatchLogs::Errors::ResourceAlreadyExistsException 
-                # The log group existence check will fail occasionally because subnet creation is threaded, so lets rescue this as well.
-              end
-            end
-          end
-          iam_policy = '{
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Sid": "FlowLogs",
-                "Effect": "Allow",
-                "Action": [
-                  "logs:CreateLogGroup",
-                  "logs:CreateLogStream",
-                  "logs:DescribeLogGroups",
-                  "logs:DescribeLogStreams",
-                  "logs:PutLogEvents"
-                ],
-                "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
-              }
-            ]
-          }'
-
-          iam_assume_role_policy = '{
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Effect": "Allow",
-                "Principal": {
-                    "Service": "vpc-flow-logs.amazonaws.com" 
-                },
-                "Action": "sts:AssumeRole"
-              }
-            ]
-          }'
-
-          iam_role_arn = nil
-          iam_role_exist = false
-          iam_role_name = "#{@mu_name}-TRAFFIC-LOG"
-
-          MU::Cloud::AWS.iam(@config["region"]).list_roles.roles.each{ |role|
-            if role.role_name == iam_role_name
-              iam_role_exist = true
-              iam_role_arn = role.arn
-              break
-            end
-          }
-
-          unless iam_role_exist
-            begin 
-              resp = MU::Cloud::AWS.iam(@config["region"]).create_role(
-                role_name: iam_role_name,
-                assume_role_policy_document: iam_assume_role_policy
-              )
-              MU.log "Creating IAM role #{iam_role_name}"
-              iam_role_arn = resp.role.arn
-            rescue Aws::IAM::Errors::EntityAlreadyExists
-              # list_roles may not return an IAM role that was just created, lets try agains
-              sleep 5
-              MU::Cloud::AWS.iam(@config["region"]).list_roles.roles.each{ |role|
-                if role.role_name == iam_role_name
-                  iam_role_arn = role.arn
-                  break
-                end
-              }
-            end
-
-            MU::Cloud::AWS.iam(@config["region"]).put_role_policy(
-              role_name: iam_role_name,
-              policy_name: "FlowLogs_CloudWatchLogs",
-              policy_document: iam_policy
-            )
-          end
-
-          MU.log "Enabling traffic logging on #{resource_type} #{resource_id}"
-          MU::Cloud::AWS.ec2(@config['region']).create_flow_logs(
-            resource_ids: [resource_id],
-            resource_type: resource_type,
-            traffic_type: traffic_type.upcase,
-            log_group_name: log_group_name,
-            deliver_logs_permission_arn: iam_role_arn
-          )
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -1214,8 +1125,6 @@ module MU
           unless noop
             MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
               match_string = "#{MU.deploy_id}.*TRAFFIC-LOG"
-              # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-#              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
             }
           end
         end
@@ -1257,7 +1166,7 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
         # @param vpc [Hash]: The resource to process and validate
-        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @param configurator [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(vpc, configurator)
           ok = true
