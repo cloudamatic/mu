@@ -29,14 +29,25 @@ module MU
               "type" => "string",
               "description" => "The name of a cloud provider role to create"
             },
+            "import" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Import pre-fabricated roles/policies from the cloud provider into this role."
+              }
+            },
             "policies" => {
               "type" => "array",
               "items" => {
                 "type" => "object",
                 "description" => "Policies which grant or deny permissions.",
-                "required" => ["permissions"],
+                "required" => ["name", "permissions"],
                 "additionalProperties" => false,
                 "properties" => {
+                  "name" => {
+                    "type" => "string",
+                    "description" => "A unique name for this policy"
+                  },
                   "flag" => {
                     "type" => "string",
                     "enum" => ["allow", "deny"],

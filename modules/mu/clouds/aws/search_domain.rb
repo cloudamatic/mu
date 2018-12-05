@@ -388,49 +388,36 @@ module MU
                 MU.log "IAM role #{dom['cognito']['role_arn']} malformed or does not exist in SearchDomain '#{dom['name']}'", MU::ERR
                 ok = false
               end
+            else
+              roledesc = {
+                "name" => dom['name']+"cognitorole",
+                "can_assume" => [
+                  {
+                    "entity_id" => "es.amazonaws.com",
+                    "entity_type" => "service"
+                  }
+                ],
+                "import" => [
+                  "AmazonESCognitoAccess"
+                ]
+              }
+              configurator.insertKitten(roledesc, "roles")
 
+              dom['dependencies'] ||= []
+              dom['dependencies'] << {
+                "type" => "role",
+                "name" => dom['name']+"cognitorole"
+              }
             end
 
           end
 
-          # TODO have IAM API validate queue['access_policies'] if any is set
+          # TODO queue['access_policies'] should generate a policy blob via MU::Cloud::AWS::Role
 
           ok
         end
 
         private
-
-        def setIAMPolicies
-          assume_role_policy = {
-            "Version" => "2012-10-17",
-            "Statement" => [
-              {
-                "Effect": "Allow",
-                "Principal": {
-                  "Service": "es.amazonaws.com"
-                },
-                "Action": "sts:AssumeRole"
-              }
-            ]
-          }
-
-          begin
-            MU::Cloud::AWS.iam(@config['region']).get_role(role_name: @mu_name)
-          rescue ::Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Creating IAM role #{@mu_name}", details: assume_role_policy
-            MU::Cloud::AWS.iam(@config["region"]).create_role(
-              role_name: @mu_name,
-              assume_role_policy_document: JSON.generate(assume_role_policy)
-            )
-          end
-
-          MU::Cloud::AWS.iam.attach_role_policy(
-            role_name: @mu_name,
-            policy_arn: "arn:aws:iam::aws:policy/AmazonESCognitoAccess", 
-          )
-
-          MU::Cloud::AWS.iam(@config['region']).get_role(role_name: @mu_name).role
-        end
 
         # create_elasticsearch_domain and update_elasticsearch_domain_config
         # take almost the same set of parameters, so our create and groom 
@@ -600,7 +587,8 @@ module MU
               if @config['cognito']['role_arn']
                 params[:cognito_options][:role_arn] = @config['cognito']['role_arn']
               else
-                params[:cognito_options][:role_arn] = myrole.arn
+                myrole = @deploy.findLitterMate(name: @config['name']+"cognitorole", type: "roles")
+                params[:cognito_options][:role_arn] = myrole.cloudobj.arn
               end
             end
           end

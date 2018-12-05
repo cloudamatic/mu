@@ -1207,6 +1207,7 @@ module MU
               ],
               "policies" => [
                 {
+                  "name" => "FlowLogPerms",
                   "permissions" => [
                     "logs:CreateLogGroup",
                     "logs:CreateLogStream",

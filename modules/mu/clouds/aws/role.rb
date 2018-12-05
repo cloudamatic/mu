@@ -63,11 +63,9 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          if @config['policies'] and !@config['policies'].empty?
+          if @config['policies']
             @config['iam_policies'] ||= []
-            @config['policies'].each { |policy|
-              pp convert_policy_to_iam
-            }
+            @config['iam_policies'].concat(convert_policies_to_iam)
           end
 
           if !@config['bare_policies']
@@ -89,6 +87,9 @@ module MU
             configured_policies = @config['iam_policies'].map { |p|
               @mu_name+"-"+p.keys.first.upcase
             }
+            if @config['import']
+              configured_policies.concat(@config['import'].map { |p| p.gsub(/.*?\/([^:\/]+)$/, '\1') })
+            end
 
             if !@config['bare_policies']
               attached_policies = MU::Cloud::AWS.iam.list_attached_role_policies(
@@ -138,6 +139,7 @@ module MU
                 end
 
               rescue Aws::IAM::Errors::NoSuchEntity => e
+                MU.log "Creating IAM policy #{policy_name}"
                 MU::Cloud::AWS.iam.create_policy(
                   policy_name: policy_name,
                   path: "/"+@deploy.deploy_id+"/",
@@ -238,9 +240,13 @@ module MU
             )
           }
 
-          MU::Cloud::AWS.iam.delete_policy(
-            policy_arn: policy_arn
-          )
+          # Delete the policy, unless it's one of the global canned ones owned
+          # by AWS
+          if !policy_arn.match(/^arn:aws:iam::aws:/)
+            MU::Cloud::AWS.iam.delete_policy(
+              policy_arn: policy_arn
+            )
+          end
         end
 
         # Remove all roles associated with the currently loaded deployment.
@@ -302,6 +308,17 @@ module MU
               !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
             }
 
+            if @config['import']
+              @config['import'].each { |policy|
+                if !policy.match(/^arn:/i)
+                  policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+                end
+                mypolicies << MU::Cloud::AWS.iam.get_policy(
+                  policy_arn: policy
+                ).policy
+              }
+            end
+
             mypolicies.each { |p|
               if entitytype == "user"
                 resp = MU::Cloud::AWS.iam.list_attached_user_policies(
@@ -329,9 +346,9 @@ module MU
                 end
               elsif entitytype == "role"
                 resp = MU::Cloud::AWS.iam.list_attached_role_policies(
-                  path_prefix: "/"+@deploy.deploy_id+"/",
                   role_name: entityname
                 )
+
                 if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to role #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam.attach_role_policy(
@@ -360,10 +377,14 @@ module MU
             end
           }.map { |t| MU::Cloud.resource_types[t][:cfg_name] }.sort
 
-# XXX canned policies from Amazon what what
           schema = {
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
+            "import" => {
+              "items" => {
+                "description" => "Can be a shorthand reference to a canned IAM policy like +AdministratorAccess+, or a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+"
+              }
+            },
             "bare_policies" => {
               "type" => "boolean",
               "default" => false,
@@ -409,6 +430,20 @@ module MU
         def self.validateConfig(role, configurator)
           ok = true
 
+          if role['import']
+            role['import'].each { |policy|
+              if !policy.match(/^arn:/i)
+                policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+              end
+              begin
+                MU::Cloud::AWS.iam.get_policy(policy_arn: policy)
+              rescue Aws::IAM::Errors::NoSuchEntity => e
+                MU.log "No such canned AWS IAM policy '#{policy}'", MU::ERR
+                ok = false
+              end
+            }
+          end
+
           if role["bare_policies"] and (!role["iam_policies"] or role["iam_policies"].empty?)
             MU.log "IAM role #{role['name']} has bare_policies set, but no iam_policies specified", MU::ERR
             ok = false
@@ -428,7 +463,7 @@ module MU
 
         # Convert entries from the cloud-neutral @config['policies'] list into
         # AWS syntax.
-        def convert_policy_to_iam
+        def convert_policies_to_iam
           iam_policies = []
           if @config['policies']
             @config['policies'].each { |policy|
@@ -436,7 +471,7 @@ module MU
                 "Version" => "2012-10-17",
                 "Statement" => [
                   {
-                    "Sid" => "SOMETHING",
+                    "Sid" => policy["name"],
                     "Effect" => policy['flag'].capitalize,
                     "Action" => [],
                     "Resource" => []
@@ -449,7 +484,6 @@ module MU
               if policy["targets"]
                 policy["targets"].each { |target|
                   if target["type"]
-                    puts target['type']
                     sibling = @deploy.findLitterMate(
                       name: target["identifier"],
                       type: target["type"]
@@ -464,7 +498,7 @@ module MU
                   end
                 }
               end
-              iam_policies << doc
+              iam_policies << { policy["name"] => doc }
             }
           end
 
