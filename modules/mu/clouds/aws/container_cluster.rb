@@ -40,35 +40,11 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
-        # Generate the generic EKS machine role that will be used by the
-        # control plane.
-        def self.createControlPlaneIAMRole(rolename)
-          resp = MU::Cloud::AWS.iam.create_role(
-            role_name: rolename,
-            assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["eks.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
-          )
-          arn = resp.role.arn
-          MU.log "Created EKS control plane role #{rolename}"
-          MU::Cloud::AWS.iam.attach_role_policy(
-            policy_arn: "arn:aws:iam::aws:policy/AmazonEKSServicePolicy",
-            role_name: rolename
-          )
-          MU::Cloud::AWS.iam.attach_role_policy(
-            policy_arn: "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
-            role_name: rolename
-          )
-          begin
-            MU::Cloud::AWS.iam.get_role(role_name: rolename)
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log e.inspect, MU::WARN
-            sleep 10
-            retry
-          end
-          arn
-        end
-
         # Generate the generic EKS Kubernetes admin role for use with 
-        # aws-iam-authenticator
+        # aws-iam-authenticator. Management nodes need this. We do it to
+        # our Mu Master.
+        # TODO Maybe we can convert this to BoK-speak and get this out of
+        # here?
         def self.createK8SAdminRole(rolename)
           resp = MU::Cloud::AWS.iam.create_role(
             role_name: rolename,
@@ -97,9 +73,7 @@ module MU
               subnet_ids << subnet_obj.cloud_id
             }
 
-            role_arn = MU::Cloud::AWS::ContainerCluster.createControlPlaneIAMRole(@mu_name)
-            MU::Cloud::AWS::Server.createIAMProfile(@mu_name+"-WORKERS", canned_policies: ["AmazonEKSWorkerNodePolicy", "AmazonEKS_CNI_Policy", "AmazonEC2ContainerRegistryReadOnly"])
-#            @config['k8s_admin_role'] = MU::Cloud::AWS::ContainerCluster.createK8SAdminRole(@mu_name+"-K8SADMIN")
+            role_arn = @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").cloudobj.arn
 
             security_groups = []
             if @dependencies.has_key?("firewall_rule")
@@ -664,6 +638,22 @@ module MU
               cluster["dependencies"] << {
                 "name" => fwname,
                 "type" => "firewall_rule",
+              }
+
+              role = {
+                "name" => cluster["name"]+"controlplane",
+                "can_assume" => [
+                  { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
+                ],
+                "import" => ["AmazonEKSServicePolicy", "AmazonEKSClusterPolicy"]
+
+              }
+              role["tags"] = cluster["tags"] if !cluster["tags"].nil?
+              role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
+              configurator.insertKitten(role, "roles")
+              cluster['dependencies'] << {
+                "type" => "role",
+                "name" => cluster["name"]+"controlplane"
               }
             end
           end

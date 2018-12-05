@@ -27,7 +27,8 @@ module MU
           "properties" => {
             "name" => {
               "type" => "string",
-              "description" => "The name of a cloud provider role to create"
+              "description" => "The name of a cloud provider role to create",
+              "pattern" => '^[a-zA-Z0-9]+$'
             },
             "import" => {
               "type" => "array",
@@ -41,7 +42,7 @@ module MU
               "items" => {
                 "type" => "object",
                 "description" => "Policies which grant or deny permissions.",
-                "required" => ["name", "permissions"],
+                "required" => ["name", "permissions", "targets"],
                 "additionalProperties" => false,
                 "properties" => {
                   "name" => {

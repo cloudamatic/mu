@@ -116,30 +116,14 @@ module MU
                 )
                 if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
                   MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy.values.first
-                  begin
-                    MU::Cloud::AWS.iam.create_policy_version(
-                      policy_arn: arn,
-                      set_as_default: true,
-                      policy_document: JSON.generate(policy.values.first)
-                    )
-                  rescue Aws::IAM::Errors::LimitExceeded => e
-                    delete_version = MU::Cloud::AWS.iam.list_policy_versions(
-                      policy_arn: arn,
-                    ).versions.last.version_id
-                    MU.log "Purging oldest version (#{delete_version}) of IAM policy #{policy_name}", MU::NOTICE
-                    MU::Cloud::AWS.iam.delete_policy_version(
-                      policy_arn: arn,
-                      version_id: delete_version
-                    )
-                    retry
-                  end
+                  update_policy(arn, policy.values.first)
                   MU::Cloud::AWS.iam.get_policy(policy_arn: arn)
                 else
                   desc
                 end
 
               rescue Aws::IAM::Errors::NoSuchEntity => e
-                MU.log "Creating IAM policy #{policy_name}"
+                MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
                 MU::Cloud::AWS.iam.create_policy(
                   policy_name: policy_name,
                   path: "/"+@deploy.deploy_id+"/",
@@ -155,6 +139,7 @@ module MU
             bindTo("role", @mu_name)
           end
         end
+
 
         # Canonical Amazon Resource Number for this resource
         # @return [String]
@@ -203,6 +188,40 @@ module MU
         # @return [Hash]
         def notify
           MU.structToHash(cloud_desc)
+        end
+
+        # Insert a new target entity into an existing policy. 
+        # @param policy [String]: The name of the policy to which we're appending, which must already exist as part of this role resource
+        # @param targets [Array<String>]: The target resource. If +target_type+ isn't specified, this should be a fully-resolved ARN.
+        # @param mu_type [String]: A valid Mu resource type
+        def injectPolicyTargets(policy, targets, mu_type = nil)
+          if !policy.match(/^#{@deploy.deploy_id}/)
+            policy = @mu_name+"-"+policy.upcase
+          end
+          my_policies = cloud_desc["policies"]
+          my_policies.each { |p|
+            if p.policy_name == policy
+              old = MU::Cloud::AWS.iam.get_policy_version(
+                policy_arn: p.arn,
+                version_id: p.default_version_id
+              ).policy_version
+              doc = JSON.parse(URI.decode(old.document))
+              need_update = false
+              doc["Statement"].each { |s|
+                targets.each { |target|
+# XXX resolve mu_type targets to ARNs
+                  if !s["Resource"].include?(target)
+                    s["Resource"] << target
+                    need_update = true
+                  end
+                }
+              }
+              if need_update
+                MU.log "Updating IAM policy #{policy} to grant permissions on #{targets.to_s}", details: doc
+                update_policy(p.arn, doc)
+              end
+            end
+          }
         end
 
         # Delete an IAM policy, along with attendant versions and attachments.
@@ -275,6 +294,18 @@ module MU
             resp.roles.each { |r|
               MU.log "Deleting IAM role #{r.role_name}"
               if !noop
+
+                begin
+                  MU::Cloud::AWS.iam.remove_role_from_instance_profile(
+                    instance_profile_name: r.role_name,
+                    role_name: r.role_name
+                  )
+                  MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: r.role_name)
+                rescue Aws::IAM::Errors::ValidationError => e
+                  MU.log "Cleaning up IAM role #{r.role_name}: #{e.inspect}", MU::WARN
+                rescue Aws::IAM::Errors::NoSuchEntity => e
+                end
+
                 MU::Cloud::AWS.iam.delete_role(
                   role_name: r.role_name
                 )
@@ -326,7 +357,7 @@ module MU
                   user_name: entityname
                 )
                 if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
-                  MU.log "Attaching policy #{p.policy_name} to user #{entityname}", MU::NOTICE
+                  MU.log "Attaching IAM policy #{p.policy_name} to user #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam.attach_user_policy(
                     policy_arn: p.arn,
                     user_name: entityname
@@ -361,6 +392,45 @@ module MU
           else
             raise MuError, "Invalid entitytype '#{entitytype}' passed to MU::Cloud::AWS::Role.bindTo. Must be be one of: user, group, role, instance_profile"
           end
+        end
+
+        # Create an instance profile for EC2 instances, named identically and
+        # bound to this role.
+        def createInstanceProfile
+          if @config['bare_policies']
+            raise MuError, "#{self} has 'bare_policies' set, cannot create an instance profile without a role to bind"
+          end
+
+          resp = begin
+            MU::Cloud::AWS.iam.create_instance_profile(
+              instance_profile_name: @mu_name
+            )
+          rescue Aws::IAM::Errors::EntityAlreadyExists => e
+            MU::Cloud::AWS.iam.get_instance_profile(
+              instance_profile_name: @mu_name
+            )
+          end
+
+          begin
+            MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: @mu_name)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
+          end
+
+# XXX replace with bindTo
+          begin
+            MU::Cloud::AWS.iam.add_role_to_instance_profile(
+              instance_profile_name: @mu_name,
+              role_name: @mu_name
+            )
+          rescue Aws::IAM::Errors::LimitExceeded => e
+            # also ok
+            # XXX is it though?
+          end
+
+          resp.instance_profile.arn
         end
 
         # Cloud-specific configuration properties.
@@ -494,7 +564,7 @@ module MU
                       raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy in role #{@mu_name}"
                     end
                   else
-                    doc["Statement"].first["Resource"] << target
+                    doc["Statement"].first["Resource"] << target["identifier"]
                   end
                 }
               end
@@ -550,6 +620,27 @@ module MU
           role_policy_doc["Statement"] = statements
 
           JSON.generate(role_policy_doc)
+        end
+
+        # Update a policy, handling deletion of old versions as needed
+        def update_policy(arn, doc)
+          begin
+            MU::Cloud::AWS.iam.create_policy_version(
+              policy_arn: arn,
+              set_as_default: true,
+              policy_document: JSON.generate(doc)
+            )
+          rescue Aws::IAM::Errors::LimitExceeded => e
+            delete_version = MU::Cloud::AWS.iam.list_policy_versions(
+              policy_arn: arn,
+            ).versions.last.version_id
+            MU.log "Purging oldest version (#{delete_version}) of IAM policy #{arn}", MU::NOTICE
+            MU::Cloud::AWS.iam.delete_policy_version(
+              policy_arn: arn,
+              version_id: delete_version
+            )
+            retry
+          end
         end
 
       end

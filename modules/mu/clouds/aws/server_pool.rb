@@ -822,6 +822,43 @@ module MU
                 MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
                 ok = false
               end
+            else
+              role = {
+                "name" => pool["name"],
+                "can_assume" => [
+                  {
+                    "entity_id" => "ec2.amazonaws.com",
+                    "entity_type" => "service"
+                  }
+                ],
+                "policies" => [
+                  {
+                    "name" => "MuSecrets",
+                    "permissions" => ["s3:GetObject"],
+                    "targets" => [
+                      {
+                        "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem'
+                      }
+                    ]
+                  }
+                ]
+              }
+              if launch['iam_policies']
+                role['iam_policies'] = launch['iam_policies'].dup
+              end
+              if pool['canned_policies']
+                role['import'] = pool['canned_policies'].dup
+              end
+              if pool['iam_role']
+# XXX maybe break this down into policies and add those?
+              end
+
+              configurator.insertKitten(role, "roles")
+              pool["dependencies"] ||= []
+              pool["dependencies"] << {
+                "type" => "role",
+                "name" => pool["name"]
+              }
             end
             launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?

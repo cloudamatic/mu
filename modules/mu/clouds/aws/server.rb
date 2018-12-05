@@ -258,7 +258,6 @@ module MU
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-#                  MU::Cloud::AWS::Server.removeIAMProfile(@mu_name)
                   MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
                 }
               end
@@ -269,204 +268,7 @@ module MU
           return @config
         end
 
-        # Remove the automatically generated IAM Profile for a server.
-        # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
-        # @return [void]
-        def self.removeIAMProfile(rolename)
-          # TODO - Move IAM role/policy removal to its own entity
-          MU.log "Removing IAM role and policies for '#{rolename}'"
-          begin
-            MU::Cloud::AWS.iam.remove_role_from_instance_profile(
-              instance_profile_name: rolename,
-              role_name: rolename
-            )
-          rescue Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-          end
-          begin
-            MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
-          rescue Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-          end
-          begin
-            policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
-            policies.each { |policy|
-              MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
-            }
-            policies = MU::Cloud::AWS.iam.list_attached_role_policies(role_name: rolename).attached_policies
-            policies.each { |policy|
-               MU::Cloud::AWS.iam.detach_role_policy(
-                role_name: rolename,
-                policy_arn: policy.policy_arn
-               )
-            }
-          rescue Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-          end
-          begin
-            MU::Cloud::AWS.iam.delete_role(role_name: rolename)
-          rescue Aws::IAM::Errors::DeleteConflict, Aws::IAM::Errors::NoSuchEntity, Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-          end
-        end
 
-        # Insert a Server's standard IAM role needs into an arbitrary IAM profile
-        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil, region: MU::Cloud::AWS.myRegion)
-          policies = Hash.new
-          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
-          objs = ["#{MU.deploy_id}-secret", "#{rolename}.pfx", "#{rolename}.crt", "#{rolename}.key", "#{rolename}-winrm.crt", "#{rolename}-winrm.key"]
-          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:'+aws_str+':s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
-          policies.each_pair { |name, doc|
-            if cloudformation_data.size > 0
-              if !cfm_role_name.nil?
-                MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
-              end
-              next 
-            end
-            MU.log "Merging policy #{name} into #{rolename}", details: JSON.pretty_generate(JSON.parse(doc))
-            MU::Cloud::AWS.iam.put_role_policy(
-              role_name: rolename,
-              policy_name: name,
-              policy_document: doc
-            )
-          }
-          if cloudformation_data.size > 0
-            return cloudformation_data
-          end
-        end
-
-        # Create an Amazon IAM instance profile. One of these should get created
-        # for each class of instance (each {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool}),
-        # and will include both baseline Mu policies and whatever other policies
-        # are requested.
-        # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
-        # @return [Array<String>]: The ARN of the instance.
-        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, canned_policies: [], cloudformation_data: {})
-          policies = Hash.new
-
-          cfm_role_name = cfm_prof_name = nil
-          if !cloudformation_data.nil? and cloudformation_data.size > 0
-            cfm_role_name, role_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: rolename)
-            cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
-            cloudformation_data.merge!(role_cfm_template)
-            cloudformation_data.merge!(prof_cfm_template)
-          end
-
-          if base_profile
-            resp = MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: base_profile)
-            resp.instance_profile.roles.each { |baserole|
-              role_policies = MU::Cloud::AWS.iam.list_role_policies(role_name: baserole.role_name).policy_names
-              role_policies.each { |name|
-                resp = MU::Cloud::AWS.iam.get_role_policy(
-                  role_name: baserole.role_name,
-                  policy_name: name
-                )
-                policies[name] = URI.unescape(resp.policy_document)
-              }
-            }
-          end
-          if extra_policies
-            MU.log "Incorporating other specified policies", details: extra_policies
-            extra_policies.each { |policy_set|
-              policy_set.each_pair { |name, policy|
-                if policies.has_key?(name)
-                  MU.log "Attempt to add duplicate node policy '#{name}' to '#{rolename}'", MU::WARN, details: policy
-                  next
-                end
-                policies[name] = JSON.generate(policy)
-              }
-            }
-          end
-          arn = nil
-          if !cloudformation_data.nil? and cloudformation_data.size == 0
-            begin
-              resp = MU::Cloud::AWS.iam.create_role(
-                role_name: rolename,
-                assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
-              )
-              resp.role.arn
-              MU.log "Creating IAM role and policies for '#{rolename}' nodes"
-            rescue Aws::IAM::Errors::EntityAlreadyExists => e
-              MU.log "IAM role #{rolename} already exists, updating"
-            end
-          end
-          begin
-            name=doc=nil
-            policies.each_pair { |name, doc|
-              if cloudformation_data.size > 0
-                MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
-                next 
-              end
-              MU.log "Merging policy #{name} into #{rolename}", details: JSON.pretty_generate(JSON.parse(doc))
-              MU::Cloud::AWS.iam.put_role_policy(
-                role_name: rolename,
-                policy_name: name,
-                policy_document: doc
-              )
-            }
-          rescue Aws::IAM::Errors::MalformedPolicyDocument => e
-            MU.log "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}", MU::ERR
-            raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
-          end
-          if cloudformation_data.size > 0
-            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", { "Ref" => cfm_role_name } )
-            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
-            return [rolename, cfm_role_name, cfm_prof_name]
-          end
-
-          begin
-            MU::Cloud::AWS.iam.get_role(role_name: rolename)
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log e.inspect, MU::WARN
-            sleep 10
-            retry
-          end
-
-          begin
-            resp = MU::Cloud::AWS.iam.create_instance_profile(
-              instance_profile_name: rolename
-            )
-          rescue Aws::IAM::Errors::EntityAlreadyExists => e
-            resp = MU::Cloud::AWS.iam.get_instance_profile(
-              instance_profile_name: rolename
-            )
-          end
-
-          begin
-            MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log e.inspect, MU::WARN
-            sleep 10
-            retry
-          end
-
-          begin
-            MU::Cloud::AWS.iam.add_role_to_instance_profile(
-              instance_profile_name: rolename,
-              role_name: rolename
-            )
-          rescue Aws::IAM::Errors::LimitExceeded => e
-            # also ok
-            # XXX is it though?
-          end
-
-          if canned_policies
-            canned_policies.each { |pname|
-              MU::Cloud::AWS.iam.attach_role_policy(
-                policy_arn: "arn:aws:iam::aws:policy/#{pname}",
-                role_name: rolename
-              )
-            }
-          end
-
-          return [rolename, cfm_role_name, cfm_prof_name, resp.instance_profile.arn]
-        end
 
         # Create an Amazon EC2 instance.
         def createEc2Instance
@@ -484,15 +286,19 @@ module MU
 
           arn = nil
           if @config['generate_iam_role']
-            # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
-            @config['iam_role'], @cfm_role_name, @cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+#            @config['iam_role'], @cfm_role_name, @cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
+            }
+            role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+
+            @config['iam_role'] = role.mu_name
+            arn = role.cloudobj.createInstanceProfile
+#            @cfm_role_name, @cfm_prof_name
+
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
-          end
-          if @config['basis']
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*", region: @config['region'])
-          else
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
           end
           if !@config["iam_role"].nil?
             if arn
@@ -2026,10 +1832,6 @@ module MU
             }
           }
 
-          name_tags.each { |mu_name|
-#            MU::Cloud::AWS::Server.removeIAMProfile(mu_name)
-          }
-
           # Wait for all of the instances to finish cleanup before proceeding
           threads.each { |t|
             t.join
@@ -2127,7 +1929,6 @@ module MU
               }
 
 							if !noop
-#	              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
                 if !server_obj.nil? and !server_obj.config.nil?
 			            MU.mommacat.notify(MU::Cloud::Server.cfg_plural, server_obj.config['name'], {}, mu_name: server_obj.mu_name, remove: true) if MU.mommacat
 								end
@@ -2352,6 +2153,43 @@ module MU
               MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
               ok = false
             end
+          else
+            role = {
+              "name" => server["name"],
+              "can_assume" => [
+                {
+                  "entity_id" => "ec2.amazonaws.com",
+                  "entity_type" => "service"
+                }
+              ],
+              "policies" => [
+                {
+                  "name" => "MuSecrets",
+                  "permissions" => ["s3:GetObject"],
+                  "targets" => [
+                    {
+                      "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(server['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem'
+                    }
+                  ]
+                }
+              ]
+            }
+            if server['iam_policies']
+              role['iam_policies'] = server['iam_policies'].dup
+            end
+            if server['canned_policies']
+              role['import'] = server['canned_policies'].dup
+            end
+            if server['iam_role']
+# XXX maybe break this down into policies and add those?
+            end
+
+            configurator.insertKitten(role, "roles")
+            server["dependencies"] ||= []
+            server["dependencies"] << {
+              "type" => "role",
+              "name" => server["name"]
+            }
           end
           if !server['create_image'].nil?
             if server['create_image'].has_key?('copy_to_regions') and
