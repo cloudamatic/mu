@@ -330,7 +330,12 @@ module MU
         # @param entitytype [String]: The type of entity (user, group or role for policies; instance_profile for roles)
         def bindTo(entitytype, entityname)
           if entitytype == "instance_profile"
-              MU.log "bindTo(#{entitytype}, #{entityname})", MU::WARN
+            begin
+              MU::Cloud::AWS.iam.add_role_to_instance_profile(
+                instance_profile_name: entityname,
+                role_name: @mu_name
+              )
+            end
           elsif ["user", "group", "role"].include?(entitytype)
             mypolicies = MU::Cloud::AWS.iam.list_policies(
               path_prefix: "/"+@deploy.deploy_id+"/"
@@ -411,6 +416,7 @@ module MU
             )
           end
 
+          # make sure it's really there before moving on
           begin
             MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: @mu_name)
           rescue Aws::IAM::Errors::NoSuchEntity => e
@@ -419,16 +425,7 @@ module MU
             retry
           end
 
-# XXX replace with bindTo
-          begin
-            MU::Cloud::AWS.iam.add_role_to_instance_profile(
-              instance_profile_name: @mu_name,
-              role_name: @mu_name
-            )
-          rescue Aws::IAM::Errors::LimitExceeded => e
-            # also ok
-            # XXX is it though?
-          end
+          bindTo("instance_profile", @mu_name)
 
           resp.instance_profile.arn
         end
@@ -470,15 +467,17 @@ module MU
                   "entity_type" => {
                     "type" => "string",
                     "description" => "Type of entity which will be permitted to assume this role. See +entity_id+ for details.",
-                    "enum" => ["service", "iam"]+aws_resource_types
+                    "enum" => ["service", "aws", "federated"]+aws_resource_types
                   },
                   "entity_id" => {
                     "type" => "string",
-                    "description" => "An identifier appropriate for the +entity_type+ which is allowed to assume this role- see details for valid formats.
-                    **service**: The name of a service which is allowed to assume this role, such as +ec2.amazonaws.com+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html#roles-creatingrole-service-api. For an unofficial list of service names, see https://gist.github.com/shortjared/4c1e3fe52bdfa47522cfe5b41e5d6f22
-                    **iam**: The name of an IAM resource or full ARN which should be permitted to assume this role, like +saml-provider/egt-labs-saml-idp+ or +arn:aws:iam::616552976502:saml-provider/egt-labs-saml-idp+.
-                    **#{aws_resource_types.join(", ")}**: A resource of one of these Mu types, declared elsewhere in this stack with a name specified in +entity_id+, for which Mu will attempt to resolve the appropriate *iam* or *service* identifier."
+                    "description" => "An identifier appropriate for the +entity_type+ which is allowed to assume this role- see details for valid formats.\n
+**service**: The name of a service which is allowed to assume this role, such as +ec2.amazonaws.com+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-service.html#roles-creatingrole-service-api. For an unofficial list of service names, see https://gist.github.com/shortjared/4c1e3fe52bdfa47522cfe5b41e5d6f22\n
+**#{aws_resource_types.join(", ")}**: A resource of one of these Mu types, declared elsewhere in this stack with a name specified in +entity_id+, for which Mu will attempt to resolve the appropriate *aws* or *service* identifier.\n
+**aws**: An ARN which should be permitted to assume this role, often another role like +arn:aws:iam::AWS-account-ID:role/role-name+ or a specific user session such as +arn:aws:sts::AWS-account-ID:assumed-role/role-name/role-session-name+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html#Principal_specifying\n
+**federated**: A federated identity provider, such as +accounts.google.com+ or +arn:aws:iam::AWS-account-ID:saml-provider/provider-name+. See also https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html#Principal_specifying"
                   }
+# XXX it's possible that 'role' is the only Mu resource type that maps to something that can assume another role in AWS IAM, so maybe that aws_resource_types.join should be something simpler
                 }
               }
             },
@@ -599,7 +598,7 @@ module MU
           role_policy_doc = {
             "Version" => "2012-10-17",
           }
-
+# XXX support AssumeRole, AssumeRoleWithSAML, and AssumeRoleWithWebIdentity
           statements = []
           if @config['can_assume']
             @config['can_assume'].each { |svc|
@@ -608,10 +607,18 @@ module MU
                 "Action" => "sts:AssumeRole",
                 "Principal" => {}
               }
-              if svc["entity_type"] == "service"
-                statement["Principal"]["Service"] = svc["entity_id"]
+              if ["service", "iam", "federated"].include?(svc["entity_type"])
+                statement["Principal"][svc["entity_type"].capitalize] = svc["entity_id"]
               else
-# XXX raw IAM thingies, references to other kids
+                sibling = @deploy.findLitterMate(
+                  name: svc["entity_id"],
+                  type: svc["entity_type"]
+                )
+                if sibling
+                  statement["Principal"][svc["entity_type"].capitalize] = sibling.cloudobj.arn
+                else
+                  raise MuError, "Couldn't find a #{svc["entity_type"]} named #{svc["entity_id"]} when generating IAM policy in role #{@mu_name}"
+                end
               end
               statements << statement
             }
