@@ -172,7 +172,7 @@ module MU
             instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
             return true if !instance_id.nil? and instance_id.size > 0
           end
-        rescue OpenURI::HTTPError, Timeout::Error, SocketError
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::EHOSTUNREACH
         end
         false
       end

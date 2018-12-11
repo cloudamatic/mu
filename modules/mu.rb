@@ -70,7 +70,7 @@ module MU
   if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
     ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
   else
-    ENV['MU_LIBDIR'] = "/opt/mu/lib"
+    ENV['MU_LIBDIR'] = File.realpath(File.expand_path(File.dirname(__FILE__))+"/../")
   end
   # Mu's installation directory.
   @@myRoot = File.expand_path(ENV['MU_LIBDIR'])
@@ -78,6 +78,11 @@ module MU
   # @return [String]
   def self.myRoot;
     @@myRoot
+  end
+
+  # Little hack to initialize library-only environments' config files
+  if !$MU_CFG
+    require "#{@@myRoot}/bin/mu-load-config.rb"
   end
 
   # The main (root) Mu user's data directory.
@@ -375,36 +380,6 @@ module MU
   end
 
 
-  rcfile = nil
-  home = Etc.getpwuid(Process.uid).dir
-  if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc") and File.size?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
-    rcfile = ENV['MU_INSTALLDIR']+"/etc/mu.rc"
-  elsif File.readable?("/opt/mu/etc/mu.rc") and File.size?("/opt/mu/etc/mu.rc")
-    rcfile = "/opt/mu/etc/mu.rc"
-  elsif File.readable?("#{home}/.murc") and File.size?("#{home}/.murc")
-    rcfile = "#{home}/.murc"
-  end
-  if rcfile
-    MU.log "MU::Config loading #{rcfile}", MU::DEBUG
-    File.readlines(rcfile).each { |line|
-      line.strip!
-      next if !line.match(/^export .*?=/)
-      name, value = line.split(/=/, 2)
-      name.sub!(/^export /, "")
-      if !value.nil? and !value.empty?
-        value.gsub!(/(^"|"$)/, "")
-        if !value.match(/\$/)
-          @mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
-        end
-      end
-    }
-  end
-
-  # Environment variables which command-line utilities might wish to inherit
-  def self.mu_env_vars;
-    @mu_env_vars;
-  end
-
   # XXX these guys to move into mu/groomer
   # List of known/supported grooming agents (configuration management tools)
   def self.supportedGroomers
@@ -569,10 +544,10 @@ module MU
 
   # Mu's SSL certificate directory
   @@mySSLDir = MU.dataDir+"/ssl" if MU.dataDir
-  @@mySSLDir ||= "/opt/mu/var/ssl"
+  @@mySSLDir ||= File.realpath(File.expand_path(File.dirname(__FILE__))+"/../var/ssl")
   # Mu's SSL certificate directory
   # @return [String]
-  def self.mySSLDir;
+  def self.mySSLDir
     @@mySSLDir
   end
 

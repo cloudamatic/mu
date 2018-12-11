@@ -91,7 +91,7 @@ module MU
         }
       end
 
-      @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+      @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
       # The canonical path to invoke Chef's *knife* utility with a clean environment.
       # @return [String]
       def self.knife;
@@ -109,7 +109,7 @@ module MU
 
       attr_reader :vault_opts
 
-      @chefclient = "env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin chef-client"
+      @chefclient = "env -i HOME=#{Etc.getpwuid(Process.uid).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin chef-client"
       # The canonical path to invoke Chef's *chef-client* utility with a clean environment.
       # @return [String]
       def self.chefclient;
