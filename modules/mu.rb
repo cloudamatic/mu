@@ -80,10 +80,6 @@ module MU
     @@myRoot
   end
 
-  # Little hack to initialize library-only environments' config files
-  if !$MU_CFG
-    require "#{@@myRoot}/bin/mu-load-config.rb"
-  end
 
   # The main (root) Mu user's data directory.
   @@mainDataDir = File.expand_path(@@myRoot+"/../var")
@@ -294,6 +290,15 @@ module MU
   # Log entries that will be held and displayed/emailed at the end of deploy,
   # cleanup, etc.
   SUMMARY = 5.freeze
+
+  # Little hack to initialize library-only environments' config files
+  if !$MU_CFG
+    require "#{@@myRoot}/bin/mu-load-config.rb"
+    if !cfgExists?
+      saveMuConfig($MU_CFG)
+      MU.log "Default Mu config initialized in #{cfgPath}", MU::NOTICE
+    end
+  end
 
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'

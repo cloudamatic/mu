@@ -307,6 +307,25 @@ module MU
 
     # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
+
+      # Handle running in standalone/library mode, sans LDAP, gracefully
+      if !$MU_CFG['multiuser']
+        stub_user_data = {
+          "mu" => {
+            "email" => $MU_CFG['mu_admin_email'],
+            "monitoring_email" => $MU_CFG['mu_admin_email'],
+            "realname" => $MU_CFG['banner'],
+            "admin" => true,
+            "non_ldap" => true,
+          }
+        }
+        if Etc.getpwuid(Process.uid).name != "root"
+          stub_user_data[Etc.getpwuid(Process.uid).name] = stub_user_data["mu"].dup
+        end
+
+        return stub_user_data
+      end
+
       if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?(MU.dataDir+"/users")
         username = Etc.getpwuid(Process.uid).name
         MU.log "Running without LDAP permissions to list users (#{username}), relying on Mu local cache", MU::DEBUG

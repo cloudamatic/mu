@@ -86,7 +86,7 @@ def loadMuConfig(default_cfg_overrides = nil)
     }
   end
 
-  global_cfg = {}
+  global_cfg = { "config_files" => [] }
   if File.exists?(cfg_file)
     global_cfg = YAML.load(File.read(cfg_file))
     global_cfg["config_files"] = [cfg_file]
@@ -97,6 +97,15 @@ def loadMuConfig(default_cfg_overrides = nil)
   if File.readable?("#{home}/.mu.yaml")
     global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
     global_cfg["config_files"] << "#{home}/.mu.yaml"
+  end
+  if !global_cfg.has_key?("installdir")
+    if ENV['MU_INSTALLDIR']
+      global_cfg["installdir"] = ENV['MU_INSTALLDIR']
+    elsif Gem.paths and Gem.paths.home
+      global_cfg["installdir"] = File.realpath(File.expand_path(File.dirname(Gem.paths.home))+"/../../../")
+    else
+      global_cfg["installdir"] = "/opt/mu"
+    end
   end
   if !global_cfg.has_key?("libdir")
     if ENV['MU_INSTALLDIR']
@@ -119,20 +128,30 @@ def loadMuConfig(default_cfg_overrides = nil)
   return default_cfg.merge(global_cfg).freeze
 end
 
+def cfgPath
+  if Process.uid == 0
+    if ENV.include?('MU_INSTALLDIR')
+      ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
+    else
+      "/opt/mu/etc/mu.yaml"
+    end
+  else
+    home = Etc.getpwuid(Process.uid).dir
+    username = Etc.getpwuid(Process.uid).name
+    "#{home}/.mu.yaml"
+  end
+end
+
+def cfgExists?
+  File.exists?(cfgPath)
+end
+
 # Output an in-memory configuration hash to the standard config file location,
 # in YAML.
 # @param cfg [Hash]: The configuration to dump
 def saveMuConfig(cfg)
-  home = Etc.getpwuid(Process.uid).dir
-  username = Etc.getpwuid(Process.uid).name
-  cfg_file = "/opt/mu/etc/mu.yaml"
-  if Process.uid == 0
-    cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml" if ENV.include?('MU_INSTALLDIR')
-  else
-    cfg_file = "#{home}/.mu.yaml"
-  end
-  puts "**** Saving master config to #{cfg_file} *****"
-  File.open(cfg_file, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+  puts "**** Saving master config to #{cfgPath} *****"
+  File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts cfg.to_yaml
   }
 end

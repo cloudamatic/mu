@@ -757,6 +757,11 @@ else
   end
 end
 
+if AMROOT
+  $MU_CFG['multiuser'] = true
+  saveMuConfig($MU_CFG)
+end
+
 def set389DSCreds
   require 'mu'
   credlist = {
