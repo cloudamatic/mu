@@ -38,7 +38,7 @@ $CONFIGURABLES = {
     "desc" => "IP address or hostname",
     "required" => true,
     "rootonly" => true,
-    "pattern" => /^(localhost|127\.0\.0\.1)$/,
+    "pattern" => /^(localhost|127\.0\.0\.1|#{Socket.gethostname})$/,
     "negate_pattern" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },

@@ -16,20 +16,31 @@ def self.build_file_list(dir, strip = dir)
 end
 
 Gem::Specification.new do |s|
-  s.name        = 'mu'
-  s.version     = '1.9.0-alpha'
+  s.name        = 'cloud-mu'
+  s.version     = '1.9.0-beta'
   s.date        = '2018-12-11'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
-  s.summary     = "Mu"
-  s.description = File.read(whereami+"/README.md")
-  s.authors     = ["John Stange"]
+  s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
+  s.description = <<-EOF
+The eGTLabs Mu toolkit for unified cloud deployments. This gem contains a minimal version of Mu with cloud provider APIs, and will generate a sample configuration the first time it is invoked.
+
+It will attempt to autodetect when it's being run in a virtual machine on a known cloud provider and activate the appropriate API with machine-based credentials. Installing this gem on an Amazon Web Service instance, for example, should automatically enable the MU::Cloud::AWS layer and attempt to use the machine's IAM Profile to communicate with the AWS API.
+
+require 'mu'
+
+
+EOF
+  s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Clara Bridges", "Zach Rowe"]
   s.email       = 'eGTLabs@eglobaltech.com'
   s.files       = build_file_list(whereami)
   s.executables = Dir.entries(whereami+"/bin")
   s.homepage    =
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
+  s.add_runtime_dependency 'erubis', "~> 2.7"
+  s.add_runtime_dependency 'inifile', "~> 3.0"
+  s.add_runtime_dependency 'bundler', "~> 1.17"
   s.add_runtime_dependency 'yard', "~> 0.9"
   s.add_runtime_dependency 'ruby-graphviz', "~> 1.2"
   s.add_runtime_dependency "aws-sdk-core", "< 3"

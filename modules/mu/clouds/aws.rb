@@ -15,22 +15,93 @@
 require "net/http"
 require 'open-uri'
 require 'timeout'
+require 'inifile'
 gem 'aws-sdk-core'
 autoload :Aws, "aws-sdk-core"
 
-if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
-  ENV.delete('AWS_ACCESS_KEY_ID')
-  ENV.delete('AWS_SECRET_ACCESS_KEY')
-  Aws.config = {region: ENV['EC2_REGION']}
-else
-  Aws.config = {access_key_id: $MU_CFG['aws']['access_key'], secret_access_key: $MU_CFG['aws']['access_secret'], region: $MU_CFG['aws']['region']}
-end
 
 module MU
   class Cloud
     # Support for Amazon Web Services as a provisioning layer.
     class AWS
       @@myRegion_var = nil
+
+      @@creds_loaded = false
+
+      # Load some credentials for using the AWS API
+      def self.loadCredentials
+        return if @@creds_loaded
+        if $MU_CFG and $MU_CFG['aws']
+          loaded = false
+          if $MU_CFG['aws']['access_key'] and $MU_CFG['aws']['access_secret'] and
+            # access key and secret just sitting in mu.yaml
+             !$MU_CFG['aws']['access_key'].empty? and
+             !$MU_CFG['aws']['access_secret'].empty?
+            Aws.config = {
+              access_key_id: $MU_CFG['aws']['access_key'],
+              secret_access_key: $MU_CFG['aws']['access_secret'],
+              region: $MU_CFG['aws']['region']
+            }
+            loaded = true
+          elsif $MU_CFG['aws']['credentials_file'] and
+                !$MU_CFG['aws']['credentials_file'].empty?
+            # pull access key and secret from an awscli-style credentials file
+            begin
+              File.read($MU_CFG["aws"]["credentials_file"]) # make sure it's there
+              credfile = IniFile.load($MU_CFG["aws"]["credentials_file"])
+
+              if !credfile.sections or credfile.sections.size == 0
+                raise ::IniFile::Error, "No AWS profiles found in #{$MU_CFG["aws"]["credentials_file"]}"
+              end
+              data = credfile.has_section?("default") ? credfile["default"] : credfile[credfile.sections.first]
+              if data["aws_access_key_id"] and data["aws_secret_access_key"]
+                Aws.config = {
+                  access_key_id: data['aws_access_key_id'],
+                  secret_access_key: data['aws_secret_access_key'],
+                  region: $MU_CFG['aws']['region']
+                }
+                loaded = true
+              else
+                MU.log "AWS credentials in #{$MU_CFG["aws"]["credentials_file"]} specified, but is missing aws_access_key_id or aws_secret_access_key elements", MU::WARN
+              end
+            rescue IniFile::Error, Errno::ENOENT, Errno::EACCES => e
+              MU.log "AWS credentials file #{$MU_CFG["aws"]["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
+            end
+          elsif $MU_CFG['aws']['credentials'] and
+                !$MU_CFG['aws']['credentials'].empty?
+            # pull access key and secret from a vault
+            begin
+              vault, item = $MU_CFG["aws"]["credentials"].split(/:/)
+              data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
+              if data["access_key"] and data["access_secret"]
+                Aws.config = {
+                  access_key_id: data['access_key'],
+                  secret_access_key: data['access_secret'],
+                  region: $MU_CFG['aws']['region']
+                }
+                loaded = true
+              else
+                MU.log "AWS credentials vault:item #{$MU_CFG["aws"]["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
+              end
+            rescue MU::Groomer::Chef::MuNoSuchSecret
+              MU.log "AWS credentials vault:item #{$MU_CFG["aws"]["credentials"]} specified, but does not exist", MU::WARN
+            end
+          end
+
+          if !loaded and hosted?
+            # assume we've got an IAM profile and hope for the best
+            ENV.delete('AWS_ACCESS_KEY_ID')
+            ENV.delete('AWS_SECRET_ACCESS_KEY')
+            Aws.config = {region: ENV['EC2_REGION']}
+            loaded = true
+          end
+
+          @@creds_loaded = loaded
+          if !@@creds_loaded
+            raise MuError, "AWS layer is enabled in mu.yaml, but I couldn't find working API credentials anywhere"
+          end
+        end
+      end
 
       # Any cloud-specific instance methods we require our resource
       # implementations to have, above and beyond the ones specified by
@@ -43,7 +114,7 @@ module MU
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion
-        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number']) and !hosted?
           return nil
         end
         if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
@@ -162,19 +233,64 @@ module MU
         end
       end
 
+      @@is_in_aws = nil
+
+      # Alias for #{MU::Cloud::AWS.hosted?}
+      def self.hosted
+        MU::Cloud::AWS.hosted?
+      end
+
       # Determine whether we (the Mu master, presumably) are hosted in this
       # cloud.
       # @return [Boolean]
-      def self.hosted
+      def self.hosted?
         require 'open-uri'
+
+        if !@@is_in_aws.nil?
+          return @@is_in_aws
+        end
+
         begin
           Timeout.timeout(2) do
             instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
-            return true if !instance_id.nil? and instance_id.size > 0
+            if !instance_id.nil? and instance_id.size > 0
+              @@is_in_aws = true
+              return true
+            end
           end
         rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::EHOSTUNREACH
         end
+
+        @@is_in_aws = false
         false
+      end
+
+      # If we're running this cloud, return the $MU_CFG blob we'd use to
+      # describe this environment as our target one.
+      def self.hosted_config
+        return nil if !hosted?
+        region = getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
+        mac = getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
+        account_number = getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
+        account_number.chomp!
+        {
+          "region" => region,
+          "account_number" => account_number
+        }
+      end
+
+      # A non-working example configuration
+      def self.config_example
+        sample = hosted_config
+        sample ||= {
+          "region" => "us-east-1",
+          "account_number" => "123456789012",
+        }
+#        sample["access_key"] = "AKIAIXKNI3JY6JVVJIHA"
+#        sample["access_secret"] = "oWjHT+2N3veyswy7+UA5i+H14KpvrOIZlnRlxpkw"
+        sample["credentials_file"] = "#{Etc.getpwuid(Process.uid).dir}/.aws/credentials"
+        sample["log_bucket_name"] = "my-mu-s3-bucket"
+        sample
       end
 
       @@regions = {}
@@ -791,6 +907,7 @@ module MU
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
+          MU::Cloud::AWS.loadCredentials
           retries = 0
           begin
             MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments

@@ -16,6 +16,7 @@ require 'yaml'
 require 'etc'
 require 'json'
 require 'erubis'
+require 'socket'
 
 # Locate and load the Mu Master's configuration, typically stored in
 # /opt/mu/etc/mu.yaml. If ~/.mu.yaml exists, load that too and allow it to
@@ -37,7 +38,7 @@ def loadMuConfig(default_cfg_overrides = nil)
     "jenkins_admin_email" => "root@localhost",
     "allow_invade_foreign_vpcs" => false,
     "mu_repo" => "cloudamatic/mu.git",
-    "public_address" => "localhost",
+    "public_address" => Socket.gethostname || "localhost",
     "banner" => "Mu Master",
     "scratchpad" => {
       "template_path" => "/opt/mu/lib/modules/scratchpad.erb",
@@ -70,31 +71,23 @@ def loadMuConfig(default_cfg_overrides = nil)
     }
   }
   default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides
-  cfg_file = nil
-  if ENV.include?('MU_INSTALLDIR')
-    cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
-    default_cfg["installdir"] = ENV['MU_INSTALLDIR']
-  else
-    cfg_file = "/opt/mu/etc/mu.yaml"
-    default_cfg["installdir"] = "/opt/mu"
-  end
 
-  if !File.exists?(cfg_file) and Process.uid == 0
-    puts "**** Master config #{cfg_file} does not exist, initializing *****"
-    File.open(cfg_file, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+  if !File.exists?(cfgPath) and Process.uid == 0
+    puts "**** Master config #{cfgPath} does not exist, initializing *****"
+    File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
       f.puts default_cfg.to_yaml
     }
   end
 
   global_cfg = { "config_files" => [] }
-  if File.exists?(cfg_file)
-    global_cfg = YAML.load(File.read(cfg_file))
-    global_cfg["config_files"] = [cfg_file]
+  if File.exists?(cfgPath)
+    global_cfg = YAML.load(File.read(cfgPath))
+    global_cfg["config_files"] = [cfgPath]
   end
 
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
-  if File.readable?("#{home}/.mu.yaml")
+  if File.readable?("#{home}/.mu.yaml") and cfgPath != "#{home}/.mu.yaml"
     global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
     global_cfg["config_files"] << "#{home}/.mu.yaml"
   end
@@ -129,15 +122,17 @@ def loadMuConfig(default_cfg_overrides = nil)
 end
 
 def cfgPath
+  home = Etc.getpwuid(Process.uid).dir
+  username = Etc.getpwuid(Process.uid).name
   if Process.uid == 0
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
+    elsif Dir.exists?("/opt/mu")
+      File.realpath(File.expand_path(File.dirname(__FILE__)+"/../../etc"))
     else
-      "/opt/mu/etc/mu.yaml"
+      "#{home}/.mu.yaml"
     end
   else
-    home = Etc.getpwuid(Process.uid).dir
-    username = Etc.getpwuid(Process.uid).name
     "#{home}/.mu.yaml"
   end
 end
@@ -149,10 +144,14 @@ end
 # Output an in-memory configuration hash to the standard config file location,
 # in YAML.
 # @param cfg [Hash]: The configuration to dump
-def saveMuConfig(cfg)
+# @param comment [Hash]: A configuration blob that will be appended as a commented block
+def saveMuConfig(cfg, comment = nil)
   puts "**** Saving master config to #{cfgPath} *****"
   File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts cfg.to_yaml
+    if comment and comment.size > 0
+      f.puts comment.to_yaml.sub(/^---$/, "EXAMPLE CLOUD LAYERS").gsub(/^/, "# ")
+    end
   }
 end
 

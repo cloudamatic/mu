@@ -526,6 +526,7 @@ module MU
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
+
         @cloud_class_cache[cloud][type] = myclass
         return myclass
       rescue NameError => e

@@ -291,14 +291,6 @@ module MU
   # cleanup, etc.
   SUMMARY = 5.freeze
 
-  # Little hack to initialize library-only environments' config files
-  if !$MU_CFG
-    require "#{@@myRoot}/bin/mu-load-config.rb"
-    if !cfgExists?
-      saveMuConfig($MU_CFG)
-      MU.log "Default Mu config initialized in #{cfgPath}", MU::NOTICE
-    end
-  end
 
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
@@ -306,6 +298,35 @@ module MU
   autoload :Master, 'mu/master'
   require 'mu/cloud'
   require 'mu/groomer'
+
+  # Little hack to initialize library-only environments' config files
+  if !$MU_CFG
+    require "#{@@myRoot}/bin/mu-load-config.rb"
+
+    if !$MU_CFG['multiuser']
+      new_cfg = $MU_CFG.dup
+      examples = {}
+      MU::Cloud.supportedClouds.each { |cloud|
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        begin
+          if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
+            cfg_blob = cloudclass.hosted_config
+            if cfg_blob
+              new_cfg[cloud.downcase] = cfg_blob
+              MU.log "Adding #{cloud} stanza to #{cfgPath}", MU::NOTICE
+            end
+          elsif !$MU_CFG[cloud.downcase]
+            examples[cloud.downcase] = cloudclass.config_example
+          end
+        rescue NoMethodError => e
+          # missing .hosted? is normal for dummy layers like CloudFormation
+        end
+      }
+      if new_cfg != $MU_CFG
+        saveMuConfig(new_cfg, examples) # XXX and reload it
+      end
+    end
+  end
 
   @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
   @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
@@ -407,10 +428,10 @@ module MU
   @@myRegion_var = nil
   # Find the cloud provider region where this master resides, if any
   def self.myRegion
-    if MU::Cloud::Google.hosted
+    if MU::Cloud::Google.hosted?
       zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
       @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
-    elsif MU::Cloud::AWS.hosted
+    elsif MU::Cloud::AWS.hosted?
       @@myRegion_var ||= MU::Cloud::AWS.myRegion
     else
       @@myRegion_var = nil
@@ -423,10 +444,10 @@ module MU
   # Figure out what cloud provider we're in, if any.
   # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.
   def self.myCloud
-    if MU::Cloud::Google.hosted
+    if MU::Cloud::Google.hosted?
       @@myInstanceId = MU::Cloud::Google.getGoogleMetaData("instance/name")
       return "Google"
-    elsif MU::Cloud::AWS.hosted
+    elsif MU::Cloud::AWS.hosted?
       @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
       return "AWS"
     end
@@ -475,10 +496,10 @@ module MU
   @@myAZ_var = nil
   # Find the cloud provider availability zone where this master resides, if any
   def self.myAZ
-    if MU::Cloud::Google.hosted
+    if MU::Cloud::Google.hosted?
       zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
       @@myAZ_var = zone.gsub(/.*?\//, "")
-    elsif MU::Cloud::AWS.hosted
+    elsif MU::Cloud::AWS.hosted?
       return nil if MU.myCloudDescriptor.nil?
       begin
         @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
@@ -491,16 +512,18 @@ module MU
   end
 
   @@myCloudDescriptor = nil
-  if MU::Cloud::Google.hosted
+  if MU::Cloud::Google.hosted?
     @@myCloudDescriptor = MU::Cloud::Google.compute.get_instance(
       MU::Cloud::Google.myProject,
       MU.myAZ,
       MU.myInstanceId
     )
-  elsif MU::Cloud::AWS.hosted
+  elsif MU::Cloud::AWS.hosted?
     begin
       @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
     rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+    rescue Aws::Errors::MissingCredentialsError => e
+      MU.log "I'm hosted in AWS, but I can't make API calls. Does this instance have an appropriate IAM profile?", MU::WARN
     end
   end
 
@@ -511,9 +534,9 @@ module MU
   def self.myVPC
     return nil if MU.myCloudDescriptor.nil?
     begin
-      if MU::Cloud::AWS.hosted
+      if MU::Cloud::AWS.hosted?
         @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
-      elsif MU::Cloud::Google.hosted
+      elsif MU::Cloud::Google.hosted?
         @@myVPC_var = MU.myCloudDescriptor.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1')
       else
         nil
