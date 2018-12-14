@@ -114,7 +114,7 @@ module MU
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion
-        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number']) and !hosted?
+        if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted?
           return nil
         end
         if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
@@ -197,7 +197,7 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
-        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+        if $MU_CFG and (!$MU_CFG['aws'] or !account_number)
           return []
         end
         if !region.nil? and @@azs[region]
@@ -271,11 +271,11 @@ module MU
         return nil if !hosted?
         region = getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
         mac = getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
-        account_number = getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
-        account_number.chomp!
+        acct_num = getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
+        acct_num.chomp!
         {
           "region" => region,
-          "account_number" => account_number
+          "account_number" => acct_num
         }
       end
 
@@ -293,13 +293,42 @@ module MU
         sample
       end
 
+      @my_acct_num = nil
+
+      # Fetch the AWS account number where this Mu master resides. If it's not in 
+      # AWS at all, or otherwise cannot be determined, return nil.
+      # here.
+      # XXX account for Google and non-cloud situations
+      # XXX but what about multi-account uuuugh
+      def self.account_number
+        return nil if !$MU_CFG['aws']
+        return @my_acct_num if @my_acct_num
+
+    		begin
+    	    user_list = MU::Cloud::AWS.iam($MU_CFG['aws']['region']).list_users.users
+#    		rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
+    		rescue Exception => e
+    			MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
+    		end
+        if user_list.nil? or user_list.size == 0
+          mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
+          acct_num = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
+          acct_num.chomp!
+        else
+          acct_num = MU::Cloud::AWS.iam($MU_CFG['aws']['region']).list_users.users.first.arn.split(/:/)[4]
+        end
+        MU.setVar("acct_num", acct_num)
+        @my_acct_num ||= acct_num
+        acct_num
+      end
+
       @@regions = {}
       # List the Amazon Web Services region names available to this account. The
       # region that is local to this Mu server will be listed first.
       # @param us_only [Boolean]: Restrict results to United States only
       # @return [Array<String>]
       def self.listRegions(us_only = false)
-        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+        if $MU_CFG and (!$MU_CFG['aws'] or !account_number)
           return []
         end
         if @@regions.size == 0
@@ -360,7 +389,7 @@ module MU
       # @return [Hash]
       def self.listInstanceTypes(region = myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
-        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+        if $MU_CFG and (!$MU_CFG['aws'] or !account_number)
           return {}
         end
 

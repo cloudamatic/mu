@@ -303,7 +303,8 @@ module MU
   if !$MU_CFG
     require "#{@@myRoot}/bin/mu-load-config.rb"
 
-    if !$MU_CFG['multiuser']
+    if !$MU_CFG['auto_detection_done'] and (!$MU_CFG['multiuser'] or !cfgExists?)
+      MU.log "Auto-detecting cloud providers"
       new_cfg = $MU_CFG.dup
       examples = {}
       MU::Cloud.supportedClouds.each { |cloud|
@@ -315,23 +316,32 @@ module MU
               new_cfg[cloud.downcase] = cfg_blob
               MU.log "Adding #{cloud} stanza to #{cfgPath}", MU::NOTICE
             end
-          elsif !$MU_CFG[cloud.downcase]
+          elsif !$MU_CFG[cloud.downcase] and !cloudclass.config_example.nil?
             examples[cloud.downcase] = cloudclass.config_example
           end
         rescue NoMethodError => e
           # missing .hosted? is normal for dummy layers like CloudFormation
+          MU.log e.message, MU::WARN
         end
       }
-      if new_cfg != $MU_CFG
+      new_cfg['auto_detection_done'] = true
+      if new_cfg != $MU_CFG or !cfgExists?
+        MU.log "Generating #{cfgPath}"
         saveMuConfig(new_cfg, examples) # XXX and reload it
       end
     end
   end
 
-  @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
-  @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
-  @@mu_public_addr = @@my_public_ip
-  @@mu_public_ip = @@my_public_ip
+  @@my_private_ip = nil
+  @@my_public_ip = nil
+  @@mu_public_addr = nil
+  @@mu_public_ip = nil
+  if $MU_CFG['aws'] # XXX this should be abstracted to elsewhere
+    @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
+    @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
+    @@mu_public_addr = @@my_public_ip
+    @@mu_public_ip = @@my_public_ip
+  end
   if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
@@ -454,31 +464,15 @@ module MU
     nil
   end
 
-  # Fetch the AWS account number where this Mu master resides. If it's not in 
-  # AWS at all, or otherwise cannot be determined, return nil.
-  # XXX migrate this to MU::AWS and leave a backwards-compatibility wrapper
-  # here.
-  # XXX account for Google and non-cloud situations
+  # Wrapper for {MU::Cloud::AWS.account_number}
   def self.account_number
     if !@@globals[Thread.current.object_id].nil? and
-        !@@globals[Thread.current.object_id]['account_number'].nil?
+       !@@globals[Thread.current.object_id]['account_number'].nil?
       return @@globals[Thread.current.object_id]['account_number']
     end
-    return nil if MU.myCloud != "AWS"
-		begin
-	    user_list = MU::Cloud::AWS.iam.list_users.users
-		rescue Aws::IAM::Errors::AccessDenied => e
-			MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN
-		end
-    if user_list.nil? or user_list.size == 0
-      mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
-      account_number = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
-      account_number.chomp!
-    else
-      account_number = MU::Cloud::AWS.iam.list_users.users.first.arn.split(/:/)[4]
-    end
-    MU.setVar("account_number", account_number)
-    account_number
+    @@globals[Thread.current.object_id] ||= {}
+    @@globals[Thread.current.object_id]['account_number'] = MU::Cloud::AWS.account_number
+    @@globals[Thread.current.object_id]['account_number']
   end
 
   # The cloud instance identifier of this Mu master

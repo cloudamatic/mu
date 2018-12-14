@@ -36,6 +36,18 @@ module MU
         @@cloudformation_mode
       end
 
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.hosted?} instead.
+      def self.hosted?
+        false
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.hosted?} instead.
+      def self.config_example
+        nil
+      end
+
       # Generate and return a skeletal CloudFormation resource entry for the
       # caller.
       # param type [String]: The resource type, in Mu parlance
