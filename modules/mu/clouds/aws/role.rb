@@ -294,6 +294,15 @@ module MU
             resp.roles.each { |r|
               MU.log "Deleting IAM role #{r.role_name}"
               if !noop
+                detachables = MU::Cloud::AWS.iam.list_attached_role_policies(
+                  role_name: r.role_name
+                ).attached_policies
+                detachables.each { |rp|
+                  MU::Cloud::AWS.iam.detach_role_policy(
+                    role_name: r.role_name,
+                    policy_arn: rp.policy_arn
+                  )
+                }
 
                 begin
                   MU::Cloud::AWS.iam.remove_role_from_instance_profile(
