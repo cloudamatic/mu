@@ -294,6 +294,8 @@ module MU
             resp.roles.each { |r|
               MU.log "Deleting IAM role #{r.role_name}"
               if !noop
+                # purgePolicy won't touch roles we don't own, so gently detach
+                # those first
                 detachables = MU::Cloud::AWS.iam.list_attached_role_policies(
                   role_name: r.role_name
                 ).attached_policies
@@ -478,6 +480,12 @@ module MU
                     "description" => "Type of entity which will be permitted to assume this role. See +entity_id+ for details.",
                     "enum" => ["service", "aws", "federated"]+aws_resource_types
                   },
+                  "assume_method" => {
+                    "type" => "string",
+                    "description" => "https://docs.aws.amazon.com/STS/latest/APIReference/API_Operations.html",
+                    "enum" => ["basic", "saml", "web"]
+                    "default" => "basic"
+                  },
                   "entity_id" => {
                     "type" => "string",
                     "description" => "An identifier appropriate for the +entity_type+ which is allowed to assume this role- see details for valid formats.\n
@@ -607,13 +615,18 @@ module MU
           role_policy_doc = {
             "Version" => "2012-10-17",
           }
-# XXX support AssumeRole, AssumeRoleWithSAML, and AssumeRoleWithWebIdentity
+
           statements = []
           if @config['can_assume']
+            act_map = {
+              "basic" => "sts:AssumeRole",
+              "saml" => "sts:AssumeRoleWithSAML",
+              "web" => "sts:AssumeRoleWithWebIdentity"
+            }
             @config['can_assume'].each { |svc|
               statement = {
                 "Effect" => "Allow",
-                "Action" => "sts:AssumeRole",
+                "Action" => act_map[svc['assume_method']],
                 "Principal" => {}
               }
               if ["service", "iam", "federated"].include?(svc["entity_type"])
