@@ -211,6 +211,9 @@ module MU
                   MU::Cloud::AWS.iam.delete_login_profile(
                     user_name: u.user_name
                   )
+                rescue Aws::IAM::Errors::EntityTemporarilyUnmodifiable
+                  sleep 10
+                  retry
                 rescue Aws::IAM::Errors::NoSuchEntity
                 end
                 keys = MU::Cloud::AWS.iam.list_access_keys(
@@ -230,7 +233,6 @@ module MU
             end
           }
 
-#          MU.log "CLEANUP CALLED ON AWS::USER", MU::WARN, details: resp
         end
 
         # Canonical Amazon Resource Number for this resource

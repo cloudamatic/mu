@@ -40,7 +40,7 @@ module MU
     end
 
     generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
-    generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config, :cloud_desc]
+    generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -631,7 +631,7 @@ module MU
           @config = kitten_cfg
           @delayed_save = delayed_save
           @cloud_id = cloud_id
-          
+
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
             MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
@@ -720,19 +720,20 @@ module MU
             end
           end
         end
-
-        def cloud_desc
+        
+        def cloud_desc()
           describe
           if !@cloudobj.nil?
-            @cloud_desc = @cloudobj.cloud_desc
+            @cloud_desc_cache ||= @cloudobj.cloud_desc
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
-          elsif !@config.nil? and !@cloud_id.nil?
+          end
+          if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc = matches[@cloud_id]
+                @cloud_desc_cache = matches[@cloud_id]
               else
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end
@@ -742,7 +743,7 @@ module MU
             end
           end
 
-          return @cloud_desc
+          return @cloud_desc_cache
         end
 
         # Retrieve all of the known metadata for this resource.

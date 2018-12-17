@@ -209,9 +209,17 @@ module MU
               need_update = false
               doc["Statement"].each { |s|
                 targets.each { |target|
-# XXX resolve mu_type targets to ARNs
-                  if !s["Resource"].include?(target)
-                    s["Resource"] << target
+                  targetstr = if target['type']
+                    sibling = @deploy.findLitterMate(
+                      name: target["identifier"],
+                      type: target["type"]
+                    )
+                    sibling.cloudobj.arn
+                  else
+                    target['identifier']
+                  end
+                  if sibling and !s["Resource"].include?(targetstr)
+                    s["Resource"] << targetstr
                     need_update = true
                   end
                 }
@@ -483,7 +491,7 @@ module MU
                   "assume_method" => {
                     "type" => "string",
                     "description" => "https://docs.aws.amazon.com/STS/latest/APIReference/API_Operations.html",
-                    "enum" => ["basic", "saml", "web"]
+                    "enum" => ["basic", "saml", "web"],
                     "default" => "basic"
                   },
                   "entity_id" => {
@@ -541,6 +549,19 @@ module MU
             ok = false
           end
 
+          if role['policies']
+            role['policies'].each { |policy|
+              policy['targets'].each { |target|
+                if target['type']
+                  role['dependencies'] ||= []
+                  role['dependencies'] << {
+                    "name" => target['identifier'],
+                    "type" => target['type']
+                  }
+                end
+              }
+            }
+          end
 
           ok
         end
@@ -557,7 +578,7 @@ module MU
                 "Version" => "2012-10-17",
                 "Statement" => [
                   {
-                    "Sid" => policy["name"],
+                    "Sid" => policy["name"].gsub(/[^0-9A-Za-z]*/, ""),
                     "Effect" => policy['flag'].capitalize,
                     "Action" => [],
                     "Resource" => []
