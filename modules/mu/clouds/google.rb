@@ -366,7 +366,7 @@ module MU
 
 
       @@instance_types = nil
-      # Query the GCP API for the list of valid EC2 instance types and some of
+      # Query the GCP API for the list of valid Compute instance types and some of
       # their attributes. We can use this in config validation and to help
       # "translate" machine types across cloud providers.
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
@@ -786,7 +786,7 @@ module MU
               debuglevel = MU::WARN
               interval = 40 + Random.rand(15) - 5
             # elsif retries > 100
-              # raise MuError, "Exhausted retries after #{retries} attempts while calling EC2's #{method_sym} in #{@region}.  Args were: #{arguments}"
+              # raise MuError, "Exhausted retries after #{retries} attempts while calling Compute's #{method_sym} in #{@region}.  Args were: #{arguments}"
             end
 
             MU.log "Got #{e.inspect} calling Google's #{method_sym}, waiting #{interval.to_s}s and retrying. Called from: #{caller[1]}", debuglevel, details: arguments

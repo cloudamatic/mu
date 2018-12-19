@@ -247,20 +247,6 @@ module MU
 
         private
 
-        ########################################################################
-        # Manufacture an EC2 security group. The second parameter, rules, is an
-        # "ingress_rules" structure parsed and validated by MU::Config.
-        ########################################################################
-        def setRules(rules, add_to_self: false, ingress: true, egress: false)
-        end
-
-        ########################################################################
-        # Convert our config languages description of firewall rules into
-        # Amazon's.  This rule structure is as defined in MU::Config.
-        ########################################################################
-        def convertToEc2(rules)
-        end
-
       end #class
     end #class
   end

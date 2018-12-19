@@ -130,7 +130,7 @@ module MU
           end
         end
 
-        # Locate an existing user group.
+        # Locate an existing user.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
