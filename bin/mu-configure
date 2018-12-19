@@ -758,8 +758,10 @@ else
 end
 
 if AMROOT
-  $MU_CFG['multiuser'] = true
-  saveMuConfig($MU_CFG)
+  newcfg = $MU_CFG.dup
+  newcfg['multiuser'] = true
+  saveMuConfig(newcfg)
+  $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
 end
 
 def set389DSCreds

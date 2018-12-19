@@ -343,6 +343,7 @@ file "#{MU_BASE}/var/users/mu/email" do
     content "#{$MU_CFG['mu_admin_email']}\n"
   else
     content "root@example.com\n"
+    action :create_if_missing
   end
 end
 file "#{MU_BASE}/var/users/mu/realname" do
@@ -350,6 +351,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
     content "#{$MU_CFG['mu_admin_name']}\n"
   else
     content "Mu Administrator\n"
+    action :create_if_missing
   end
 end
 
