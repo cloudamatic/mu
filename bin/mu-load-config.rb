@@ -121,6 +121,7 @@ def loadMuConfig(default_cfg_overrides = nil)
   return default_cfg.merge(global_cfg).freeze
 end
 
+# Shorthand for locating the path to mu.yaml
 def cfgPath
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
