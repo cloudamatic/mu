@@ -117,6 +117,39 @@ def loadMuConfig(default_cfg_overrides = nil)
     end
   end
 
+  ok = true
+  ['aws', 'google', 'azure'].each { |cloud|
+    if global_cfg[cloud]
+      found_default = false
+      # Muddle up old-style single-account cloud configs into an array of
+      # named accounts, which is what we're expecting to see nowadays.
+      if global_cfg[cloud].values.any? { |h| !h.is_a?(Hash) }
+        puts "Converting single #{cloud} #{cfgPath} account entry to default alias"
+        global_cfg[cloud]["default"] = true
+        global_cfg[cloud] = {
+          "default" => global_cfg[cloud]
+        }
+        found_default = true
+      else
+        missing_alias = false
+        if global_cfg[cloud].size > 1
+          global_cfg[cloud].each_pair { |acctalias, acct|
+            found_default = true if acctalias["default"]
+          }
+        else
+          found_default = true
+        end
+      end
+      if !found_default
+        puts "Multiple #{cloud} entries specified in #{cfgPath}, but none have 'default' set to true"
+        ok = false
+      end
+      global_cfg[cloud].each_pair { |acctalias, cfg|
+      }
+    end
+  }
+  exit 1 if !ok
+
   $LOAD_PATH << "#{global_cfg["libdir"]}/modules"
   return default_cfg.merge(global_cfg).freeze
 end

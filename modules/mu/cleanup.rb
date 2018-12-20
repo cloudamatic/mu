@@ -195,7 +195,7 @@ module MU
         }
 
         if !MU::Cloud::AWS.isGovCloud?
-          if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
+          if $MU_CFG['aws']
             MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
           end
         end
