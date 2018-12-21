@@ -274,11 +274,15 @@ module MU
                 file_system_id: storage_pool.file_system_id
               ).mount_targets
 
+#              subnet_obj = mp_vpc.subnets.select { |s|
+#                s.name == mp["vpc"]["subnet_name"] or s.cloud_id == mp["vpc"]["subnet_id"]
+#              }.first
+
               mount_target = nil
-              subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
               mp_vpc.subnets.each { |subnet_obj|
                 mount_targets.map { |t|
-                  if subnet_cidr_obj.contains(t.ip_address)
+                  subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
+                  if subnet_cidr_obj.contains(NetAddr::IPv4.parse(t.ip_address))
                     mount_target = t
                     subnet = subnet_obj.cloud_desc
                   end
