@@ -18,6 +18,46 @@ require 'json'
 require 'erubis'
 require 'socket'
 
+# Make sure things make sense in our various cloud subsections, which are more
+# complicated than the rest. May alter the hash it's passed.
+def validateClouds(cfg)
+  ok = true
+
+  ['aws', 'google', 'azure'].each { |cloud|
+    if cfg[cloud]
+      found_default = false
+      # Muddle up old-style single-account cloud configs into an array of
+      # named accounts, which is what we're expecting to see nowadays.
+      if cfg[cloud].values.any? { |h| !h.is_a?(Hash) }
+        puts "Converting single #{cloud} #{cfgPath} account entry to default alias"
+        cfg[cloud] = {
+          "default" => cfg[cloud]
+        }
+        cfg[cloud]["default"]["default"] = true
+        found_default = true
+      else
+        missing_alias = false
+        cfg[cloud].each_pair { |acctalias, acct|
+          if acctalias["default"]
+            if found_default
+              puts "Multiple accounts have 'default' set in #{cloud}".light_red.on_black
+              ok = false
+            end
+            found_default = true
+          end
+        }
+      end
+      if !found_default
+        first = cfg[cloud].keys.first
+        puts "No default #{cloud} credentials specified in #{cfgPath}, arbitrarily choosing #{first}".yellow.on_black
+        cfg[cloud][first]["default"] = true
+      end
+    end
+  }
+
+  ok
+end
+
 # Locate and load the Mu Master's configuration, typically stored in
 # /opt/mu/etc/mu.yaml. If ~/.mu.yaml exists, load that too and allow it to
 # override values from the global config. Also puts Mu's /modules directory
@@ -117,38 +157,7 @@ def loadMuConfig(default_cfg_overrides = nil)
     end
   end
 
-  ok = true
-  ['aws', 'google', 'azure'].each { |cloud|
-    if global_cfg[cloud]
-      found_default = false
-      # Muddle up old-style single-account cloud configs into an array of
-      # named accounts, which is what we're expecting to see nowadays.
-      if global_cfg[cloud].values.any? { |h| !h.is_a?(Hash) }
-        puts "Converting single #{cloud} #{cfgPath} account entry to default alias"
-        global_cfg[cloud]["default"] = true
-        global_cfg[cloud] = {
-          "default" => global_cfg[cloud]
-        }
-        found_default = true
-      else
-        missing_alias = false
-        if global_cfg[cloud].size > 1
-          global_cfg[cloud].each_pair { |acctalias, acct|
-            found_default = true if acctalias["default"]
-          }
-        else
-          found_default = true
-        end
-      end
-      if !found_default
-        puts "Multiple #{cloud} entries specified in #{cfgPath}, but none have 'default' set to true"
-        ok = false
-      end
-      global_cfg[cloud].each_pair { |acctalias, cfg|
-      }
-    end
-  }
-  exit 1 if !ok
+  exit 1 if !validateClouds(global_cfg)
 
   $LOAD_PATH << "#{global_cfg["libdir"]}/modules"
   return default_cfg.merge(global_cfg).freeze
@@ -180,7 +189,8 @@ end
 # @param cfg [Hash]: The configuration to dump
 # @param comment [Hash]: A configuration blob that will be appended as a commented block
 def saveMuConfig(cfg, comment = nil)
-  puts "**** Saving master config to #{cfgPath} *****"
+  exit 1 if !validateClouds(cfg)
+  puts "**** Saving master config to #{cfgPath} *****".green.on_black
   File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts cfg.to_yaml
     if comment and comment.size > 0

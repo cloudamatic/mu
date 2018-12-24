@@ -162,6 +162,12 @@ $CONFIGURABLES = {
         "title" => "Log and Secret Bucket Name",
         "desc" => "S3 bucket into which we'll synchronize deploy secrets, and if we're hosted in AWS, collected system logs",
         "changes" => ["chefrun"]
+      },
+      "default" => {
+        "title" => "Is Default Account",
+        "default" => false,
+        "desc" => "If set to true, Mu will use this AWS account when targeting AWS without a specific account having been requested",
+        "boolean" => true
       }
     }
   },
@@ -190,6 +196,12 @@ $CONFIGURABLES = {
         "title" => "Log and Secret Bucket Name",
         "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in GCP, collected system logs",
         "changes" => ["chefrun"]
+      },
+      "default" => {
+        "title" => "Is Default Account",
+        "default" => false,
+        "desc" => "If set to true, Mu will use this set of GCP credentials when targeting the Google Cloud without a specific account having been requested",
+        "boolean" => true
       }
     }
   }
@@ -311,16 +323,21 @@ def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
       letters = ("a".."z").to_a
       lettercount = 0
       if data['named_subentries']
-        map[count.to_s] = data["subtree"] # aka "add new"
+        map[count.to_s] = data["subtree"].dup # aka "add new"
+        map[count.to_s].each_pair { |k, v| v.delete("value") } # reset to defaults
+
+
         map[count.to_s]["name"] = {
           "title" => "Name",
           "desc" => "A name/alias for this account.",
           "required" => true
         }
         map[count.to_s]["#addnew"] = true
+        map[count.to_s]["#key"] = key
 
         data['subtree']['#entries'].each_pair { |nameentry, subdata|
           next if data['readonly']
+          next if !subdata.is_a?(Hash)
           subdata["#menu"] = count.to_s+letters[lettercount]
           subdata["#title"] = nameentry
           subdata["#key"] = key
@@ -586,6 +603,12 @@ def importCurrentValues
             next if !subtree.has_key?(subkey)
             $CONFIGURABLES[key]['subtree']["#entries"][nameentry] = $CONFIGURABLES[key]['subtree'].dup
             $CONFIGURABLES[key]["subtree"]["#entries"][nameentry][subkey]["value"] = subtree[subkey]
+            $CONFIGURABLES[key]["subtree"]["#entries"][nameentry]["name"] = {
+              "title" => "Name",
+              "desc" => "A name/alias for this account.",
+              "required" => true,
+              "value" => nameentry
+            }
           }
         }
       else
@@ -625,16 +648,25 @@ end
 
 # Converts the current $CONFIGURABLES object to a Hash suitable for merging
 # with $MU_CFG.
-def setConfigTree
+def setConfigTree(tree = $CONFIGURABLES)
   cfg = {}
-  $CONFIGURABLES.each_pair { |key, data|
+  tree.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
-        if data["named_subentries"]
-          puts "SUBMENU VALUE UGH"
-        else
+      if data["named_subentries"]
+        data["subtree"]["#entries"].each_pair { |name, block|
+
+          next if !block.is_a?(Hash)
+puts ("Saving "+key+" "+name).yellow
+          block.each_pair { |subkey, subdata|
+            next if subkey.match(/^#/) or !subdata.is_a?(Hash)
+            cfg[key] ||= {}
+            cfg[key][name] ||= {}
+            cfg[key][name][subkey] = subdata['value'] if subdata['value']
+          }
+        }
+      else
+        data["subtree"].each_pair { |subkey, subdata|
           if !subdata["value"].nil?
             cfg[key] ||= {}
             cfg[key][subkey] = subdata["value"]
@@ -642,8 +674,8 @@ def setConfigTree
             cfg[key] ||= {}
             cfg[key][subkey] = subdata["default"]
           end
-        end
-      }
+        }
+      end
     elsif !data["value"].nil?
       cfg[key] = data["value"]
     elsif !data["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and !$MU_CFG[key])
@@ -711,7 +743,7 @@ def ask(desc)
       Readline.redisplay
       Readline.pre_input_hook = nil
     end
-  end
+    end
   val = Readline.readline(prompt, false)
   if desc['array'] and !val.nil?
     val = val.strip.split(/\s*,\s*/)
@@ -823,22 +855,41 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
     if map.has_key?(answer) and map[answer]["#addnew"]
       minimap = {}
       assignMenuEntries(map[answer], minimap)
-      newstuff = menu(
+      newtree, newmap = menu(
         map[answer],
         minimap,
         map[answer]['#title']+" (NEW)",
         map[answer]['#entries'].keys.reject { |k| k.match(/^#/) }
       )
-      pp newstuff
+      if newtree
+        newname = newtree["name"]["value"]
+        newtree.delete("#addnew")
+        parentname = map[answer]['#key']
+
+        tree[parentname]['subtree'] ||= {}
+        tree[parentname]['subtree']['#entries'] ||= {}
+        # if we're in cloud land and just added a 2nd entry, set the original
+        # one to 'default'
+        if tree[parentname]['subtree']['#entries'].size == 1
+        end
+        tree[parentname]['subtree']['#entries'][newname] = newtree.dup
+
+        map = {} # rebuild the menu map to include new entries
+        assignMenuEntries(tree, map)
+      end
+#      exit
+#      map[answer] = newtree if newtree
     elsif map.has_key?(answer) and map[answer]["is_submenu"]
+      puts "in old shit block".yellow
       minimap = {}
       assignMenuEntries(map[answer], minimap)
-      menu(
+      newtree, newmap = menu(
         map[answer],
         minimap,
         map[answer]["#title"], 
         (map[answer]['#entries'].keys - [map[answer]['#title']])
       )
+      map[answer] = newtree if newtree
     elsif map.has_key?(answer) and !map[answer].has_key?("subtree")
       newval = ask(map[answer])
       if !validate(newval, map[answer], in_use: in_use_names)
@@ -846,7 +897,7 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
         next
       end
       map[answer]['value'] = newval == "" ? nil : newval
-      tree[map[answer]['#key']] = newval
+      tree[map[answer]['#key']]['value'] = newval
       $CHANGES.concat(map[answer]['changes']) if map[answer].include?("changes")
       if map[answer]['title'] == "Local Hostname"
 #        $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
@@ -859,7 +910,7 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
       changed = true
       puts ""
     elsif ["q", "Q"].include?(answer)
-      return map
+      return nil
     elsif !["", "0", "O", "o"].include?(answer)
       puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
       sleep 1
@@ -867,12 +918,13 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
       answer = nil if !entireConfigValid?
     end
   end while answer != "0" and answer != "O" and answer != "o"
-  map
+
+  return [tree, map]
 end
 
 if !$opts[:noninteractive]
-  menu
-exit # XXX delete when done testing
+  $CONFIGURABLES, $MENU_MAP = menu
+  $MU_CFG = setConfigTree
 else
   if !entireConfigValid?
     puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
@@ -886,6 +938,7 @@ if AMROOT
   saveMuConfig(newcfg)
   $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
 end
+exit # XXX delete when done testing
 
 def set389DSCreds
   require 'mu'
