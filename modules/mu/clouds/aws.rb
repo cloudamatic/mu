@@ -33,62 +33,63 @@ module MU
       # two different AWS accounts
       def self.loadCredentials(name = nil)
         return if @@creds_loaded
-        return if acctConf.nil?
-# XXX cover scenario where we have *nothing* configured but are hosted in AWS?
-# maybe? Should we bother, since mu.yaml is auto-generated to detect this?
+        if credConfig.nil?
+          return
+        end
+
         loaded = false
-        if acctConf['access_key'] and acctConf['access_secret'] and
+        if credConfig['access_key'] and credConfig['access_secret'] and
           # access key and secret just sitting in mu.yaml
-           !acctConf['access_key'].empty? and
-           !acctConf['access_secret'].empty?
+           !credConfig['access_key'].empty? and
+           !credConfig['access_secret'].empty?
           Aws.config = {
-            access_key_id: acctConf['access_key'],
-            secret_access_key: acctConf['access_secret'],
-            region: acctConf['region']
+            access_key_id: credConfig['access_key'],
+            secret_access_key: credConfig['access_secret'],
+            region: credConfig['region']
           }
           loaded = true
-        elsif acctConf['credentials_file'] and
-              !acctConf['credentials_file'].empty?
+        elsif credConfig['credentials_file'] and
+              !credConfig['credentials_file'].empty?
           # pull access key and secret from an awscli-style credentials file
           begin
-            File.read(acctConf["credentials_file"]) # make sure it's there
-            credfile = IniFile.load(acctConf["credentials_file"])
+            File.read(credConfig["credentials_file"]) # make sure it's there
+            credfile = IniFile.load(credConfig["credentials_file"])
 
             if !credfile.sections or credfile.sections.size == 0
-              raise ::IniFile::Error, "No AWS profiles found in #{acctConf["credentials_file"]}"
+              raise ::IniFile::Error, "No AWS profiles found in #{credConfig["credentials_file"]}"
             end
             data = credfile.has_section?("default") ? credfile["default"] : credfile[credfile.sections.first]
             if data["aws_access_key_id"] and data["aws_secret_access_key"]
               Aws.config = {
                 access_key_id: data['aws_access_key_id'],
                 secret_access_key: data['aws_secret_access_key'],
-                region: acctConf['region']
+                region: credConfig['region']
               }
               loaded = true
             else
-              MU.log "AWS credentials in #{acctConf["credentials_file"]} specified, but is missing aws_access_key_id or aws_secret_access_key elements", MU::WARN
+              MU.log "AWS credentials in #{credConfig["credentials_file"]} specified, but is missing aws_access_key_id or aws_secret_access_key elements", MU::WARN
             end
           rescue IniFile::Error, Errno::ENOENT, Errno::EACCES => e
-            MU.log "AWS credentials file #{acctConf["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
+            MU.log "AWS credentials file #{credConfig["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
           end
-        elsif acctConf['credentials'] and
-              !acctConf['credentials'].empty?
+        elsif credConfig['credentials'] and
+              !credConfig['credentials'].empty?
           # pull access key and secret from a vault
           begin
-            vault, item = acctConf["credentials"].split(/:/)
+            vault, item = credConfig["credentials"].split(/:/)
             data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
             if data["access_key"] and data["access_secret"]
               Aws.config = {
                 access_key_id: data['access_key'],
                 secret_access_key: data['access_secret'],
-                region: acctConf['region']
+                region: credConfig['region']
               }
               loaded = true
             else
-              MU.log "AWS credentials vault:item #{acctConf["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
+              MU.log "AWS credentials vault:item #{credConfig["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
             end
           rescue MU::Groomer::Chef::MuNoSuchSecret
-            MU.log "AWS credentials vault:item #{acctConf["credentials"]} specified, but does not exist", MU::WARN
+            MU.log "AWS credentials vault:item #{credConfig["credentials"]} specified, but does not exist", MU::WARN
           end
         end
 
@@ -118,10 +119,13 @@ module MU
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion
-        return nil if acctConf.nil? and !hosted?
+        return @@myRegion_var if @@myRegion_var
+        return nil if credConfig.nil? and !hosted?
+
         if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted?
           return nil
         end
+
         if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
           @@myRegion_var ||= MU::Cloud::AWS.ec2($MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
@@ -298,7 +302,8 @@ module MU
         sample
       end
 
-      @my_acct_num = nil
+      @@my_acct_num = nil
+      @@my_hosted_cfg = nil
 
       # Return the $MU_CFG data associated with a particular profile/name/set of
       # credentials. If no account name is specified, will return one flagged as
@@ -306,8 +311,25 @@ module MU
       # an account name is specified which does not exist.
       # @param name [String]: The name of the key under 'aws' in mu.yaml to return
       # @return [Hash,nil]
-      def self.acctConf(name = nil)
+      def self.credConfig(name = nil)
+
+        # If there's nothing in mu.yaml (which is wrong), but we're running
+        # on a machine hosted in AWS, *and* that machine has an IAM profile,
+        # fake it with those credentials and hope for the best.
         if !$MU_CFG['aws'] or !$MU_CFG['aws'].is_a?(Hash) or $MU_CFG['aws'].size == 0
+          return @@my_hosted_cfg if @@my_hosted_cfg
+
+          if hosted?
+            begin
+              iam_data = JSON.parse(getAWSMetaData("iam/info"))
+              if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
+                @@my_hosted_cfg = hosted_config
+                return @@my_hosted_cfg
+              end
+            rescue JSON::ParserError => e
+            end
+          end
+
           return nil
         end
 
@@ -319,7 +341,7 @@ module MU
           }
         else
           if !$MU_CFG['aws'][name]
-            raise MuError, "AWS account #{name} was requested, but I see no such account in mu.yaml"
+            raise MuError, "AWS credential set #{name} was requested, but I see no such credentials in mu.yaml"
           end
           return $MU_CFG['aws'][name]
         end
@@ -331,11 +353,11 @@ module MU
       # XXX this needs to be "myAccountNumber" or somesuch
       # XXX and maybe do the IAM thing for arbitrary, non-resident accounts
       def self.account_number
-        return nil if acctConf.nil?
-        return @my_acct_num if @my_acct_num
+        return nil if credConfig.nil?
+        return @@my_acct_num if @@my_acct_num
 
 #   		begin
-#    	    user_list = MU::Cloud::AWS.iam(acctConf['region']).list_users.users
+#    	    user_list = MU::Cloud::AWS.iam(credConfig['region']).list_users.users
 ##    		rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
 #    		rescue Exception => e
 #    			MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
@@ -345,10 +367,10 @@ module MU
           acct_num = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
           acct_num.chomp!
 #        else
-#          acct_num = MU::Cloud::AWS.iam(acctConf['region']).list_users.users.first.arn.split(/:/)[4]
+#          acct_num = MU::Cloud::AWS.iam(credConfig['region']).list_users.users.first.arn.split(/:/)[4]
 #        end
         MU.setVar("acct_num", acct_num)
-        @my_acct_num ||= acct_num
+        @@my_acct_num ||= acct_num
         acct_num
       end
 
@@ -358,15 +380,16 @@ module MU
       # @param us_only [Boolean]: Restrict results to United States only
       # @return [Array<String>]
       def self.listRegions(us_only = false)
-        return [] if acctConf.nil?
 
         if @@regions.size == 0
+          return [] if credConfig.nil?
           result = MU::Cloud::AWS.ec2(myRegion).describe_regions.regions
           regions = []
           result.each { |r|
             @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
           }
         end
+
         regions = if us_only
           @@regions.keys.delete_if { |r| !r.match(/^us\-/) }.uniq
         else
@@ -418,7 +441,7 @@ module MU
       # @return [Hash]
       def self.listInstanceTypes(region = myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
-        return {} if acctConf.nil?
+        return {} if credConfig.nil?
 
         human_region = @@regionLookup[region]
 

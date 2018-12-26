@@ -129,17 +129,14 @@ $CONFIGURABLES = {
     "title" => "Amazon Web Services",
     "named_subentries" => true,
     "subtree" => {
-# TODO Move to some special callback hook for cloud layers that auto-detect 
-# their own hosting
-#      "account_number" => {
-#        "title" => "Account Number",
-#        "desc" => "Account number for the Amazon Web Services account which we administer",
-#        "readonly" => true,
-#        "pattern" => /^\d+$/
-#      },
+      "account_number" => {
+        "title" => "Default Target Account",
+        "desc" => "Default target account for resources managed using these credentials. This is an AWS account number, e.g. 918972669773. If not specified, we will use the account number which owns these API keys.",
+        "pattern" => /^\d+$/
+      },
       "region" => {
         "title" => "Default Region",
-        "desc" => "Default Amazon Web Services region in which this account should operate"
+        "desc" => "Default Amazon Web Services region in which these credentials should operate"
       },
       "credentials" => {
         "title" => "Credentials Vault:Item",
@@ -164,9 +161,9 @@ $CONFIGURABLES = {
         "changes" => ["chefrun"]
       },
       "default" => {
-        "title" => "Is Default Account",
+        "title" => "Is Default",
         "default" => false,
-        "desc" => "If set to true, Mu will use this AWS account when targeting AWS without a specific account having been requested",
+        "desc" => "If set to true, Mu will default to these AWS credentials when targeting AWS resources",
         "boolean" => true
       }
     }
@@ -312,6 +309,17 @@ ssl_verify_mode :verify_none
 
 $CHANGES = []
 
+def cloneHash(hash)
+  new = {}
+  hash.each_pair { |k,v|
+    if v.is_a?(Hash)
+      new[k] = cloneHash(v)
+    elsif !v.nil?
+      new[k] = v.dup
+    end
+  }
+  new
+end
 
 $MENU_MAP = {}
 def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
@@ -323,10 +331,10 @@ def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
       letters = ("a".."z").to_a
       lettercount = 0
       if data['named_subentries']
-        map[count.to_s] = data["subtree"].dup # aka "add new"
-        map[count.to_s].each_pair { |k, v| v.delete("value") } # reset to defaults
-
-
+        # Generate a stub entry for adding a new item
+        pp data["subtree"].keys
+        map[count.to_s] = cloneHash(data["subtree"])
+        map[count.to_s].each_pair { |k, v| v.delete("value") } # use defaults
         map[count.to_s]["name"] = {
           "title" => "Name",
           "desc" => "A name/alias for this account.",
@@ -335,16 +343,17 @@ def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
         map[count.to_s]["#addnew"] = true
         map[count.to_s]["#key"] = key
 
+        # Now the menu entries for the existing ones
         data['subtree']['#entries'].each_pair { |nameentry, subdata|
           next if data['readonly']
           next if !subdata.is_a?(Hash)
           subdata["#menu"] = count.to_s+letters[lettercount]
           subdata["#title"] = nameentry
           subdata["#key"] = key
-          subdata["#entries"] = data["subtree"]["#entries"]
+          subdata["#entries"] = cloneHash(data["subtree"]["#entries"])
           subdata["is_submenu"] = true
           map[count.to_s+letters[lettercount]] = tree[key]["subtree"]['#entries'][nameentry]
-          map[count.to_s+letters[lettercount]]['#entries'] ||= data["subtree"]["#entries"]
+          map[count.to_s+letters[lettercount]]['#entries'] ||= cloneHash(data["subtree"]["#entries"])
           lettercount = lettercount + 1
         }
       else
@@ -598,17 +607,17 @@ def importCurrentValues
         $CONFIGURABLES[key]['subtree']["#title"] = $CONFIGURABLES[key]['title']
         $MU_CFG[key].each_pair { |nameentry, subtree|
           $CONFIGURABLES[key]['subtree']["#entries"] ||= {}
-          $CONFIGURABLES[key]['subtree']["#entries"][nameentry] ||= {}
+          $CONFIGURABLES[key]['subtree']["#entries"][nameentry] = cloneHash($CONFIGURABLES[key]['subtree'])
+          $CONFIGURABLES[key]['subtree']["#entries"][nameentry].delete("#entries")
+          $CONFIGURABLES[key]["subtree"]["#entries"][nameentry]["name"] = {
+            "title" => "Name",
+            "desc" => "A name/alias for this account.",
+            "required" => true,
+            "value" => nameentry
+          }
           $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
             next if !subtree.has_key?(subkey)
-            $CONFIGURABLES[key]['subtree']["#entries"][nameentry] = $CONFIGURABLES[key]['subtree'].dup
             $CONFIGURABLES[key]["subtree"]["#entries"][nameentry][subkey]["value"] = subtree[subkey]
-            $CONFIGURABLES[key]["subtree"]["#entries"][nameentry]["name"] = {
-              "title" => "Name",
-              "desc" => "A name/alias for this account.",
-              "required" => true,
-              "value" => nameentry
-            }
           }
         }
       else
@@ -727,7 +736,7 @@ trap("INT"){ puts "" ; exit }
 importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG
 importCLIValues
 setDefaults
-assignMenuEntries # populates and freezes $MENU_MAP
+assignMenuEntries # populates $MENU_MAP
 
 def ask(desc)
   puts ""
@@ -828,7 +837,7 @@ end
 
 def generateMiniMenu(srctree)
   map = {}
-  tree = srctree.dup 
+  tree = cloneHash(srctree)
   return [tree, map]
 end
 
@@ -872,7 +881,7 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
         # one to 'default'
         if tree[parentname]['subtree']['#entries'].size == 1
         end
-        tree[parentname]['subtree']['#entries'][newname] = newtree.dup
+        tree[parentname]['subtree']['#entries'][newname] = cloneHash(newtree)
 
         map = {} # rebuild the menu map to include new entries
         assignMenuEntries(tree, map)
@@ -880,9 +889,12 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
 #      exit
 #      map[answer] = newtree if newtree
     elsif map.has_key?(answer) and map[answer]["is_submenu"]
-      puts "in old shit block".yellow
       minimap = {}
-      assignMenuEntries(map[answer], minimap)
+      parentname = map[answer]['#key']
+      entryname = map[answer]['#title']
+      puts PP.pp(map[answer], '').yellow
+      puts PP.pp(tree[parentname]['subtree']['#entries'][entryname], '').red
+      assignMenuEntries(tree[parentname]['subtree']['#entries'][entryname], minimap)
       newtree, newmap = menu(
         map[answer],
         minimap,
@@ -933,7 +945,7 @@ else
 end
 
 if AMROOT
-  newcfg = $MU_CFG.dup
+  newcfg = cloneHash($MU_CFG)
   newcfg['multiuser'] = true
   saveMuConfig(newcfg)
   $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)

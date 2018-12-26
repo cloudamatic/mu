@@ -40,7 +40,7 @@ def validateClouds(cfg)
         cfg[cloud].each_pair { |acctalias, acct|
           if acctalias["default"]
             if found_default
-              puts "Multiple accounts have 'default' set in #{cloud}".light_red.on_black
+              puts "Multiple accounts have 'default' set in #{cloud}"
               ok = false
             end
             found_default = true
@@ -49,7 +49,7 @@ def validateClouds(cfg)
       end
       if !found_default
         first = cfg[cloud].keys.first
-        puts "No default #{cloud} credentials specified in #{cfgPath}, arbitrarily choosing #{first}".yellow.on_black
+        puts "No default #{cloud} credentials specified in #{cfgPath}, arbitrarily designating '#{first}'"
         cfg[cloud][first]["default"] = true
       end
     end
@@ -190,7 +190,7 @@ end
 # @param comment [Hash]: A configuration blob that will be appended as a commented block
 def saveMuConfig(cfg, comment = nil)
   exit 1 if !validateClouds(cfg)
-  puts "**** Saving master config to #{cfgPath} *****".green.on_black
+  puts "**** Saving master config to #{cfgPath} *****"
   File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts cfg.to_yaml
     if comment and comment.size > 0
