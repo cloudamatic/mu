@@ -498,7 +498,7 @@ module MU
       begin
         @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
       rescue Aws::EC2::Errors::InternalError => e
-        MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+        MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(region: #{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
         sleep 10
       end
     end
@@ -514,7 +514,7 @@ module MU
     )
   elsif MU::Cloud::AWS.hosted?
     begin
-      @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
+      @@myCloudDescriptor = MU::Cloud::AWS.ec2(region: MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
     rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
     rescue Aws::Errors::MissingCredentialsError => e
       MU.log "I'm hosted in AWS, but I can't make API calls. Does this instance have an appropriate IAM profile?", MU::WARN
@@ -546,7 +546,7 @@ module MU
   # The AWS Subnets associated with the VPC this MU Master is in
   # XXX account for Google and non-cloud situations
   def self.mySubnets
-    @@mySubnets_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(
+    @@mySubnets_var ||= MU::Cloud::AWS.ec2(region: MU.myRegion).describe_subnets(
       filters: [
         {
           name: "vpc-id", 

@@ -352,7 +352,7 @@ module MU
           MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
 
           # Figure out which devices are embedded in the AMI already.
-          image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [@config["ami_id"]]).images.first
+          image = MU::Cloud::AWS.ec2(region: @config['region']).describe_images(image_ids: [@config["ami_id"]]).images.first
           ext_disks = {}
           if !image.block_device_mappings.nil?
             image.block_device_mappings.each { |disk|
@@ -391,7 +391,7 @@ module MU
 
           retries = 0
           begin
-            response = MU::Cloud::AWS.ec2(@config['region']).run_instances(instance_descriptor)
+            response = MU::Cloud::AWS.ec2(region: @config['region']).run_instances(instance_descriptor)
           rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
             if retries < 10
               if retries > 7
@@ -430,16 +430,16 @@ module MU
             end
             begin
               MU.log "Stopping #{@mu_name} (#{@cloud_id})", MU::NOTICE
-              MU::Cloud::AWS.ec2(@config['region']).stop_instances(
+              MU::Cloud::AWS.ec2(region: @config['region']).stop_instances(
                 instance_ids: [@cloud_id]
               )
-              MU::Cloud::AWS.ec2(@config['region']).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
+              MU::Cloud::AWS.ec2(region: @config['region']).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for #{@mu_name} to stop for hard reboot"
                 end
               end
               MU.log "Starting #{@mu_name} (#{@cloud_id})"
-              MU::Cloud::AWS.ec2(@config['region']).start_instances(
+              MU::Cloud::AWS.ec2(region: @config['region']).start_instances(
                 instance_ids: [@cloud_id]
               )
             ensure
@@ -452,7 +452,7 @@ module MU
             end
           else
             MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
-            MU::Cloud::AWS.ec2(@config['region']).reboot_instances(
+            MU::Cloud::AWS.ec2(region: @config['region']).reboot_instances(
               instance_ids: [@cloud_id]
             )
           end
@@ -635,7 +635,7 @@ module MU
 
           if !@config['src_dst_check'] and !@config["vpc"].nil?
             MU.log "Disabling source_dest_check #{node} (making it NAT-worthy)"
-            MU::Cloud::AWS.ec2(@config['region']).modify_instance_attribute(
+            MU::Cloud::AWS.ec2(region: @config['region']).modify_instance_attribute(
                 instance_id: @cloud_id,
                 source_dest_check: {:value => false}
             )
@@ -643,7 +643,7 @@ module MU
 
           # Set console termination protection. Autoscale nodes won't set this
           # by default.
-          MU::Cloud::AWS.ec2(@config['region']).modify_instance_attribute(
+          MU::Cloud::AWS.ec2(region: @config['region']).modify_instance_attribute(
               instance_id: @cloud_id,
               disable_api_termination: {:value => true}
           )
@@ -749,7 +749,7 @@ module MU
               @vpc.subnets { |subnet|
                 subnet_id = subnet.cloud_id
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
-                iface = MU::Cloud::AWS.ec2(@config['region']).create_network_interface(subnet_id: subnet_id).network_interface
+                iface = MU::Cloud::AWS.ec2(region: @config['region']).create_network_interface(subnet_id: subnet_id).network_interface
                 MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'])
 
@@ -765,7 +765,7 @@ module MU
                   }
                 end
 
-                MU::Cloud::AWS.ec2(@config['region']).attach_network_interface(
+                MU::Cloud::AWS.ec2(region: @config['region']).attach_network_interface(
                     network_interface_id: iface.network_interface_id,
                     instance_id: instance.instance_id,
                     device_index: device_index
@@ -805,7 +805,7 @@ module MU
 
           # Tag volumes with all our standard tags.
           # Maybe replace tagVolumes with this? There is one more place tagVolumes is called from
-          volumes = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
+          volumes = MU::Cloud::AWS.ec2(region: @config['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
           volumes.each { |vol|
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
@@ -842,7 +842,7 @@ module MU
             instance.network_interfaces.each { |int|
               if int.private_ip_address == instance.private_ip_address and int.private_ip_addresses.size < (@config['add_private_ips'] + 1)
                 MU.log "Adding #{@config['add_private_ips']} extra private IP addresses to #{instance.instance_id}"
-                MU::Cloud::AWS.ec2(@config['region']).assign_private_ip_addresses(
+                MU::Cloud::AWS.ec2(region: @config['region']).assign_private_ip_addresses(
                     network_interface_id: int.network_interface_id,
                     secondary_private_ip_address_count: @config['add_private_ips'],
                     allow_reassignment: false
@@ -1246,7 +1246,7 @@ module MU
           retries = 0
           if !@cloud_id.nil?
             begin
-              return MU::Cloud::AWS.ec2(@config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+              return MU::Cloud::AWS.ec2(region: @config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
             rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
               return nil
             rescue NoMethodError => e
@@ -1497,7 +1497,7 @@ module MU
           retries = 0
           MU.log "Waiting for Windows instance password to be set by Amazon and flagged as available from the API. Note- if you're using a source AMI that already has its password set, this may fail. You'll want to set use_cloud_provider_windows_password to false if this is the case.", MU::NOTICE
           begin
-            MU::Cloud::AWS.ec2(@config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
+            MU::Cloud::AWS.ec2(region: @config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
               waiter.max_attempts = 60
               waiter.before_attempt do |attempts|
                 MU.log "Waiting for Windows password data to be available for node #{@mu_name}", MU::NOTICE if attempts % 5 == 0
@@ -1517,7 +1517,7 @@ module MU
             end
           end
 
-          resp = MU::Cloud::AWS.ec2(@config['region']).get_password_data(instance_id: @cloud_id)
+          resp = MU::Cloud::AWS.ec2(region: @config['region']).get_password_data(instance_id: @cloud_id)
           encrypted_password = resp.password_data
 
           # Note: This is already implemented in the decrypt_windows_password API call
@@ -1602,7 +1602,7 @@ module MU
             return true
           end
           az = nil
-          MU::Cloud::AWS.ec2(@config['region']).describe_instances(
+          MU::Cloud::AWS.ec2(region: @config['region']).describe_instances(
             instance_ids: [@cloud_id]
           ).reservations.each { |resp|
             if !resp.nil? and !resp.instances.nil?
@@ -1618,14 +1618,14 @@ module MU
             end
           }
           MU.log "Creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
-          creation = MU::Cloud::AWS.ec2(@config['region']).create_volume(
+          creation = MU::Cloud::AWS.ec2(region: @config['region']).create_volume(
             availability_zone: az,
             size: size,
             volume_type: type
           )
           begin
             sleep 3
-            creation = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
+            creation = MU::Cloud::AWS.ec2(region: @config['region']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
             if !["creating", "available"].include?(creation.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
@@ -1638,7 +1638,7 @@ module MU
             MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
           end
 
-          attachment = MU::Cloud::AWS.ec2(@config['region']).attach_volume(
+          attachment = MU::Cloud::AWS.ec2(region: @config['region']).attach_volume(
             device: dev,
             instance_id: @cloud_id,
             volume_id: creation.volume_id
@@ -1646,7 +1646,7 @@ module MU
 
           begin
             sleep 3
-            attachment = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
+            attachment = MU::Cloud::AWS.ec2(region: @config['region']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
             if !["attaching", "attached"].include?(attachment.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
@@ -1662,7 +1662,7 @@ module MU
             return true
           end
           begin
-            MU::Cloud::AWS.ec2(@config['region']).describe_instances(
+            MU::Cloud::AWS.ec2(region: @config['region']).describe_instances(
                 instance_ids: [@cloud_id]
             ).reservations.each { |resp|
               if !resp.nil? and !resp.instances.nil?

@@ -62,14 +62,14 @@ module MU
           end
 
           begin
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
+            secgroup = MU::Cloud::AWS.ec2(region: @config['region']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
           rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
             MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
             filters = [{name: "group-name", values: [groupname]}]
             filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
 
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
+            secgroup = MU::Cloud::AWS.ec2(region: @config['region']).describe_security_groups(filters: filters).security_groups.first
             deploy_id = @deploy.deploy_id if !@deploy_id.nil?
             if secgroup.nil?
               raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
@@ -78,7 +78,7 @@ module MU
           end
 
           begin
-            MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
+            MU::Cloud::AWS.ec2(region: @config['region']).describe_security_groups(group_ids: [secgroup.group_id])
           rescue Aws::EC2::Errors::InvalidGroupNotFound => e
             MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
             sleep 10
@@ -167,12 +167,12 @@ module MU
 
           begin
             if egress
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+              MU::Cloud::AWS.ec2(region: @config['region']).authorize_security_group_egress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
             else
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: @config['region']).authorize_security_group_ingress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
@@ -459,13 +459,13 @@ module MU
               MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
               begin
                 if ingress
-                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+                  MU::Cloud::AWS.ec2(region: @config['region']).authorize_security_group_ingress(
                       group_id: @cloud_id,
                       ip_permissions: ec2_rules
                   )
                 end
                 if egress
-                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+                  MU::Cloud::AWS.ec2(region: @config['region']).authorize_security_group_egress(
                       group_id: @cloud_id,
                       ip_permissions: ec2_rules
                   )

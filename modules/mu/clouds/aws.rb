@@ -29,67 +29,84 @@ module MU
       @@creds_loaded = false
 
       # Load some credentials for using the AWS API
-      # XXX ok, what is this, per-thread? test scenario where a deploy targets
-      # two different AWS accounts
+      # @param name [String]: The name of the mu.yaml AWS credential set to use. If not specified, will use the default credentials, and set the global Aws.config credentials to those.
+      # @return [Aws::Credentials]
       def self.loadCredentials(name = nil)
-        return if @@creds_loaded
-        if credConfig.nil?
-          return
+        return nil if @@creds_loaded # XXX this should be a hash of name lookups
+        cred_cfg = credConfig(name)
+        if cred_cfg.nil?
+          return nil
         end
 
         loaded = false
-        if credConfig['access_key'] and credConfig['access_secret'] and
+        cred_obj = nil
+        if cred_cfg['access_key'] and cred_cfg['access_secret'] and
           # access key and secret just sitting in mu.yaml
-           !credConfig['access_key'].empty? and
-           !credConfig['access_secret'].empty?
-          Aws.config = {
-            access_key_id: credConfig['access_key'],
-            secret_access_key: credConfig['access_secret'],
-            region: credConfig['region']
-          }
+           !cred_cfg['access_key'].empty? and
+           !cred_cfg['access_secret'].empty?
+          cred_obj = Aws::Credentials.new(
+            cred_cfg['access_key'], cred_cfg['access_secret']
+          )
+          if name.nil?
+            Aws.config = {
+              access_key_id: cred_cfg['access_key'],
+              secret_access_key: cred_cfg['access_secret'],
+              region: cred_cfg['region']
+            }
+          end
           loaded = true
-        elsif credConfig['credentials_file'] and
-              !credConfig['credentials_file'].empty?
+        elsif cred_cfg['credentials_file'] and
+              !cred_cfg['credentials_file'].empty?
           # pull access key and secret from an awscli-style credentials file
           begin
-            File.read(credConfig["credentials_file"]) # make sure it's there
-            credfile = IniFile.load(credConfig["credentials_file"])
+            File.read(cred_cfg["credentials_file"]) # make sure it's there
+            credfile = IniFile.load(cred_cfg["credentials_file"])
 
             if !credfile.sections or credfile.sections.size == 0
-              raise ::IniFile::Error, "No AWS profiles found in #{credConfig["credentials_file"]}"
+              raise ::IniFile::Error, "No AWS profiles found in #{cred_cfg["credentials_file"]}"
             end
             data = credfile.has_section?("default") ? credfile["default"] : credfile[credfile.sections.first]
             if data["aws_access_key_id"] and data["aws_secret_access_key"]
-              Aws.config = {
-                access_key_id: data['aws_access_key_id'],
-                secret_access_key: data['aws_secret_access_key'],
-                region: credConfig['region']
-              }
+              cred_obj = Aws::Credentials.new(
+                cred_cfg['aws_access_key_id'], cred_cfg['aws_secret_access_key']
+              )
+              if name.nil?
+                Aws.config = {
+                  access_key_id: data['aws_access_key_id'],
+                  secret_access_key: data['aws_secret_access_key'],
+                  region: cred_cfg['region']
+                }
+              end
               loaded = true
             else
-              MU.log "AWS credentials in #{credConfig["credentials_file"]} specified, but is missing aws_access_key_id or aws_secret_access_key elements", MU::WARN
+              MU.log "AWS credentials in #{cred_cfg["credentials_file"]} specified, but is missing aws_access_key_id or aws_secret_access_key elements", MU::WARN
             end
           rescue IniFile::Error, Errno::ENOENT, Errno::EACCES => e
-            MU.log "AWS credentials file #{credConfig["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
+            MU.log "AWS credentials file #{cred_cfg["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
           end
-        elsif credConfig['credentials'] and
-              !credConfig['credentials'].empty?
+        elsif cred_cfg['credentials'] and
+              !cred_cfg['credentials'].empty?
           # pull access key and secret from a vault
           begin
-            vault, item = credConfig["credentials"].split(/:/)
+            vault, item = cred_cfg["credentials"].split(/:/)
             data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
             if data["access_key"] and data["access_secret"]
-              Aws.config = {
-                access_key_id: data['access_key'],
-                secret_access_key: data['access_secret'],
-                region: credConfig['region']
-              }
+              cred_obj = Aws::Credentials.new(
+                cred_cfg['access_key'], cred_cfg['access_secret']
+              )
+              if name.nil?
+                Aws.config = {
+                  access_key_id: data['access_key'],
+                  secret_access_key: data['access_secret'],
+                  region: cred_cfg['region']
+                }
+              end
               loaded = true
             else
-              MU.log "AWS credentials vault:item #{credConfig["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
+              MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
             end
           rescue MU::Groomer::Chef::MuNoSuchSecret
-            MU.log "AWS credentials vault:item #{credConfig["credentials"]} specified, but does not exist", MU::WARN
+            MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but does not exist", MU::WARN
           end
         end
 
@@ -97,7 +114,10 @@ module MU
           # assume we've got an IAM profile and hope for the best
           ENV.delete('AWS_ACCESS_KEY_ID')
           ENV.delete('AWS_SECRET_ACCESS_KEY')
-          Aws.config = {region: ENV['EC2_REGION']}
+          cred_obj = Aws::InstanceProfileCredentials.new
+          if name.nil?
+            Aws.config = {region: ENV['EC2_REGION']}
+          end
           loaded = true
         end
 
@@ -106,6 +126,7 @@ module MU
           raise MuError, "AWS layer is enabled in mu.yaml, but I couldn't find working API credentials anywhere"
         end
 
+        cred_obj
       end
 
       # Any cloud-specific instance methods we require our resource
@@ -127,9 +148,9 @@ module MU
         end
 
         if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
-          @@myRegion_var ||= MU::Cloud::AWS.ec2($MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
+          @@myRegion_var ||= MU::Cloud::AWS.ec2(region: $MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
-          @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+          @@myRegion_var ||= MU::Cloud::AWS.ec2(region: ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
         else
           # hacky, but useful in a pinch
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
@@ -149,7 +170,7 @@ module MU
       # @param value [String]: The value of the tag to remove
       # @param region [String]: The cloud provider region
       def self.removeTag(key, value, resources = [], region: myRegion)
-        MU::Cloud::AWS.ec2(region).delete_tags(
+        MU::Cloud::AWS.ec2(region: region).delete_tags(
           resources: resources,
           tags: [
             {
@@ -171,7 +192,7 @@ module MU
   
         if !MU::Cloud::CloudFormation.emitCloudFormation
           begin
-            MU::Cloud::AWS.ec2(region).create_tags(
+            MU::Cloud::AWS.ec2(region: region).create_tags(
               resources: resources,
               tags: [
                 {
@@ -205,7 +226,7 @@ module MU
       # server resides.
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
-      def self.listAZs(region = MU.curRegion)
+      def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
         if $MU_CFG and (!$MU_CFG['aws'] or !account_number)
           return []
         end
@@ -213,7 +234,7 @@ module MU
           return @@azs[region]
         end
         if region
-          azs = MU::Cloud::AWS.ec2(region).describe_availability_zones(
+          azs = MU::Cloud::AWS.ec2(region: region).describe_availability_zones(
             filters: [name: "region-name", values: [region]]
           )
         end
@@ -312,7 +333,8 @@ module MU
       # @param name [String]: The name of the key under 'aws' in mu.yaml to return
       # @return [Hash,nil]
       def self.credConfig(name = nil)
-
+# XXX if someone gives us an account number here, try to use that to find the
+# right credential set
         # If there's nothing in mu.yaml (which is wrong), but we're running
         # on a machine hosted in AWS, *and* that machine has an IAM profile,
         # fake it with those credentials and hope for the best.
@@ -383,7 +405,7 @@ module MU
 
         if @@regions.size == 0
           return [] if credConfig.nil?
-          result = MU::Cloud::AWS.ec2(myRegion).describe_regions.regions
+          result = MU::Cloud::AWS.ec2(region: myRegion).describe_regions.regions
           regions = []
           result.each { |r|
             @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
@@ -425,7 +447,7 @@ module MU
         if !MU::Cloud::CloudFormation.emitCloudFormation
           MU::Cloud::AWS.listRegions.each { |region|
             MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
-            MU::Cloud::AWS.ec2(region).import_key_pair(
+            MU::Cloud::AWS.ec2(region: region).import_key_pair(
                 key_name: keyname,
                 public_key_material: public_key
             )
@@ -560,220 +582,220 @@ module MU
       end
 
       # Amazon Certificate Manager API
-      def self.acm(region = MU.curRegion)
+      def self.acm(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@acm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ACM", region: region)
+        @@acm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ACM", region: region, credentials: credentials)
         @@acm_api[region]
       end
 
       # Amazon's IAM API
-      def self.iam(region = MU.curRegion)
+      def self.iam(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@iam_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "IAM", region: region)
+        @@iam_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "IAM", region: region, credentials: credentials)
         @@iam_api[region]
       end
 
       # Amazon's EC2 API
-      def self.ec2(region = MU.curRegion)
+      def self.ec2(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@ec2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EC2", region: region)
+        @@ec2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EC2", region: region, credentials: credentials)
         @@ec2_api[region]
       end
 
       # Amazon's Autoscaling API
-      def self.autoscale(region = MU.curRegion)
+      def self.autoscale(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@autoscale_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "AutoScaling", region: region)
+        @@autoscale_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "AutoScaling", region: region, credentials: credentials)
         @@autoscale_api[region]
       end
 
       # Amazon's ElasticLoadBalancing API
-      def self.elb(region = MU.curRegion)
+      def self.elb(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@elb_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancing", region: region)
+        @@elb_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancing", region: region, credentials: credentials)
         @@elb_api[region]
       end
 
       # Amazon's ElasticLoadBalancingV2 (ALB) API
-      def self.elb2(region = MU.curRegion)
+      def self.elb2(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@elb2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancingV2", region: region)
+        @@elb2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancingV2", region: region, credentials: credentials)
         @@elb2_api[region]
       end
 
       # Amazon's Route53 API
-      def self.route53(region = MU.curRegion)
+      def self.route53(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@route53_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Route53", region: region)
+        @@route53_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Route53", region: region, credentials: credentials)
         @@route53_api[region]
       end
 
       # Amazon's RDS API
-      def self.rds(region = MU.curRegion)
+      def self.rds(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@rds_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "RDS", region: region)
+        @@rds_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "RDS", region: region, credentials: credentials)
         @@rds_api[region]
       end
 
       # Amazon's CloudFormation API
-      def self.cloudformation(region = MU.curRegion)
+      def self.cloudformation(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cloudformation_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFormation", region: region)
+        @@cloudformation_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFormation", region: region, credentials: credentials)
         @@cloudformation_api[region]
       end
 
       # Amazon's S3 API
-      def self.s3(region = MU.curRegion)
+      def self.s3(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@s3_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "S3", region: region)
+        @@s3_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "S3", region: region, credentials: credentials)
         @@s3_api[region]
       end
 
       # Amazon's CloudTrail API
-      def self.cloudtrail(region = MU.curRegion)
+      def self.cloudtrail(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cloudtrail_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region)
+        @@cloudtrail_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region, credentials: credentials)
         @@cloudtrail_api[region]
       end
 
       # Amazon's CloudWatch API
-      def self.cloudwatch(region = MU.curRegion)
+      def self.cloudwatch(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cloudwatch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatch", region: region)
+        @@cloudwatch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatch", region: region, credentials: credentials)
         @@cloudwatch_api[region]
       end
 
       # Amazon's Web Application Firewall API (Global, for CloudFront et al)
-      def self.wafglobal(region = MU.curRegion)
+      def self.wafglobal(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@wafglobal[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAF", region: region)
+        @@wafglobal[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAF", region: region, credentials: credentials)
         @@wafglobal[region]
       end
 
 
       # Amazon's Web Application Firewall API (Regional, for ALBs et al)
-      def self.waf(region = MU.curRegion)
+      def self.waf(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@waf[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAFRegional", region: region)
+        @@waf[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAFRegional", region: region, credentials: credentials)
         @@waf[region]
       end
 
       # Amazon's CloudWatchLogs API
-      def self.cloudwatchlogs(region = MU.curRegion)
+      def self.cloudwatchlogs(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cloudwatchlogs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchLogs", region: region)
+        @@cloudwatchlogs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchLogs", region: region, credentials: credentials)
         @@cloudwatchlogs_api[region]
       end
 
       # Amazon's CloudFront API
-      def self.cloudfront(region = MU.curRegion)
+      def self.cloudfront(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cloudfront_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFront", region: region)
+        @@cloudfront_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFront", region: region, credentials: credentials)
         @@cloudfront_api[region]
       end
 
       # Amazon's ElastiCache API
-      def self.elasticache(region = MU.curRegion)
+      def self.elasticache(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@elasticache_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElastiCache", region: region)
+        @@elasticache_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElastiCache", region: region, credentials: credentials)
         @@elasticache_api[region]
       end
       
       # Amazon's SNS API
-      def self.sns(region = MU.curRegion)
+      def self.sns(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region)
+        @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region, credentials: credentials)
         @@sns_api[region]
       end
       
       # Amazon's SQS API
-      def self.sqs(region = MU.curRegion)
+      def self.sqs(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@sqs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SQS", region: region)
+        @@sqs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SQS", region: region, credentials: credentials)
         @@sqs_api[region]
       end
 
       # Amazon's EFS API
-      def self.efs(region = MU.curRegion)
+      def self.efs(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@efs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EFS", region: region)
+        @@efs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EFS", region: region, credentials: credentials)
         @@efs_api[region]
       end
 
       # Amazon's Lambda API
-      def self.lambda(region = MU.curRegion)
+      def self.lambda(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@lambda_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Lambda", region: region)
+        @@lambda_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Lambda", region: region, credentials: credentials)
         @@lambda_api[region]
       end
 
       # Amazon's API Gateway API
-      def self.apig(region = MU.curRegion)
+      def self.apig(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@apig_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "APIGateway", region: region)
+        @@apig_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "APIGateway", region: region, credentials: credentials)
         @@apig_api[region]
       end
       
       # Amazon's Cloudwatch Events API
       def self.cloudwatch_events(region = MU.cureRegion)
         region ||= myRegion
-        @@cloudwatch_events_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchEvents", region: region)
+        @@cloudwatch_events_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchEvents", region: region, credentials: credentials)
         @@cloudwatch_events_api
       end
 
       # Amazon's ECS API
-      def self.ecs(region = MU.curRegion)
+      def self.ecs(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@ecs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ECS", region: region)
+        @@ecs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ECS", region: region, credentials: credentials)
         @@ecs_api[region]
       end
 
       # Amazon's EKS API
-      def self.eks(region = MU.curRegion)
+      def self.eks(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@eks_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EKS", region: region)
+        @@eks_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EKS", region: region, credentials: credentials)
         @@eks_api[region]
       end
 
       # Amazon's Pricing API
-      def self.pricing(region = MU.curRegion)
+      def self.pricing(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@pricing_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Pricing", region: region)
+        @@pricing_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Pricing", region: region, credentials: credentials)
         @@pricing_api[region]
       end
 
       # Amazon's Simple Systems Manager API
-      def self.ssm(region = MU.curRegion)
+      def self.ssm(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@ssm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SSM", region: region)
+        @@ssm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SSM", region: region, credentials: credentials)
         @@ssm_api[region]
       end
 
       # Amazon's Elasticsearch API
-      def self.elasticsearch(region = MU.curRegion)
+      def self.elasticsearch(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@elasticsearch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticsearchService", region: region)
+        @@elasticsearch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticsearchService", region: region, credentials: credentials)
         @@elasticsearch_api[region]
       end
 
       # Amazon's Cognito Identity API
-      def self.cognito_ident(region = MU.curRegion)
+      def self.cognito_ident(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cognito_ident_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentity", region: region)
+        @@cognito_ident_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentity", region: region, credentials: credentials)
         @@cognito_ident_api[region]
       end
 
       # Amazon's Cognito Identity Provider API
-      def self.cognito_user(region = MU.curRegion)
+      def self.cognito_user(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@cognito_user_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentityProvider", region: region)
+        @@cognito_user_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentityProvider", region: region, credentials: credentials)
         @@cognito_user_api[region]
       end
 
       # Amazon's KMS API
-      def self.kms(region = MU.curRegion)
+      def self.kms(region: MU.curRegion, credentials: nil)
         region ||= myRegion
-        @@kms_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "KMS", region: region)
+        @@kms_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "KMS", region: region, credentials: credentials)
         @@kms_api[region]
       end
 
@@ -784,13 +806,13 @@ module MU
         base_url = "http://169.254.169.254/latest/meta-data/"
         begin
           response = nil
-          Timeout.timeout(2) do
+          Timeout.timeout(1) do
             response = open("#{base_url}/#{param}").read
           end
 
           response
         rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
-          # This is fairly normal, just handle it gracefully
+          # This is normal on machines checking to see if they're AWS-hosted
           logger = MU::Logger.new
           logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
           return nil
@@ -894,7 +916,7 @@ module MU
                     rule.from_port == port and rule.to_port == port
                   MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
                   begin
-                    MU::Cloud::AWS.ec2(myRegion).revoke_security_group_ingress(
+                    MU::Cloud::AWS.ec2(region: myRegion).revoke_security_group_ingress(
                         group_id: sg_id,
                         ip_permissions: [
                             {
@@ -921,7 +943,7 @@ module MU
             }
 
             begin
-              MU::Cloud::AWS.ec2(myRegion).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: myRegion).authorize_security_group_ingress(
                   group_id: sg_id,
                   ip_permissions: [
                       {
@@ -973,12 +995,24 @@ module MU
         # Create an AWS API client
         # @param region [String]: Amazon region so we know what endpoint to use
         # @param api [String]: Which API are we wrapping?
-        def initialize(region: MU.curRegion, api: "EC2")
+        def initialize(region: MU.curRegion, api: "EC2", credentials: nil)
+          cred_obj = MU::Cloud::AWS.loadCredentials(credentials)
+
+          if !cred_obj
+            raise MuError, "Unable to locate valid AWS credentials for #{api} API. #{credentials ? "Credentials requested were '#{credentials}'": ""}"
+          end
+
+
           @region = region
           if region
-            @api = Object.const_get("Aws::#{api}::Client").new(region: region)
+            @api = Object.const_get("Aws::#{api}::Client").new(
+              credentials: cred_obj,
+              region: region
+            )
           else
-            @api = Object.const_get("Aws::#{api}::Client").new
+            @api = Object.const_get("Aws::#{api}::Client").new(
+              credentials: cred_obj
+            )
           end
         end
 
@@ -986,7 +1020,6 @@ module MU
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
-          MU::Cloud::AWS.loadCredentials
           retries = 0
           begin
             MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments
