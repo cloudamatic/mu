@@ -211,7 +211,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.tagVolumes(instance_id, device: nil, tag_name: "MU-ID", tag_value: MU.deploy_id, region: MU.curRegion)
-          MU::Cloud::AWS.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
+          MU::Cloud::AWS.ec2(region: region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
                 vol_parent = attachment.instance_id
@@ -977,7 +977,7 @@ module MU
                 MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
                 retries = 0
                 begin
-                  MU::Cloud::AWS.ec2(region).describe_instances(
+                  MU::Cloud::AWS.ec2(region: region).describe_instances(
                       instance_ids: [cloud_id],
                       filters: [
                           {name: "instance-state-name", values: ["running", "pending"]}
@@ -1018,7 +1018,7 @@ module MU
           if instance.nil? and !ip.nil?
             MU.log "Hunting for instance by IP '#{ip}'", MU::DEBUG
             ["ip-address", "private-ip-address"].each { |filter|
-              response = MU::Cloud::AWS.ec2(region).describe_instances(
+              response = MU::Cloud::AWS.ec2(region: region).describe_instances(
                   filters: [
                       {name: filter, values: [ip]},
                       {name: "instance-state-name", values: ["running", "pending"]}
@@ -1035,7 +1035,7 @@ module MU
           # Fine, let's try it by tag.
           if !tag_value.nil?
             MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
-            MU::Cloud::AWS.ec2(region).describe_instances(
+            MU::Cloud::AWS.ec2(region: region).describe_instances(
                 filters: [
                     {name: "tag:#{tag_key}", values: [tag_value]},
                     {name: "instance-state-name", values: ["running", "pending"]}
@@ -1344,7 +1344,7 @@ module MU
           MU.log "Creating AMI from #{name}", details: ami_descriptor
           resp = nil
           begin
-            resp = MU::Cloud::AWS.ec2(region).create_image(ami_descriptor)
+            resp = MU::Cloud::AWS.ec2(region: region).create_image(ami_descriptor)
           rescue Aws::EC2::Errors::InvalidAMINameDuplicate => e
             MU.log "AMI #{name} already exists, skipping", MU::WARN
             return nil
@@ -1355,7 +1355,7 @@ module MU
           MU.log "AMI of #{name} in region #{region}: #{ami}"
           if make_public
             MU::Cloud::AWS::Server.waitForAMI(ami, region: region)
-            MU::Cloud::AWS.ec2(region).modify_image_attribute(
+            MU::Cloud::AWS.ec2(region: region).modify_image_attribute(
                 image_id: ami,
                 launch_permission: {add: [{group: "all"}]},
                 attribute: "launchPermission"
@@ -1413,7 +1413,7 @@ module MU
 
           retries = 0
           begin
-            images = MU::Cloud::AWS.ec2(region).describe_images(image_ids: [image_id]).images
+            images = MU::Cloud::AWS.ec2(region: region).describe_images(image_ids: [image_id]).images
             if images.nil? or images.size == 0
               raise MuError, "No such AMI #{image_id} found"
             end
@@ -1544,9 +1544,9 @@ module MU
           filters << {name: "public-ip", values: [ip]} if ip != nil
 
           if filters.size > 0
-            resp = MU::Cloud::AWS.ec2(region).describe_addresses(filters: filters)
+            resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(filters: filters)
           else
-            resp = MU::Cloud::AWS.ec2(region).describe_addresses()
+            resp = MU::Cloud::AWS.ec2(region: region).describe_addresses()
           end
           resp.addresses.each { |address|
             return address if (address.network_interface_id.nil? || address.network_interface_id.empty?) && !@eips_used.include?(address.public_ip)
@@ -1559,10 +1559,10 @@ module MU
             end
           end
           if !classic
-            resp = MU::Cloud::AWS.ec2(region).allocate_address(domain: "vpc")
+            resp = MU::Cloud::AWS.ec2(region: region).allocate_address(domain: "vpc")
             new_ip = resp.public_ip
           else
-            new_ip = MU::Cloud::AWS.ec2(region).allocate_address().public_ip
+            new_ip = MU::Cloud::AWS.ec2(region: region).allocate_address().public_ip
           end
           filters = [{name: "public-ip", values: [new_ip]}]
           if resp.domain
@@ -1578,7 +1578,7 @@ module MU
           begin
             begin
               sleep 5
-              resp = MU::Cloud::AWS.ec2(region).describe_addresses(
+              resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(
                   filters: filters
               )
               addr = resp.addresses.first
@@ -1694,7 +1694,7 @@ module MU
           @eip_semaphore.synchronize {
             if !ip.nil?
               filters = [{name: "public-ip", values: [ip]}]
-              resp = MU::Cloud::AWS.ec2(region).describe_addresses(filters: filters)
+              resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(filters: filters)
               if @eips_used.include?(ip)
                 is_free = false
                 resp.addresses.each { |address|
@@ -1726,12 +1726,12 @@ module MU
           attempts = 0
           begin
             if classic
-              resp = MU::Cloud::AWS.ec2(region).associate_address(
+              resp = MU::Cloud::AWS.ec2(region: region).associate_address(
                   instance_id: instance_id,
                   public_ip: elastic_ip.public_ip
               )
             else
-              resp = MU::Cloud::AWS.ec2(region).associate_address(
+              resp = MU::Cloud::AWS.ec2(region: region).associate_address(
                   instance_id: instance_id,
                   allocation_id: elastic_ip.allocation_id,
                   allow_reassociation: false
@@ -1747,7 +1747,7 @@ module MU
             raise MuError "#{e.message} associating #{elastic_ip.allocation_id} with #{instance_id}"
           rescue Aws::EC2::Errors::ResourceAlreadyAssociated => e
             # A previous association attempt may have succeeded, albeit slowly.
-            resp = MU::Cloud::AWS.ec2(region).describe_addresses(
+            resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(
                 allocation_ids: [elastic_ip.allocation_id]
             )
             first_addr = resp.addresses.first
@@ -1759,14 +1759,14 @@ module MU
             end
           end
 
-          instance = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+          instance = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
           waited = false
           if instance.public_ip_address != elastic_ip.public_ip
             waited = true
             begin
               sleep 10
               MU.log "Waiting for Elastic IP association of #{elastic_ip.public_ip} to #{instance_id} to take effect", MU::NOTICE
-              instance = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+              instance = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
             end while instance.public_ip_address != elastic_ip.public_ip
           end
 
@@ -1794,7 +1794,7 @@ module MU
           # Build a list of instances we need to clean up. We guard against
           # accidental deletion here by requiring someone to have hand-terminated
           # these, by default.
-          resp = MU::Cloud::AWS.ec2(region).describe_instances(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_instances(
               filters: tagfilters
           )
 
@@ -1821,7 +1821,7 @@ module MU
             }
           }
 
-          resp = MU::Cloud::AWS.ec2(region).describe_volumes(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_volumes(
               filters: tagfilters
           )
           resp.data.volumes.each { |volume|
@@ -1848,7 +1848,7 @@ module MU
           if !instance
             if id
               begin
-                resp = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [id])
+                resp = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [id])
               rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
                 MU.log "Instance #{id} no longer exists", MU::WARN
               end
@@ -1880,7 +1880,7 @@ module MU
           ).first
 
           begin
-            MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [id])
+            MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [id])
           rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
             MU.log "Instance #{id} no longer exists", MU::DEBUG
           end
@@ -2002,14 +2002,14 @@ module MU
               MU.log "Terminating #{instance.instance_id} (#{name}) #{noop}"
               if !noop
                 begin
-                  MU::Cloud::AWS.ec2(region).modify_instance_attribute(
+                  MU::Cloud::AWS.ec2(region: region).modify_instance_attribute(
                       instance_id: instance.instance_id,
                       disable_api_termination: {value: false}
                   )
-                  MU::Cloud::AWS.ec2(region).terminate_instances(instance_ids: [instance.instance_id])
+                  MU::Cloud::AWS.ec2(region: region).terminate_instances(instance_ids: [instance.instance_id])
                     # Small race window here with the state changing from under us
                 rescue Aws::EC2::Errors::IncorrectInstanceState => e
-                  resp = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [id])
+                  resp = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [id])
                   if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
                     instance = resp.reservations.first.instances.first
                     if !instance.nil? and instance.state.name != "terminated" and instance.state.name != "terminating"
@@ -2026,7 +2026,7 @@ module MU
             end
             while instance.state.name != "terminated" and !noop
               sleep 30
-              instance_response = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance.instance_id])
+              instance_response = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance.instance_id])
               instance = instance_response.reservations.first.instances.first
             end
             MU.log "#{instance.instance_id} (#{name}) terminated" if !noop
@@ -2243,7 +2243,7 @@ module MU
         # @return [void]
         def self.delete_volume(volume, noop, skipsnapshots, id: nil, region: MU.curRegion)
           if !volume.nil?
-            resp = MU::Cloud::AWS.ec2(region).describe_volumes(volume_ids: [volume.volume_id])
+            resp = MU::Cloud::AWS.ec2(region: region).describe_volumes(volume_ids: [volume.volume_id])
             volume = resp.data.volumes.first
           end
           name = ""
@@ -2260,7 +2260,7 @@ module MU
                 desc = "#{MU.deploy_id}-MUfinal"
               end
 
-              MU::Cloud::AWS.ec2(region).create_snapshot(
+              MU::Cloud::AWS.ec2(region: region).create_snapshot(
                   volume_id: volume.volume_id,
                   description: desc
               )
@@ -2268,7 +2268,7 @@ module MU
 
             retries = 0
             begin
-              MU::Cloud::AWS.ec2(region).delete_volume(volume_id: volume.volume_id)
+              MU::Cloud::AWS.ec2(region: region).delete_volume(volume_id: volume.volume_id)
             rescue Aws::EC2::Errors::InvalidVolumeNotFound
               MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
             rescue Aws::EC2::Errors::VolumeInUse

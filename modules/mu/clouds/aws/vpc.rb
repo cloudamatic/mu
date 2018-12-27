@@ -187,7 +187,7 @@ module MU
             @config['subnets'].each { |subnet|
               subnet_name = @config['name']+"-"+subnet['name']
               MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']})", details: subnet
-              azs = MU::Cloud::AWS.listAZs if azs.size == 0
+              azs = MU::Cloud::AWS.listAZs(region: @config['region']) if azs.size == 0
               if !subnet['availability_zone'].nil?
                 az = subnet['availability_zone']
               else
@@ -668,7 +668,7 @@ module MU
 
             if tag_value
               MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
-              resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
+              resp = MU::Cloud::AWS.ec2(region: region).describe_vpcs(
                 filters: [
                   {name: "tag:#{tag_key}", values: [tag_value]}
                 ]
@@ -686,7 +686,7 @@ module MU
             if !cloud_id.nil?
               MU.log "Searching for VPC id '#{cloud_id}' in #{region}", MU::DEBUG
               begin
-                resp = MU::Cloud::AWS.ec2(region).describe_vpcs(vpc_ids: [cloud_id.to_s])
+                resp = MU::Cloud::AWS.ec2(region: region).describe_vpcs(vpc_ids: [cloud_id.to_s])
                 resp.vpcs.each { |vpc|
                   map[vpc.vpc_id] = vpc
                 }
@@ -797,9 +797,9 @@ module MU
           if @gateways.nil?
             @gateways = 
               if nat_cloud_id
-                MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
+                MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
               elsif nat_filter_key && nat_filter_value
-                MU::Cloud::AWS.ec2(region).describe_nat_gateways(
+                MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(
                   filter: [
                     {
                       name: nat_filter_key,
@@ -899,7 +899,7 @@ module MU
 
           if instance.nil?
             begin
-              instance = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+              instance = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
             rescue NoMethodError, Aws::EC2::Errors::InvalidInstanceIDNotFound => e
               MU.log "Failed to identify instance #{instance_id} in MU::Cloud::AWS::VPC.getInstanceSubnets", MU::WARN
               return []
@@ -983,7 +983,7 @@ module MU
               route_tables = MU::Cloud::AWS::VPC.get_route_tables(subnet_ids: subnet_key.split(","), region: region)
 
               if route_tables.empty? && !subnet_key.empty?
-                vpc_id = MU::Cloud::AWS.ec2(region).describe_subnets(subnet_ids: subnet_key.split(",")).subnets.first.vpc_id
+                vpc_id = MU::Cloud::AWS.ec2(region: region).describe_subnets(subnet_ids: subnet_key.split(",")).subnets.first.vpc_id
                 MU.log "No route table associations found for #{subnet_key}, falling back to the default table for #{vpc_id}", MU::NOTICE
                 route_tables = MU::Cloud::AWS::VPC.get_route_tables(vpc_ids: [vpc_id], region: region)
               end
@@ -1046,7 +1046,7 @@ module MU
         def self.get_route_tables(subnet_ids: [], vpc_ids: [], region: MU.curRegion)
           resp = []
           if !subnet_ids.empty?
-            resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
               filters: [
                 {
                   name: "association.subnet-id", 
@@ -1055,7 +1055,7 @@ module MU
               ]
             ).route_tables
           elsif !vpc_ids.empty?
-            resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
               filters: [
                 {
                   name: "vpc-id", 
@@ -1068,7 +1068,7 @@ module MU
               ]
             ).route_tables
           else
-            resp = MU::Cloud::AWS.ec2(region).describe_route_tables.route_tables
+            resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables.route_tables
           end
 
           return resp
@@ -1091,7 +1091,7 @@ module MU
           vpcs = []
           retries = 0
           begin
-            resp = MU::Cloud::AWS.ec2(region).describe_vpcs(filters: tagfilters).vpcs
+            resp = MU::Cloud::AWS.ec2(region: region).describe_vpcs(filters: tagfilters).vpcs
             vpcs = resp if !resp.empty?
           rescue Aws::EC2::Errors::InvalidVpcIDNotFound => e
             if retries < 5
@@ -1391,7 +1391,7 @@ module MU
 
         # List the route tables for each subnet in the given VPC
         def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_subnets(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_subnets(
               filters: [
                   {
                       name: "vpc-id",
@@ -1402,7 +1402,7 @@ module MU
 
           subnets = resp.subnets.map { |subnet| subnet.subnet_id }
 
-          tables = MU::Cloud::AWS.ec2(region).describe_route_tables(
+          tables = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
               filters: [
                   {
                       name: "vpc-id",
@@ -1486,7 +1486,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_gateways(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_internet_gateways(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_internet_gateways(
               filters: tagfilters
           )
           gateways = resp.data.internet_gateways
@@ -1495,7 +1495,7 @@ module MU
             gateway.attachments.each { |attachment|
               MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
               begin
-                MU::Cloud::AWS.ec2(region).detach_internet_gateway(
+                MU::Cloud::AWS.ec2(region: region).detach_internet_gateway(
                     internet_gateway_id: gateway.internet_gateway_id,
                     vpc_id: attachment.vpc_id
                 ) if !noop
@@ -1505,7 +1505,7 @@ module MU
             }
             MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
             begin
-              MU::Cloud::AWS.ec2(region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
+              MU::Cloud::AWS.ec2(region: region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
             rescue Aws::EC2::Errors::InvalidInternetGatewayIDNotFound
               MU.log "Gateway #{gateway.internet_gateway_id} was already destroyed by the time I got to it", MU::WARN
             end
@@ -1519,7 +1519,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_nat_gateways(noop = false, vpc_id: nil, region: MU.curRegion)
-          gateways = MU::Cloud::AWS.ec2(region).describe_nat_gateways(
+          gateways = MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(
             filter: [
               {
                 name: "vpc-id",
@@ -1537,15 +1537,15 @@ module MU
                 MU.log "Deleting NAT Gateway #{gateway.nat_gateway_id}"
                 if !noop
                   begin
-                    MU::Cloud::AWS.ec2(region).delete_nat_gateway(nat_gateway_id: gateway.nat_gateway_id)
-                    resp = MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+                    MU::Cloud::AWS.ec2(region: region).delete_nat_gateway(nat_gateway_id: gateway.nat_gateway_id)
+                    resp = MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
 
                     attempts = 0
                     while resp.state != "deleted" and resp.state != "failed"
                       MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if attempts % 2 == 0
                       sleep 30
                       begin
-                        resp = MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+                        resp = MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
                       rescue Aws::EmptyStructure, NoMethodError
                         sleep 5
                         retry
@@ -1576,7 +1576,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_endpoints(noop = false, vpc_id: nil, region: MU.curRegion)
-          vpc_endpoints = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(
+          vpc_endpoints = MU::Cloud::AWS.ec2(region: region).describe_vpc_endpoints(
             filters: [
               {
                 name:"vpc-id",
@@ -1594,15 +1594,15 @@ module MU
                 MU.log "Deleting VPC endpoint #{endpoint.vpc_endpoint_id}"
                 if !noop
                   begin
-                    MU::Cloud::AWS.ec2(region).delete_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id])
-                    resp = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+                    MU::Cloud::AWS.ec2(region: region).delete_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id])
+                    resp = MU::Cloud::AWS.ec2(region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
 
                     attempts = 0
                     while resp.state != "deleted"
                       MU.log "Waiting for VPC endpoint #{endpoint.vpc_endpoint_id} to delete" if attempts % 5 == 0
                       sleep 30
                       begin
-                        resp = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+                        resp = MU::Cloud::AWS.ec2(region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
                       rescue Aws::EmptyStructure, NoMethodError
                         sleep 5
                         retry
@@ -1635,7 +1635,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_routetables(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
               filters: tagfilters
           )
           route_tables = resp.data.route_tables
@@ -1647,7 +1647,7 @@ module MU
               if !route.network_interface_id.nil?
                 MU.log "Deleting Network Interface #{route.network_interface_id}"
                 begin
-                  MU::Cloud::AWS.ec2(region).delete_network_interface(network_interface_id: route.network_interface_id) if !noop
+                  MU::Cloud::AWS.ec2(region: region).delete_network_interface(network_interface_id: route.network_interface_id) if !noop
                 rescue Aws::EC2::Errors::InvalidNetworkInterfaceIDNotFound => e
                   MU.log "Network Interface #{route.network_interface_id} has already been deleted", MU::WARN
                 end
@@ -1655,7 +1655,7 @@ module MU
               if route.gateway_id != "local"
                 MU.log "Deleting #{table.route_table_id}'s route for #{route.destination_cidr_block}"
                 begin
-                  MU::Cloud::AWS.ec2(region).delete_route(
+                  MU::Cloud::AWS.ec2(region: region).delete_route(
                     route_table_id: table.route_table_id,
                     destination_cidr_block: route.destination_cidr_block
                   ) if !noop
@@ -1667,7 +1667,7 @@ module MU
             can_delete = true
             table.associations.each { |assoc|
               begin
-                MU::Cloud::AWS.ec2(region).disassociate_route_table(association_id: assoc.route_table_association_id) if !noop
+                MU::Cloud::AWS.ec2(region: region).disassociate_route_table(association_id: assoc.route_table_association_id) if !noop
               rescue Aws::EC2::Errors::InvalidAssociationIDNotFound => e
                 MU.log "Route table association #{assoc.route_table_association_id} already removed", MU::WARN
               rescue Aws::EC2::Errors::InvalidParameterValue => e
@@ -1679,7 +1679,7 @@ module MU
             next if !can_delete
             MU.log "Deleting Route Table #{table.route_table_id}"
             begin
-              MU::Cloud::AWS.ec2(region).delete_route_table(route_table_id: table.route_table_id) if !noop
+              MU::Cloud::AWS.ec2(region: region).delete_route_table(route_table_id: table.route_table_id) if !noop
             rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound
               MU.log "Route table #{table.route_table_id} already removed", MU::WARN
             end
@@ -1694,7 +1694,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_network_interfaces(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_network_interfaces(
               filters: tagfilters
           )
           ifaces = resp.data.network_interfaces
@@ -1703,7 +1703,7 @@ module MU
 
           ifaces.each { |iface|
             MU.log "Deleting Network Interface #{iface.network_interface_id}"
-            MU::Cloud::AWS.ec2(region).delete_network_interface(network_interface_id: iface.network_interface_id)
+            MU::Cloud::AWS.ec2(region: region).delete_network_interface(network_interface_id: iface.network_interface_id)
           }
         end
 
@@ -1713,7 +1713,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_subnets(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_subnets(
               filters: tagfilters
           )
           subnets = resp.data.subnets
@@ -1728,7 +1728,7 @@ module MU
                 sleep 30
               else
                 MU.log "Deleting Subnet #{subnet.subnet_id}"
-                MU::Cloud::AWS.ec2(region).delete_subnet(subnet_id: subnet.subnet_id) if !noop
+                MU::Cloud::AWS.ec2(region: region).delete_subnet(subnet_id: subnet.subnet_id) if !noop
               end
             rescue Aws::EC2::Errors::DependencyViolation => e
               if retries < 7
@@ -1753,7 +1753,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_dhcpopts(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_dhcp_options(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_dhcp_options(
               filters: tagfilters
           )
           sets = resp.data.dhcp_options
@@ -1763,7 +1763,7 @@ module MU
           sets.each { |optset|
             begin
               MU.log "Deleting DHCP Option Set #{optset.dhcp_options_id}"
-              MU::Cloud::AWS.ec2(region).delete_dhcp_options(dhcp_options_id: optset.dhcp_options_id)
+              MU::Cloud::AWS.ec2(region: region).delete_dhcp_options(dhcp_options_id: optset.dhcp_options_id)
             rescue Aws::EC2::Errors::DependencyViolation => e
               MU.log e.inspect, MU::ERR
 #        rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
@@ -1779,7 +1779,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_vpcs(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_vpcs(
               filters: tagfilters
           )
 
@@ -1787,7 +1787,7 @@ module MU
           return if vpcs.nil? or vpcs.size == 0
 
           vpcs.each { |vpc|
-            my_peer_conns = MU::Cloud::AWS.ec2(region).describe_vpc_peering_connections(
+            my_peer_conns = MU::Cloud::AWS.ec2(region: region).describe_vpc_peering_connections(
                 filters: [
                     {
                         name: "requester-vpc-info.vpc-id",
@@ -1795,7 +1795,7 @@ module MU
                     }
                 ]
             ).vpc_peering_connections
-            my_peer_conns.concat(MU::Cloud::AWS.ec2(region).describe_vpc_peering_connections(
+            my_peer_conns.concat(MU::Cloud::AWS.ec2(region: region).describe_vpc_peering_connections(
               filters: [
                 {
                   name: "accepter-vpc-info.vpc-id",
@@ -1807,14 +1807,14 @@ module MU
 
               [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
                 MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_vpc, region: region).each { |rtb_id|
-                  resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
+                  resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
                       route_table_ids: [rtb_id]
                   )
                   resp.route_tables.each { |rtb|
                     rtb.routes.each { |route|
                       if route.vpc_peering_connection_id == cnxn.vpc_peering_connection_id
                         MU.log "Removing route #{route.destination_cidr_block} from route table #{rtb_id} in VPC #{peer_vpc}"
-                        MU::Cloud::AWS.ec2(region).delete_route(
+                        MU::Cloud::AWS.ec2(region: region).delete_route(
                             route_table_id: rtb_id,
                             destination_cidr_block: route.destination_cidr_block
                         ) if !noop
@@ -1825,7 +1825,7 @@ module MU
               }
               MU.log "Deleting VPC peering connection #{cnxn.vpc_peering_connection_id}"
               begin
-                MU::Cloud::AWS.ec2(region).delete_vpc_peering_connection(
+                MU::Cloud::AWS.ec2(region: region).delete_vpc_peering_connection(
                     vpc_peering_connection_id: cnxn.vpc_peering_connection_id
                 ) if !noop
               rescue Aws::EC2::Errors::InvalidStateTransition => e
@@ -1836,7 +1836,7 @@ module MU
             MU.log "Deleting VPC #{vpc.vpc_id}"
             retries = 0
             begin
-              MU::Cloud::AWS.ec2(region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
+              MU::Cloud::AWS.ec2(region: region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation => e

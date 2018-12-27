@@ -118,10 +118,10 @@ module MU
             end
 
             MU.log "Creating CloudFormation stack '#{@config['name']}'", details: stack_descriptor
-            res = MU::Cloud::AWS.cloudformation(region).create_stack(stack_descriptor);
+            res = MU::Cloud::AWS.cloudformation(region: region).create_stack(stack_descriptor);
 
             sleep(10);
-            stack_response = MU::Cloud::AWS.cloudformation(region).describe_stacks({:stack_name => stack_name}).stacks.first
+            stack_response = MU::Cloud::AWS.cloudformation(region: region).describe_stacks({:stack_name => stack_name}).stacks.first
             attempts = 0
             begin
               if attempts % 5 == 0
@@ -129,7 +129,7 @@ module MU
               else
                 MU.log "Waiting for CloudFormation stack '#{@config['name']}' to be ready...", MU::DEBUG
               end
-              stack_response =MU::Cloud::AWS.cloudformation(region).describe_stacks({:stack_name => stack_name}).stacks.first
+              stack_response =MU::Cloud::AWS.cloudformation(region: region).describe_stacks({:stack_name => stack_name}).stacks.first
               sleep 60
             end while stack_response.stack_status == "CREATE_IN_PROGRESS"
 
@@ -145,14 +145,14 @@ module MU
           end
 
           if flag == "FAIL" then
-            stack_response = MU::Cloud::AWS.cloudformation(region).delete_stack({:stack_name => stack_name})
+            stack_response = MU::Cloud::AWS.cloudformation(region: region).delete_stack({:stack_name => stack_name})
             exit 1
           end
 
           MU.log "CloudFormation stack '#{@config['name']}' complete"
 
           begin
-            resources = MU::Cloud::AWS.cloudformation(region).describe_stack_resources(:stack_name => stack_name)
+            resources = MU::Cloud::AWS.cloudformation(region: region).describe_stack_resources(:stack_name => stack_name)
 
             resources[:stack_resources].each { |resource|
 
@@ -247,7 +247,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false, flags: {})
 # XXX needs to check tags instead of name- possible?
-          resp = MU::Cloud::AWS.cloudformation(region).describe_stacks
+          resp = MU::Cloud::AWS.cloudformation(region: region).describe_stacks
           resp.stacks.each { |stack|
             ok = false
             stack.tags.each { |tag|
@@ -257,7 +257,7 @@ module MU
               MU.log "Deleting CloudFormation stack #{stack.stack_name})"
               next if noop
               if stack.stack_status != "DELETE_IN_PROGRESS"
-                MU::Cloud::AWS.cloudformation(region).delete_stack(stack_name: stack.stack_name)
+                MU::Cloud::AWS.cloudformation(region: region).delete_stack(stack_name: stack.stack_name)
               end
               if wait
                 last_status = ""
@@ -268,7 +268,7 @@ module MU
                   mystack = nil
                   sleep 30
                   retries = retries + 1
-                  desc = MU::Cloud::AWS.cloudformation(region).describe_stacks(stack_name: stack.stack_name)
+                  desc = MU::Cloud::AWS.cloudformation(region: region).describe_stacks(stack_name: stack.stack_name)
                   if desc.size > 0
                     mystack = desc.first.stacks.first
                     if mystack.size > 0 and mystack.stack_status == "DELETE_FAILED"
@@ -355,7 +355,7 @@ module MU
           region = stack['region']
           stack_name = getStackName(stack)
           begin
-            resources = MU::Cloud::AWS.cloudformation(region).describe_stack_resources(:stack_name => stack_name)
+            resources = MU::Cloud::AWS.cloudformation(region: region).describe_stack_resources(:stack_name => stack_name)
 
             MU.log "CloudFormation stack #{stack_name} failed", MU::ERR
 

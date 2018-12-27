@@ -199,7 +199,7 @@ module MU
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
-              resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
+              resp = MU::Cloud::AWS.ec2(region: region).describe_security_groups(group_ids: [cloud_id])
               return {cloud_id => resp.data.security_groups.first}
             rescue ArgumentError => e
               MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::WARN, details: caller
@@ -212,7 +212,7 @@ module MU
 
           map = {}
           if !tag_key.nil? and !tag_value.nil?
-            resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
+            resp = MU::Cloud::AWS.ec2(region: region).describe_security_groups(
                 filters: [
                     {name: "tag:#{tag_key}", values: [tag_value]}
                 ]
@@ -240,7 +240,7 @@ module MU
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
           end
 
-          resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
+          resp = MU::Cloud::AWS.ec2(region: region).describe_security_groups(
               filters: tagfilters
           )
 
@@ -303,13 +303,13 @@ module MU
               begin
 
                 if ingress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(region).revoke_security_group_ingress(
+                  MU::Cloud::AWS.ec2(region: region).revoke_security_group_ingress(
                       group_id: sg.group_id,
                       ip_permissions: ingress_to_revoke
                   )
                 end
                 if egress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(region).revoke_security_group_egress(
+                  MU::Cloud::AWS.ec2(region: region).revoke_security_group_egress(
                       group_id: sg.group_id,
                       ip_permissions: egress_to_revoke
                   )
@@ -325,7 +325,7 @@ module MU
 
             retries = 0
             begin
-              MU::Cloud::AWS.ec2(region).delete_security_group(group_id: sg.group_id) if !noop
+              MU::Cloud::AWS.ec2(region: region).delete_security_group(group_id: sg.group_id) if !noop
             rescue Aws::EC2::Errors::InvalidGroupNotFound
               MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse

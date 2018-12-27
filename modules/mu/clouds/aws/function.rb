@@ -38,7 +38,7 @@ module MU
         
         def get_role_arn(name)
           begin
-            role = MU::Cloud::AWS.iam(@config['region']).get_role({
+            role = MU::Cloud::AWS.iam.get_role({
               role_name: name.to_s
             })
             return role['role']['arn']
@@ -52,7 +52,7 @@ module MU
             ## get vpc_id
             ## get sub_id and verify its in the same vpc 
             ## get sg_id and verify its in the same vpc
-            ec2_client = MU::Cloud::AWS.ec2(region)
+            ec2_client = MU::Cloud::AWS.ec2(region: region)
             
             vpc_filter = ec2_client.describe_vpcs({
               filters: [{ name: 'tag-value', values: [vpc_name] }]
@@ -94,7 +94,7 @@ module MU
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
-              tag_resp = MU::Cloud::AWS.lambda(region).tag_resource({
+              tag_resp = MU::Cloud::AWS.lambda(region: region).tag_resource({
                 resource: resource_arn,
                 tags: each_pair
               })
@@ -164,11 +164,11 @@ module MU
              lambda_properties[:vpc_config] = vpc_conf
           end
 
-          MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
+          MU::Cloud::AWS.lambda(region: @config['region']).create_function(lambda_properties)
         end
 
         def groom
-          desc = MU::Cloud::AWS.lambda(@config['region']).get_function(
+          desc = MU::Cloud::AWS.lambda(region: @config['region']).get_function(
             function_name: @mu_name
           )
           func_arn = desc.configuration.function_arn if !desc.empty?
@@ -199,7 +199,7 @@ module MU
 
               MU.log trigger_properties, MU::DEBUG
               begin
-                add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
+                add_trigger = MU::Cloud::AWS.lambda(region: @config['region']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
 # XXX check properly for existence
               end
@@ -277,14 +277,14 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          MU::Cloud::AWS.lambda(region).list_functions.functions.each { |f|
-            desc = MU::Cloud::AWS.lambda(region).get_function(
+          MU::Cloud::AWS.lambda(region: region).list_functions.functions.each { |f|
+            desc = MU::Cloud::AWS.lambda(region: region).get_function(
               function_name: f.function_name
             )
             if desc.tags and desc.tags["MU-ID"] == MU.deploy_id
               MU.log "Deleting Lambda function #{f.function_name}"
               if !noop
-                MU::Cloud::AWS.lambda(region).delete_function(
+                MU::Cloud::AWS.lambda(region: region).delete_function(
                   function_name: f.function_name
                 )
               end
@@ -307,7 +307,7 @@ module MU
         def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, flags: {})
           func = nil
           if !func_name.nil?
-            all_functions = MU::Cloud::AWS.lambda(region).list_functions
+            all_functions = MU::Cloud::AWS.lambda(region: region).list_functions
             if all_functions.include?(func_name)
               all_functions.functions.each do |x|
                 if x.function_name == func_name

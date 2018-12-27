@@ -126,14 +126,14 @@ module MU
           alarms = []
           # We don't have a way to tag alarms, so we try to delete them by the deploy ID. 
           # This can miss alarms in some cases (eg. cache_cluster) so we might want to delete alarms from each API as well.
-          MU::Cloud::AWS.cloudwatch(region).describe_alarms.each { |page|
+          MU::Cloud::AWS.cloudwatch(region: region).describe_alarms.each { |page|
             page.metric_alarms.map(&:alarm_name).each { |alarm_name|
               alarms << alarm_name if alarm_name.match(MU.deploy_id)
             }
           }
 
           if !alarms.empty?
-            MU::Cloud::AWS.cloudwatch(region).delete_alarms(alarm_names: alarms) unless noop
+            MU::Cloud::AWS.cloudwatch(region: region).delete_alarms(alarm_names: alarms) unless noop
             MU.log "Deleted alarms #{alarms.join(', ')}"
           end
         end
@@ -181,7 +181,7 @@ module MU
           end
 
           begin
-            MU::Cloud::AWS.cloudwatch(region).put_metric_alarm(
+            MU::Cloud::AWS.cloudwatch(region: region).put_metric_alarm(
               alarm_name: name,
               alarm_description: name,
               actions_enabled: true,
@@ -216,7 +216,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
         def self.getAlarmByName(name, region: MU.curRegion)
-          MU::Cloud::AWS.cloudwatch(region).describe_alarms(alarm_names: [name]).metric_alarms.first
+          MU::Cloud::AWS.cloudwatch(region: region).describe_alarms(alarm_names: [name]).metric_alarms.first
         end
 
         # Publish logging data, or create a new custom container/group for your logging data
@@ -224,14 +224,14 @@ module MU
         # @param metric_data [Array]: The data points describing your new metric.
         # @param region [String]: The cloud provider region.
         def self.createMetric(namespace: nil, metric_data: [], region: MU.curRegion)
-          MU::Cloud::AWS.cloudwatch(region).put_metric_data(namespace: namespace, metric_data: metric_data, region: region)
+          MU::Cloud::AWS.cloudwatch(region: region).put_metric_data(namespace: namespace, metric_data: metric_data, region: region)
         end
 
         # Enable the state of the alarm
         # @param name [String]: The cloud provider's identifier for this alarm.
         # @param region [String]: The cloud provider region.
         def self.enableAlarmAction(name, region: MU.curRegion)
-          MU::Cloud::AWS.cloudwatch(region).enable_alarm_actions(alarm_names: [name])
+          MU::Cloud::AWS.cloudwatch(region: region).enable_alarm_actions(alarm_names: [name])
         end
 
         # Cloud-specific configuration properties.
