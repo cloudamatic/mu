@@ -26,13 +26,20 @@ module MU
     class AWS
       @@myRegion_var = nil
 
-      @@creds_loaded = false
+      @@creds_loaded = {}
 
       # Load some credentials for using the AWS API
       # @param name [String]: The name of the mu.yaml AWS credential set to use. If not specified, will use the default credentials, and set the global Aws.config credentials to those.
       # @return [Aws::Credentials]
       def self.loadCredentials(name = nil)
-        return nil if @@creds_loaded # XXX this should be a hash of name lookups
+        @@creds_loaded ||= {}
+
+        if name.nil?
+          return @@creds_loaded["#default"] if @@creds_loaded["#default"]
+        else
+          return @@creds_loaded[name] if @@creds_loaded[name]
+        end
+
         cred_cfg = credConfig(name)
         if cred_cfg.nil?
           return nil
@@ -54,7 +61,6 @@ module MU
               region: cred_cfg['region']
             }
           end
-          loaded = true
         elsif cred_cfg['credentials_file'] and
               !cred_cfg['credentials_file'].empty?
           # pull access key and secret from an awscli-style credentials file
@@ -77,7 +83,6 @@ module MU
                   region: cred_cfg['region']
                 }
               end
-              loaded = true
             else
               MU.log "AWS credentials in #{cred_cfg["credentials_file"]} specified, but is missing aws_access_key_id or aws_secret_access_key elements", MU::WARN
             end
@@ -101,7 +106,6 @@ module MU
                   region: cred_cfg['region']
                 }
               end
-              loaded = true
             else
               MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
             end
@@ -110,7 +114,7 @@ module MU
           end
         end
 
-        if !loaded and hosted?
+        if !cred_obj and hosted?
           # assume we've got an IAM profile and hope for the best
           ENV.delete('AWS_ACCESS_KEY_ID')
           ENV.delete('AWS_SECRET_ACCESS_KEY')
@@ -118,12 +122,12 @@ module MU
           if name.nil?
             Aws.config = {region: ENV['EC2_REGION']}
           end
-          loaded = true
         end
 
-        @@creds_loaded = loaded
-        if !@@creds_loaded
-          raise MuError, "AWS layer is enabled in mu.yaml, but I couldn't find working API credentials anywhere"
+        if name.nil?
+          @@creds_loaded["#default"] = cred_obj
+        else
+          @@creds_loaded[name] = cred_obj
         end
 
         cred_obj

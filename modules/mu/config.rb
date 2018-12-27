@@ -1123,6 +1123,15 @@ module MU
       }
     end
 
+    # Configuration chunk for choosing a set of cloud credentials
+    # @return [Hash]
+    def self.credentials_primitive
+      {
+          "type" => "string",
+          "description" => "Specify a non-default set of credentials to use when authenticating to cloud provider APIs, as listed in `mu.yaml` under each provider's subsection."
+      }
+    end
+
     # Configuration chunk for creating resource tags as an array of key/value
     # pairs.
     # @return [Hash]
@@ -1535,7 +1544,7 @@ module MU
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
 
-      schema_fields = ["region", "us_only", "scrub_mu_isms"]
+      schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
         schema_fields << "project"
@@ -1779,7 +1788,7 @@ module MU
         prefixes << "# **REQUIRED**" if required and schema['default'].nil?
         prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
         prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
-        if !schema['enum'].nil?
+        if !schema['enum'].nil? and !schema["enum"].empty?
           prefixes << "# **Must be one of: `#{schema['enum'].join(', ')}`**"
         elsif !schema['pattern'].nil?
           # XXX unquoted regex chars confuse the hell out of YARD. How do we
@@ -1875,6 +1884,7 @@ module MU
           "default" => MU::Cloud::Google.defaultProject
         },
         "region" => MU::Config.region_primitive,
+        "credentials" =>  MU::Config.credentials_primitive,
         "us_only" => {
             "type" => "boolean",
             "description" => "For resources which span regions, restrict to regions inside the United States",
@@ -1985,6 +1995,7 @@ module MU
         }
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["credentials"] = MU::Config.credentials_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
       rescue NameError => e
         failed << type
