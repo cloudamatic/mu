@@ -189,7 +189,8 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          skipsnapshots = flags["skipsnapshots"]
           flags["project"] ||= MU::Cloud::Google.defaultProject
           MU::Cloud::Google.listAZs(region).each { |az|
             found = MU::Cloud::Google.container.list_zone_clusters(flags["project"], az)

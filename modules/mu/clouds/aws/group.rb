@@ -40,7 +40,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           begin
-            MU::Cloud::AWS.iam.get_group(
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
               group_name: @mu_name,
               path: @config['path']
             )
@@ -50,7 +50,7 @@ module MU
           rescue Aws::IAM::Errors::NoSuchEntity => e
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
             MU.log "Creating IAM group #{@config['path']}#{@mu_name}"
-            MU::Cloud::AWS.iam.create_group(
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_group(
               group_name: @mu_name,
               path: @config['path']
             )
@@ -72,7 +72,7 @@ module MU
               if found.size == 1
                 userdesc = found.values.first
                 MU.log "Adding IAM user #{userdesc.path}#{userdesc.user_name} to group #{@mu_name}", MU::NOTICE
-                MU::Cloud::AWS.iam.add_user_to_group(
+                MU::Cloud::AWS.iam(credentials: @config['credentials']).add_user_to_group(
                   user_name: userid,
                   group_name: @mu_name
                 )
@@ -85,7 +85,7 @@ module MU
               extras = cloud_desc.users.map { |u| u.user_name } - @config['members']
               extras.each { |user_name|
                 MU.log "Purging user #{user_name} from IAM group #{@cloud_id}", MU::NOTICE
-                MU::Cloud::AWS.iam.remove_user_from_group(
+                MU::Cloud::AWS.iam(credentials: @config['credentials']).remove_user_from_group(
                   user_name: user_name,
                   group_name: @cloud_id
                 )
@@ -110,7 +110,7 @@ module MU
         # Fetch the AWS API description of this group
         # return [Struct]
         def cloud_desc
-          MU::Cloud::AWS.iam.get_group(
+          MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
             group_name: @mu_name
           )
         end
@@ -128,24 +128,24 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          resp = MU::Cloud::AWS.iam.list_groups(
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          resp = MU::Cloud::AWS.iam(credentials: credentials).list_groups(
             path_prefix: "/"+MU.deploy_id+"/"
           )
           if resp and resp.groups
             resp.groups.each { |g|
               MU.log "Deleting IAM group #{g.path}#{g.group_name}"
               if !noop
-                desc = MU::Cloud::AWS.iam.get_group(
+                desc = MU::Cloud::AWS.iam(credentials: credentials).get_group(
                   group_name: g.group_name
                 )
                 desc.users.each { |u|
-                  MU::Cloud::AWS.iam.remove_user_from_group(
+                  MU::Cloud::AWS.iam(credentials: credentials).remove_user_from_group(
                     user_name: u.user_name,
                     group_name: g.group_name
                   )
                 }
-                MU::Cloud::AWS.iam.delete_group(
+                MU::Cloud::AWS.iam(credentials: credentials).delete_group(
                   group_name: g.group_name
                 )
               end
@@ -158,10 +158,10 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching group group.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           found = nil
           begin
-            resp = MU::Cloud::AWS.iam.get_group(
+            resp = MU::Cloud::AWS.iam(credentials: credentials).get_group(
               group_name: cloud_id
             )
             found ||= {}

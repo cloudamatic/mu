@@ -109,8 +109,9 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
+          skipsnapshots||= flags["skipsnapshots"]
           instances = MU::Cloud::Google.sql.list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
           if instances and instances.items
             instances.items.each { |instance|

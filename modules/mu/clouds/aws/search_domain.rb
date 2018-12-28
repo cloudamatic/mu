@@ -42,7 +42,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          resp = MU::Cloud::AWS.elasticsearch(region: @config['region']).create_elasticsearch_domain(params).domain_status
+          resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
 
@@ -58,7 +58,7 @@ module MU
             waitWhileProcessing # wait until the create finishes, if still going
 
             MU.log "Updating ElasticSearch domain #{@config['domain_name']}", MU::NOTICE, details: params
-            MU::Cloud::AWS.elasticsearch(region: @config['region']).update_elasticsearch_domain_config(params)
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).update_elasticsearch_domain_config(params)
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
@@ -69,11 +69,11 @@ module MU
         # our druthers.
         def cloud_desc
           if @config['domain_name']
-            MU::Cloud::AWS.elasticsearch(region: @config['region']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @config['domain_name']
             ).domain_status
           elsif @deploydata['domain_name']
-            MU::Cloud::AWS.elasticsearch(region: @config['region']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @deploydata['domain_name']
             ).domain_status
           else
@@ -91,7 +91,7 @@ module MU
         # @return [Hash]
         def notify
           deploy_struct = MU.structToHash(cloud_desc)
-          tags = MU::Cloud::AWS.elasticsearch(region: @config['region']).list_tags(arn: deploy_struct[:arn]).tag_list
+          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).list_tags(arn: deploy_struct[:arn]).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
@@ -105,7 +105,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
           if list and list.domain_names and list.domain_names.size > 0
             descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
@@ -142,7 +142,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching search_domain.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           if cloud_id
             # Annoyingly, we might expect one of several possible artifacts,
             # since AWS couldn't decide what the real identifier of these
@@ -619,7 +619,7 @@ module MU
             raise MU::MuError, "Can't tag ElasticSearch domain, cloud descriptor came back without an ARN"
           end
 
-          MU::Cloud::AWS.elasticsearch(region: @config['region']).add_tags(
+          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).add_tags(
             arn: domain.arn,
             tag_list: tags
           )

@@ -22,8 +22,8 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          MU::Cloud::AWS.sns(region: region).list_topics.topics.each { |topic|
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU::Cloud::AWS.sns(region: region, credentials: credentials).list_topics.topics.each { |topic|
             if topic.topic_arn.match(MU.deploy_id)
               # We don't have a way to tag our SNS topics, so we will delete any topic that has the MU-ID in its ARN. 
               # This may fail to find notification groups in some cases (eg. cache_cluster) so we might want to delete from each API as well.
@@ -44,7 +44,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching notification.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           # Not implemented
           # XXX well it fuckin' needs to be
         end

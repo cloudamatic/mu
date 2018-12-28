@@ -238,7 +238,7 @@ module MU
           return @@azs[region]
         end
         if region
-          azs = MU::Cloud::AWS.ec2(region: region).describe_availability_zones(
+          azs = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_availability_zones(
             filters: [name: "region-name", values: [region]]
           )
         end
@@ -331,6 +331,16 @@ module MU
       @@my_hosted_cfg = nil
       @@acct_to_profile_map = {}
 
+      def self.credToAcct(name = nil)
+        creds = credConfig(name)
+
+        return creds['account_number'] if creds['account_number']
+
+        user_list = MU::Cloud::AWS.iam(credentials: name).list_users.users
+        acct_num = MU::Cloud::AWS.iam(credentials: name).list_users.users.first.arn.split(/:/)[4]
+        acct_num.to_s
+      end
+
       # Return the $MU_CFG data associated with a particular profile/name/set of
       # credentials. If no account name is specified, will return one flagged as
       # default. Returns nil if AWS is not configured. Throws an exception if 
@@ -388,6 +398,7 @@ module MU
               end
               acct_num = MU::Cloud::AWS.iam(credentials: acctname).list_users.users.first.arn.split(/:/)[4]
               if acct_num.to_s ==  name.to_s
+                cfg['account_number'] = acct_num.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
                 return cfg
               end
@@ -432,14 +443,16 @@ module MU
       # region that is local to this Mu server will be listed first.
       # @param us_only [Boolean]: Restrict results to United States only
       # @return [Array<String>]
-      def self.listRegions(us_only = false)
+      def self.listRegions(us_only = false, credentials: nil)
 
         if @@regions.size == 0
           return [] if credConfig.nil?
-          result = MU::Cloud::AWS.ec2(region: myRegion).describe_regions.regions
+          result = MU::Cloud::AWS.ec2(region: myRegion, credentials: credentials).describe_regions.regions
           regions = []
           result.each { |r|
-            @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
+            @@regions[r.region_name] = Proc.new {
+              listAZs(region: r.region_name, credentials: credentials)
+            }
           }
         end
 
@@ -667,7 +680,6 @@ module MU
       # Amazon's Route53 API
       def self.route53(credentials: nil)
         credentials ||= "#default"
-        @@route53_api[credentials] ||= {}
         @@route53_api[credentials] ||= MU::Cloud::AWS::Endpoint.new(api: "Route53", credentials: credentials)
         @@route53_api[credentials]
       end

@@ -122,18 +122,18 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           alarms = []
           # We don't have a way to tag alarms, so we try to delete them by the deploy ID. 
           # This can miss alarms in some cases (eg. cache_cluster) so we might want to delete alarms from each API as well.
-          MU::Cloud::AWS.cloudwatch(region: region).describe_alarms.each { |page|
+          MU::Cloud::AWS.cloudwatch(credentials: credentials, region: region).describe_alarms.each { |page|
             page.metric_alarms.map(&:alarm_name).each { |alarm_name|
               alarms << alarm_name if alarm_name.match(MU.deploy_id)
             }
           }
 
           if !alarms.empty?
-            MU::Cloud::AWS.cloudwatch(region: region).delete_alarms(alarm_names: alarms) unless noop
+            MU::Cloud::AWS.cloudwatch(credentials: credentials, region: region).delete_alarms(alarm_names: alarms) unless noop
             MU.log "Deleted alarms #{alarms.join(', ')}"
           end
         end
@@ -143,7 +143,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region)
         end
 

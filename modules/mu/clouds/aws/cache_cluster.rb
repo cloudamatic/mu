@@ -184,12 +184,12 @@ module MU
             # config_struct[:preferred_cache_cluster_a_zs] = @config["preferred_cache_cluster_azs"]
 
             MU.log "Creating cache replication group #{@config['identifier']}"
-            resp = MU::Cloud::AWS.elasticache(region: @config['region']).create_replication_group(config_struct).replication_group
+            resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_replication_group(config_struct).replication_group
 
             wait_start_time = Time.now
             retries = 0
             begin
-              MU::Cloud::AWS.elasticache(region: @config['region']).wait_until(:replication_group_available, replication_group_id: @config['identifier']) do |waiter|
+              MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).wait_until(:replication_group_available, replication_group_id: @config['identifier']) do |waiter|
                 waiter.max_attempts = nil
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for cache replication group #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
@@ -241,12 +241,12 @@ module MU
             # config_struct[:preferred_availability_zones] = @config["preferred_availability_zones"] if @config["preferred_availability_zones"] && @config["az_mode"] == "cross-az"
 
             MU.log "Creating cache cluster #{@config['identifier']}"
-            resp = MU::Cloud::AWS.elasticache(region: @config['region']).create_cache_cluster(config_struct).cache_cluster
+            resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_cluster(config_struct).cache_cluster
 
             wait_start_time = Time.now
             retries = 0
             begin
-              MU::Cloud::AWS.elasticache(region: @config['region']).wait_until(:cache_cluster_available, cache_cluster_id: @config['identifier']) do |waiter|
+              MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).wait_until(:cache_cluster_available, cache_cluster_id: @config['identifier']) do |waiter|
                 waiter.max_attempts = nil
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for cache cluster #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
@@ -295,10 +295,10 @@ module MU
             # If we didn't specify a VPC try to figure out if the account has a default VPC
             vpc_id = nil
             subnets = []
-            MU::Cloud::AWS.ec2(region: @config['region']).describe_vpcs.vpcs.each { |vpc|
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpcs.vpcs.each { |vpc|
               if vpc.is_default
                 vpc_id = vpc.vpc_id
-                subnets = MU::Cloud::AWS.ec2(region: @config['region']).describe_subnets(
+                subnets = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(
                   filters: [
                     {
                       name: "vpc-id", 
@@ -331,7 +331,7 @@ module MU
           else
             MU.log "Creating subnet group #{@config["subnet_group_name"]} for cache cluster #{@config['identifier']}"
 
-            resp = MU::Cloud::AWS.elasticache(region: @config['region']).create_cache_subnet_group(
+            resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_subnet_group(
               cache_subnet_group_name: @config["subnet_group_name"],
               cache_subnet_group_description: @config["subnet_group_name"],
               subnet_ids: subnet_ids
@@ -368,7 +368,7 @@ module MU
         # Create a Cache Cluster parameter group.
         def createParameterGroup        
           MU.log "Creating a cache cluster parameter group #{@config["parameter_group_name"]}"
-          resp = MU::Cloud::AWS.elasticache(region: @config['region']).create_cache_parameter_group(
+          resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_parameter_group(
             cache_parameter_group_name: @config["parameter_group_name"],
             cache_parameter_group_family: @config["parameter_group_family"],
             description: "Parameter group for #{@config["parameter_group_family"]}"
@@ -381,7 +381,7 @@ module MU
             }
 
             MU.log "Modifiying cache cluster parameter group #{@config["parameter_group_name"]}"
-            MU::Cloud::AWS.elasticache(region: @config['region']).modify_cache_parameter_group(
+            MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).modify_cache_parameter_group(
               cache_parameter_group_name: @config["parameter_group_name"],
               parameter_name_values: params
             )
@@ -391,7 +391,7 @@ module MU
         # Retrieve a Cache Cluster parameter group name of on existing parameter group.
         # @return [String]: Cache Cluster parameter group name.
         def getParameterGroup
-          MU::Cloud::AWS.elasticache(region: @config['region']).describe_cache_parameter_groups(
+          MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).describe_cache_parameter_groups(
             cache_parameter_group_name: @config["parameter_group_name"]
           ).cache_parameter_groups.first.cache_parameter_group_name
         end
@@ -531,7 +531,7 @@ module MU
 
           attempts = 0
           begin
-           snapshot = MU::Cloud::AWS.elasticache(region: @config['region']).create_snapshot(
+           snapshot = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_snapshot(
               cache_cluster_id: @config["identifier"],
               snapshot_name: snap_id
             )
@@ -551,7 +551,7 @@ module MU
             MU.log "Waiting for snapshot of cache cluster  #{@config["identifier"]} to be ready...", MU::NOTICE if attempts % 20 == 0
             MU.log "Waiting for snapshot of cache cluster #{@config["identifier"]} to be ready...", MU::DEBUG
 
-            snapshot_resp = MU::Cloud::AWS.elasticache(region: @config['region']).describe_snapshots(snapshot_name: snap_id)
+            snapshot_resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).describe_snapshots(snapshot_name: snap_id)
             attempts += 1
             break unless snapshot_resp.snapshots.first.snapshot_status != "available"
             sleep 15
@@ -562,7 +562,7 @@ module MU
 
         # @return [String]: The cloud provider's identifier for the snapshot.
         def getExistingSnapshot
-          MU::Cloud::AWS.elasticache(region: @config['region']).describe_snapshots(snapshot_name: @config["identifier"]).snapshots.first.snapshot_name
+          MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).describe_snapshots(snapshot_name: @config["identifier"]).snapshots.first.snapshot_name
         rescue NoMethodError
           raise MuError, "Snapshot #{@config["identifier"]} doesn't exist, make sure you provided a valid snapshot ID/Name"
         end
@@ -572,8 +572,9 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server.
         # @param region [String]: The cloud provider's region in which to operate.
         # @return [void]
-        def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})        
-          all_clusters = MU::Cloud::AWS.elasticache(region: region).describe_cache_clusters
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
+          skipsnapshots = flags["skipsnapshots"]
+          all_clusters = MU::Cloud::AWS.elasticache(credentials: credentials, region: region).describe_cache_clusters
           our_clusters = []
           our_replication_group_ids = []
 
@@ -607,7 +608,7 @@ module MU
               attempts = 0
 
               begin
-                tags = MU::Cloud::AWS.elasticache(region: region).list_tags_for_resource(resource_name: arn).tag_list
+                tags = MU::Cloud::AWS.elasticache(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
               rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
                 if attempts < 10
                   MU.log "Can't get tags for #{cluster_id}, retrying a few times in case of a lagging resource", MU::WARN

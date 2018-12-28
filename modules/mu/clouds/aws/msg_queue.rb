@@ -48,7 +48,7 @@ module MU
           namestr += ".fifo" if attrs['FifoQueue']
 
           MU.log "Creating SQS queue #{namestr}", details: attrs
-          resp = MU::Cloud::AWS.sqs(region: @config['region']).create_queue(
+          resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).create_queue(
             queue_name: namestr,
             attributes: attrs
           )
@@ -75,7 +75,7 @@ module MU
           }
           if changed
             MU.log "Updating SQS queue #{@mu_name}", MU::NOTICE, details: new_attrs
-            resp = MU::Cloud::AWS.sqs(region: @config['region']).set_queue_attributes(
+            resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).set_queue_attributes(
               queue_url: @cloud_id,
               attributes: new_attrs
             )
@@ -94,7 +94,7 @@ module MU
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
         def cloud_desc
           if !@cloud_id
-            resp = MU::Cloud::AWS.sqs(region: @config['region']).list_queues(
+            resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).list_queues(
               queue_name_prefix: @mu_name
             )
             return nil if !resp or !resp.queue_urls
@@ -129,8 +129,8 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          resp = MU::Cloud::AWS.sqs(region: region).list_queues(
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          resp = MU::Cloud::AWS.sqs(credentials: credentials, region: region).list_queues(
             queue_name_prefix: MU.deploy_id
           )
           if resp and resp.queue_urls
@@ -139,7 +139,7 @@ module MU
               threads << Thread.new {
                 MU.log "Deleting SQS queue #{url}"
                 if !noop
-                  MU::Cloud::AWS.sqs(region: region).delete_queue(
+                  MU::Cloud::AWS.sqs(credentials: credentials, region: region).delete_queue(
                     queue_url: url
                   )
                   sleep 60 # per API docs, this is how long it takes to really delete
@@ -157,7 +157,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           flags['account'] ||= MU.account_number
           return nil if !cloud_id
 
@@ -465,7 +465,7 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
           end
 
           begin
-            MU::Cloud::AWS.sqs(region: @config['region']).tag_queue(
+            MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).tag_queue(
               queue_url: url,
               tags: tags
             )

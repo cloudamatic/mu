@@ -40,29 +40,6 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
-        # Generate the generic EKS Kubernetes admin role for use with 
-        # aws-iam-authenticator. Management nodes need this. We do it to
-        # our Mu Master.
-        # TODO Maybe we can convert this to BoK-speak and get this out of
-        # here?
-        def self.createK8SAdminRole(rolename)
-          resp = MU::Cloud::AWS.iam.create_role(
-            role_name: rolename,
-            assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::'+MU.account_number+':root"},"Action":"sts:AssumeRole","Condition":{}}]}'
-          )
-          arn = resp.role.arn
-          MU.log "Created EKS Kubernetes admin role #{rolename}"
-          begin
-            MU::Cloud::AWS.iam.get_role(role_name: rolename)
-          rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log e.inspect, MU::WARN
-            sleep 10
-            retry
-          end
-          arn
-        end
-
-
         # Called automatically by {MU::Deploy#createResources}
         def create
           if @config['flavor'] == "EKS"
@@ -85,7 +62,7 @@ module MU
             resp = nil
             begin
               MU.log "Creating EKS cluster #{@mu_name}"
-              resp = MU::Cloud::AWS.eks(region: @config['region']).create_cluster(
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(
                 name: @mu_name,
                 version: @config['kubernetes']['version'],
                 role_arn: role_arn,
@@ -126,7 +103,7 @@ module MU
             status = nil
             retries = 0
             begin
-              resp = MU::Cloud::AWS.eks(region: @config['region']).describe_cluster(
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
                 name: @mu_name
               )
               status = resp.cluster.status
@@ -150,7 +127,7 @@ module MU
 
             MU.log "Creation of EKS cluster #{@mu_name} complete"
           else
-            MU::Cloud::AWS.ecs(region: @config['region']).create_cluster(
+            MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
               cluster_name: @mu_name
             )
           end
@@ -171,7 +148,7 @@ module MU
               tagme << s.cloud_id
               tagme_elb << s.cloud_id if !s.private?
             }
-            rtbs = MU::Cloud::AWS.ec2(region: @config['region']).describe_route_tables(
+            rtbs = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
               filters: [ { name: "vpc-id", values: [@vpc.cloud_id] } ]
             ).route_tables
             tagme.concat(rtbs.map { |r| r.route_table_id } )
@@ -237,7 +214,7 @@ module MU
 
             MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml}, MU::SUMMARY
           else
-            resp = MU::Cloud::AWS.ecs(region: @config['region']).list_container_instances({
+            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
               cluster: @mu_name
             })
             existing = {}
@@ -247,7 +224,7 @@ module MU
                 uuids << arn.sub(/^.*?:container-instance\//, "")
               }
               if uuids.size > 0
-                resp = MU::Cloud::AWS.ecs(region: @config['region']).describe_container_instances({
+                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_container_instances({
                   cluster: @mu_name,
                   container_instances: uuids
                 })
@@ -298,7 +275,7 @@ module MU
                   params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
                   MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
                 end
-                MU::Cloud::AWS.ecs(region: @config['region']).register_container_instance(params)
+                MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_container_instance(params)
   
               }
             }
@@ -310,12 +287,12 @@ module MU
         # @return [OpenStruct]
         def cloud_desc
           if @config['flavor'] == "EKS"
-            resp = MU::Cloud::AWS.eks(region: @config['region']).describe_cluster(
+            resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
               name: @mu_name
             )
             resp.cluster
           else
-            resp = MU::Cloud::AWS.ecs(region: @config['region']).describe_clusters(
+            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_clusters(
               clusters: [@mu_name]
             )
             resp.clusters.first
@@ -383,14 +360,14 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          resp = MU::Cloud::AWS.ecs(region: region).list_clusters
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
 
           if resp and resp.cluster_arns and resp.cluster_arns.size > 0
             resp.cluster_arns.each { |arn|
               if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
                 cluster = Regexp.last_match[1]
-                instances = MU::Cloud::AWS.ecs(region: region).list_container_instances({
+                instances = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_container_instances({
                   cluster: cluster
                 })
                 if instances
@@ -398,7 +375,7 @@ module MU
                     uuid = arn.sub(/^.*?:container-instance\//, "")
                     MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
                     if !noop
-                      resp = MU::Cloud::AWS.ecs(region: region).deregister_container_instance({
+                      resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({
                         cluster: cluster,
                         container_instance: uuid,
                         force: true, 
@@ -409,7 +386,7 @@ module MU
                 MU.log "Deleting ECS Cluster #{cluster}"
                 if !noop
 # TODO de-register container instances
-                  deletion = MU::Cloud::AWS.ecs(region: region).delete_cluster(
+                  deletion = MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
                     cluster: cluster
                   )
                 end
@@ -419,25 +396,25 @@ module MU
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
 
 
-          resp = MU::Cloud::AWS.eks(region: region).list_clusters
+          resp = MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
 
           if resp and resp.clusters
             resp.clusters.each { |cluster|
               if cluster.match(/^#{MU.deploy_id}-/)
 
-                desc = MU::Cloud::AWS.eks(region: region).describe_cluster(
+                desc = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
                   name: cluster
                 ).cluster
 
                 untag = []
                 untag << desc.resources_vpc_config.vpc_id
-                subnets = MU::Cloud::AWS.ec2(region: region).describe_subnets(
+                subnets = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_subnets(
                   filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
                 ).subnets
 
                 # subnets
                 untag.concat(subnets.map { |s| s.subnet_id } )
-                rtbs = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
+                rtbs = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_route_tables(
                   filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
                 ).route_tables
                 untag.concat(rtbs.map { |r| r.route_table_id } )
@@ -450,14 +427,14 @@ module MU
                 end
                 MU.log "Deleting EKS Cluster #{cluster}"
                 if !noop
-                  MU::Cloud::AWS.eks(region: region).delete_cluster(
+                  MU::Cloud::AWS.eks(credentials: credentials, region: region).delete_cluster(
                     name: cluster
                   )
                   begin
                     status = nil
                     retries = 0
                     begin
-                      deletion = MU::Cloud::AWS.eks(region: region).describe_cluster(
+                      deletion = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
                         name: cluster
                       )
                       status = deletion.cluster.status
@@ -482,7 +459,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching container_clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           MU.log cloud_id, MU::WARN, details: flags
           MU.log region, MU::WARN
           resp = MU::Cloud::AWS.ecs(region: region).list_clusters

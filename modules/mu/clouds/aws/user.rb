@@ -40,7 +40,7 @@ module MU
         def create
 
           begin
-            MU::Cloud::AWS.iam.get_user(user_name: @mu_name, path: @config['path'])
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).get_user(user_name: @mu_name, path: @config['path'])
             if !@config['use_if_exists']
               raise MuError, "IAM user #{@mu_name} already exists and use_if_exists is false"
             end
@@ -48,7 +48,7 @@ module MU
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
             MU.log "Creating IAM user #{@config['path']}/#{@mu_name}"
             tags = get_tag_params
-            MU::Cloud::AWS.iam.create_user(
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_user(
               user_name: @mu_name,
               path: @config['path'],
               tags: tags
@@ -59,7 +59,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          resp = MU::Cloud::AWS.iam.list_user_tags(user_name: @mu_name)
+          resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_user_tags(user_name: @mu_name)
 
           ext_tags = resp.tags.map { |t| t.to_h }
           tag_param = get_tag_params(true)
@@ -67,7 +67,7 @@ module MU
 
           if tag_param.size > 0
             MU.log "Updating tags on IAM user #{@mu_name}", MU::NOTICE, details: tag_param
-            MU::Cloud::AWS.iam.tag_user(user_name: @mu_name, tags: tag_param)
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).tag_user(user_name: @mu_name, tags: tag_param)
           end
           # Note: We don't delete tags, because we often share user accounts
           # managed outside of Mu. We have no way of know what tags might come
@@ -76,12 +76,12 @@ module MU
 
           if @config['create_console_password']
             begin
-              MU::Cloud::AWS.iam.get_login_profile(user_name: @mu_name)
+              MU::Cloud::AWS.iam(credentials: @config['credentials']).get_login_profile(user_name: @mu_name)
             rescue Aws::IAM::Errors::NoSuchEntity
               pw = Password.pronounceable(12..14)
               retries = 0
               begin
-                MU::Cloud::AWS.iam.create_login_profile(
+                MU::Cloud::AWS.iam(credentials: @config['credentials']).create_login_profile(
                   user_name: @mu_name,
                   password: pw
                 )
@@ -101,11 +101,11 @@ module MU
           end
 
           if @config['create_api_keys']
-            resp = MU::Cloud::AWS.iam.list_access_keys(
+            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_access_keys(
               user_name: @mu_name
             )
             if resp.access_key_metadata.size == 0
-              resp = MU::Cloud::AWS.iam.create_access_key(
+              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).create_access_key(
                 user_name: @mu_name
               )
               scratchitem = MU::Master.storeScratchPadSecret("AWS Access Key and Secret for user #{@mu_name}:\nKEY: #{resp.access_key.access_key_id}\nSECRET: #{resp.access_key.secret_access_key}")
@@ -124,7 +124,7 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          descriptor = MU.structToHash(MU::Cloud::AWS.iam.get_user(user_name: @mu_name).user)
+          descriptor = MU.structToHash(MU::Cloud::AWS.iam(credentials: @config['credentials']).get_user(user_name: @mu_name).user)
           descriptor["cloud_id"] = @mu_name
           descriptor
         end
@@ -134,51 +134,51 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
 
           # XXX this doesn't belong here; maybe under roles, maybe as its own stupid first-class resource
-          resp = MU::Cloud::AWS.iam.list_policies(
+          resp = MU::Cloud::AWS.iam(credentials: credentials).list_policies(
             path_prefix: "/"+MU.deploy_id+"/"
           )
           if resp and resp.policies
             resp.policies.each { |policy|
               MU.log "Deleting policy /#{MU.deploy_id}/#{policy.policy_name}"
               if !noop
-                attachments = MU::Cloud::AWS.iam.list_entities_for_policy(
+                attachments = MU::Cloud::AWS.iam(credentials: credentials).list_entities_for_policy(
                   policy_arn: policy.arn
                 )
                 attachments.policy_users.each { |u|
-                  MU::Cloud::AWS.iam.detach_user_policy(
+                  MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
                     user_name: u.user_name,
                     policy_arn: policy.arn
                   )
                 }
                 attachments.policy_groups.each { |g|
-                  MU::Cloud::AWS.iam.detach_role_policy(
+                  MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
                     group_name: g.group_name,
                     policy_arn: policy.arn
                   )
                 }
                 attachments.policy_roles.each { |r|
-                  MU::Cloud::AWS.iam.detach_role_policy(
+                  MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
                     role_name: r.role_name,
                     policy_arn: policy.arn
                   )
                 }
-                MU::Cloud::AWS.iam.delete_policy(
+                MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
                   policy_arn: policy.arn
                 )
               end
             }
           end
 
-          resp = MU::Cloud::AWS.iam.list_users
+          resp = MU::Cloud::AWS.iam(credentials: credentials).list_users
 
           # XXX this response includes a tags attribute, but it's always empty,
           # even when the user is tagged. So we go through the extra call for
           # each user. Inefficient. Probably Amazon's bug.
           resp.users.each { |u|
-            tags = MU::Cloud::AWS.iam.list_user_tags(
+            tags = MU::Cloud::AWS.iam(credentials: credentials).list_user_tags(
               user_name: u.user_name
             ).tags
             has_nodelete = false
@@ -194,21 +194,21 @@ module MU
               MU.log "Deleting IAM user #{u.path}#{u.user_name}"
               if !@noop
                 begin
-                  groups = MU::Cloud::AWS.iam.list_groups_for_user(
+                  groups = MU::Cloud::AWS.iam(credentials: credentials).list_groups_for_user(
                     user_name: u.user_name
                   ).groups
 
                   groups.each { |g|
-                    MU::Cloud::AWS.iam.remove_user_from_group(
+                    MU::Cloud::AWS.iam(credentials: credentials).remove_user_from_group(
                       user_name: u.user_name,
                       group_name: g.group_name
                     )
                   }
-                  profile = MU::Cloud::AWS.iam.get_login_profile(
+                  profile = MU::Cloud::AWS.iam(credentials: credentials).get_login_profile(
                     user_name: u.user_name
                   )
                   MU.log "Deleting IAM login profile for #{u.user_name}"
-                  MU::Cloud::AWS.iam.delete_login_profile(
+                  MU::Cloud::AWS.iam(credentials: credentials).delete_login_profile(
                     user_name: u.user_name
                   )
                 rescue Aws::IAM::Errors::EntityTemporarilyUnmodifiable
@@ -216,19 +216,19 @@ module MU
                   retry
                 rescue Aws::IAM::Errors::NoSuchEntity
                 end
-                keys = MU::Cloud::AWS.iam.list_access_keys(
+                keys = MU::Cloud::AWS.iam(credentials: credentials).list_access_keys(
                   user_name: u.user_name
                 )
                 if keys.access_key_metadata.size > 0
                   keys.access_key_metadata.each { |key|
                     MU.log "Deleting IAM access key #{key.access_key_id} for #{u.user_name}"
-                    keys = MU::Cloud::AWS.iam.delete_access_key(
+                    keys = MU::Cloud::AWS.iam(credentials: credentials).delete_access_key(
                       user_name: u.user_name,
                       access_key_id: key.access_key_id
                     )
                   }
                 end
-                MU::Cloud::AWS.iam.delete_user(user_name: u.user_name)
+                MU::Cloud::AWS.iam(credentials: credentials).delete_user(user_name: u.user_name)
               end
             end
           }
@@ -246,7 +246,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           found = nil
 
           begin

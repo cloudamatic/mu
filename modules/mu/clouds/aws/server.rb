@@ -352,7 +352,7 @@ module MU
           MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
 
           # Figure out which devices are embedded in the AMI already.
-          image = MU::Cloud::AWS.ec2(region: @config['region']).describe_images(image_ids: [@config["ami_id"]]).images.first
+          image = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_images(image_ids: [@config["ami_id"]]).images.first
           ext_disks = {}
           if !image.block_device_mappings.nil?
             image.block_device_mappings.each { |disk|
@@ -391,7 +391,7 @@ module MU
 
           retries = 0
           begin
-            response = MU::Cloud::AWS.ec2(region: @config['region']).run_instances(instance_descriptor)
+            response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
           rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
             if retries < 10
               if retries > 7
@@ -419,40 +419,40 @@ module MU
           if hard
             groupname = nil
             if !@config['basis'].nil?
-              resp = MU::Cloud::AWS.autoscale(region: @config['region']).describe_auto_scaling_instances(
+              resp = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_instances(
                 instance_ids: [@cloud_id]
               )
               groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
               MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
-              MU::Cloud::AWS.autoscale(region: @config['region']).suspend_processes(
+              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).suspend_processes(
                 auto_scaling_group_name: groupname
               )
             end
             begin
               MU.log "Stopping #{@mu_name} (#{@cloud_id})", MU::NOTICE
-              MU::Cloud::AWS.ec2(region: @config['region']).stop_instances(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).stop_instances(
                 instance_ids: [@cloud_id]
               )
-              MU::Cloud::AWS.ec2(region: @config['region']).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for #{@mu_name} to stop for hard reboot"
                 end
               end
               MU.log "Starting #{@mu_name} (#{@cloud_id})"
-              MU::Cloud::AWS.ec2(region: @config['region']).start_instances(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).start_instances(
                 instance_ids: [@cloud_id]
               )
             ensure
               if !groupname.nil?
                 MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
-                MU::Cloud::AWS.autoscale(region: @config['region']).resume_processes(
+                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).resume_processes(
                   auto_scaling_group_name: groupname
                 )
               end
             end
           else
             MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
-            MU::Cloud::AWS.ec2(region: @config['region']).reboot_instances(
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).reboot_instances(
               instance_ids: [@cloud_id]
             )
           end
@@ -635,7 +635,7 @@ module MU
 
           if !@config['src_dst_check'] and !@config["vpc"].nil?
             MU.log "Disabling source_dest_check #{node} (making it NAT-worthy)"
-            MU::Cloud::AWS.ec2(region: @config['region']).modify_instance_attribute(
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
                 instance_id: @cloud_id,
                 source_dest_check: {:value => false}
             )
@@ -643,7 +643,7 @@ module MU
 
           # Set console termination protection. Autoscale nodes won't set this
           # by default.
-          MU::Cloud::AWS.ec2(region: @config['region']).modify_instance_attribute(
+          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
               instance_id: @cloud_id,
               disable_api_termination: {:value => true}
           )
@@ -651,7 +651,7 @@ module MU
           has_elastic_ip = false
           if !instance.public_ip_address.nil?
             begin
-              resp = MU::Cloud::AWS.ec2(region: @config['region']).describe_addresses(public_ips: [instance.public_ip_address])
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(public_ips: [instance.public_ip_address])
               if resp.addresses.size > 0 and resp.addresses.first.instance_id == @cloud_id
                 has_elastic_ip = true
               end
@@ -749,7 +749,7 @@ module MU
               @vpc.subnets { |subnet|
                 subnet_id = subnet.cloud_id
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
-                iface = MU::Cloud::AWS.ec2(region: @config['region']).create_network_interface(subnet_id: subnet_id).network_interface
+                iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
                 MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'])
 
@@ -765,7 +765,7 @@ module MU
                   }
                 end
 
-                MU::Cloud::AWS.ec2(region: @config['region']).attach_network_interface(
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_network_interface(
                     network_interface_id: iface.network_interface_id,
                     instance_id: instance.instance_id,
                     device_index: device_index
@@ -805,7 +805,7 @@ module MU
 
           # Tag volumes with all our standard tags.
           # Maybe replace tagVolumes with this? There is one more place tagVolumes is called from
-          volumes = MU::Cloud::AWS.ec2(region: @config['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
+          volumes = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
           volumes.each { |vol|
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
@@ -842,7 +842,7 @@ module MU
             instance.network_interfaces.each { |int|
               if int.private_ip_address == instance.private_ip_address and int.private_ip_addresses.size < (@config['add_private_ips'] + 1)
                 MU.log "Adding #{@config['add_private_ips']} extra private IP addresses to #{instance.instance_id}"
-                MU::Cloud::AWS.ec2(region: @config['region']).assign_private_ip_addresses(
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).assign_private_ip_addresses(
                     network_interface_id: int.network_interface_id,
                     secondary_private_ip_address_count: @config['add_private_ips'],
                     allow_reassignment: false
@@ -1227,7 +1227,7 @@ module MU
             if img_cfg['image_then_destroy']
               MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
               MU.log "AMI #{ami_id} ready, removing source node #{node}"
-              MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name)
+              MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
               destroy
             end
           end
@@ -1246,7 +1246,7 @@ module MU
           retries = 0
           if !@cloud_id.nil?
             begin
-              return MU::Cloud::AWS.ec2(region: @config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+              return MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
             rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
               return nil
             rescue NoMethodError => e
@@ -1497,7 +1497,7 @@ module MU
           retries = 0
           MU.log "Waiting for Windows instance password to be set by Amazon and flagged as available from the API. Note- if you're using a source AMI that already has its password set, this may fail. You'll want to set use_cloud_provider_windows_password to false if this is the case.", MU::NOTICE
           begin
-            MU::Cloud::AWS.ec2(region: @config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
               waiter.max_attempts = 60
               waiter.before_attempt do |attempts|
                 MU.log "Waiting for Windows password data to be available for node #{@mu_name}", MU::NOTICE if attempts % 5 == 0
@@ -1517,7 +1517,7 @@ module MU
             end
           end
 
-          resp = MU::Cloud::AWS.ec2(region: @config['region']).get_password_data(instance_id: @cloud_id)
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).get_password_data(instance_id: @cloud_id)
           encrypted_password = resp.password_data
 
           # Note: This is already implemented in the decrypt_windows_password API call
@@ -1602,7 +1602,7 @@ module MU
             return true
           end
           az = nil
-          MU::Cloud::AWS.ec2(region: @config['region']).describe_instances(
+          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(
             instance_ids: [@cloud_id]
           ).reservations.each { |resp|
             if !resp.nil? and !resp.instances.nil?
@@ -1618,14 +1618,14 @@ module MU
             end
           }
           MU.log "Creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
-          creation = MU::Cloud::AWS.ec2(region: @config['region']).create_volume(
+          creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_volume(
             availability_zone: az,
             size: size,
             volume_type: type
           )
           begin
             sleep 3
-            creation = MU::Cloud::AWS.ec2(region: @config['region']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
+            creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
             if !["creating", "available"].include?(creation.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
@@ -1638,7 +1638,7 @@ module MU
             MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
           end
 
-          attachment = MU::Cloud::AWS.ec2(region: @config['region']).attach_volume(
+          attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_volume(
             device: dev,
             instance_id: @cloud_id,
             volume_id: creation.volume_id
@@ -1646,7 +1646,7 @@ module MU
 
           begin
             sleep 3
-            attachment = MU::Cloud::AWS.ec2(region: @config['region']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
+            attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
             if !["attaching", "attached"].include?(attachment.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
@@ -1662,7 +1662,7 @@ module MU
             return true
           end
           begin
-            MU::Cloud::AWS.ec2(region: @config['region']).describe_instances(
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(
                 instance_ids: [@cloud_id]
             ).reservations.each { |resp|
               if !resp.nil? and !resp.instances.nil?
@@ -1780,7 +1780,9 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          onlycloud = flags["onlycloud"]
+          skipsnapshots = flags["skipsnapshots"]
           tagfilters = [
             {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
@@ -1794,7 +1796,7 @@ module MU
           # Build a list of instances we need to clean up. We guard against
           # accidental deletion here by requiring someone to have hand-terminated
           # these, by default.
-          resp = MU::Cloud::AWS.ec2(region: region).describe_instances(
+          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(
               filters: tagfilters
           )
 
@@ -1817,11 +1819,11 @@ module MU
             threads << Thread.new(instance) { |myinstance|
               MU.dupGlobals(parent_thread_id)
               Thread.abort_on_exception = true
-              MU::Cloud::AWS::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region, deploy_id: MU.deploy_id)
+              MU::Cloud::AWS::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region, deploy_id: MU.deploy_id, credentials: credentials)
             }
           }
 
-          resp = MU::Cloud::AWS.ec2(region: region).describe_volumes(
+          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_volumes(
               filters: tagfilters
           )
           resp.data.volumes.each { |volume|
@@ -1843,12 +1845,12 @@ module MU
         # @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.terminateInstance(instance: nil, noop: false, id: nil, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil)
+        def self.terminateInstance(instance: nil, noop: false, id: nil, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, credentials: nil)
           ips = Array.new
           if !instance
             if id
               begin
-                resp = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [id])
+                resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [id])
               rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
                 MU.log "Instance #{id} no longer exists", MU::WARN
               end
@@ -1880,7 +1882,7 @@ module MU
           ).first
 
           begin
-            MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [id])
+            MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [id])
           rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
             MU.log "Instance #{id} no longer exists", MU::DEBUG
           end
@@ -1892,14 +1894,14 @@ module MU
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
             if !mu_zone.nil?
               zone_rrsets = []
-              rrsets = MU::Cloud::AWS.route53(region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
+              rrsets = MU::Cloud::AWS.route53(credentials: credentials, region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
               rrsets.resource_record_sets.each{ |record|
                 zone_rrsets << record
               }
 
             # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
               while rrsets.next_record_name && rrsets.next_record_type
-                rrsets = MU::Cloud::AWS.route53(region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets = MU::Cloud::AWS.route53(credentials: credentials, region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
                 rrsets.resource_record_sets.each{ |record|
                   zone_rrsets << record
                 }
@@ -2002,14 +2004,14 @@ module MU
               MU.log "Terminating #{instance.instance_id} (#{name}) #{noop}"
               if !noop
                 begin
-                  MU::Cloud::AWS.ec2(region: region).modify_instance_attribute(
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_instance_attribute(
                       instance_id: instance.instance_id,
                       disable_api_termination: {value: false}
                   )
-                  MU::Cloud::AWS.ec2(region: region).terminate_instances(instance_ids: [instance.instance_id])
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).terminate_instances(instance_ids: [instance.instance_id])
                     # Small race window here with the state changing from under us
                 rescue Aws::EC2::Errors::IncorrectInstanceState => e
-                  resp = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [id])
+                  resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [id])
                   if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
                     instance = resp.reservations.first.instances.first
                     if !instance.nil? and instance.state.name != "terminated" and instance.state.name != "terminating"
@@ -2026,7 +2028,7 @@ module MU
             end
             while instance.state.name != "terminated" and !noop
               sleep 30
-              instance_response = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance.instance_id])
+              instance_response = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id])
               instance = instance_response.reservations.first.instances.first
             end
             MU.log "#{instance.instance_id} (#{name}) terminated" if !noop

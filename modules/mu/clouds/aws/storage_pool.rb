@@ -36,7 +36,7 @@ module MU
         # @return [String]: The cloud provider's identifier for this storage pool.
         def create
           MU.log "Creating storage pool #{@mu_name}"
-          resp = MU::Cloud::AWS.efs(region: @config['region']).create_file_system(
+          resp = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).create_file_system(
             creation_token: @mu_name,
             performance_mode: @config['storage_type']
           )
@@ -44,7 +44,7 @@ module MU
           attempts = 0
           loop do
             MU.log "Waiting for #{@mu_name}: #{resp.file_system_id} to become available" if attempts % 5 == 0
-            storage_pool = MU::Cloud::AWS.efs(region: @config['region']).describe_file_systems(
+            storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
               creation_token: @mu_name
             ).file_systems.first
             break if storage_pool.life_cycle_state == "available"
@@ -261,7 +261,7 @@ module MU
         # Register a description of this storage pool with this deployment's metadata.
         def notify
           deploy_struct = {}
-          storage_pool = MU::Cloud::AWS.efs(region: @config['region']).describe_file_systems(
+          storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
             creation_token: @mu_name
           ).file_systems.first
 
@@ -276,7 +276,7 @@ module MU
 # XXX non-sibling, findStray version
               end
 
-              mount_targets = MU::Cloud::AWS.efs(region: @config['region']).describe_mount_targets(
+              mount_targets = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
                 file_system_id: storage_pool.file_system_id
               ).mount_targets
 
@@ -296,7 +296,7 @@ module MU
                 break if mount_target
               }
 
-              # mount_target = MU::Cloud::AWS.efs(region: @config['region']).describe_mount_targets(
+              # mount_target = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
                 # mount_target_id: mp["cloud_id"]
               # ).mount_targets.first
 
@@ -337,11 +337,11 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           supported_regions = %w{us-west-2 us-east-1 eu-west-1}
           if supported_regions.include?(region)
             begin 
-              resp = MU::Cloud::AWS.efs(region: region).describe_file_systems
+              resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).describe_file_systems
               return if resp.nil? or resp.file_systems.nil?
               storage_pools = resp.file_systems
             rescue Aws::EFS::Errors::AccessDeniedException
@@ -354,7 +354,7 @@ module MU
 
             if !storage_pools.empty?
               storage_pools.each{ |pool|
-                tags = MU::Cloud::AWS.efs(region: region).describe_tags(
+                tags = MU::Cloud::AWS.efs(credentials: credentials, region: region).describe_tags(
                   file_system_id: pool.file_system_id
                 ).tags
 
@@ -376,7 +376,7 @@ module MU
 
             # How to identify mount points in a reliable way? Mount points are not tagged, which means we can only reliably identify mount points based on a filesystem ID. We can you our deployment metadata, but it isn’t necessarily reliable
             # begin
-              # resp = MU::Cloud::AWS.efs(region: region).delete_mount_target(
+              # resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).delete_mount_target(
                 # mount_target_id: "MountTargetId"
               # )
               # MU.log "Deleted mount target"
@@ -386,7 +386,7 @@ module MU
 
             if !our_pools.empty?
               our_pools.each{ |pool|
-                mount_targets = MU::Cloud::AWS.efs(region: region).describe_mount_targets(
+                mount_targets = MU::Cloud::AWS.efs(credentials: credentials, region: region).describe_mount_targets(
                   file_system_id: pool.file_system_id
                 ).mount_targets
 
@@ -395,7 +395,7 @@ module MU
                     MU.log "Deleting mount target #{mp.mount_target_id} for filesystem #{pool.name}: #{pool.file_system_id}"
                     unless noop
                       begin
-                        resp = MU::Cloud::AWS.efs(region: region).delete_mount_target(
+                        resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).delete_mount_target(
                           mount_target_id: mp.mount_target_id
                           )
                       rescue Aws::EFS::Errors::BadRequest => e
@@ -409,7 +409,7 @@ module MU
                 unless noop
                   attempts = 0
                   begin
-                    resp = MU::Cloud::AWS.efs(region: region).delete_file_system(
+                    resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).delete_file_system(
                       file_system_id: pool.file_system_id
                     )
                   rescue Aws::EFS::Errors::BadRequest => e

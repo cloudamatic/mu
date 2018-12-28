@@ -232,9 +232,9 @@ module MU
             @@authorizers[scopes.to_s]
           end
 
-          if $MU_CFG["google"]["credentials_file"]
+          if $MU_CFG["google"].values.first["credentials_file"]
             begin
-              data = JSON.parse(File.read($MU_CFG["google"]["credentials_file"]))
+              data = JSON.parse(File.read($MU_CFG["google"].values.first["credentials_file"]))
               @@default_project ||= data["project_id"]
               creds = {
                 :json_key_io => StringIO.new(MultiJson.dump(data)),
@@ -245,14 +245,14 @@ module MU
               return @@authorizers[scopes.to_s]
             rescue JSON::ParserError, Errno::ENOENT, Errno::EACCES => e
               if !MU::Cloud::Google.hosted?
-                raise MuError, "Google Cloud credentials file #{$MU_CFG["google"]["credentials_file"]} is missing or invalid (#{e.message})"
+                raise MuError, "Google Cloud credentials file #{$MU_CFG["google"].values.first["credentials_file"]} is missing or invalid (#{e.message})"
               end
-              MU.log "Google Cloud credentials file #{$MU_CFG["google"]["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
+              MU.log "Google Cloud credentials file #{$MU_CFG["google"].values.first["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
               return get_machine_credentials(scopes)
             end
-          elsif $MU_CFG["google"]["credentials"]
+          elsif $MU_CFG["google"].values.first["credentials"]
             begin
-              vault, item = $MU_CFG["google"]["credentials"].split(/:/)
+              vault, item = $MU_CFG["google"].values.first["credentials"].split(/:/)
               data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
             rescue MU::Groomer::Chef::MuNoSuchSecret
               if !MU::Cloud::Google.hosted?
@@ -319,14 +319,14 @@ module MU
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       def self.defaultProject
-        return myProject if !$MU_CFG['google'] or !$MU_CFG['google']['project']
+        return myProject if !$MU_CFG['google'] or !$MU_CFG['google'].values.first['project']
         loadCredentials if !@@default_project
         @@default_project
       end
 
       # List all Google Cloud Platform projects available to our credentials
       def self.listProjects
-        return [] if !$MU_CFG['google'] or !$MU_CFG['google']['project']
+        return [] if !$MU_CFG['google'] or !$MU_CFG['google'].values.first['project']
         result = MU::Cloud::Google.resource_manager.list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
         result.projects.map { |p| p.project_id }
@@ -335,7 +335,7 @@ module MU
       @@regions = {}
       # List all known Google Cloud Platform regions
       # @param us_only [Boolean]: Restrict results to United States only
-      def self.listRegions(us_only = false)
+      def self.listRegions(us_only = false, credentials: nil)
         if !MU::Cloud::Google.defaultProject
           return []
         end
