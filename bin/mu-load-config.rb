@@ -38,7 +38,7 @@ def validateClouds(cfg)
       else
         missing_alias = false
         cfg[cloud].each_pair { |acctalias, acct|
-          if acctalias["default"]
+          if acct["default"]
             if found_default
               puts "Multiple accounts have 'default' set in #{cloud}"
               ok = false
