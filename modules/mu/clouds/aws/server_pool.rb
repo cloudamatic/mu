@@ -751,7 +751,7 @@ module MU
           ok = true
 
           if pool["termination_policy"]
-            valid_policies = MU::Cloud::AWS.autoscale(pool['region']).describe_termination_policy_types.termination_policy_types
+            valid_policies = MU::Cloud::AWS.autoscale(region: pool['region']).describe_termination_policy_types.termination_policy_types
             if !valid_policies.include?(pool["termination_policy"])
               ok = false
               MU.log "Termination policy #{pool["termination_policy"]} is not valid in region #{pool['region']}", MU::ERR, details: valid_policies

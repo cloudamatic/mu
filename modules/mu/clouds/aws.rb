@@ -256,7 +256,7 @@ module MU
         name ||= deploy_id+"-secret"
         begin
           MU.log "Writing #{name} to S3 bucket #{MU.adminBucketName}"
-          MU::Cloud::AWS.s3(myRegion).put_object(
+          MU::Cloud::AWS.s3(region: myRegion).put_object(
             acl: "private",
             bucket: MU.adminBucketName,
             key: name,
@@ -381,9 +381,11 @@ module MU
       def self.account_number
         return nil if credConfig.nil?
         return @@my_acct_num if @@my_acct_num
+        loadCredentials
+# XXX take optional credential set argument
 
 #   		begin
-#    	    user_list = MU::Cloud::AWS.iam(credConfig['region']).list_users.users
+#    	    user_list = MU::Cloud::AWS.iam(region: credConfig['region']).list_users.users
 ##    		rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
 #    		rescue Exception => e
 #    			MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
@@ -393,7 +395,7 @@ module MU
           acct_num = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
           acct_num.chomp!
 #        else
-#          acct_num = MU::Cloud::AWS.iam(credConfig['region']).list_users.users.first.arn.split(/:/)[4]
+#          acct_num = MU::Cloud::AWS.iam(region: credConfig['region']).list_users.users.first.arn.split(/:/)[4]
 #        end
         MU.setVar("acct_num", acct_num)
         @@my_acct_num ||= acct_num
@@ -478,7 +480,7 @@ module MU
         begin
           # Pricing API isn't widely available, so ask a region we know supports
           # it
-          resp = MU::Cloud::AWS.pricing("us-east-1").get_products(
+          resp = MU::Cloud::AWS.pricing(region: "us-east-1").get_products(
             service_code: "AmazonEC2",
             filters: [
               {
@@ -532,7 +534,7 @@ module MU
 
         if !name.nil? and !name.empty?
           matches = []
-          acmcerts = MU::Cloud::AWS.acm(region).list_certificates(
+          acmcerts = MU::Cloud::AWS.acm(region: region).list_certificates(
             certificate_statuses: ["ISSUED"]
           )
           acmcerts.certificate_summary_list.each { |cert|
@@ -558,7 +560,7 @@ module MU
         end
 
         if id.match(/^arn:aws(?:-us-gov)?:acm/)
-          resp = MU::Cloud::AWS.acm(region).get_certificate(
+          resp = MU::Cloud::AWS.acm(region: region).get_certificate(
             certificate_arn: id
           )
           if resp.nil?

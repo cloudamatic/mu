@@ -536,7 +536,7 @@ module MU
         nil
       end
     rescue Aws::EC2::Errors::InternalError => e
-      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(region: #{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
       sleep 10
     end
     @@myVPC_var

@@ -419,12 +419,12 @@ module MU
           if hard
             groupname = nil
             if !@config['basis'].nil?
-              resp = MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_instances(
+              resp = MU::Cloud::AWS.autoscale(region: @config['region']).describe_auto_scaling_instances(
                 instance_ids: [@cloud_id]
               )
               groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
               MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
-              MU::Cloud::AWS.autoscale(@config['region']).suspend_processes(
+              MU::Cloud::AWS.autoscale(region: @config['region']).suspend_processes(
                 auto_scaling_group_name: groupname
               )
             end
@@ -445,7 +445,7 @@ module MU
             ensure
               if !groupname.nil?
                 MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
-                MU::Cloud::AWS.autoscale(@config['region']).resume_processes(
+                MU::Cloud::AWS.autoscale(region: @config['region']).resume_processes(
                   auto_scaling_group_name: groupname
                 )
               end
@@ -651,7 +651,7 @@ module MU
           has_elastic_ip = false
           if !instance.public_ip_address.nil?
             begin
-              resp = MU::Cloud::AWS.ec2((@config['region'])).describe_addresses(public_ips: [instance.public_ip_address])
+              resp = MU::Cloud::AWS.ec2(region: @config['region']).describe_addresses(public_ips: [instance.public_ip_address])
               if resp.addresses.size > 0 and resp.addresses.first.instance_id == @cloud_id
                 has_elastic_ip = true
               end
@@ -1369,7 +1369,7 @@ module MU
               next if r == region
               copythreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                copy = MU::Cloud::AWS.ec2(r).copy_image(
+                copy = MU::Cloud::AWS.ec2(region: r).copy_image(
                     source_region: region,
                     source_image_id: ami,
                     name: name,
@@ -1386,7 +1386,7 @@ module MU
                 end
                 MU::Cloud::AWS::Server.waitForAMI(copy.image_id, region: r)
                 if make_public
-                  MU::Cloud::AWS.ec2(r).modify_image_attribute(
+                  MU::Cloud::AWS.ec2(region: r).modify_image_attribute(
                       image_id: copy.image_id,
                       launch_permission: {add: [{group: "all"}]},
                       attribute: "launchPermission"
@@ -1892,14 +1892,14 @@ module MU
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
             if !mu_zone.nil?
               zone_rrsets = []
-              rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
+              rrsets = MU::Cloud::AWS.route53(region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
               rrsets.resource_record_sets.each{ |record|
                 zone_rrsets << record
               }
 
             # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
               while rrsets.next_record_name && rrsets.next_record_type
-                rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets = MU::Cloud::AWS.route53(region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
                 rrsets.resource_record_sets.each{ |record|
                   zone_rrsets << record
                 }

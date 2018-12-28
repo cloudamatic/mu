@@ -23,11 +23,11 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          MU::Cloud::AWS.sns(region).list_topics.topics.each { |topic|
+          MU::Cloud::AWS.sns(region: region).list_topics.topics.each { |topic|
             if topic.topic_arn.match(MU.deploy_id)
               # We don't have a way to tag our SNS topics, so we will delete any topic that has the MU-ID in its ARN. 
               # This may fail to find notification groups in some cases (eg. cache_cluster) so we might want to delete from each API as well.
-              MU::Cloud::AWS.sns(region).delete_topic(topic_arn: topic.topic_arn)
+              MU::Cloud::AWS.sns(region: region).delete_topic(topic_arn: topic.topic_arn)
               MU.log "Deleted SNS topic: #{topic.topic_arn}"
             end
           }
@@ -75,7 +75,7 @@ module MU
         # @return [string]: The cloud provider's identifier.
         def self.createTopic(topic_name, region: MU.curRegion, account_number: MU.account_number)
           unless topicExist(topic_name, region: region, account_number: account_number)
-            MU::Cloud::AWS.sns(region).create_topic(name: topic_name).topic_arn
+            MU::Cloud::AWS.sns(region: region).create_topic(name: topic_name).topic_arn
             MU.log "Created SNS topic #{topic_name}"
           end
             topicExist(topic_name, region: region, account_number: account_number)
@@ -90,7 +90,7 @@ module MU
         def self.subscribe(arn: nil, protocol: nil, endpoint: nil, region: MU.curRegion)
           retries = 0
           begin 
-            resp = MU::Cloud::AWS.sns(region).list_subscriptions_by_topic(topic_arn: arn).subscriptions
+            resp = MU::Cloud::AWS.sns(region: region).list_subscriptions_by_topic(topic_arn: arn).subscriptions
           rescue Aws::SNS::Errors::NotFound
             if retries < 5
               MU.log "Couldn't find topic #{arn}, retrying several times in case of a lagging resource"
@@ -110,7 +110,7 @@ module MU
           end
 
           unless already_subscribed
-            MU::Cloud::AWS.sns(region).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
+            MU::Cloud::AWS.sns(region: region).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
             MU.log "Subscribed #{endpoint} to SNS topic #{arn}"
           end
         end
@@ -124,7 +124,7 @@ module MU
         def self.topicExist(topic_name, region: MU.curRegion, account_number: MU.account_number)
           arn = "arn:#{MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"}:sns:#{region}:#{account_number}:#{topic_name}"
           match = nil
-          MU::Cloud::AWS.sns(region).list_topics.topics.each { |topic|
+          MU::Cloud::AWS.sns(region: region).list_topics.topics.each { |topic|
             if topic.topic_arn == arn
               match = topic.topic_arn
               break

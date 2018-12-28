@@ -628,10 +628,10 @@ module MU
             # If we didn't specify a VPC try to figure out if the account has a default VPC
             vpc_id = nil
             subnets = []
-            MU::Cloud::AWS.ec2(@config['region']).describe_vpcs.vpcs.each { |vpc|
+            MU::Cloud::AWS.ec2(region: @config['region']).describe_vpcs.vpcs.each { |vpc|
               if vpc.is_default
                 vpc_id = vpc.vpc_id
-                subnets = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
+                subnets = MU::Cloud::AWS.ec2(region: @config['region']).describe_subnets(
                   filters: [
                     {
                       name: "vpc-id", 
@@ -1473,7 +1473,7 @@ module MU
 
           if db["creation_style"] == "existing"
             begin
-              MU::Cloud::AWS.rds(db['region']).describe_db_instances(
+              MU::Cloud::AWS.rds(region: db['region']).describe_db_instances(
                 db_instance_identifier: db['identifier']
               )
             rescue Aws::RDS::Errors::DBInstanceNotFound => e

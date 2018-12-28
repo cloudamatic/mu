@@ -1417,7 +1417,7 @@ module MU
 
           if tables.nil? or tables.route_tables.size == 0
             MU.log "No route table associations found for #{subnets}, falling back to the default table for #{vpc_id}", MU::NOTICE
-            tables = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
+            tables = MU::Cloud::AWS.ec2(region: MU.myRegion).describe_route_tables(
               filters: [
                 {name: "vpc-id", values: [vpc_id]},
                 {name: "association.main", values: ["true"]},

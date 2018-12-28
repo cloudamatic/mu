@@ -238,14 +238,14 @@ module MU
           
           when 'sns'
             
-            sns_client = MU::Cloud::AWS.sns(@config['region'])
+            sns_client = MU::Cloud::AWS.sns(region: @config['region'])
             sub_to_what = sns_client.subscribe({
               topic_arn: trig_arn,
               protocol: protocol,
               endpoint: func_arn
             })
           when 'event','cloudwatch_event', 'events'
-            client = MU::Cloud::AWS.cloudwatch_events(@config['region']).put_targets({
+            client = MU::Cloud::AWS.cloudwatch_events(region: @config['region']).put_targets({
               rule: @config['trigger']['name'],
               targets: [
                 {

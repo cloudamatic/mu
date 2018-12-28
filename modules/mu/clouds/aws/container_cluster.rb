@@ -85,7 +85,7 @@ module MU
             resp = nil
             begin
               MU.log "Creating EKS cluster #{@mu_name}"
-              resp = MU::Cloud::AWS.eks(@config['region']).create_cluster(
+              resp = MU::Cloud::AWS.eks(region: @config['region']).create_cluster(
                 name: @mu_name,
                 version: @config['kubernetes']['version'],
                 role_arn: role_arn,
@@ -126,7 +126,7 @@ module MU
             status = nil
             retries = 0
             begin
-              resp = MU::Cloud::AWS.eks(@config['region']).describe_cluster(
+              resp = MU::Cloud::AWS.eks(region: @config['region']).describe_cluster(
                 name: @mu_name
               )
               status = resp.cluster.status
@@ -310,7 +310,7 @@ module MU
         # @return [OpenStruct]
         def cloud_desc
           if @config['flavor'] == "EKS"
-            resp = MU::Cloud::AWS.eks(@config['region']).describe_cluster(
+            resp = MU::Cloud::AWS.eks(region: @config['region']).describe_cluster(
               name: @mu_name
             )
             resp.cluster
@@ -349,7 +349,7 @@ module MU
         # @param flavor [String]: ECS or EKS
         def self.getECSImageId(flavor = "ECS", region = MU.myRegion)
           if flavor == "ECS"
-            resp = MU::Cloud::AWS.ssm(region).get_parameters(
+            resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
               names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
             )
             if resp and resp.parameters and resp.parameters.size > 0
@@ -368,7 +368,7 @@ module MU
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
         # EKS-optimized AMI, so we can use it as a default AMI for EKS deploys.
         def self.getEKSImageId(region = MU.myRegion)
-          resp = MU::Cloud::AWS.ssm(region).get_parameters(
+          resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
             names: ["/aws/service/ekss/optimized-ami/amazon-linux/recommended"]
           )
           if resp and resp.parameters and resp.parameters.size > 0

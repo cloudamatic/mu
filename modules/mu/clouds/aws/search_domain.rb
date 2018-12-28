@@ -42,7 +42,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          resp = MU::Cloud::AWS.elasticsearch(@config['region']).create_elasticsearch_domain(params).domain_status
+          resp = MU::Cloud::AWS.elasticsearch(region: @config['region']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
 
@@ -58,7 +58,7 @@ module MU
             waitWhileProcessing # wait until the create finishes, if still going
 
             MU.log "Updating ElasticSearch domain #{@config['domain_name']}", MU::NOTICE, details: params
-            MU::Cloud::AWS.elasticsearch(@config['region']).update_elasticsearch_domain_config(params)
+            MU::Cloud::AWS.elasticsearch(region: @config['region']).update_elasticsearch_domain_config(params)
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
@@ -69,11 +69,11 @@ module MU
         # our druthers.
         def cloud_desc
           if @config['domain_name']
-            MU::Cloud::AWS.elasticsearch(@config['region']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region']).describe_elasticsearch_domain(
               domain_name: @config['domain_name']
             ).domain_status
           elsif @deploydata['domain_name']
-            MU::Cloud::AWS.elasticsearch(@config['region']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region']).describe_elasticsearch_domain(
               domain_name: @deploydata['domain_name']
             ).domain_status
           else
@@ -91,7 +91,7 @@ module MU
         # @return [Hash]
         def notify
           deploy_struct = MU.structToHash(cloud_desc)
-          tags = MU::Cloud::AWS.elasticsearch(@config['region']).list_tags(arn: deploy_struct[:arn]).tag_list
+          tags = MU::Cloud::AWS.elasticsearch(region: @config['region']).list_tags(arn: deploy_struct[:arn]).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
@@ -106,17 +106,17 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          list = MU::Cloud::AWS.elasticsearch(region).list_domain_names
+          list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
           if list and list.domain_names and list.domain_names.size > 0
-            descs = MU::Cloud::AWS.elasticsearch(region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+            descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
 
             descs.domain_status_list.each { |domain|
-              tags = MU::Cloud::AWS.elasticsearch(region).list_tags(arn: domain.arn)
+              tags = MU::Cloud::AWS.elasticsearch(region: region).list_tags(arn: domain.arn)
               tags.tag_list.each { |tag|
                 if tag.key == "MU-ID" and tag.value == MU.deploy_id
                   MU.log "Deleting ElasticSearch Domain #{domain.domain_name}"
                   if !noop
-                    MU::Cloud::AWS.elasticsearch(region).delete_elasticsearch_domain(domain_name: domain.domain_name)
+                    MU::Cloud::AWS.elasticsearch(region: region).delete_elasticsearch_domain(domain_name: domain.domain_name)
                   end
                   break
                 end
@@ -147,9 +147,9 @@ module MU
             # Annoyingly, we might expect one of several possible artifacts,
             # since AWS couldn't decide what the real identifier of these
             # things should be
-            list = MU::Cloud::AWS.elasticsearch(region).list_domain_names
+            list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
             if list and list.domain_names and list.domain_names.size > 0
-              descs = MU::Cloud::AWS.elasticsearch(region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+              descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
               descs.domain_status_list.each { |domain|
                 return domain if domain.arn == cloud_id
                 return domain if domain.domain_name == cloud_id
@@ -269,12 +269,12 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(dom, configurator)
           ok = true
-          versions = MU::Cloud::AWS.elasticsearch(dom['region']).list_elasticsearch_versions.elasticsearch_versions
+          versions = MU::Cloud::AWS.elasticsearch(region: dom['region']).list_elasticsearch_versions.elasticsearch_versions
           if !versions.include?(dom["elasticsearch_version"])
             MU.log "Invalid ElasticSearch version '#{dom["elasticsearch_version"]}' in SearchDomain '#{dom['name']}'", MU::ERR, details: versions
             ok = false
           else
-            resp = MU::Cloud::AWS.elasticsearch(dom['region']).list_elasticsearch_instance_types(
+            resp = MU::Cloud::AWS.elasticsearch(region: dom['region']).list_elasticsearch_instance_types(
               elasticsearch_version: dom["elasticsearch_version"]
             )
           
@@ -353,7 +353,7 @@ module MU
 
           if dom['cognito']
             begin
-              MU::Cloud::AWS.cognito_ident(dom['region']).describe_identity_pool(
+              MU::Cloud::AWS.cognito_ident(region: dom['region']).describe_identity_pool(
                 identity_pool_id: dom['cognito']['identity_pool_id']
               )
             rescue ::Aws::CognitoIdentity::Errors::ValidationException, Aws::CognitoIdentity::Errors::ResourceNotFoundException => e
@@ -361,7 +361,7 @@ module MU
               ok = false
             end
             begin
-              MU::Cloud::AWS.cognito_user(dom['region']).describe_user_pool(
+              MU::Cloud::AWS.cognito_user(region: dom['region']).describe_user_pool(
                 user_pool_id: dom['cognito']['user_pool_id']
               )
             rescue ::Aws::CognitoIdentityProvider::Errors::InvalidParameterException, Aws::CognitoIdentityProvider::Errors::ResourceNotFoundException => e
@@ -373,10 +373,10 @@ module MU
               rolename = dom['cognito']['role_arn'].sub(/.*?:role\/([a-z0-9-]+)$/, '\1')
               begin
                 if !dom['cognito']['role_arn'].match(/^arn:/)
-                  role = MU::Cloud::AWS.iam(dom['region']).get_role(role_name: rolename)
+                  role = MU::Cloud::AWS.iam.get_role(role_name: rolename)
                   dom['cognito']['role_arn'] = role.role.arn
                 end
-                pols = MU::Cloud::AWS.iam(dom['region']).list_attached_role_policies(role_name: rolename).attached_policies
+                pols = MU::Cloud::AWS.iam.list_attached_role_policies(role_name: rolename).attached_policies
                 found = false
                 pols.each { |policy|
                   found = true if policy.policy_name == "AmazonESCognitoAccess"
@@ -619,7 +619,7 @@ module MU
             raise MU::MuError, "Can't tag ElasticSearch domain, cloud descriptor came back without an ARN"
           end
 
-          MU::Cloud::AWS.elasticsearch(@config['region']).add_tags(
+          MU::Cloud::AWS.elasticsearch(region: @config['region']).add_tags(
             arn: domain.arn,
             tag_list: tags
           )

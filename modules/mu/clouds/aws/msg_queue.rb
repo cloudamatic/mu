@@ -48,7 +48,7 @@ module MU
           namestr += ".fifo" if attrs['FifoQueue']
 
           MU.log "Creating SQS queue #{namestr}", details: attrs
-          resp = MU::Cloud::AWS.sqs(@config['region']).create_queue(
+          resp = MU::Cloud::AWS.sqs(region: @config['region']).create_queue(
             queue_name: namestr,
             attributes: attrs
           )
@@ -75,7 +75,7 @@ module MU
           }
           if changed
             MU.log "Updating SQS queue #{@mu_name}", MU::NOTICE, details: new_attrs
-            resp = MU::Cloud::AWS.sqs(@config['region']).set_queue_attributes(
+            resp = MU::Cloud::AWS.sqs(region: @config['region']).set_queue_attributes(
               queue_url: @cloud_id,
               attributes: new_attrs
             )
@@ -94,7 +94,7 @@ module MU
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
         def cloud_desc
           if !@cloud_id
-            resp = MU::Cloud::AWS.sqs(@config['region']).list_queues(
+            resp = MU::Cloud::AWS.sqs(region: @config['region']).list_queues(
               queue_name_prefix: @mu_name
             )
             return nil if !resp or !resp.queue_urls
@@ -130,7 +130,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          resp = MU::Cloud::AWS.sqs(region).list_queues(
+          resp = MU::Cloud::AWS.sqs(region: region).list_queues(
             queue_name_prefix: MU.deploy_id
           )
           if resp and resp.queue_urls
@@ -139,7 +139,7 @@ module MU
               threads << Thread.new {
                 MU.log "Deleting SQS queue #{url}"
                 if !noop
-                  MU::Cloud::AWS.sqs(region).delete_queue(
+                  MU::Cloud::AWS.sqs(region: region).delete_queue(
                     queue_url: url
                   )
                   sleep 60 # per API docs, this is how long it takes to really delete
@@ -164,7 +164,7 @@ module MU
           # If it's a URL, make sure it's good
           begin
             if cloud_id.match(/^https?:/i)
-              resp = MU::Cloud::AWS.sqs(region).get_queue_attributes(
+              resp = MU::Cloud::AWS.sqs(region: region).get_queue_attributes(
                 queue_url: cloud_id,
                 attribute_names: ["All"]
               )
@@ -175,7 +175,7 @@ module MU
               end
             else
               # If it's a plain queue name, resolve it to a URL
-              resp = MU::Cloud::AWS.sqs(region).get_queue_url(
+              resp = MU::Cloud::AWS.sqs(region: region).get_queue_url(
                 queue_name: cloud_id,
                 queue_owner_aws_account_id: flags['account']
               )
@@ -186,7 +186,7 @@ module MU
 
           # Go fetch its attributes
           if cloud_id
-            resp = MU::Cloud::AWS.sqs(region).get_queue_attributes(
+            resp = MU::Cloud::AWS.sqs(region: region).get_queue_attributes(
               queue_url: cloud_id,
               attribute_names: ["All"]
             )
@@ -372,7 +372,7 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
               ok = false
             end
             begin
-              MU::Cloud::AWS.kms(queue['region']).describe_key(key_id: queue['kms']['key_id'])
+              MU::Cloud::AWS.kms(region: queue['region']).describe_key(key_id: queue['kms']['key_id'])
             rescue Aws::KMS::Errors::NotFoundException => e
               MU.log "KMS key '#{queue['kms']['key_id']}' specified in Queue '#{queue['name']}' was not found.", MU::ERR, details: "Key IDs are of the form bf64a093-2c3d-46fa-0d4f-8232fa7ed53. Keys can be created at https://console.aws.amazon.com/iam/home#/encryptionKeys/#{queue['region']}"
               ok = false
@@ -465,7 +465,7 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
           end
 
           begin
-            MU::Cloud::AWS.sqs(@config['region']).tag_queue(
+            MU::Cloud::AWS.sqs(region: @config['region']).tag_queue(
               queue_url: url,
               tags: tags
             )
