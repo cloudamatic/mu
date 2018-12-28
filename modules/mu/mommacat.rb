@@ -1378,7 +1378,7 @@ module MU
 
       if !MU::Cloud::CloudFormation.emitCloudFormation
         begin
-          MU::Cloud::AWS.ec2(region).create_tags(
+          MU::Cloud::AWS.ec2(region: region).create_tags(
             resources: [resource],
             tags: [
               {
@@ -1425,7 +1425,7 @@ module MU
 
       attempts = 0
       begin
-        MU::Cloud::AWS.ec2(region).create_tags(
+        MU::Cloud::AWS.ec2(region: region).create_tags(
           resources: [resource],
           tags: tags
         )

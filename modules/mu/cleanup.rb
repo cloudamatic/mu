@@ -158,12 +158,12 @@ module MU
               end
 
               if provider == "AWS"
-                resp = MU::Cloud::AWS.ec2(r).describe_key_pairs(
+                resp = MU::Cloud::AWS.ec2(region: r).describe_key_pairs(
                     filters: [{name: "key-name", values: [keyname]}]
                 )
                 resp.data.key_pairs.each { |keypair|
                   MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-                  MU::Cloud::AWS.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+                  MU::Cloud::AWS.ec2(region: r).delete_key_pair(key_name: keypair.key_name) if !@noop
                 }
               end
             }
@@ -310,7 +310,7 @@ module MU
 
       if !@noop and !@skipcloud
         if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
-          MU::Cloud::AWS.s3(MU.myRegion).delete_object(
+          MU::Cloud::AWS.s3(region: MU.myRegion).delete_object(
             bucket: MU.adminBucketName,
             key: "#{MU.deploy_id}-secret"
           )

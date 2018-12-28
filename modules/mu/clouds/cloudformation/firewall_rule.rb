@@ -116,12 +116,12 @@ module MU
 
           begin
             if egress
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+              MU::Cloud::AWS.ec2(region: @config['region']).authorize_security_group_egress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
             else
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: @config['region']).authorize_security_group_ingress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
