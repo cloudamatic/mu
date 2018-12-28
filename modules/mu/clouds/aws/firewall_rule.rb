@@ -86,17 +86,17 @@ module MU
           end
 
           MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'])
-          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'])
+          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'])
+              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'])
+              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
             }
           end
 

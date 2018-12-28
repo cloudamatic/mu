@@ -192,11 +192,11 @@ module MU
       # @param value [String]: The value of the tag
       # @param region [String]: The cloud provider region
       # @return [void,<Hash>]
-      def self.createTag(key, value, resources = [], region: myRegion)
+      def self.createTag(key, value, resources = [], region: myRegion, credentials: nil)
   
         if !MU::Cloud::CloudFormation.emitCloudFormation
           begin
-            MU::Cloud::AWS.ec2(region: region).create_tags(
+            MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
               resources: resources,
               tags: [
                 {

@@ -50,17 +50,17 @@ module MU
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
           MU::MommaCat.createStandardTags(vpc_id, region: @config['region'])
-          MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'])
+          MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(vpc_id, tag['key'], tag['value'], region: @config['region'])
+              MU::MommaCat.createTag(vpc_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
             }
           end
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(vpc_id, key, value, region: @config['region'])
+              MU::MommaCat.createTag(vpc_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
@@ -80,18 +80,18 @@ module MU
               ]
             )
             resp.route_tables.each { |rtb|
-              MU::MommaCat.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'])
+              MU::MommaCat.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'], credentials: @config['credentials'])
               if @config['tags']
                 @config['tags'].each { |tag|
-                  MU::MommaCat.createTag(rtb.route_table_id, tag['key'], tag['value'], region: @config['region'])
+                  MU::MommaCat.createTag(rtb.route_table_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
-              MU::MommaCat.createStandardTags(rtb.route_table_id, region: @config['region'])
+              MU::MommaCat.createStandardTags(rtb.route_table_id, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::MommaCat.createTag(rtb.route_table_id, key, value, region: @config['region'])
+                  MU::MommaCat.createTag(rtb.route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
                 }
               end
             }
@@ -105,16 +105,16 @@ module MU
             internet_gateway_id = resp.internet_gateway.internet_gateway_id
             sleep 5
             MU::MommaCat.createStandardTags(internet_gateway_id, region: @config['region'])
-            MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'])
+            MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             if @config['tags']
               @config['tags'].each { |tag|
-                MU::MommaCat.createTag(internet_gateway_id, tag['key'], tag['value'], region: @config['region'])
+                MU::MommaCat.createTag(internet_gateway_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
               }
             end
 
             if @config['optional_tags']
               MU::MommaCat.listOptionalTags.each { |key, value|
-                MU::MommaCat.createTag(internet_gateway_id, key, value, region: @config['region'])
+                MU::MommaCat.createTag(internet_gateway_id, key, value, region: @config['region'], credentials: @config['credentials'])
               }
             end
 
@@ -203,16 +203,16 @@ module MU
                 ).subnet
                 subnet_id = subnet['subnet_id'] = resp.subnet_id
                 MU::MommaCat.createStandardTags(subnet_id, region: @config['region'])
-                MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'])
+                MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
                 if @config['tags']
                   @config['tags'].each { |tag|
-                    MU::MommaCat.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'])
+                    MU::MommaCat.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
                 if @config['optional_tags']
                   MU::MommaCat.listOptionalTags.each { |key, value|
-                    MU::MommaCat.createTag(subnet_id, key, value, region: @config['region'])
+                    MU::MommaCat.createTag(subnet_id, key, value, region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
@@ -440,17 +440,17 @@ module MU
             )
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
             MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'])
-            MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'])
+            MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
             if @config['tags']
               @config['tags'].each { |tag|
-                MU::MommaCat.createTag(dhcpopt_id, tag['key'], tag['value'], region: @config['region'])
+                MU::MommaCat.createTag(dhcpopt_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
               }
             end
 
             if @config['optional_tags']
               MU::MommaCat.listOptionalTags.each { |key, value|
-                MU::MommaCat.createTag(dhcpopt_id, key, value, region: @config['region'])
+                MU::MommaCat.createTag(dhcpopt_id, key, value, region: @config['region'], credentials: @config['credentials'])
               }
             end
 
@@ -531,17 +531,17 @@ module MU
 
               peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
               MU::MommaCat.createStandardTags(peering_id, region: @config['region'])
-              MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'])
+              MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::MommaCat.createTag(peering_id, key, value, region: @config['region'])
+                  MU::MommaCat.createTag(peering_id, key, value, region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
               if @config['tags']
                 @config['tags'].each { |tag|
-                  MU::MommaCat.createTag(peering_id, tag['key'], tag['value'], region: @config['region'])
+                  MU::MommaCat.createTag(peering_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
@@ -588,7 +588,7 @@ module MU
                     end
 
                     # Create routes back from our new friend to us.
-                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region']).each { |rtb_id|
+                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region'], @config['credentials']).each { |rtb_id|
                       peer_route_config = {
                           :route_table_id => rtb_id,
                           :destination_cidr_block => @config['ip_block'],
@@ -659,7 +659,7 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
 
           retries = 0
           map = {}
@@ -668,7 +668,7 @@ module MU
 
             if tag_value
               MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
-              resp = MU::Cloud::AWS.ec2(region: region).describe_vpcs(
+              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(
                 filters: [
                   {name: "tag:#{tag_key}", values: [tag_value]}
                 ]
@@ -686,7 +686,7 @@ module MU
             if !cloud_id.nil?
               MU.log "Searching for VPC id '#{cloud_id}' in #{region}", MU::DEBUG
               begin
-                resp = MU::Cloud::AWS.ec2(region: region).describe_vpcs(vpc_ids: [cloud_id.to_s])
+                resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(vpc_ids: [cloud_id.to_s])
                 resp.vpcs.each { |vpc|
                   map[vpc.vpc_id] = vpc
                 }
@@ -790,16 +790,16 @@ module MU
         # @param nat_filter_key [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_value.
         # @param nat_filter_value [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_key.
         # @param region [String]: The cloud provider region of the target instance.
-        def findNat(nat_cloud_id: nil, nat_filter_key: nil, nat_filter_value: nil, region: MU.curRegion)
+        def findNat(nat_cloud_id: nil, nat_filter_key: nil, nat_filter_value: nil, region: MU.curRegion, credentials: nil)
           # Discard the nat_cloud_id if it's an AWS instance ID
           nat_cloud_id = nil if nat_cloud_id && nat_cloud_id.start_with?("i-")
 
           if @gateways.nil?
             @gateways = 
               if nat_cloud_id
-                MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
+                MU::Cloud::AWS.ec2(region: region, credentials: nil).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
               elsif nat_filter_key && nat_filter_value
-                MU::Cloud::AWS.ec2(region: region).describe_nat_gateways(
+                MU::Cloud::AWS.ec2(region: region, credentials: nil).describe_nat_gateways(
                   filter: [
                     {
                       name: nat_filter_key,
@@ -893,13 +893,13 @@ module MU
         # @param instance [String]: A cloud descriptor for the instance, to save us an API call if we already have it
         # @param region [String]: The cloud provider region of the target instance
         # @return [Array<String>]
-        def self.getInstanceSubnets(instance_id: nil, instance: nil, region: MU.curRegion)
+        def self.getInstanceSubnets(instance_id: nil, instance: nil, region: MU.curRegion, credentials: nil)
           return [] if instance_id.nil? and instance.nil?
           my_subnets = []
 
           if instance.nil?
             begin
-              instance = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+              instance = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
             rescue NoMethodError, Aws::EC2::Errors::InvalidInstanceIDNotFound => e
               MU.log "Failed to identify instance #{instance_id} in MU::Cloud::AWS::VPC.getInstanceSubnets", MU::WARN
               return []
@@ -923,7 +923,7 @@ module MU
         # @param target_instance [OpenStruct]: The cloud descriptor of the instance to check.
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
-        def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
+        def self.haveRouteToInstance?(target_instance, region: MU.curRegion, credentials: nil)
           return false if target_instance.nil?
           return false if MU.myCloud != "AWS"
           instance_id = target_instance.instance_id
@@ -941,21 +941,21 @@ module MU
 
           return @route_cache[instance_id] if @route_cache.has_key?(instance_id) && @route_cache[instance_id]
           my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: MU.myCloudDescriptor)
-          target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: target_instance, region: region)
+          target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: target_instance, region: region, credentials: credentials)
 # XXX make sure accounts for being in different regions
 
           resp = nil
           my_subnets_key = my_subnets.join(",")
           target_subnets_key = target_subnets.join(",")
-          MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, region: MU.myRegion)
-          MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, region: region)
+          MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, region: MU.myRegion, credentials: credentials)
+          MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, region: region, credentials: credentials)
 
           if MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
             return true
           else
             # The cache can be out of date at times, check again without it
-            MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, use_cache: false, region: MU.myRegion)
-            MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, use_cache: false, region: region)
+            MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, use_cache: false, region: MU.myRegion, credentials: credentials)
+            MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, use_cache: false, region: region, credentials: credentials)
 
             return MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
           end
@@ -968,7 +968,7 @@ module MU
         # @param subnet_key [String]: The subnet/subnets route tables will be extracted from.
         # @param use_cache [Boolean]: If to use the existing cache and add records to cache only if missing, or to also replace exising records in cache.
         # @param region [String]: The cloud provider region of the target subnet.
-        def self.update_route_tables_cache(subnet_key, use_cache: true, region: MU.curRegion)
+        def self.update_route_tables_cache(subnet_key, use_cache: true, region: MU.curRegion, credentials: nil)
           @rtb_cache_semaphore.synchronize {
             update = 
               if !use_cache
@@ -980,13 +980,13 @@ module MU
               end
 
             if update
-              route_tables = MU::Cloud::AWS::VPC.get_route_tables(subnet_ids: subnet_key.split(","), region: region)
+              route_tables = MU::Cloud::AWS::VPC.get_route_tables(subnet_ids: subnet_key.split(","), region: region, credentials: credentials)
 
               if route_tables.empty? && !subnet_key.empty?
-                vpc_id = MU::Cloud::AWS.ec2(region: region).describe_subnets(subnet_ids: subnet_key.split(",")).subnets.first.vpc_id
+                vpc_id = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_subnets(subnet_ids: subnet_key.split(",")).subnets.first.vpc_id
                 MU.log "No route table associations found for #{subnet_key}, falling back to the default table for #{vpc_id}", MU::NOTICE
-                route_tables = MU::Cloud::AWS::VPC.get_route_tables(vpc_ids: [vpc_id], region: region)
-              end
+                route_tables = MU::Cloud::AWS::VPC.get_route_tables(vpc_ids: [vpc_id], region: region, credentials: credentials)
+              en, credentials: credentialsd
 
               @rtb_cache[subnet_key] = route_tables
             end
@@ -1043,10 +1043,10 @@ module MU
         # @param vpc_ids [Array]: The cloud identifier of the VPCs to retrieve route tables for.
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Array<OpenStruct>]: The cloud provider's complete descriptions of the route tables
-        def self.get_route_tables(subnet_ids: [], vpc_ids: [], region: MU.curRegion)
+        def self.get_route_tables(subnet_ids: [], vpc_ids: [], region: MU.curRegion, credentials: nil)
           resp = []
           if !subnet_ids.empty?
-            resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: nil).describe_route_tables(
               filters: [
                 {
                   name: "association.subnet-id", 
@@ -1055,7 +1055,7 @@ module MU
               ]
             ).route_tables
           elsif !vpc_ids.empty?
-            resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_route_tables(
               filters: [
                 {
                   name: "vpc-id", 
@@ -1068,7 +1068,7 @@ module MU
               ]
             ).route_tables
           else
-            resp = MU::Cloud::AWS.ec2(region: region).describe_route_tables.route_tables
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_route_tables.route_tables
           end
 
           return resp
@@ -1390,8 +1390,8 @@ module MU
 
 
         # List the route tables for each subnet in the given VPC
-        def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion)
-          resp = MU::Cloud::AWS.ec2(region: region).describe_subnets(
+        def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion, credentials: nil)
+          resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_subnets(
               filters: [
                   {
                       name: "vpc-id",
@@ -1402,7 +1402,7 @@ module MU
 
           subnets = resp.subnets.map { |subnet| subnet.subnet_id }
 
-          tables = MU::Cloud::AWS.ec2(region: region).describe_route_tables(
+          tables = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_route_tables(
               filters: [
                   {
                       name: "vpc-id",
@@ -1443,17 +1443,17 @@ module MU
           resp = MU::Cloud::AWS.ec2.create_route_table(vpc_id: vpc_id).route_table
           route_table_id = rtb['route_table_id'] = resp.route_table_id
           sleep 5
-          MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase)
+          MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase, credentials: @config['credentials'])
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(route_table_id, tag['key'], tag['value'])
+              MU::MommaCat.createTag(route_table_id, tag['key'], tag['value'], credentials: @config['credentials'])
             }
           end
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(route_table_id, key, value, region: @config['region'])
+              MU::MommaCat.createTag(route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
@@ -1806,7 +1806,7 @@ module MU
             my_peer_conns.each { |cnxn|
 
               [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
-                MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_vpc, region: region).each { |rtb_id|
+                MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_vpc, region: region, credentials: credentials).each { |rtb_id|
                   resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_route_tables(
                       route_table_ids: [rtb_id]
                   )

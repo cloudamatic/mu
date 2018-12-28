@@ -155,8 +155,8 @@ module MU
             main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}-workers")
             tagme << main_sg.cloud_id
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
-            MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme)
-            MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb)
+            MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])
 
             me = cloud_desc
             @endpoint = me.endpoint

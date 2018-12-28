@@ -1373,12 +1373,13 @@ module MU
     def self.createTag(resource = nil,
         tag_name="MU-ID",
         tag_value=MU.deploy_id,
-        region: MU.curRegion)
+        region: MU.curRegion,
+        credentials: nil)
       attempts = 0
 
       if !MU::Cloud::CloudFormation.emitCloudFormation
         begin
-          MU::Cloud::AWS.ec2(region: region).create_tags(
+          MU::Cloud::AWS.ec2(credentials: credentials, region: region).create_tags(
             resources: [resource],
             tags: [
               {
@@ -1412,7 +1413,7 @@ module MU
     # @param resource [String]: The cloud provider identifier of the resource to tag
     # @param region [String]: The cloud provider region
     # @return [void]
-    def self.createStandardTags(resource = nil, region: MU.curRegion)
+    def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
       tags = []
       listStandardTags.each_pair { |name, value|
         if !value.nil?
@@ -1425,7 +1426,7 @@ module MU
 
       attempts = 0
       begin
-        MU::Cloud::AWS.ec2(region: region).create_tags(
+        MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
           resources: [resource],
           tags: tags
         )

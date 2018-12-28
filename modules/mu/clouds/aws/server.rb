@@ -210,15 +210,15 @@ module MU
         # @param tag_value [String]: The value of the tag to attach.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.tagVolumes(instance_id, device: nil, tag_name: "MU-ID", tag_value: MU.deploy_id, region: MU.curRegion)
-          MU::Cloud::AWS.ec2(region: region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
+        def self.tagVolumes(instance_id, device: nil, tag_name: "MU-ID", tag_value: MU.deploy_id, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
                 vol_parent = attachment.instance_id
                 vol_id = attachment.volume_id
                 vol_dev = attachment.device
                 if vol_parent == instance_id and (vol_dev == device or device.nil?)
-                  MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
+                  MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region, credentials: credentials)
                   break
                 end
               }
@@ -247,7 +247,7 @@ module MU
               MU::MommaCat.unlock(instance.instance_id+"-create")
             else
               MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
-              MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'])
+              MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             end
             done = true
           rescue Exception => e
@@ -349,7 +349,7 @@ module MU
             instance_descriptor[:user_data] = Base64.encode64(@userdata)
           end
 
-          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
+          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'], credentials: @config['credentials'])
 
           # Figure out which devices are embedded in the AMI already.
           image = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_images(image_ids: [@config["ami_id"]]).images.first
@@ -468,7 +468,7 @@ module MU
           return nil if @config.nil? or @deploy.nil?
 
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-          if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
+          if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
             if !@nat.nil?
               if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
                 raise MuError, "Configured to use NAT Gateway, but I have no route to instance. Either use Bastion, or configure VPC peering"
@@ -517,17 +517,17 @@ module MU
           return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 
           MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
-          MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'])
+          MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(instance.instance_id, key, value, region: @config['region'])
+              MU::MommaCat.createTag(instance.instance_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
           if !@config['tags'].nil?
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'])
+              MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
             }
           end
           MU.log "Tagged #{node} (#{instance.instance_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG
@@ -737,7 +737,7 @@ module MU
             end
 
             nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-            if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
+            if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
               raise MuError, "#{node} is in a private subnet (#{subnet}), but has no NAT host configured, and I have no other route to it"
             end
 
@@ -751,17 +751,17 @@ module MU
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
                 iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
                 MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
-                MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'])
+                MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'], credentials: @config['credentials'])
 
                 if @config['optional_tags']
                   MU::MommaCat.listOptionalTags.each { |key, value|
-                    MU::MommaCat.createTag(iface.network_interface_id, key, value, region: @config['region'])
+                    MU::MommaCat.createTag(iface.network_interface_id, key, value, region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
                 if !@config['tags'].nil?
                   @config['tags'].each { |tag|
-                    MU::MommaCat.createTag(iface.network_interface_id, tag['key'], tag['value'], region: @config['region'])
+                    MU::MommaCat.createTag(iface.network_interface_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
@@ -810,24 +810,24 @@ module MU
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
                 MU::MommaCat.listStandardTags.each_pair { |key, value|
-                  MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'])
+                  MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
 
                   if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
-                    MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.deploy_id}-#{@config["name"].upcase}", region: @config['region'])
+                    MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.deploy_id}-#{@config["name"].upcase}", region: @config['region'], credentials: @config['credentials'])
                   else
-                    MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'])
+                    MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'], credentials: @config['credentials'])
                   end
                 }
 
                 if @config['optional_tags']
                   MU::MommaCat.listOptionalTags.each { |key, value|
-                    MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'])
+                    MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
                 if @config['tags']
                   @config['tags'].each { |tag|
-                    MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: @config['region'])
+                    MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                   }
                 end
               }
@@ -1158,7 +1158,7 @@ module MU
 
           punchAdminNAT
 
-          MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
+          MU::Cloud::AWS::Server.tagVolumes(@cloud_id, credentials: @config['credentials'])
 
           # If we have a loadbalancer configured, attach us to it
           if !@config['loadbalancers'].nil?
@@ -1221,11 +1221,13 @@ module MU
                 copy_to_regions: img_cfg['copy_to_regions'],
                 make_public: img_cfg['public'],
                 region: @config['region'],
-                tags: @config['tags'])
+                tags: @config['tags'],
+                credentials: @config['credentials']
+            )
             @deploy.notify("images", @config['name'], {"image_id" => ami_id})
             @config['image_created'] = true
             if img_cfg['image_then_destroy']
-              MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
+              MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'], credentials: @config['credentials'])
               MU.log "AMI #{ami_id} ready, removing source node #{node}"
               MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
               destroy
@@ -1291,7 +1293,7 @@ module MU
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
           # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
-          if MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region']) or @deploydata["public_ip_address"].nil?
+          if MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials']) or @deploydata["public_ip_address"].nil?
             @config['canonical_ip'] = instance.private_ip_address
             @deploydata["private_ip_address"] = instance.private_ip_address
             return instance.private_ip_address
@@ -1311,7 +1313,7 @@ module MU
         # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, make_public: false, region: MU.curRegion, copy_to_regions: [], tags: [])
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, make_public: false, region: MU.curRegion, copy_to_regions: [], tags: [], credentials: nil)
           ami_descriptor = {
               :instance_id => instance_id,
               :name => name,
@@ -1350,11 +1352,11 @@ module MU
             return nil
           end
           ami = resp.image_id
-          MU::MommaCat.createStandardTags(ami, region: region)
-          MU::MommaCat.createTag(ami, "Name", name, region: region)
+          MU::MommaCat.createStandardTags(ami, region: region, credentials: credentials)
+          MU::MommaCat.createTag(ami, "Name", name, region: region, credentials: credentials)
           MU.log "AMI of #{name} in region #{region}: #{ami}"
           if make_public
-            MU::Cloud::AWS::Server.waitForAMI(ami, region: region)
+            MU::Cloud::AWS::Server.waitForAMI(ami, region: region, credentials: credentials)
             MU::Cloud::AWS.ec2(region: region).modify_image_attribute(
                 image_id: ami,
                 launch_permission: {add: [{group: "all"}]},
@@ -1364,7 +1366,7 @@ module MU
           copythreads = []
           if !copy_to_regions.nil? and copy_to_regions.size > 0
             parent_thread_id = Thread.current.object_id
-            MU::Cloud::AWS::Server.waitForAMI(ami, region: region) if !make_public
+            MU::Cloud::AWS::Server.waitForAMI(ami, region: region, credentials: credentials) if !make_public
             copy_to_regions.each { |r|
               next if r == region
               copythreads << Thread.new {
@@ -1378,13 +1380,13 @@ module MU
                 MU.log "Initiated copy of #{ami} from #{region} to #{r}: #{copy.image_id}"
 
                 MU::MommaCat.createStandardTags(copy.image_id, region: r)
-                MU::MommaCat.createTag(copy.image_id, "Name", name, region: r)
+                MU::MommaCat.createTag(copy.image_id, "Name", name, region: r, credentials: credentials)
                 if !tags.nil?
                   tags.each { |tag|
-                    MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: r)
+                    MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: r, credentials: credentials)
                   }
                 end
-                MU::Cloud::AWS::Server.waitForAMI(copy.image_id, region: r)
+                MU::Cloud::AWS::Server.waitForAMI(copy.image_id, region: r, credentials: credentials)
                 if make_public
                   MU::Cloud::AWS.ec2(region: r).modify_image_attribute(
                       image_id: copy.image_id,
@@ -1408,12 +1410,12 @@ module MU
         # flagged as ready.
         # @param image_id [String]: The machine image to wait for.
         # @param region [String]: The cloud provider region
-        def self.waitForAMI(image_id, region: MU.curRegion)
+        def self.waitForAMI(image_id, region: MU.curRegion, credentials: nil)
           MU.log "Checking to see if AMI #{image_id} is available", MU::DEBUG
 
           retries = 0
           begin
-            images = MU::Cloud::AWS.ec2(region: region).describe_images(image_ids: [image_id]).images
+            images = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_images(image_ids: [image_id]).images
             if images.nil? or images.size == 0
               raise MuError, "No such AMI #{image_id} found"
             end
@@ -1633,9 +1635,9 @@ module MU
 
           if @deploy
             MU::MommaCat.listStandardTags.each_pair { |key, value|
-              MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
+              MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
-            MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+            MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'], credentials: @config['credentials'])
           end
 
           attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_volume(

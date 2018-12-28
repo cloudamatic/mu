@@ -277,7 +277,7 @@ module MU
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_or_update_tags(tag_conf)
             current.instances.each { |instance|
               tag_conf[:tags].each { |t|
-                MU::MommaCat.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'])
+                MU::MommaCat.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'], credentials: @config['credentials'])
               }
             }
           end
@@ -1054,10 +1054,11 @@ module MU
           elsif !@config['basis']['launch_config']["instance_id"].nil?
             @config['basis']['launch_config']["ami_id"] = MU::Cloud::AWS::Server.createImage(
               name: @mu_name,
-              instance_id: @config['basis']['launch_config']["instance_id"]
+              instance_id: @config['basis']['launch_config']["instance_id"],
+              credentials: @config['credentials']
             )
           end
-          MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"])
+          MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
 
           oldlaunch = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_launch_configurations(
             launch_configuration_names: [@mu_name]
