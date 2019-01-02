@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
+case node['platform']
   when "windows"
     execute "del c:\\Mu-Bootstrap*"
     %w{c:\\mu-installer-ran-update c:\\mu-configure-initial-ssh-user}.each { |file|
@@ -79,8 +79,8 @@ case node[:platform]
 #			end
 #		}
 #	end
-  when "centos", "redhat"
-    if node[:platform_version].to_i == 7
+  when platform_family?('rhel')
+    if node['platform_version'].to_i == 7
       execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
         only_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
       end

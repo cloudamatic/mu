@@ -18,6 +18,14 @@ module MU
     # Support for Amazon Web Services as a provisioning layer.
     class CloudFormation
 
+      # Any cloud-specific instance methods we require our resource
+      # implementations to have, above and beyond the ones specified by
+      # {MU::Cloud}
+      # @return [Array<Symbol>]
+      def self.required_instance_methods
+        []
+      end
+
       @@cloudformation_mode = false
 
       # Toggle ourselves into a mode that will emit a CloudFormation template
@@ -26,6 +34,18 @@ module MU
       def self.emitCloudFormation(set: @@cloudformation_mode)
         @@cloudformation_mode = set
         @@cloudformation_mode
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.hosted?} instead.
+      def self.hosted?
+        false
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.hosted?} instead.
+      def self.config_example
+        nil
       end
 
       # Generate and return a skeletal CloudFormation resource entry for the

@@ -31,11 +31,7 @@ module MU
             "name" => {"type" => "string"},
             "region" => MU::Config.region_primitive,
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-              "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "dependencies" => MU::Config.dependencies_primitive,
             "storage_type" => {
               "type" => "string",

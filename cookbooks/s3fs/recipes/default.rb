@@ -18,9 +18,12 @@
 
 include_recipe "mu-utility::zip"
 package "make"
-include_recipe "build-essential"
 
-case node[:platform]
+build_essential 'name' do
+  compile_time  True
+end
+
+case node['platform']
 
   when "centos"
 
@@ -49,8 +52,8 @@ case node[:platform]
       not_if 'lsmod | grep fuse'
     end
 
-    remote_file "/usr/local/src/s3fs-#{node[:s3fs][:version]}.tar.gz" do
-      source "https://github.com/s3fs-fuse/s3fs-fuse/archive/v#{node[:s3fs][:version]}.tar.gz"
+    remote_file "/usr/local/src/s3fs-#{node['s3fs']['version']}.tar.gz" do
+      source "https://github.com/s3fs-fuse/s3fs-fuse/archive/v#{node['s3fs']['version']}.tar.gz"
       notifies :run, 'bash[install s3fs]', :immediately
     end
 
@@ -59,17 +62,17 @@ case node[:platform]
       cwd '/usr/local/src'
       code <<-EOH
         source /root/.bashrc
-        tar -zxf s3fs-#{node[:s3fs][:version]}.tar.gz
-        (cd s3fs-fuse-#{node[:s3fs][:version]}/ && . autogen.sh && sh configure && make && make install)
+        tar -zxf s3fs-#{node['s3fs']['version']}.tar.gz
+        (cd s3fs-fuse-#{node['s3fs']['version']}/ && . autogen.sh && sh configure && make && make install)
       EOH
-      not_if "s3fs --version | grep #{node[:s3fs][:version]}"
+      not_if "s3fs --version | grep #{node['s3fs']['version']}"
     end
 
   when "ubuntu"
     ["python-support", "pkg-config", "fuse", "libfuse-dev", "libcurl4-openssl-dev", "libxml2-dev", "libcrypto++-dev"].each { |pkg| package pkg }
 
-    remote_file "/usr/local/src/s3fs-#{node[:s3fs][:version]}.tar.gz" do
-      source "https://github.com/s3fs-fuse/s3fs-fuse/archive/v#{node[:s3fs][:version]}.tar.gz"
+    remote_file "/usr/local/src/s3fs-#{node['s3fs']['version']}.tar.gz" do
+      source "https://github.com/s3fs-fuse/s3fs-fuse/archive/v#{node['s3fs']['version']}.tar.gz"
     end
 
     bash "install s3fs" do
@@ -77,12 +80,12 @@ case node[:platform]
       cwd '/usr/local/src/'
       code <<-EOH
         source /root/.bashrc
-        tar xvzf s3fs-#{node[:s3fs][:version]}.tar.gz
-        (cd s3fs-fuse-#{node[:s3fs][:version]}/ && ./autogen.sh && ./configure --prefix=/usr && make && make install)
+        tar xvzf s3fs-#{node['s3fs']['version']}.tar.gz
+        (cd s3fs-fuse-#{node['s3fs']['version']}/ && ./autogen.sh && ./configure --prefix=/usr && make && make install)
       EOH
-      not_if "s3fs --version | grep #{node[:s3fs][:version]}"
+      not_if "s3fs --version | grep #{node['s3fs']['version']}"
     end
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end
 

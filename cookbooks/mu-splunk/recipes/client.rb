@@ -27,7 +27,7 @@ include_recipe 'mu-splunk::install_forwarder'
 if node['splunk']['discovery'] == 'groupname'
   splunk_servers = search(
       :node,
-      "splunk_is_server:true AND splunk_groupname:#{node[:splunk_groupname]}"
+      "splunk_is_server:true AND splunk_groupname:#{node['splunk_groupname']}"
   ).sort! do
   |a, b|
     a.name <=> b.name
@@ -85,7 +85,7 @@ directory "#{splunk_dir}/etc/system/local" do
 end
 
 if node['splunk']['splunk_cloud_installer']
-  splunk_auth_info = chef_vault_item(node[:splunk][:auth][:data_bag], node[:splunk][:auth][:data_bag_item])['auth']
+  splunk_auth_info = chef_vault_item(node['splunk']['auth']['data_bag'], node['splunk']['auth']['data_bag_item'])['auth']
   user, pw = splunk_auth_info.split(':')
   execute "Install Splunk Cloud app" do
     command "/opt/splunkforwarder/bin/splunk install app #{node['splunk']['install_spl_file']} -auth #{user}:#{pw}"

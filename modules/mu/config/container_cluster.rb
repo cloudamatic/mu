@@ -30,10 +30,7 @@ module MU
             "region" => MU::Config.region_primitive,
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET + MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all"),
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "instance_count" => {
               "type" => "integer",
               "default" => 2

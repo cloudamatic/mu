@@ -27,12 +27,44 @@ module MU
       @@myRegion_var = nil
       @@authorizers = {}
 
+      # Any cloud-specific instance methods we require our resource
+      # implementations to have, above and beyond the ones specified by
+      # {MU::Cloud}
+      # @return [Array<Symbol>]
+      def self.required_instance_methods
+        []
+      end
+
+      # If we're running this cloud, return the $MU_CFG blob we'd use to
+      # describe this environment as our target one.
+      def self.hosted_config
+        return nil if !hosted?
+        getGoogleMetaData("instance/zone").match(/^projects\/[^\/]+\/zones\/([^\/]+)$/)
+        zone = Regexp.last_match[1]
+        {
+          "project" => MU::Cloud::Google.getGoogleMetaData("project/project-id"),
+          "region" => zone.sub(/-[a-z]$/, "")
+        }
+      end
+
+      # A non-working example configuration
+      def self.config_example
+        sample = hosted_config
+        sample ||= {
+          "project" => "my-project",
+          "region" => "us-east4"
+        }
+        sample["credentials_file"] = "#{Etc.getpwuid(Process.uid).dir}/gcp_serviceacct.json"
+        sample["log_bucket_name"] = "my-mu-cloud-storage-bucket"
+        sample
+      end
+
       # If we've configured Google as a provider, or are simply hosted in GCP, 
       # decide what our default region is.
       def self.myRegion
         if $MU_CFG['google'] and $MU_CFG['google']['region']
           @@myRegion_var = $MU_CFG['google']['region']
-        elsif MU::Cloud::Google.hosted
+        elsif MU::Cloud::Google.hosted?
           zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
           @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
         end
@@ -73,26 +105,6 @@ module MU
         flags["project"] ||= MU::Cloud::Google.defaultProject
         name = deploy_id+"-secret"
 
-        resp = MU::Cloud::Google.iam.list_project_service_accounts(
-          "projects/"+flags["project"]
-        )
-
-        # XXX this doesn't belong here; it's global, and it's not really a
-        # server-specific thing
-        if resp and resp.accounts and MU.deploy_id
-          resp.accounts.each { |sa|
-            if sa.display_name.match(/^#{Regexp.quote(MU.deploy_id.downcase)}-/)
-              begin
-                MU.log "Deleting service account #{sa.name}", details: sa
-                if !noop
-                  MU::Cloud::Google.iam.delete_project_service_account(sa.name)
-                end
-              rescue ::Google::Apis::ClientError => e
-                raise e if !e.message.match(/^notFound: /)
-              end
-            end
-          }
-        end
       end
 
       # Grant access to appropriate Cloud Storage objects in our log/secret bucket for a deploy member.
@@ -131,11 +143,26 @@ module MU
         end
       end
 
+      @@is_in_gcp = nil
+
+      # Alias for #{MU::Cloud::Google.hosted?}
+      def self.hosted
+        MU::Cloud::Google.hosted?
+      end
+
       # Determine whether we (the Mu master, presumably) are hosted in this
       # cloud.
       # @return [Boolean]
-      def self.hosted
-        return true if self.getGoogleMetaData("instance/name")
+      def self.hosted?
+        if !@@is_in_gcp.nil?
+          return @@is_in_gcp
+        end
+
+        if getGoogleMetaData("instance/name")
+          @@is_in_gcp = true
+          return true
+        end
+        @@is_in_gcp = false
         false
       end
 
@@ -192,10 +219,49 @@ module MU
       def self.loadCredentials(scopes = nil)
         return @@authorizers[scopes.to_s] if @@authorizers[scopes.to_s]
 
-        if $MU_CFG.has_key?("google") and $MU_CFG["google"]["credentials"]
-          begin
-            vault, item = $MU_CFG["google"]["credentials"].split(/:/)
-            data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
+        if $MU_CFG.has_key?("google") 
+          data = nil
+  
+          def self.get_machine_credentials(scopes)
+            @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
+            MU.log "We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
+
+            @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
+            @@authorizers[scopes.to_s].fetch_access_token!
+            @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
+            @@authorizers[scopes.to_s]
+          end
+
+          if $MU_CFG["google"].values.first["credentials_file"]
+            begin
+              data = JSON.parse(File.read($MU_CFG["google"].values.first["credentials_file"]))
+              @@default_project ||= data["project_id"]
+              creds = {
+                :json_key_io => StringIO.new(MultiJson.dump(data)),
+                :scope => scopes
+              }
+              @@svc_account_name = data["client_email"]
+              @@authorizers[scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
+              return @@authorizers[scopes.to_s]
+            rescue JSON::ParserError, Errno::ENOENT, Errno::EACCES => e
+              if !MU::Cloud::Google.hosted?
+                raise MuError, "Google Cloud credentials file #{$MU_CFG["google"].values.first["credentials_file"]} is missing or invalid (#{e.message})"
+              end
+              MU.log "Google Cloud credentials file #{$MU_CFG["google"].values.first["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
+              return get_machine_credentials(scopes)
+            end
+          elsif $MU_CFG["google"].values.first["credentials"]
+            begin
+              vault, item = $MU_CFG["google"].values.first["credentials"].split(/:/)
+              data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
+            rescue MU::Groomer::Chef::MuNoSuchSecret
+              if !MU::Cloud::Google.hosted?
+                raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
+              end
+              MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}", MU::WARN
+              return get_machine_credentials(scopes)
+            end
+
             @@default_project ||= data["project_id"]
             creds = {
               :json_key_io => StringIO.new(MultiJson.dump(data)),
@@ -204,28 +270,12 @@ module MU
             @@svc_account_name = data["client_email"]
             @@authorizers[scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
             return @@authorizers[scopes.to_s]
-          rescue MU::Groomer::Chef::MuNoSuchSecret
-            if MU::Cloud::Google.hosted
-              puts MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/scopes")
-              @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
-              MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}. We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
-
-              @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
-              @@authorizers[scopes.to_s].fetch_access_token!
-              @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
-              return @@authorizers[scopes.to_s]
-            else
-              raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
-            end
+          elsif MU::Cloud::Google.hosted?
+            return get_machine_credentials(scopes)
+          else
+            raise MuError, "Google Cloud credentials not configured"
           end
-        elsif MU::Cloud::Google.hosted
-          @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
-          @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
-          @@authorizers[scopes.to_s].fetch_access_token!
-          @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
-          return @@authorizers[scopes.to_s]
-        else
-          raise MuError, "Google Cloud credentials not configured"
+
         end
         nil
       end
@@ -249,24 +299,34 @@ module MU
       # If this Mu master resides in the Google Cloud Platform, return the
       # project id in which we reside. Nil if we're not in GCP.
       def self.myProject
-        if MU::Cloud::Google.hosted
+        if MU::Cloud::Google.hosted?
           return MU::Cloud::Google.getGoogleMetaData("project/project-id")
         end
         nil
+      end
+
+      # If this Mu master resides in the Google Cloud Platform, return the
+      # default service account associated with its metadata.
+      def self.myServiceAccount
+        if MU::Cloud::Google.hosted?
+          MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
+        else
+          nil
+        end
       end
 
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       def self.defaultProject
-        return myProject if !$MU_CFG['google'] or !$MU_CFG['google']['project']
+        return myProject if !$MU_CFG['google'] or !$MU_CFG['google'].values.first['project']
         loadCredentials if !@@default_project
         @@default_project
       end
 
       # List all Google Cloud Platform projects available to our credentials
       def self.listProjects
-        return [] if !$MU_CFG['google'] or !$MU_CFG['google']['project']
+        return [] if !$MU_CFG['google'] or !$MU_CFG['google'].values.first['project']
         result = MU::Cloud::Google.resource_manager.list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
         result.projects.map { |p| p.project_id }
@@ -275,12 +335,20 @@ module MU
       @@regions = {}
       # List all known Google Cloud Platform regions
       # @param us_only [Boolean]: Restrict results to United States only
-      def self.listRegions(us_only = false)
+      def self.listRegions(us_only = false, credentials: nil)
         if !MU::Cloud::Google.defaultProject
           return []
         end
         if @@regions.size == 0
-          result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
+          begin
+            result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
+          rescue ::Google::Apis::ClientError => e
+            if e.message.match(/forbidden/)
+              raise MuError, "Insufficient permissions to list Google Cloud region. The service account #{myServiceAccount} should probably have the project owner role."
+            end
+            raise e
+          end
+
           regions = []
           result.items.each { |region|
             @@regions[region.name] = []
@@ -298,7 +366,7 @@ module MU
 
 
       @@instance_types = nil
-      # Query the GCP API for the list of valid EC2 instance types and some of
+      # Query the GCP API for the list of valid Compute instance types and some of
       # their attributes. We can use this in config validation and to help
       # "translate" machine types across cloud providers.
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
@@ -381,6 +449,24 @@ module MU
         end
       end
 
+      # GCP's AdminDirectory Service API
+      # @param subclass [<Google::Apis::AdminDirectoryV1>]: If specified, will return the class ::Google::Apis::AdminDirectoryV1::subclass instead of an API client instance
+      def self.admin_directory(subclass = nil)
+        require 'google/apis/admin_directory_v1'
+    
+        if subclass.nil?
+          begin
+            @@admin_directory_api ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: $MU_CFG['google']['masquerade_as'])
+          rescue Signet::AuthorizationError => e
+            MU.log "Cannot masquerade as #{$MU_CFG['google']['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
+            raise e
+          end
+          return @@admin_directory_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
+        end
+      end
+
       # Google's Cloud Resource Manager API
       # @param subclass [<Google::Apis::CloudresourcemanagerV1>]: If specified, will return the class ::Google::Apis::CloudresourcemanagerV1::subclass instead of an API client instance
       def self.resource_manager(subclass = nil)
@@ -458,9 +544,13 @@ module MU
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil)
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
+          if masquerade
+            @api.authorization.sub = masquerade
+            @api.authorization.fetch_access_token!
+          end
         end
 
         # Generic wrapper for deleting Compute resources
@@ -696,7 +786,7 @@ module MU
               debuglevel = MU::WARN
               interval = 40 + Random.rand(15) - 5
             # elsif retries > 100
-              # raise MuError, "Exhausted retries after #{retries} attempts while calling EC2's #{method_sym} in #{@region}.  Args were: #{arguments}"
+              # raise MuError, "Exhausted retries after #{retries} attempts while calling Compute's #{method_sym} in #{@region}.  Args were: #{arguments}"
             end
 
             MU.log "Got #{e.inspect} calling Google's #{method_sym}, waiting #{interval.to_s}s and retrying. Called from: #{caller[1]}", debuglevel, details: arguments
@@ -715,6 +805,7 @@ module MU
       @@logging_api = nil
       @@resource_api = nil
       @@service_api = nil
+      @@admin_directory_api = nil
     end
   end
 end

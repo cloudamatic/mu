@@ -461,7 +461,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
 
           purge_subnets(noop, project: flags['project'])
@@ -523,7 +523,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               if vpc['regions'].nil? or vpc['regions'].empty?
                 vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
               end
-              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size)
+              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size, 29)
               ok = false if blocks.nil?
 
               vpc["subnets"] = []
@@ -550,7 +550,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # table, so that the routes therein will only apply to the portion of
           # our network we want them to.
           if vpc['route_tables'].size > 1
-            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2)
+            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2, 29)
             peernames = []
             vpc['route_tables'].each { |tbl|
               peernames << vpc['name']+"-"+tbl['name']
@@ -786,7 +786,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         # Remove all network interfaces associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
@@ -794,7 +794,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         # Remove all subnets associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param regions [Array<String>]: The cloud provider regions to check
         # @return [void]
         def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: MU::Cloud::Google.defaultProject)
@@ -819,7 +819,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # Remove all DHCP options sets associated with the currently loaded
         # deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_dhcpopts(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
@@ -827,7 +827,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         # Remove all VPCs associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_vpcs(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)

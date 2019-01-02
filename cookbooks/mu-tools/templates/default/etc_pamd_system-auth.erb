@@ -1,14 +1,14 @@
 #%PAM-1.0
-auth        required      pam_faillock.so preauth audit silent deny=<%= node[:sec][:accnt_lckout] %> unlock_time=<%= node[:sec][:accnt_lckout_duration] %>
+auth        required      pam_faillock.so preauth audit silent deny=<%= node['sec']['accnt_lckout'] %> unlock_time=<%= node['sec']['accnt_lckout_duration'] %>
 account     include       system-auth-ac
-auth        [default=die] pam_faillock.so authfail audit deny=<%= node[:sec][:accnt_lckout] %> unlock_time=<%= node[:sec][:accnt_lckout_duration] %>
-auth        sufficient    pam_faillock.so authsucc audit deny=<%= node[:sec][:accnt_lckout] %> unlock_time=<%= node[:sec][:accnt_lckout_duration] %>
+auth        [default=die] pam_faillock.so authfail audit deny=<%= node['sec']['accnt_lckout'] %> unlock_time=<%= node['sec']['accnt_lckout_duration'] %>
+auth        sufficient    pam_faillock.so authsucc audit deny=<%= node['sec']['accnt_lckout'] %> unlock_time=<%= node['sec']['accnt_lckout_duration'] %>
 
 account     required      pam_faillock.so
 account     include       system-auth-ac
 
-password    requisite     pam_cracklib.so try_first_pass retry=<%= node[:sec][:pwd][:retry] %> minlen=<%= node[:sec][:pwd][:min_length] %> dcredit=<%= node[:sec][:pwd][:numeric] %> ucredit=<%= node[:sec][:pwd][:uppercase] %> ocredit=<%= node[:sec][:pwd][:special] %> lcredit=<%= node[:sec][:pwd][:lowercase] %>
+password    requisite     pam_cracklib.so try_first_pass retry=<%= node['sec']['pwd']['retry'] %> minlen=<%= node['sec']['pwd']['min_length'] %> dcredit=<%= node['sec']['pwd']['numeric'] %> ucredit=<%= node['sec']['pwd']['uppercase'] %> ocredit=<%= node['sec']['pwd']['special'] %> lcredit=<%= node['sec']['pwd']['lowercase'] %>
 account     include       system-auth-ac
-password    sufficient    pam_unix.so remember=<%= node[:sec][:pwd][:remember] %>
+password    sufficient    pam_unix.so remember=<%= node['sec']['pwd']['remember'] %>
 
 session     include       system-auth-ac

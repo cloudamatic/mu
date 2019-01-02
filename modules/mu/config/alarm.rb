@@ -65,7 +65,6 @@ module MU
           "dimensions" => {
             "type" => "array",
             "description" => "What to monitor",
-#            "minItems" => 1,
             "items" => {
                 "type" => "object",
                 "additionalProperties" => false,

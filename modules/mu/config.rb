@@ -133,10 +133,12 @@ module MU
 # XXX I think this is a NOOP?
       end
     end
+
     # Accessor for our Basket of Kittens schema definition, with various
     # cloud-specific details merged so we can generate documentation for them.
     def self.docSchema
       docschema = Marshal.load(Marshal.dump(@@schema))
+      only_children = {}
       MU::Cloud.resource_types.each_pair { |classname, attrs|
         MU::Cloud.supportedClouds.each { |cloud|
           begin
@@ -146,16 +148,56 @@ module MU
           end
           res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
           required, res_schema = res_class.schema(self)
+          res_schema.each { |key, cfg|
+            if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
+              only_children[attrs[:cfg_plural]] ||= {}
+              only_children[attrs[:cfg_plural]][key] ||= {}
+              only_children[attrs[:cfg_plural]][key][cloud] = cfg
+            end
+          }
+        }
+      }
+
+      # recursively chase down description fields in arrays and objects of our
+      # schema and prepend stuff to them for documentation
+      def self.prepend_descriptions(prefix, cfg)
+#        cfg["description"] ||= ""
+#        cfg["description"] = prefix+cfg["description"]
+        cfg["prefix"] = prefix
+        if cfg["type"] == "array" and cfg["items"]
+          cfg["items"] = prepend_descriptions(prefix, cfg["items"])
+        elsif cfg["type"] == "object" and cfg["properties"]
+          cfg["properties"].each_pair { |key, subcfg|
+            cfg["properties"][key] = prepend_descriptions(prefix, cfg["properties"][key])
+          }
+        end
+        cfg
+      end
+
+      MU::Cloud.resource_types.each_pair { |classname, attrs|
+        MU::Cloud.supportedClouds.each { |cloud|
+          res_class = nil
+          begin
+            res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
+          rescue MU::Cloud::MuCloudResourceNotImplemented
+            next
+          end
+          required, res_schema = res_class.schema(self)
           next if required.size == 0 and res_schema.size == 0
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
-            cfg["description"] = cloud.upcase+": "+cfg["description"]
+            cfg["description"] = "+"+cloud.upcase+"+: "+cfg["description"]
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
               MU.log "Munging #{cloud}-specific #{classname.to_s} schema into BasketofKittens => #{attrs[:cfg_plural]} => #{key}", MU::DEBUG, details: docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
             else
+              if only_children[attrs[:cfg_plural]][key]
+                prefix = only_children[attrs[:cfg_plural]][key].keys.map{ |x| x.upcase }.join(" & ")+" ONLY"
+                cfg = prepend_descriptions(prefix, cfg)
+              end
+
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
             end
             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
@@ -166,6 +208,7 @@ module MU
           docschema['required'].uniq!
         }
       }
+
       docschema
     end
 
@@ -472,6 +515,7 @@ module MU
     end
 
     attr_reader :kittens
+    attr_reader :updating
     attr_reader :kittencfg_semaphore
 
     # Load, resolve, and validate a configuration file ("Basket of Kittens").
@@ -479,7 +523,7 @@ module MU
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new)
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -496,6 +540,7 @@ module MU
       @@config_path = path
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
+      @updating = updating
 
       ok = true
       params.each_pair { |name, value|
@@ -677,32 +722,40 @@ module MU
     # subnets.
     # @param ip_block [String]: CIDR of the network to subdivide
     # @param subnets_desired [Integer]: Number of subnets we want back
+    # @param max_mask [Integer]: The highest netmask we're allowed to use for a subnet (various by cloud provider)
     # @return [MU::Config::Tail]: Resulting subnet tails, or nil if an error occurred.
-    def divideNetwork(ip_block, subnets_desired)
-      cidr = NetAddr::CIDR.create(ip_block.to_s)
-      # Round the number of addresses we're splitting into down to the nearest power
-      # of two so they'll fit in the available bit space
-      raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
-      avail_addrs = 2 ** (32 - cidr.bits)
-      subnet_size = ((avail_addrs/subnets_desired) >> 1)
-#          subnet_bits = 32 - (subnet_size).to_s(2).size
+    def divideNetwork(ip_block, subnets_desired, max_mask = 28)
+      cidr = NetAddr::IPv4Net.parse(ip_block.to_s)
+
+      # Ugly but reliable method of landing on the right subnet size
+      subnet_bits = cidr.netmask.prefix_len
       begin
-        subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => subnets_desired)
+        subnet_bits += 1
+
+        if subnet_bits > max_mask
+          MU.log "Can't subdivide #{cidr.to_s} into #{subnets_desired.to_s}", MU::ERR
+          raise MuError, "Subnets smaller than /#{max_mask} not permitted"
+        end
+      end while cidr.subnet_count(subnet_bits) < subnets_desired
+
+      if cidr.subnet_count(subnet_bits) > subnets_desired
+        MU.log "Requested #{subnets_desired.to_s} subnets from #{cidr.to_s}, leaving #{(cidr.subnet_count(subnet_bits)-subnets_desired).to_s} unused /#{subnet_bits.to_s}s available", MU::NOTICE
+      end
+
+      begin
+        subnets = []
+        (0..subnets_desired).each { |x|
+          subnets << cidr.nth_subnet(subnet_bits, x).to_s
+        }
       rescue RuntimeError => e
         if e.message.match(/exceeds subnets available for allocation/)
           MU.log e.message, MU::ERR
-          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
+          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.netmask.prefix_len} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
           return nil
         else
           raise e
         end
       end
-
-      # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
-      # it's annoying, so we end up using the IP space inefficiently. Lop
-      # off the extra subnets we end up with and don't want. It would be
-      # nice if we just did all this math ourselves and did it better.
-      subnets.slice!(subnets_desired,subnets.size-1) if subnets.size > subnets_desired
 
       subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
       subnets
@@ -764,7 +817,10 @@ module MU
                 }
               end
               siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
-              insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+              if !siblingfw["#MU_VALIDATED"]
+# XXX raise failure somehow
+                insertKitten(siblingfw, "firewall_rules")
+              end
             end
           }
         end
@@ -830,7 +886,9 @@ module MU
           # things that live in subnets need their VPCs to be fully
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
-            insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+            if !siblingvpc["#MU_VALIDATED"]
+              ok = false if !insertKitten(siblingvpc, "vpcs")
+            end
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
@@ -919,7 +977,9 @@ module MU
               "name" => acl_include["rule_name"]
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            if !siblingfw["#MU_VALIDATED"]
+              ok = false if !insertKitten(siblingfw, "firewall_rules")
+            end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -1060,6 +1120,26 @@ module MU
       {
         "type" => "string",
         "enum" => allregions
+      }
+    end
+
+    # Configuration chunk for choosing a set of cloud credentials
+    # @return [Hash]
+    def self.credentials_primitive
+      {
+          "type" => "string",
+          "description" => "Specify a non-default set of credentials to use when authenticating to cloud provider APIs, as listed in `mu.yaml` under each provider's subsection."
+      }
+    end
+
+    # Configuration chunk for creating resource tags as an array of key/value
+    # pairs.
+    # @return [Hash]
+    def self.optional_tags_primitive
+      {
+        "type" => "boolean",
+        "description" => "Tag the resource with our optional tags (+MU-HANDLE+, +MU-MASTER-NAME+, +MU-OWNER+).",
+        "default" => true
       }
     end
 
@@ -1464,7 +1544,7 @@ module MU
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
 
-      schema_fields = ["region", "us_only", "scrub_mu_isms"]
+      schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
         schema_fields << "project"
@@ -1591,7 +1671,7 @@ module MU
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
-#      raise ValidationError if !ok
+      raise ValidationError if !ok
 
 # XXX Does commenting this out make sense? Do we want to apply it to top-level
 # keys and ignore resources, which validate when insertKitten is called now?
@@ -1615,7 +1695,7 @@ module MU
 
     # Emit our Basket of Kittesn schema in a format that YARD can comprehend
     # and turn into documentation.
-    def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false)
+    def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
       return if schema.nil?
       if schema["type"] == "object"
         printme = Array.new
@@ -1644,7 +1724,7 @@ module MU
               req = false
             end
 
-            printme << self.printSchema(dummy_kitten_class, class_hierarchy+ [name], prop, false, req)
+            printme << self.printSchema(dummy_kitten_class, class_hierarchy+ [name], prop, false, req, prefix: schema["prefix"])
           }
           printme << "# @!endgroup"
         end
@@ -1680,7 +1760,8 @@ module MU
         end
 
         docstring = "\n"
-        docstring = docstring + "# **REQUIRED.**\n" if required
+        docstring = docstring + "# **REQUIRED**\n" if required
+        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
         docstring = docstring + "#\n"
         docstring = docstring + "# @return [#{type}]\n"
@@ -1689,7 +1770,7 @@ module MU
         return docstring
 
       elsif schema["type"] == "array"
-        return self.printSchema(dummy_kitten_class, class_hierarchy, schema['items'], true, required)
+        return self.printSchema(dummy_kitten_class, class_hierarchy, schema['items'], true, required, prefix: prefix)
       else
         name = class_hierarchy.last
         if schema['type'].nil?
@@ -1702,15 +1783,27 @@ module MU
           type = schema['type'].capitalize
         end
         docstring = "\n"
-        docstring = docstring + "# **REQUIRED.**\n" if required and schema['default'].nil?
-        docstring = docstring + "# Default: `#{schema['default']}`\n" if !schema['default'].nil?
-        if !schema['enum'].nil?
-          docstring = docstring + "# Must be one of: `#{schema['enum'].join(', ')}.`\n"
+
+        prefixes = []
+        prefixes << "# **REQUIRED**" if required and schema['default'].nil?
+        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
+        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
+        if !schema['enum'].nil? and !schema["enum"].empty?
+          prefixes << "# **Must be one of: `#{schema['enum'].join(', ')}`**"
         elsif !schema['pattern'].nil?
           # XXX unquoted regex chars confuse the hell out of YARD. How do we
           # quote {}[] etc in YARD-speak?
-          docstring = docstring + "# Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`.\n"
+          prefixes << "# **Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`**"
         end
+
+        if prefixes.size > 0
+          docstring += prefixes.join(",\n")
+          if schema['description'] and schema['description'].size > 1
+            docstring += " - "
+          end
+          docstring += "\n"
+        end
+
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
         docstring = docstring + "#\n"
         docstring = docstring + "# @return [#{type}]\n"
@@ -1791,6 +1884,7 @@ module MU
           "default" => MU::Cloud::Google.defaultProject
         },
         "region" => MU::Config.region_primitive,
+        "credentials" =>  MU::Config.credentials_primitive,
         "us_only" => {
             "type" => "boolean",
             "description" => "For resources which span regions, restrict to regions inside the United States",
@@ -1901,6 +1995,7 @@ module MU
         }
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["credentials"] = MU::Config.credentials_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
       rescue NameError => e
         failed << type

@@ -15,8 +15,8 @@ module Activedirectory
 
     def set_computer_name(creds)
       # Theoretically this should have been done for us already, but let's cover the oddball cases.
-      Chef::Log.info("node_hostname: #{node[:hostname].downcase}, computer_name: #{new_resource.computer_name.downcase}")
-      if node[:hostname].downcase != new_resource.computer_name.downcase
+      Chef::Log.info("node_hostname: #{node['hostname'].downcase}, computer_name: #{new_resource.computer_name.downcase}")
+      if node['hostname'].downcase != new_resource.computer_name.downcase
         cmd = powershell_out("Rename-Computer -NewName '#{new_resource.computer_name}' -Force -PassThru -Restart -DomainCredential #{creds}")
         execute "kill ssh for reboot" do
           command "Taskkill /im sshd.exe /f /t"
@@ -29,7 +29,7 @@ module Activedirectory
           notifies :run, "execute[kill ssh for reboot]", :immediately
         end
         kill_ssh
-        Chef::Application.fatal!("Failed to rename computer from #{node[:hostname]} to #{new_resource.computer_name}: #{cmd.stdout}\n#{cmd.stderr}") if cmd.exitstatus != 0
+        Chef::Application.fatal!("Failed to rename computer from #{node['hostname']} to #{new_resource.computer_name}: #{cmd.stdout}\n#{cmd.stderr}") if cmd.exitstatus != 0
       end
     end
 
@@ -50,7 +50,7 @@ module Activedirectory
 				$netadapter = Get-NetAdapter
 				$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
 				$netadapter | Set-NetIPInterface -Dhcp Disabled
-				$netadapter | New-NetIPAddress -IPAddress #{node[:ipaddress]} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
+				$netadapter | New-NetIPAddress -IPAddress #{node['ipaddress']} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
 				$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
       EOH
       return code

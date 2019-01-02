@@ -37,7 +37,7 @@ RETVAL=0
 start()
 {
 	if ! grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
-		mount -t glusterfs <%= @servers.map { |server| "#{server.ec2.private_ip_address}" }.join(',') %>:<%= "#{@volume} #{@path}" %> || exit 1
+		mount -t glusterfs <%= @servers.map { |server| server.ec2.private_ip_address }.join(',') %>:<%= "#{@volume} #{@path}" %> || exit 1
 		#<%= @servers.map { |server| "mount -t glusterfs #{server.ec2.private_ip_address}:#{@volume} #{@path}" }.join(' || ') %> || exit 1
 	fi
 }

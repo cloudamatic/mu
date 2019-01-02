@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'trollop'
+require 'optimist'
 require 'json'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/../bin/mu-load-config.rb"))
 require 'mu'

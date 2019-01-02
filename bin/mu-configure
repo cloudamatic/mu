@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'trollop'
+require 'optimist'
 require 'simple-password-gen'
 require 'socket'
 require 'open-uri'
@@ -38,7 +38,7 @@ $CONFIGURABLES = {
     "desc" => "IP address or hostname",
     "required" => true,
     "rootonly" => true,
-    "pattern" => /^(localhost|127\.0\.0\.1)$/,
+    "pattern" => /^(localhost|127\.0\.0\.1|#{Socket.gethostname})$/,
     "negate_pattern" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
@@ -127,15 +127,24 @@ $CONFIGURABLES = {
   },
   "aws" => {
     "title" => "Amazon Web Services",
+    "named_subentries" => true,
     "subtree" => {
       "account_number" => {
-        "title" => "Account Number",
-        "desc" => "Account number for the Amazon Web Services account which we administer",
+        "title" => "Default Target Account",
+        "desc" => "Default target account for resources managed using these credentials. This is an AWS account number, e.g. 918972669773. If not specified, we will use the account number which owns these API keys.",
         "pattern" => /^\d+$/
       },
       "region" => {
         "title" => "Default Region",
-        "desc" => "Default Amazon Web Services region in which we operate"
+        "desc" => "Default Amazon Web Services region in which these credentials should operate"
+      },
+      "credentials" => {
+        "title" => "Credentials Vault:Item",
+        "desc" => "A secure Chef vault and item from which to retrieve an AWS access key and secret. The vault item should have 'access_key' and 'access_secret' elements."
+      },
+      "credentials_file" => {
+        "title" => "Credentials File",
+        "desc" => "An INI-formatted AWS credentials file, of the type used by the AWS command-line tools. This is less secure than using 'credentials' to store these in a Chef vault. See: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html"
       },
       "access_key" => {
         "title" => "Access Key",
@@ -144,17 +153,24 @@ $CONFIGURABLES = {
       },
       "access_secret" => {
         "title" => "Access Secret",
-        "desc" => "Credentials used for accessing the AWS API (looks like: +Z16iRP9QAq7EcjHINyEMs3oR7A76QpfaSgCBogp)"
+        "desc" => "Credentials used for accessing the AWS API (looks like: +Z16iRP9QAq7EcjHINyEMs3oR7A76QpfaSgCBogp)."
       },
       "log_bucket_name" => {
         "title" => "Log and Secret Bucket Name",
         "desc" => "S3 bucket into which we'll synchronize deploy secrets, and if we're hosted in AWS, collected system logs",
         "changes" => ["chefrun"]
+      },
+      "default" => {
+        "title" => "Is Default",
+        "default" => false,
+        "desc" => "If set to true, Mu will default to these AWS credentials when targeting AWS resources",
+        "boolean" => true
       }
     }
   },
   "google" => {
     "title" => "Google Cloud Platform",
+    "named_subentries" => true,
     "subtree" => {
       "project" => {
         "title" => "Default Project",
@@ -162,7 +178,11 @@ $CONFIGURABLES = {
       },
       "credentials" => {
         "title" => "Credentials Vault:Item",
-        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+        "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      },
+      "credentials_file" => {
+        "title" => "Credentials File",
+        "desc" => "JSON-formatted Service Account credentials for our GCP account, stored in plain text in a file. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON and point this argument to the file. This is less secure than using 'credentials' to store in a vault."
       },
       "region" => {
         "title" => "Default Region",
@@ -173,6 +193,12 @@ $CONFIGURABLES = {
         "title" => "Log and Secret Bucket Name",
         "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in GCP, collected system logs",
         "changes" => ["chefrun"]
+      },
+      "default" => {
+        "title" => "Is Default Account",
+        "default" => false,
+        "desc" => "If set to true, Mu will use this set of GCP credentials when targeting the Google Cloud without a specific account having been requested",
+        "boolean" => true
       }
     }
   }
@@ -181,7 +207,7 @@ $CONFIGURABLES = {
 AMROOT = Process.uid == 0
 HOMEDIR = Etc.getpwuid(Process.uid).dir
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
   EOS
   required = []
@@ -283,27 +309,69 @@ ssl_verify_mode :verify_none
 
 $CHANGES = []
 
+def cloneHash(hash)
+  new = {}
+  hash.each_pair { |k,v|
+    if v.is_a?(Hash)
+      new[k] = cloneHash(v)
+    elsif !v.nil?
+      new[k] = v.dup
+    end
+  }
+  new
+end
 
 $MENU_MAP = {}
-def assignMenuEntries
+def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
   count = 1
-  $CONFIGURABLES.each_pair { |key, data|
+  tree.each_pair { |key, data|
+    next if !data.is_a?(Hash)
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
       letters = ("a".."z").to_a
       lettercount = 0
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
-        $CONFIGURABLES[key]["subtree"][subkey]["menu"] = count.to_s+letters[lettercount]
-        $MENU_MAP[count.to_s+letters[lettercount]] = $CONFIGURABLES[key]["subtree"][subkey]
-        lettercount = lettercount + 1
-      }
+      if data['named_subentries']
+        # Generate a stub entry for adding a new item
+        pp data["subtree"].keys
+        map[count.to_s] = cloneHash(data["subtree"])
+        map[count.to_s].each_pair { |k, v| v.delete("value") } # use defaults
+        map[count.to_s]["name"] = {
+          "title" => "Name",
+          "desc" => "A name/alias for this account.",
+          "required" => true
+        }
+        map[count.to_s]["#addnew"] = true
+        map[count.to_s]["#key"] = key
+
+        # Now the menu entries for the existing ones
+        data['subtree']['#entries'].each_pair { |nameentry, subdata|
+          next if data['readonly']
+          next if !subdata.is_a?(Hash)
+          subdata["#menu"] = count.to_s+letters[lettercount]
+          subdata["#title"] = nameentry
+          subdata["#key"] = key
+          subdata["#entries"] = cloneHash(data["subtree"]["#entries"])
+          subdata["is_submenu"] = true
+          map[count.to_s+letters[lettercount]] = tree[key]["subtree"]['#entries'][nameentry]
+          map[count.to_s+letters[lettercount]]['#entries'] ||= cloneHash(data["subtree"]["#entries"])
+          lettercount = lettercount + 1
+        }
+      else
+        data["subtree"].each_pair { |subkey, subdata|
+          next if !AMROOT and subdata['rootonly']
+          tree[key]["subtree"][subkey]["#menu"] = count.to_s+letters[lettercount]
+          tree[key]["subtree"][subkey]["#key"] = subkey
+          map[count.to_s+letters[lettercount]] = tree[key]["subtree"][subkey]
+          lettercount = lettercount + 1
+        }
+      end
     end
-    $MENU_MAP[count.to_s] = $CONFIGURABLES[key]
-    $CONFIGURABLES[key]["menu"] = count.to_s
+    tree[key]["#menu"] = count.to_s
+    tree[key]["#key"] = key
+    map[count.to_s] ||= tree[key]
     count = count + 1
   }
-  $MENU_MAP.freeze
+  map#.freeze
 end
 
 def trySSHKeyWithGit(repo, keypath = nil)
@@ -467,13 +535,14 @@ def setDefaults
     $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = $CONFIGURABLES["mu_admin_email"]["value"]
   end
   if $IN_AWS
+# XXX move this crap to a callback hook for puttering around in the AWS submenu
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
     iam = nil
     begin
       iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
     rescue OpenURI::HTTPError, SocketError
     end
-    $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
+#    $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
     $CONFIGURABLES["aws"]["subtree"]["region"]["default"] = aws["region"]
     if iam and iam.size > 0
       # XXX can we think of a good way to test our permission set?
@@ -506,14 +575,16 @@ def importCLIValues
   $CONFIGURABLES.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
-        if $opts[(subdata['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
-          newval = runValueCallback(subdata, $opts[subdata['cli-opt'].gsub(/-/, "_").to_sym])
-          subdata["value"] = newval if !newval.nil?
-          $CHANGES.concat(subdata['changes']) if subdata['changes']
-        end
-      }
+      if !data['named_subentries']
+        data["subtree"].each_pair { |subkey, subdata|
+          next if !AMROOT and subdata['rootonly']
+          if $opts[(subdata['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
+            newval = runValueCallback(subdata, $opts[subdata['cli-opt'].gsub(/-/, "_").to_sym])
+            subdata["value"] = newval if !newval.nil?
+            $CHANGES.concat(subdata['changes']) if subdata['changes']
+          end
+        }
+      end
     else
       if $opts[(data['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
         newval = runValueCallback(data, $opts[data['cli-opt'].gsub(/-/, "_").to_sym])
@@ -532,10 +603,29 @@ def importCurrentValues
     if $CONFIGURABLES[key].has_key?("subtree")
       # It's a sub-tree. I'm too lazy to write a recursive thing for this, just
       # cover the simple case that we actually care about for now.
-      $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
-        next if !$MU_CFG[key].has_key?(subkey)
-        $CONFIGURABLES[key]["subtree"][subkey]["value"] = $MU_CFG[key][subkey]
-      }
+      if $CONFIGURABLES[key]["named_subentries"]
+        $CONFIGURABLES[key]['subtree']["#title"] = $CONFIGURABLES[key]['title']
+        $MU_CFG[key].each_pair { |nameentry, subtree|
+          $CONFIGURABLES[key]['subtree']["#entries"] ||= {}
+          $CONFIGURABLES[key]['subtree']["#entries"][nameentry] = cloneHash($CONFIGURABLES[key]['subtree'])
+          $CONFIGURABLES[key]['subtree']["#entries"][nameentry].delete("#entries")
+          $CONFIGURABLES[key]["subtree"]["#entries"][nameentry]["name"] = {
+            "title" => "Name",
+            "desc" => "A name/alias for this account.",
+            "required" => true,
+            "value" => nameentry
+          }
+          $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
+            next if !subtree.has_key?(subkey)
+            $CONFIGURABLES[key]["subtree"]["#entries"][nameentry][subkey]["value"] = subtree[subkey]
+          }
+        }
+      else
+        $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
+          next if !$MU_CFG[key].has_key?(subkey)
+          $CONFIGURABLES[key]["subtree"][subkey]["value"] = $MU_CFG[key][subkey]
+        }
+      end
     else
       $CONFIGURABLES[key]["value"] = $MU_CFG[key]
     end
@@ -545,7 +635,15 @@ end
 def printVal(data)
   valid = true
   valid = validate(data["value"], data, false) if data["value"]
-  if !valid
+
+  value = if data["value"] and data["value"] != ""
+    data["value"]
+  elsif data["default"] and data["default"] != ""
+    data["default"]
+  end
+  if data['readonly'] and value
+    print " - "+value.to_s.cyan.on_black
+  elsif !valid
     print " "+data["value"].to_s.red.on_black
     print " (consider default of #{data["default"].to_s.bold})" if data["default"]
   elsif !data["value"].nil?
@@ -559,21 +657,34 @@ end
 
 # Converts the current $CONFIGURABLES object to a Hash suitable for merging
 # with $MU_CFG.
-def setConfigTree
+def setConfigTree(tree = $CONFIGURABLES)
   cfg = {}
-  $CONFIGURABLES.each_pair { |key, data|
+  tree.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
-        if !subdata["value"].nil?
-          cfg[key] ||= {}
-          cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
-          cfg[key] ||= {}
-          cfg[key][subkey] = subdata["default"]
-        end
-      }
+      if data["named_subentries"]
+        data["subtree"]["#entries"].each_pair { |name, block|
+
+          next if !block.is_a?(Hash)
+puts ("Saving "+key+" "+name).yellow
+          block.each_pair { |subkey, subdata|
+            next if subkey.match(/^#/) or !subdata.is_a?(Hash)
+            cfg[key] ||= {}
+            cfg[key][name] ||= {}
+            cfg[key][name][subkey] = subdata['value'] if subdata['value']
+          }
+        }
+      else
+        data["subtree"].each_pair { |subkey, subdata|
+          if !subdata["value"].nil?
+            cfg[key] ||= {}
+            cfg[key][subkey] = subdata["value"]
+          elsif !subdata["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
+            cfg[key] ||= {}
+            cfg[key][subkey] = subdata["default"]
+          end
+        }
+      end
     elsif !data["value"].nil?
       cfg[key] = data["value"]
     elsif !data["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and !$MU_CFG[key])
@@ -583,20 +694,33 @@ def setConfigTree
   cfg
 end
 
-def displayCurrentOpts
+def displayCurrentOpts(tree = $CONFIGURABLES)
   count = 1
   optlist = []
-  $CONFIGURABLES.each_pair { |key, data|
+  tree.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
-    print data["menu"].bold+") "+data["title"]
+    next if !data.is_a?(Hash)
+    if data["title"].nil? or data["#menu"].nil?
+      next
+    end
+    print data["#menu"].bold+") "+data["title"]
     if data.has_key?("subtree")
       puts ""
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
-        print "  "+subdata["menu"].bold+". "+subdata["title"]
-        printVal(subdata)
-        puts ""
-      }
+      if data["named_subentries"]
+        if data['subtree']['#entries']
+          data['subtree']['#entries'].each_pair { |nameentry, subdata|
+            next if nameentry.match(/^#/)
+            puts "  "+subdata["#menu"].bold+". "+nameentry.green.on_black
+          }
+        end
+      else
+        data["subtree"].each_pair { |subkey, subdata|
+          next if !AMROOT and subdata['rootonly']
+          print "  "+subdata["#menu"].bold+". "+subdata["title"]
+          printVal(subdata)
+          puts ""
+        }
+      end
     else
       printVal(data)
       puts ""
@@ -612,7 +736,7 @@ trap("INT"){ puts "" ; exit }
 importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG
 importCLIValues
 setDefaults
-assignMenuEntries # populates and freezes $MENU_MAP
+assignMenuEntries # populates $MENU_MAP
 
 def ask(desc)
   puts ""
@@ -628,7 +752,7 @@ def ask(desc)
       Readline.redisplay
       Readline.pre_input_hook = nil
     end
-  end
+    end
   val = Readline.readline(prompt, false)
   if desc['array'] and !val.nil?
     val = val.strip.split(/\s*,\s*/)
@@ -642,12 +766,16 @@ def ask(desc)
   val
 end
 
-def validate(newval, reqs, addnewline = true)
+def validate(newval, reqs, addnewline = true, in_use: [])
   ok = true
-  def validate_individual_value(newval, reqs, addnewline)
+  def validate_individual_value(newval, reqs, addnewline, in_use: [])
     ok = true
     if reqs['boolean'] and newval != true and newval != false and newval != nil
       puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must be true or false)".light_red.on_black
+      puts "\n\n" if addnewline
+      ok = false
+    elsif in_use.size > 0 and in_use.include?(newval)
+      puts "\n##{reqs['title'].bold} #{newval} not available".light_red.on_black
       puts "\n\n" if addnewline
       ok = false
     elsif reqs['pattern']
@@ -677,11 +805,11 @@ def validate(newval, reqs, addnewline = true)
       ok = false
     else
       newval.each { |v|
-        ok = false if !validate_individual_value(v, reqs, addnewline)
+        ok = false if !validate_individual_value(v, reqs, addnewline, in_use: in_use)
       }
     end
   else
-    ok = false if !validate_individual_value(newval, reqs, addnewline)
+    ok = false if !validate_individual_value(newval, reqs, addnewline, in_use: in_use)
   end
   ok
 end
@@ -707,11 +835,21 @@ def entireConfigValid?
   ok
 end
 
-def menu
+def generateMiniMenu(srctree)
+  map = {}
+  tree = cloneHash(srctree)
+  return [tree, map]
+end
+
+def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_names = [])
   begin
-    optlist = displayCurrentOpts
+    optlist = displayCurrentOpts(tree)
     begin
-      print "Enter an option to change, "+"O".bold+" to save this config, or "+"^D".bold+" to quit.\n> "
+      if submenu_name
+        print "Enter an option to change, "+"O".bold+" to save #{submenu_name.bold}, or "+"q".bold+" to return.\n> "
+      else
+        print "Enter an option to change, "+"O".bold+" to save this config, or "+"^D".bold+" to quit.\n> "
+      end
       answer = gets
       if answer.nil?
         puts ""
@@ -722,23 +860,69 @@ def menu
       puts ""
       exit 0
     end
-    if $MENU_MAP.has_key?(answer) and !$MENU_MAP[answer].has_key?("subtree")
-      newval = ask($MENU_MAP[answer])
-      if !validate(newval, $MENU_MAP[answer])
+
+    if map.has_key?(answer) and map[answer]["#addnew"]
+      minimap = {}
+      assignMenuEntries(map[answer], minimap)
+      newtree, newmap = menu(
+        map[answer],
+        minimap,
+        map[answer]['#title']+" (NEW)",
+        map[answer]['#entries'].keys.reject { |k| k.match(/^#/) }
+      )
+      if newtree
+        newname = newtree["name"]["value"]
+        newtree.delete("#addnew")
+        parentname = map[answer]['#key']
+
+        tree[parentname]['subtree'] ||= {}
+        tree[parentname]['subtree']['#entries'] ||= {}
+        # if we're in cloud land and just added a 2nd entry, set the original
+        # one to 'default'
+        if tree[parentname]['subtree']['#entries'].size == 1
+        end
+        tree[parentname]['subtree']['#entries'][newname] = cloneHash(newtree)
+
+        map = {} # rebuild the menu map to include new entries
+        assignMenuEntries(tree, map)
+      end
+#      exit
+#      map[answer] = newtree if newtree
+    elsif map.has_key?(answer) and map[answer]["is_submenu"]
+      minimap = {}
+      parentname = map[answer]['#key']
+      entryname = map[answer]['#title']
+      puts PP.pp(map[answer], '').yellow
+      puts PP.pp(tree[parentname]['subtree']['#entries'][entryname], '').red
+      assignMenuEntries(tree[parentname]['subtree']['#entries'][entryname], minimap)
+      newtree, newmap = menu(
+        map[answer],
+        minimap,
+        map[answer]["#title"], 
+        (map[answer]['#entries'].keys - [map[answer]['#title']])
+      )
+      map[answer] = newtree if newtree
+    elsif map.has_key?(answer) and !map[answer].has_key?("subtree")
+      newval = ask(map[answer])
+      if !validate(newval, map[answer], in_use: in_use_names)
         sleep 1
         next
       end
-      $MENU_MAP[answer]['value'] = newval == "" ? nil : newval
-      $CHANGES.concat($MENU_MAP[answer]['changes']) if $MENU_MAP[answer].include?("changes")
-      if $MENU_MAP[answer]['title'] == "Local Hostname"
-        $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
-      elsif $MENU_MAP[answer]['title'] == "Public Address"
+      map[answer]['value'] = newval == "" ? nil : newval
+      tree[map[answer]['#key']]['value'] = newval
+      $CHANGES.concat(map[answer]['changes']) if map[answer].include?("changes")
+      if map[answer]['title'] == "Local Hostname"
+#        $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
+#        $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = newval
+      elsif map[answer]['title'] == "Public Address"
         $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
-      elsif $MENU_MAP[answer]['title'] == "Mu Admin Email"
+      elsif map[answer]['title'] == "Mu Admin Email"
         $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = newval
       end
       changed = true
       puts ""
+    elsif ["q", "Q"].include?(answer)
+      return nil
     elsif !["", "0", "O", "o"].include?(answer)
       puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
       sleep 1
@@ -746,16 +930,27 @@ def menu
       answer = nil if !entireConfigValid?
     end
   end while answer != "0" and answer != "O" and answer != "o"
+
+  return [tree, map]
 end
 
 if !$opts[:noninteractive]
-  menu
+  $CONFIGURABLES, $MENU_MAP = menu
+  $MU_CFG = setConfigTree
 else
   if !entireConfigValid?
     puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
     exit 1
   end
 end
+
+if AMROOT
+  newcfg = cloneHash($MU_CFG)
+  newcfg['multiuser'] = true
+  saveMuConfig(newcfg)
+  $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
+end
+exit # XXX delete when done testing
 
 def set389DSCreds
   require 'mu'
@@ -817,7 +1012,7 @@ if AMROOT
   pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
   if cur_chef_version != pref_chef_version
     puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
-    chef_installer = open("https://www.chef.io/chef/install.sh").read
+    chef_installer = open("https://omnitruck.chef.io/install.sh").read
     File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
       f.puts chef_installer
     }

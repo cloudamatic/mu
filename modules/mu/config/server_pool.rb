@@ -41,11 +41,7 @@ module MU
             "min_size" => {"type" => "integer"},
             "max_size" => {"type" => "integer"},
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "desired_capacity" => {
                 "type" => "integer",
                 "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
@@ -68,90 +64,6 @@ module MU
                 "description" => "A comma-separated list of subnet identifiers of Amazon Virtual Private Clouds (Amazon VPCs).
 
           If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
-            },
-            "scaling_policies" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "type" => "object",
-                    "required" => ["name", "type"],
-                    "additionalProperties" => false,
-                    "description" => "A custom AWS Autoscale scaling policy for this pool.",
-                    "properties" => {
-                        "name" => {
-                            "type" => "string"
-                        },
-                        "alarms" => MU::Config::Alarm.inline,
-                        "type" => {
-                            "type" => "string",
-                            "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
-                            "description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current capacity. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
-                        },
-                        "adjustment" => {
-                            "type" => "integer",
-                            "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity. Used only when policy_type is set to 'SimpleScaling'"
-                        },
-                        "cooldown" => {
-                            "type" => "integer",
-                            "default" => 1,
-                            "description" => "The amount of time, in seconds, after a scaling activity completes and before the next scaling activity can start."
-                        },
-                        "min_adjustment_magnitude" => {
-                            "type" => "integer",
-                            "description" => "Used when 'type' is set to 'PercentChangeInCapacity', the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
-                        },
-                        "policy_type" => {
-                          "type" => "string",
-                          "enum" => ["SimpleScaling", "StepScaling"],
-                          "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value provided. Defaults to 'SimpleScaling'.",
-                          "default" => "SimpleScaling"
-                        },
-                        "metric_aggregation_type" => {
-                          "type" => "string",
-                          "enum" => ["Minimum", "Maximum", "Average"],
-                          "description" => "Defaults to 'Average' if not specified. Required when policy_type is set to 'StepScaling'",
-                          "default" => "Average"
-                        },
-                        "step_adjustments" => {
-                          "type" => "array",
-                          "minItems" => 1,
-                          "items" => {
-                            "type" => "object",
-                            "title" => "admin",
-                            "description" => "Requires policy_type 'StepScaling'",
-                            "required" => ["adjustment"],
-                            "additionalProperties" => false,
-                            "properties" => {
-                              "adjustment" => {
-                                  "type" => "integer",
-                                  "description" => "The number of instances by which to scale at this specific step. Postive value when adding capacity, negative value when removing capacity"
-                              },
-                              "lower_bound" => {
-                                  "type" => "integer",
-                                  "description" => "The lower bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being added this value will most likely be 0"
-                              },
-                              "upper_bound" => {
-                                  "type" => "integer",
-                                  "description" => "The upper bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being removed this value will most likely be 0"
-                              }
-                            }
-                          }
-                        },
-                        "estimated_instance_warmup" => {
-                          "type" => "integer",
-                          "description" => "Required when policy_type is set to 'StepScaling'"
-                        }
-                    }
-                }
-            },
-            "termination_policies" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "type" => "String",
-                    "default" => "Default",
-                    "enum" => ["Default", "OldestInstance", "NewestInstance", "OldestLaunchConfiguration", "ClosestToNextInstanceHour"]
-                }
             },
             #XXX this needs its own primitive and discovery mechanism
             "zones" => {

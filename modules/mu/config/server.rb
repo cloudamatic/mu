@@ -142,11 +142,7 @@ module MU
               "description" => "Remove pre-existing groomer agents from node before bootstrapping. Especially useful for image builds."
           },
           "tags" => MU::Config.tags_primitive,
-          "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-              "default" => true
-          },
+          "optional_tags" => MU::Config.optional_tags_primitive,
           "alarms" => MU::Config::Alarm.inline,
           "active_directory" => {
               "type" => "object",
