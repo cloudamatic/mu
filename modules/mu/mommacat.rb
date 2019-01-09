@@ -1037,6 +1037,7 @@ module MU
         name: nil,
         mu_name: nil,
         cloud_id: nil,
+        credentials: nil,
         region: nil,
         tag_key: nil,
         tag_value: nil,

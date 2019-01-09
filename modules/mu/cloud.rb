@@ -559,6 +559,7 @@ module MU
         attr_reader :deploy_id
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :credentials
         attr_reader :url
         attr_reader :config
         attr_reader :deploydata
@@ -631,6 +632,7 @@ module MU
           @config = kitten_cfg
           @delayed_save = delayed_save
           @cloud_id = cloud_id
+          @credentials ||= kitten_cfg['credentials']
 
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
@@ -731,7 +733,7 @@ module MU
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
                 @cloud_desc_cache = matches[@cloud_id]
               else
