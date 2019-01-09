@@ -1193,7 +1193,12 @@ module MU
                     end
                   end
                 end
-                cfg = {"name" => name, "cloud" => cloud, "region" => r}
+                cfg = {
+                  "name" => name,
+                  "cloud" => cloud,
+                  "region" => r,
+                  "credentials" => credentials
+                }
                 # If we can at least find the config from the deploy this will
                 # belong with, use that, even if it's an ungroomed resource.
                 if !calling_deploy.nil? and

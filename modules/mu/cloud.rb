@@ -624,6 +624,7 @@ module MU
         def initialize(mommacat: nil,
                        mu_name: nil,
                        cloud_id: nil,
+                       credentials: nil,
                        kitten_cfg: nil,
                        delayed_save: false)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
@@ -632,6 +633,7 @@ module MU
           @config = kitten_cfg
           @delayed_save = delayed_save
           @cloud_id = cloud_id
+          @credentials = credentials
           @credentials ||= kitten_cfg['credentials']
 
           if !@deploy.nil?
@@ -733,11 +735,12 @@ module MU
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
+
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
                 @cloud_desc_cache = matches[@cloud_id]
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}/#{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
@@ -758,6 +761,7 @@ module MU
           end
           res_type = self.class.cfg_plural
           res_name = @config['name'] if !@config.nil?
+          @credentials ||= @config['credentials'] if !@config.nil?
           deploydata = nil
           if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
               !@deploy.deployment.nil? and
