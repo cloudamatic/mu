@@ -1543,23 +1543,23 @@ module MU
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
-
+#XXX 'credentials' should probably happen here too
       schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
-          if !$MU_CFG['google'] or !$MU_CFG['google']['region']
+          if MU::Cloud::Google.myRegion.nil?
             raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
           end
-          kitten['region'] ||= $MU_CFG['google']['region']
+          kitten['region'] ||= MU::Cloud::Google.myRegion
         end
       else
-        if !$MU_CFG['aws'] or !$MU_CFG['aws']['region']
-          raise ValidationError, "AWS resource declared without a region, but no default AWS region declared in mu.yaml"
+        if MU::Cloud::AWS.myRegion.nil?
+          raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end
-        kitten['region'] ||= $MU_CFG['aws']['region']
+        kitten['region'] ||= MU::Cloud::AWS.myRegion
       end
 
       kitten['us_only'] ||= @config['us_only']

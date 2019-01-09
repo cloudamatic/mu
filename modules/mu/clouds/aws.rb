@@ -255,10 +255,14 @@ module MU
       def self.writeDeploySecret(deploy_id, value, name = nil)
         name ||= deploy_id+"-secret"
         begin
-          MU.log "Writing #{name} to S3 bucket #{MU.adminBucketName}"
+          creds = credConfig
+
+          creds['log_bucket_name']
+
+          MU.log "Writing #{name} to S3 bucket #{creds['log_bucket_name']}"
           MU::Cloud::AWS.s3(region: myRegion).put_object(
             acl: "private",
-            bucket: MU.adminBucketName,
+            bucket: creds['log_bucket_name'],
             key: name,
             body: value
           )

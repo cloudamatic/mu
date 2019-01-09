@@ -47,7 +47,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           if @config["zones"] == nil
-            @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
+            @config["zones"] = MU::Cloud::AWS.listAZs(region: @config['region'])
             MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
           end
 

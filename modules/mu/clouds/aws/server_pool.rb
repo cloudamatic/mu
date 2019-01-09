@@ -1376,7 +1376,7 @@ module MU
           # Do the dance of specifying individual zones if we haven't asked to
           # use particular VPC subnets.
           if @config['zones'].nil? and asg_options[:vpc_zone_identifier].nil?
-            @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
+            @config["zones"] = MU::Cloud::AWS.listAZs(region: @config['region'])
             MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
           end
           asg_options[:availability_zones] = @config["zones"] if @config["zones"] != nil

@@ -332,7 +332,6 @@ def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
       lettercount = 0
       if data['named_subentries']
         # Generate a stub entry for adding a new item
-        pp data["subtree"].keys
         map[count.to_s] = cloneHash(data["subtree"])
         map[count.to_s].each_pair { |k, v| v.delete("value") } # use defaults
         map[count.to_s]["name"] = {

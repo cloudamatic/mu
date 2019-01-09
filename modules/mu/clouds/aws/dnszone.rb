@@ -330,7 +330,7 @@ module MU
         # @param vpc_id [String]: The cloud identifier of the VPC
         # @param region [String]: The cloud provider's region
         # @param remove [Boolean]: Whether to remove access (default: grant access)
-        def self.toggleVPCAccess(id: nil, vpc_id: nil, region: MU.curRegion, remove: false)
+        def self.toggleVPCAccess(id: nil, vpc_id: nil, region: MU.curRegion, remove: false, credentials: nil)
 
           if !remove
             MU.log "Granting VPC #{vpc_id} access to zone #{id}"

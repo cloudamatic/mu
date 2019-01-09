@@ -49,7 +49,7 @@ module MU
           resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc(cidr_block: @config['ip_block']).vpc
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
-          MU::MommaCat.createStandardTags(vpc_id, region: @config['region'])
+          MU::MommaCat.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
           if @config['tags']
@@ -104,7 +104,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_internet_gateway
             internet_gateway_id = resp.internet_gateway.internet_gateway_id
             sleep 5
-            MU::MommaCat.createStandardTags(internet_gateway_id, region: @config['region'])
+            MU::MommaCat.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
             MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             if @config['tags']
               @config['tags'].each { |tag|
@@ -202,7 +202,7 @@ module MU
                     availability_zone: az
                 ).subnet
                 subnet_id = subnet['subnet_id'] = resp.subnet_id
-                MU::MommaCat.createStandardTags(subnet_id, region: @config['region'])
+                MU::MommaCat.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
                 MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
                 if @config['tags']
                   @config['tags'].each { |tag|
@@ -439,7 +439,7 @@ module MU
                 dhcp_configurations: dhcpopts
             )
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
-            MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'])
+            MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
             MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
             if @config['tags']
@@ -459,9 +459,9 @@ module MU
           notify
 
           if !MU::Cloud::AWS.isGovCloud?(@config['region'])
-            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: @config['credentials']).values.first
             if !mu_zone.nil?
-              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
+              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'], credentials: @config['credentials'])
             end
           end
 					loadSubnets
@@ -530,7 +530,7 @@ module MU
               peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer_id)
 
               peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
-              MU::MommaCat.createStandardTags(peering_id, region: @config['region'])
+              MU::MommaCat.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
@@ -588,7 +588,7 @@ module MU
                     end
 
                     # Create routes back from our new friend to us.
-                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region'], @config['credentials']).each { |rtb_id|
+                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region'], credentials: @config['credentials']).each { |rtb_id|
                       peer_route_config = {
                           :route_table_id => rtb_id,
                           :destination_cidr_block => @config['ip_block'],
@@ -741,6 +741,7 @@ module MU
               @config['subnets'].each { |subnet|
                 subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
                 subnet['region'] = @config['region']
+                subnet['credentials'] = @config['credentials']
                 if !resp.nil? and !resp.data.nil? and !resp.data.subnets.nil?
                   resp.data.subnets.each { |desc|
                     if desc.cidr_block == subnet["ip_block"]
@@ -776,6 +777,7 @@ module MU
                 subnet["tags"] = MU.structToHash(desc.tags)
                 subnet["cloud_id"] = desc.subnet_id
                 subnet['region'] = @config['region']
+                subnet['credentials'] = @config['credentials']
                 if !ext_ids.include?(desc.subnet_id)
                   @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
                 end
@@ -986,7 +988,7 @@ module MU
                 vpc_id = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_subnets(subnet_ids: subnet_key.split(",")).subnets.first.vpc_id
                 MU.log "No route table associations found for #{subnet_key}, falling back to the default table for #{vpc_id}", MU::NOTICE
                 route_tables = MU::Cloud::AWS::VPC.get_route_tables(vpc_ids: [vpc_id], region: region, credentials: credentials)
-              en, credentials: credentialsd
+              end
 
               @rtb_cache[subnet_key] = route_tables
             end
@@ -1339,7 +1341,7 @@ module MU
 
           if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
             if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
-              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(vpc['region'])
+              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(region: vpc['region'])
             else
               # turn into a hash so we can use list parameters easily
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
@@ -1440,7 +1442,7 @@ module MU
           vpc_id = @cloud_id
           vpc_name = @config['name']
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
-          resp = MU::Cloud::AWS.ec2.create_route_table(vpc_id: vpc_id).route_table
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route_table(vpc_id: vpc_id).route_table
           route_table_id = rtb['route_table_id'] = resp.route_table_id
           sleep 5
           MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase, credentials: @config['credentials'])
@@ -1457,7 +1459,7 @@ module MU
             }
           end
 
-          MU::MommaCat.createStandardTags(route_table_id)
+          MU::MommaCat.createStandardTags(route_table_id, credentials: @config['credentials'])
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?
               route_config = {
@@ -1473,7 +1475,7 @@ module MU
               unless route['gateway'] == '#NAT'
                 # Need to change the order of how things are created to create the route here
                 MU.log "Creating route for #{route['destination_network']}", details: route_config
-                resp = MU::Cloud::AWS.ec2.create_route(route_config)
+                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(route_config)
               end
             end
           }
@@ -1853,7 +1855,7 @@ module MU
             if !MU::Cloud::AWS.isGovCloud?(region)
               mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region, credentials: credentials).values.first
               if !mu_zone.nil?
-                MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+                MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true, credentials: credentials)
               end
             end
           }
