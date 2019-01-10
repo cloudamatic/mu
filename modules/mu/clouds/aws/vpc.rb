@@ -504,7 +504,7 @@ module MU
                         if peerpeer['vpc']['vpc_name'] == @config['name'] and
                            (peer['vpc']['vpc_name'] <=> @config['name']) == -1
                           skipme = true
-                          MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring redundant declaration", MU::WARN
+                          MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::WARN
 # XXX and if deploy_id matches or is unset
                         end
                       }
@@ -578,6 +578,7 @@ module MU
                   :vpc_peering_connection_id => peering_id
                 }
                 begin
+                  MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}"
                   resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(my_route_config)
                 rescue Aws::EC2::Errors::RouteAlreadyExists => e
                   rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
@@ -594,7 +595,7 @@ module MU
                     end
                   }
                 end
-              }
+              } # MU::Cloud::AWS::VPC.listAllSubnetRouteTables
 
               begin
                 cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
@@ -608,12 +609,19 @@ module MU
                       MU::Cloud::AWS.ec2(region: @config['region'], credentials: peer['account']).accept_vpc_peering_connection(
                         vpc_peering_connection_id: peering_id
                       )
+                      if peer['account'] != MU::Cloud::AWS.credToAcct(@config['credentials'])
+                        # this seems to take a while across accounts
+                        sleep 5
+                      end
+                      cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
+                        vpc_peering_connection_ids: [peering_id]
+                      ).vpc_peering_connections.first
                     rescue Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists => e
                       MU.log "Attempt to create duplicate peering connection to #{peer_id} from VPC #{@config['name']}", MU::WARN
                     end
 
                     # Create routes back from our new friend to us.
-                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region'], credentials: peer['account']).each { |rtb_id|
+                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region'], credentials: peer['account']).uniq.each { |rtb_id|
                       peer_route_config = {
                         :route_table_id => rtb_id,
                         :destination_cidr_block => @config['ip_block'],
@@ -622,7 +630,16 @@ module MU
                       begin
                         resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: peer['account']).create_route(peer_route_config)
                       rescue Aws::EC2::Errors::RouteAlreadyExists => e
-                        MU.log "Attempt to create duplicate route to #{@config['ip_block']} from VPC #{peer_id}", MU::WARN
+                        rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: peer['account']).describe_route_tables(
+                          route_table_ids: [rtb_id]
+                        ).route_tables.first
+                        rtbdesc.routes.each { |r|
+                          if r.destination_cidr_block == @config['ip_block']
+                            if r.vpc_peering_connection_id != peering_id
+                              MU.log "Attempt to create duplicate route to VPC #{@config['name']} (#{@config['ip_block']}) from peer VPC #{peer_id}'s route table #{rtb_id}", MU::ERR
+                            end
+                          end
+                        }
                       end
                     }
                   else
@@ -641,7 +658,8 @@ module MU
                   end
                   raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
                 end
-              end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']))
+
+              end while cnxn.status.code != "active" and !((peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']) and cnxn.status.code == "pending-acceptance")
 
             }
           end
