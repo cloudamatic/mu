@@ -47,7 +47,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticache:"+@config['region']+":"+MU.account_number+":cluster/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticache:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":cluster/"+@cloud_id
         end
 
         # Locate an existing Cache Cluster or Cache Clusters and return an array containing matching AWS resource descriptors for those that match.

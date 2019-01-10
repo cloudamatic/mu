@@ -246,7 +246,7 @@ module MU
               end
               MU::MommaCat.unlock(instance.instance_id+"-create")
             else
-              MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
+              MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             end
             done = true
@@ -516,7 +516,7 @@ module MU
           return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 
-          MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
+          MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
@@ -552,7 +552,7 @@ module MU
               end
               sleep 40
               # Get a fresh AWS descriptor
-              instance = MU::Cloud::Server.find(cloud_id: @cloud_id, region: @config['region']).values.first
+              instance = MU::Cloud::Server.find(cloud_id: @cloud_id, region: @config['region'], credentials: @config['credentials']).values.first
               if instance and instance.state.name == "terminated"
                 raise MuError, "EC2 instance #{node} (#{@cloud_id}) terminating during bootstrap!"
               end
@@ -750,7 +750,7 @@ module MU
                 subnet_id = subnet.cloud_id
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
                 iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
-                MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
+                MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'], credentials: @config['credentials'])
 
                 if @config['optional_tags']
@@ -957,8 +957,9 @@ module MU
         # @param ip [String]: An IP address associated with the instance
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
 # XXX put that 'ip' value into opts
+          ip ||= flags['ip']
           instance = nil
           if !region.nil?
             regions = [region]
@@ -977,7 +978,7 @@ module MU
                 MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
                 retries = 0
                 begin
-                  MU::Cloud::AWS.ec2(region: region).describe_instances(
+                  MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_instances(
                       instance_ids: [cloud_id],
                       filters: [
                           {name: "instance-state-name", values: ["running", "pending"]}
@@ -1018,7 +1019,7 @@ module MU
           if instance.nil? and !ip.nil?
             MU.log "Hunting for instance by IP '#{ip}'", MU::DEBUG
             ["ip-address", "private-ip-address"].each { |filter|
-              response = MU::Cloud::AWS.ec2(region: region).describe_instances(
+              response = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_instances(
                   filters: [
                       {name: filter, values: [ip]},
                       {name: "instance-state-name", values: ["running", "pending"]}
@@ -1035,7 +1036,7 @@ module MU
           # Fine, let's try it by tag.
           if !tag_value.nil?
             MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
-            MU::Cloud::AWS.ec2(region: region).describe_instances(
+            MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_instances(
                 filters: [
                     {name: "tag:#{tag_key}", values: [tag_value]},
                     {name: "instance-state-name", values: ["running", "pending"]}
@@ -1240,7 +1241,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU.account_number+":instance/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":instance/"+@cloud_id
         end
 
         def cloud_desc
@@ -2160,6 +2161,7 @@ module MU
           else
             role = {
               "name" => server["name"],
+              "credentials" => server["credentials"],
               "can_assume" => [
                 {
                   "entity_id" => "ec2.amazonaws.com",

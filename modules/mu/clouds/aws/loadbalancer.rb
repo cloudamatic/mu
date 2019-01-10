@@ -549,7 +549,7 @@ module MU
         # @return [String]
         def arn
           if @config['classic']
-            "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticloadbalancing:"+@config['region']+":"+MU.account_number+":loadbalancer/"+@cloud_id
+            "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticloadbalancing:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":loadbalancer/"+@cloud_id
           else
             cloud_desc.load_balancer_arn
           end

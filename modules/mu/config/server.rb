@@ -555,7 +555,9 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
 
-        server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
+        if !server['scrub_mu_isms']
+          server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
+        end
 
         if !server["vpc"].nil?
           # Common mistake- using all_public or all_private subnet_pref for

@@ -933,7 +933,12 @@ module MU
          ["server", "server_pool", "database"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
 
-        acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
+        acl = {
+          "name" => fwname,
+          "rules" => descriptor['ingress_rules'],
+          "region" => descriptor['region'],
+          "credentials" => descriptor["credentials"]
+        }
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
@@ -992,6 +997,7 @@ module MU
         descriptor["alarms"].each { |alarm|
           alarm["name"] = "#{cfg_name}-#{descriptor["name"]}-#{alarm["name"]}"
           alarm['dimensions'] = [] if !alarm['dimensions']
+          alarm["credentials"] = descriptor["credentials"]
           alarm["#TARGETCLASS"] = cfg_name
           alarm["#TARGETNAME"] = descriptor['name']
           alarm['cloud'] = descriptor['cloud']
@@ -1187,7 +1193,7 @@ module MU
     # @param cloud [String]: The parent resource's cloud plugin identifier
     # @param region [String]: Cloud provider region, if applicable.
     # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil, credentials: nil)
       if !cloud or (cloud == "AWS" and !region)
         raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
       end
@@ -1232,7 +1238,7 @@ module MU
         ]
       end
 
-      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
+      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
       acl.delete("vpc") if !acl["vpc"]
       acl["region"] == region if !region.nil? and !region.empty?
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)

@@ -180,7 +180,9 @@ module MU
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(pool)
 
-        pool['dependencies'] << configurator.adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
+        if !pool['scrub_mu_isms']
+          pool['dependencies'] << configurator.adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'], credentials: pool['credentials'])
+        end
 
         if !pool["vpc"].nil?
           if !pool["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(pool["vpc"]["subnet_name"])

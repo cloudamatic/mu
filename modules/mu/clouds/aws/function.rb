@@ -216,11 +216,11 @@ module MU
             arn = nil
             case svc.downcase
             when 'sns'
-              arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{name}"
+              arn = "arn:aws:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 'alarm','events', 'event', 'cloudwatch_event'
-              arn = "arn:aws:events:#{@config['region']}:#{MU.account_number}:rule/#{name}"
+              arn = "arn:aws:events:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:rule/#{name}"
             when 'apigateway'
-              arn = "arn:aws:apigateway:#{@config['region']}:#{MU.account_number}:#{name}"
+              arn = "arn:aws:apigateway:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 's3'
               arn = ''
             end

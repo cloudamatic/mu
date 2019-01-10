@@ -51,7 +51,6 @@ module MU
           vpc_id = @vpc.cloud_id if !@vpc.nil?
           groupname = @mu_name
           description = groupname
-          MU.log "Creating EC2 Security Group #{groupname}"
 
           sg_struct = {
             :group_name => groupname,
@@ -62,6 +61,8 @@ module MU
           end
 
           begin
+            MU.log "Creating EC2 Security Group #{groupname}", details: sg_struct
+
             secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
           rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
@@ -85,7 +86,7 @@ module MU
             retry
           end
 
-          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'])
+          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
@@ -185,7 +186,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU.account_number+":security-group/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":security-group/"+@cloud_id
         end
 
         # Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
@@ -571,7 +572,7 @@ module MU
                   if !lb.nil? and !lb.cloud_desc.nil?
                     lb.cloud_desc.security_groups.each { |lb_sg|
                       ec2_rule[:user_id_group_pairs] << {
-                        user_id: MU.account_number,
+                        user_id: MU::Cloud::AWS.credToAcct(@config['credentials']),
                         group_id: lb_sg
                       }
                     }

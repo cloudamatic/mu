@@ -106,7 +106,7 @@ module MU
             @config['iam_policies'].each { |policy|
               policy_name = @mu_name+"-"+policy.keys.first.upcase
 
-              arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU.account_number+":policy/#{@deploy.deploy_id}/#{policy_name}"
+              arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
               resp = begin
                 desc = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
 
@@ -350,13 +350,13 @@ module MU
         def bindTo(entitytype, entityname)
           if entitytype == "instance_profile"
             begin
-              MU::Cloud::AWS.iam.add_role_to_instance_profile(
+              MU::Cloud::AWS.iam(credentials: @config['credentials']).add_role_to_instance_profile(
                 instance_profile_name: entityname,
                 role_name: @mu_name
               )
             end
           elsif ["user", "group", "role"].include?(entitytype)
-            mypolicies = MU::Cloud::AWS.iam.list_policies(
+            mypolicies = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policies(
               path_prefix: "/"+@deploy.deploy_id+"/"
             ).policies
             mypolicies.reject! { |p|
@@ -368,7 +368,7 @@ module MU
                 if !policy.match(/^arn:/i)
                   policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
                 end
-                mypolicies << MU::Cloud::AWS.iam.get_policy(
+                mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(
                   policy_arn: policy
                 ).policy
               }
@@ -376,37 +376,37 @@ module MU
 
             mypolicies.each { |p|
               if entitytype == "user"
-                resp = MU::Cloud::AWS.iam.list_attached_user_policies(
+                resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_attached_user_policies(
                   path_prefix: "/"+@deploy.deploy_id+"/",
                   user_name: entityname
                 )
                 if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching IAM policy #{p.policy_name} to user #{entityname}", MU::NOTICE
-                  MU::Cloud::AWS.iam.attach_user_policy(
+                  MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_user_policy(
                     policy_arn: p.arn,
                     user_name: entityname
                   )
                 end
               elsif entitytype == "group"
-                resp = MU::Cloud::AWS.iam.list_attached_group_policies(
+                resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_attached_group_policies(
                   path_prefix: "/"+@deploy.deploy_id+"/",
                   group_name: entityname
                 )
                 if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to group #{entityname}", MU::NOTICE
-                  MU::Cloud::AWS.iam.attach_group_policy(
+                  MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_group_policy(
                     policy_arn: p.arn,
                     group_name: entityname
                   )
                 end
               elsif entitytype == "role"
-                resp = MU::Cloud::AWS.iam.list_attached_role_policies(
+                resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_attached_role_policies(
                   role_name: entityname
                 )
 
                 if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to role #{entityname}", MU::NOTICE
-                  MU::Cloud::AWS.iam.attach_role_policy(
+                  MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_role_policy(
                     policy_arn: p.arn,
                     role_name: entityname
                   )
@@ -426,18 +426,19 @@ module MU
           end
 
           resp = begin
-            MU::Cloud::AWS.iam.create_instance_profile(
+            MU.log "Creating instance profile #{@mu_name} #{@config['credentials']}"
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_instance_profile(
               instance_profile_name: @mu_name
             )
           rescue Aws::IAM::Errors::EntityAlreadyExists => e
-            MU::Cloud::AWS.iam.get_instance_profile(
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).get_instance_profile(
               instance_profile_name: @mu_name
             )
           end
 
           # make sure it's really there before moving on
           begin
-            MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: @mu_name)
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).get_instance_profile(instance_profile_name: @mu_name)
           rescue Aws::IAM::Errors::NoSuchEntity => e
             MU.log e.inspect, MU::WARN
             sleep 10
@@ -530,7 +531,7 @@ module MU
                 policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
               end
               begin
-                MU::Cloud::AWS.iam.get_policy(policy_arn: policy)
+                MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: policy)
               rescue Aws::IAM::Errors::NoSuchEntity => e
                 MU.log "No such canned AWS IAM policy '#{policy}'", MU::ERR
                 ok = false
@@ -675,17 +676,17 @@ module MU
         # Update a policy, handling deletion of old versions as needed
         def update_policy(arn, doc)
           begin
-            MU::Cloud::AWS.iam.create_policy_version(
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy_version(
               policy_arn: arn,
               set_as_default: true,
               policy_document: JSON.generate(doc)
             )
           rescue Aws::IAM::Errors::LimitExceeded => e
-            delete_version = MU::Cloud::AWS.iam.list_policy_versions(
+            delete_version = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policy_versions(
               policy_arn: arn,
             ).versions.last.version_id
             MU.log "Purging oldest version (#{delete_version}) of IAM policy #{arn}", MU::NOTICE
-            MU::Cloud::AWS.iam.delete_policy_version(
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).delete_policy_version(
               policy_arn: arn,
               version_id: delete_version
             )

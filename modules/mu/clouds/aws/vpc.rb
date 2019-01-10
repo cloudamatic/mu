@@ -472,7 +472,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU.account_number+":vpc/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":vpc/"+@cloud_id
         end
 
         # Describe this VPC

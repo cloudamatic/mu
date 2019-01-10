@@ -36,7 +36,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sns:"+@config['region']+":"+MU.account_number+":"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sns:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":"+@cloud_id
         end
 
         # Locate an existing notification.

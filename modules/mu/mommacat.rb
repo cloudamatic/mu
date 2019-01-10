@@ -807,8 +807,19 @@ module MU
       @ssh_private_key = File.read("#{ssh_dir}/#{@ssh_key_name}")
       @ssh_private_key.chomp!
 
-      if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool"]) > 0
-        MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key)
+      if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool", "ContainerCluster"]) > 0
+        creds_used = []
+        ["servers", "server_pools", "container_clusters"].each { |type|
+          next if @original_config[type].nil?
+          @original_config[type].each { |descriptor|
+            creds_used << descriptor['credentials'] if descriptor['credentials']
+          }
+        }
+        creds_used << nil if creds_used.empty?
+
+        creds_used.each { |credset|
+          MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key, credentials: credset)
+        }
       end
 
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key]

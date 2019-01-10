@@ -38,7 +38,7 @@ module MU
           @config["log_group_name"] = @mu_name
           @config["log_stream_name"] =
             if @config["enable_cloudtrail_logging"]
-              "#{MU.account_number}_CloudTrail_#{@config["region"]}"
+              "#{MU::Cloud::AWS.credToAcct(@config['credentials'])}_CloudTrail_#{@config["region"]}"
             else
               @mu_name
             end
@@ -103,7 +103,7 @@ module MU
 
           if @config["enable_cloudtrail_logging"]
             trail_resp = MU::Cloud::AWS.cloudtrail(region: @config["region"], credentials: @config["credentials"]).describe_trails.trail_list.first
-            raise MuError, "Can't find a cloudtrail in #{MU.account_number}/#{@config["region"]}. Please create cloudtrail before enabling logging on it" unless trail_resp
+            raise MuError, "Can't find a cloudtrail in #{MU::Cloud::AWS.credToAcct(@config['credentials'])}/#{@config["region"]}. Please create cloudtrail before enabling logging on it" unless trail_resp
 
             iam_policy = '{
               "Version": "2012-10-17",
@@ -116,7 +116,7 @@ module MU
                     "logs:PutLogEventsBatch",
                     "logs:PutLogEvents"
                   ],
-                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
+                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU::Cloud::AWS.credToAcct(@config['credentials'])+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
                 }
               ]
             }'
