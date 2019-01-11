@@ -39,9 +39,10 @@ module MU
       rescue NoMethodError
         "AWS"
       end
-      if MU::Cloud::Google.hosted
+# XXX this can be more generic
+      if MU::Cloud::Google.hosted?
         "Google"
-      elsif MU::Cloud::AWS.hosted
+      elsif MU::Cloud::AWS.hosted?
         "AWS"
       end
     end

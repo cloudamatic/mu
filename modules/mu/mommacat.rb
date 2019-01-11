@@ -1535,7 +1535,7 @@ module MU
 
       mu_zone = nil
       # XXX GCP!
-      if MU::Cloud::AWS.hosted and !MU::Cloud::AWS.isGovCloud?
+      if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
         zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
         mu_zone = zones.values.first if !zones.nil?
       end

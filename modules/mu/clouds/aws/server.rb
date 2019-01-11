@@ -1891,7 +1891,7 @@ module MU
             MU.log "Instance #{id} no longer exists", MU::DEBUG
           end
 
-          if !server_obj.nil? and MU::Cloud::AWS.hosted and !MU::Cloud::AWS.isGovCloud?
+          if !server_obj.nil? and MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
             # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
             cleaned_dns = false
             mu_name = server_obj.mu_name

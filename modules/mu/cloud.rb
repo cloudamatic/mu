@@ -39,8 +39,12 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
+    # Methods which a cloud resource implementation, e.g. Server, must implement
     generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
+
+    # Class methods which the base of a cloud implementation must implement
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :listInstanceTypes]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -399,16 +403,30 @@ module MU
       }
     end
 
+    # List of known/supported Cloud providers. This may be modified at runtime
+    # if an implemention is defective or missing required methods.
+    @@supportedCloudList = ["AWS", "CloudFormation", "Google"]
+
     # List of known/supported Cloud providers
     def self.supportedClouds
-      ["AWS", "CloudFormation", "Google"]
+      @@supportedCloudList
     end
 
     # Load the container class for each cloud we know about, and inject autoload
     # code for each of its supported resource type classes.
+    failed = []
     MU::Cloud.supportedClouds.each { |cloud|
       require "mu/clouds/#{cloud.downcase}"
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      generic_class_methods_toplevel.each { |method|
+        if !cloudclass.respond_to?(method)
+          MU.log "MU::Cloud::#{cloud} has not implemented required class method #{method}, disabling", MU::ERR
+          failed << cloud
+        end
+      }
     }
+    failed.uniq!
+    @@supportedCloudList = @@supportedCloudList - failed
 
     # @return [Mutex]
     def self.userdata_mutex

@@ -59,6 +59,16 @@ module MU
         sample
       end
 
+      # Return the name strings of all known sets of credentials for this cloud
+      # @return [Array<String>]
+      def self.listCredentials
+        if !$MU_CFG['google']
+          return hosted? ? ["#default"] : nil
+        end
+
+        $MU_CFG['google'].keys
+      end
+
       # If we've configured Google as a provider, or are simply hosted in GCP, 
       # decide what our default region is.
       def self.myRegion

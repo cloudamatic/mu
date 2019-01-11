@@ -190,14 +190,14 @@ module MU
 
       if !File.open("/etc/mtab").read.match(/ #{path} /)
         realdevice = device.dup
-        if MU::Cloud::Google.hosted
+        if MU::Cloud::Google.hosted?
           realdevice = "/dev/disk/by-id/google-"+device.gsub(/.*?\/([^\/]+)$/, '\1')
         end
         alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
 
         if !File.exists?(realdevice)
           MU.log "Creating #{path} volume"
-          if MU::Cloud::AWS.hosted
+          if MU::Cloud::AWS.hosted?
             dummy_svr = MU::Cloud::AWS::Server.new(
               mu_name: "MU-MASTER",
               cloud_id: MU.myInstanceId,
@@ -210,7 +210,7 @@ module MU
               tag_name: "Name",
               tag_value: "#{$MU_CFG['hostname']} #{path}"
             )
-          elsif MU::Cloud::Google.hosted
+          elsif MU::Cloud::Google.hosted?
             dummy_svr = MU::Cloud::Google::Server.new(
               mu_name: "MU-MASTER",
               cloud_id: MU.myInstanceId,
@@ -224,7 +224,7 @@ module MU
 
         if cryptfile
           body = nil
-          if MU::Cloud::AWS.hosted
+          if MU::Cloud::AWS.hosted?
             begin
               resp = MU::Cloud::AWS.s3.get_object(bucket: MU.adminBucketName, key: cryptfile)
               body = resp.body
@@ -233,7 +233,7 @@ module MU
               %x{/bin/dd if=/dev/urandom of=#{temp_dev} bs=1M count=1 > /dev/null 2>&1}
               raise e
             end
-          elsif MU::Cloud::Google.hosted
+          elsif MU::Cloud::Google.hosted?
             begin
               body = MU::Cloud::Google.storage.get_object(MU.adminBucketName, cryptfile)
             rescue Exception => e
