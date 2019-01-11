@@ -31,13 +31,12 @@ module MU
       # describe this environment as our target one.
       def self.hosted_config
         return nil if !hosted?
-        region = getAzureMetaData("compute/location").sub(/[a-z]$/i, "")
-        mac = getAzureMetaData("network/interfaces/macs/").split(/\n/)[0]
-        acct_num = getAzureMetaData("network/interfaces/macs/#{mac}owner-id")
+        region = getAzureMetaData("compute/location")
+        subscription_id = getAzureMetaData("compute/subscription_id")
         acct_num.chomp!
         {
           "region" => region,
-          "account_number" => acct_num
+          "subscription" => subscription_id
         }
       end
 
@@ -46,10 +45,11 @@ module MU
       # @return [String, nil]
       def self.getAzureMetaData(param)
         base_url = "http://169.254.169.254/metadata/instance"
+        api_version = '2017-12-01'
         begin
           response = nil
           Timeout.timeout(1) do
-            response = open("#{base_url}/#{param}").read
+            response = open("#{base_url}/#{param}?api-version=#{ api_version }").read
           end
 
           response
