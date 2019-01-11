@@ -66,24 +66,24 @@ module MU
         sample = hosted_config
         sample ||= {
           "region" => "eastus",
-          "account_id" => "123456789012",
+          "subscription" => "123456789012",
         }
         sample["credentials_file"] = "#{Etc.getpwuid(Process.uid).dir}/.azure/azure_credentials.json"
         sample["log_bucket_name"] = "my-azure-mu-storage-account"
         sample
       end
 
-      # If we've configured AWS as a provider, or are simply hosted in AWS, 
+      # If we've configured Azure as a provider, or are simply hosted in Azure, 
       # decide what our default region is.
       def self.myRegion
         return @@myRegion_var if @@myRegion_var
         return nil if credConfig.nil? and !hosted?
 
-        if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted?
+        if $MU_CFG and (!$MU_CFG['azure'] or !subscription) and !hosted?
           return nil
         end
 
-        if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
+        if $MU_CFG and $MU_CFG['azure'] and $MU_CFG['azure']['region']
           @@myRegion_var ||= MU::Cloud::AWS.ec2(region: $MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
           @@myRegion_var ||= MU::Cloud::AWS.ec2(region: ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
