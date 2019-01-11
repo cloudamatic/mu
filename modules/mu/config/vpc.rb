@@ -233,6 +233,7 @@ module MU
               "type" => "string",
               "description" => "Discover this VPC by looking for this cloud provider identifier."
             },
+            "credentials" => MU::Config.credentials_primitive,
             "vpc_name" => {
               "type" => "string",
               "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
@@ -439,7 +440,7 @@ module MU
       # @param is_sibling [Boolean]:
       # @param sibling_vpcs [Array]:
       # @param dflt_region [String]:
-      def self.processReference(vpc_block, parent_type, parent_name, configurator, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
+      def self.processReference(vpc_block, parent_type, parent_name, configurator, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion, credentials: nil)
         puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
         if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
           return true
@@ -464,6 +465,7 @@ module MU
                 deploy_id: vpc_block["deploy_id"],
                 cloud_id: vpc_block["vpc_id"],
                 name: vpc_block["vpc_name"],
+                credentials: vpc_block["credentials"],
                 tag_key: tag_key,
                 tag_value: tag_value,
                 region: vpc_block["region"],
@@ -472,6 +474,24 @@ module MU
               )
 
               ext_vpc = found.first if found.size == 1
+
+              # Make sure we don't have a weird mismatch between requested
+              # credential sets and the VPC we actually found
+              if ext_vpc and ext_vpc.cloudobj and ext_vpc.cloudobj.config and
+                 ext_vpc.cloudobj.config["credentials"]
+                if vpc_block['credentials'] and # probably can't happen
+                   vpc_block['credentials'] != ext_vpc.cloudobj.config["credentials"]
+                  ok = false
+                  MU.log "#{parent_type} #{parent_name} requested a VPC on credentials '#{vpc_block['credentials']}' but matched VPC is under credentials '#{ext_vpc.cloudobj.config["credentials"]}'", MU::ERR, details: vpc_block
+                end
+                if credentials and
+                   credentials != ext_vpc.cloudobj.config["credentials"]
+                  ok = false
+                  MU.log "#{parent_type} #{parent_name} is using credentials '#{credentials}' but matched VPC is under credentials '#{ext_vpc.cloudobj.config["credentials"]}'", MU::ERR, details: vpc_block
+                end
+                vpc_block['credentials'] ||= ext_vpc.cloudobj.config["credentials"]
+              end
+
             end
           rescue Exception => e
             raise MuError, e.inspect, e.backtrace

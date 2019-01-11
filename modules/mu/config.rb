@@ -896,6 +896,7 @@ module MU
                                   self,
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
+                                  credentials: descriptor['credentials'],
                                   sibling_vpcs: @kittens['vpcs'])
             ok = false
           end
@@ -907,11 +908,19 @@ module MU
           if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
                                   "#{shortclass} #{descriptor['name']}",
                                   self,
+                                  credentials: descriptor['credentials'],
                                   dflt_region: descriptor['region'])
             MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
           end
         end
+
+        # if we didn't specify credentials but can inherit some from our target
+        # VPC, do so
+        if descriptor["vpc"]["credentials"]
+          descriptor["credentials"] ||= descriptor["vpc"]["credentials"] 
+        end
+
         # Clean crud out of auto-created VPC declarations so they don't trip
         # the schema validator when it's invoked later.
         if !["server", "server_pool", "database"].include?(cfg_name)
@@ -1890,7 +1899,7 @@ module MU
           "default" => MU::Cloud::Google.defaultProject
         },
         "region" => MU::Config.region_primitive,
-        "credentials" =>  MU::Config.credentials_primitive,
+        "credentials" => MU::Config.credentials_primitive,
         "us_only" => {
             "type" => "boolean",
             "description" => "For resources which span regions, restrict to regions inside the United States",

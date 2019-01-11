@@ -1898,14 +1898,14 @@ module MU
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: credentials).values.first
             if !mu_zone.nil?
               zone_rrsets = []
-              rrsets = MU::Cloud::AWS.route53(credentials: credentials, region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
+              rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: mu_zone.id)
               rrsets.resource_record_sets.each{ |record|
                 zone_rrsets << record
               }
 
             # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
               while rrsets.next_record_name && rrsets.next_record_type
-                rrsets = MU::Cloud::AWS.route53(credentials: credentials, region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
                 rrsets.resource_record_sets.each{ |record|
                   zone_rrsets << record
                 }

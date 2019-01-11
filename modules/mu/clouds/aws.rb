@@ -345,6 +345,16 @@ module MU
         acct_num.to_s
       end
 
+      # Return the name strings of all known sets of credentials for this cloud
+      # @return [Array<String>]
+      def self.listCredentials
+        if !$MU_CFG['aws']
+          return hosted? ? ["#default"] : nil
+        end
+
+        $MU_CFG['aws'].keys
+      end
+
       # Return the $MU_CFG data associated with a particular profile/name/set of
       # credentials. If no account name is specified, will return one flagged as
       # default. Returns nil if AWS is not configured. Throws an exception if 

@@ -1068,6 +1068,13 @@ module MU
         shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
         resourceclass = MU::Cloud.loadCloudType(cloud, shortclass)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+
+        credlist = if credentials
+          [credentials]
+        else
+          cloudclass.listCredentials
+        end
+
         if (tag_key and !tag_value) or (!tag_key and tag_value)
           raise MuError, "Can't call findStray with only one of tag_key and tag_value set, must be both or neither"
         end
@@ -1154,82 +1161,84 @@ module MU
 
         matches = []
 
-        if cloud_id or (tag_key and tag_value) or !flags.empty?
-          regions = []
-          begin
-            if region
-              regions << region
-            else
-              regions = cloudclass.listRegions
+        credlist.each { |creds|
+          if cloud_id or (tag_key and tag_value) or !flags.empty?
+            regions = []
+            begin
+              if region
+                regions << region
+              else
+                regions = cloudclass.listRegions(credentials: creds)
+              end
+            rescue NoMethodError # Not all cloud providers have regions
+              regions = [""]
             end
-          rescue NoMethodError # Not all cloud providers have regions
-            regions = [""]
-          end
 
-          if cloud == "Google" and ["vpcs", "firewall_rules"].include?(cfg_plural)
-            regions = [nil]
-          end
-
-          cloud_descs = {}
-          regions.each { |r|
-            cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags)
-            # Stop if you found the thing
-            if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
-              break
+            if cloud == "Google" and ["vpcs", "firewall_rules"].include?(cfg_plural)
+              regions = [nil]
             end
-          }
-          regions.each { |r|
-            next if cloud_descs[r].nil?
-            cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
-              # We already have a MU::Cloud object for this guy, use it
-              if kittens.has_key?(kitten_cloud_id)
-                matches << kittens[kitten_cloud_id]
-              elsif kittens.size == 0
-                if !dummy_ok
-                  next
-                end
-                # If we don't have a MU::Cloud object, manufacture a dummy one.
-                # Give it a fake name if we have to and have decided that's ok.
-                if (name.nil? or name.empty?)
-                  if !dummy_ok
-                    MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
-                    next
-                  else
-                    if !mu_name.nil?
-                      name = mu_name
-                    elsif !tag_value.nil?
-                      name = tag_value
-                    else
-                      name = kitten_cloud_id
-                    end
-                  end
-                end
-                cfg = {
-                  "name" => name,
-                  "cloud" => cloud,
-                  "region" => r,
-                  "credentials" => credentials
-                }
-                # If we can at least find the config from the deploy this will
-                # belong with, use that, even if it's an ungroomed resource.
-                if !calling_deploy.nil? and
-                   !calling_deploy.original_config.nil? and
-                   !calling_deploy.original_config[type+"s"].nil?
-                  calling_deploy.original_config[type+"s"].each { |s|
-                    if s["name"] == name
-                      cfg = s.dup
-                      break
-                    end
-                  }
 
-                  matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
-                else
-                  matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
-                end
+            cloud_descs = {}
+            regions.each { |r|
+              cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds)
+              # Stop if you found the thing
+              if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
+                break
               end
             }
-          }
-        end
+            regions.each { |r|
+              next if cloud_descs[r].nil?
+              cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
+                # We already have a MU::Cloud object for this guy, use it
+                if kittens.has_key?(kitten_cloud_id)
+                  matches << kittens[kitten_cloud_id]
+                elsif kittens.size == 0
+                  if !dummy_ok
+                    next
+                  end
+                  # If we don't have a MU::Cloud object, manufacture a dummy one.
+                  # Give it a fake name if we have to and have decided that's ok.
+                  if (name.nil? or name.empty?)
+                    if !dummy_ok
+                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
+                      next
+                    else
+                      if !mu_name.nil?
+                        name = mu_name
+                      elsif !tag_value.nil?
+                        name = tag_value
+                      else
+                        name = kitten_cloud_id
+                      end
+                    end
+                  end
+                  cfg = {
+                    "name" => name,
+                    "cloud" => cloud,
+                    "region" => r,
+                    "credentials" => creds
+                  }
+                  # If we can at least find the config from the deploy this will
+                  # belong with, use that, even if it's an ungroomed resource.
+                  if !calling_deploy.nil? and
+                     !calling_deploy.original_config.nil? and
+                     !calling_deploy.original_config[type+"s"].nil?
+                    calling_deploy.original_config[type+"s"].each { |s|
+                      if s["name"] == name
+                        cfg = s.dup
+                        break
+                      end
+                    }
+
+                    matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id, credentials: creds)
+                  else
+                    matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, credentials: creds)
+                  end
+                end
+              }
+            }
+          end
+        }
       rescue Exception => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end

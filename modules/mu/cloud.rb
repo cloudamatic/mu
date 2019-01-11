@@ -948,7 +948,7 @@ module MU
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
               if args[:region] and cloudbase.respond_to?(:listRegions)
-                next if !cloudbase.listRegions.include?(args[:region])
+                next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
               end
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
 
