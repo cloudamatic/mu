@@ -164,7 +164,7 @@ module MU
           # If it's a URL, make sure it's good
           begin
             if cloud_id.match(/^https?:/i)
-              resp = MU::Cloud::AWS.sqs(region: region).get_queue_attributes(
+              resp = MU::Cloud::AWS.sqs(region: region, credentials: credentials).get_queue_attributes(
                 queue_url: cloud_id,
                 attribute_names: ["All"]
               )
@@ -175,7 +175,7 @@ module MU
               end
             else
               # If it's a plain queue name, resolve it to a URL
-              resp = MU::Cloud::AWS.sqs(region: region).get_queue_url(
+              resp = MU::Cloud::AWS.sqs(region: region, credentials: credentials).get_queue_url(
                 queue_name: cloud_id,
                 queue_owner_aws_account_id: flags['account']
               )
@@ -186,7 +186,7 @@ module MU
 
           # Go fetch its attributes
           if cloud_id
-            resp = MU::Cloud::AWS.sqs(region: region).get_queue_attributes(
+            resp = MU::Cloud::AWS.sqs(region: region, credentials: credentials).get_queue_attributes(
               queue_url: cloud_id,
               attribute_names: ["All"]
             )

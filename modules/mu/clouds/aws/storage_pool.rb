@@ -116,10 +116,10 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching storage pool
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
           map = {}
           if cloud_id
-            storge_pool = MU::Cloud::AWS.efs(region: region).describe_file_systems(
+            storge_pool = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems(
               file_system_id: cloud_id
             ).file_systems.first
             
@@ -127,11 +127,11 @@ module MU
           end
 
           if tag_value
-            storage_pools = MU::Cloud::AWS.efs(region: region).describe_file_systems.file_systems
+            storage_pools = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems.file_systems
           
             if !storage_pools.empty?
               storage_pools.each{ |pool|
-                tags = MU::Cloud::AWS.efs(region: region).describe_tags(
+                tags = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_tags(
                   file_system_id: pool.file_system_id
                 ).tags
 
@@ -157,7 +157,7 @@ module MU
         # Add our standard tag set to an Amazon EFS File System.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region
-        def addStandardTags(cloud_id: nil, region: MU.curRegion)
+        def addStandardTags(cloud_id: nil, region: MU.curRegion, credentials: nil)
           if cloud_id
             tags = []
             MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -180,7 +180,7 @@ module MU
 
             tags << {key: "Name", value: @mu_name} unless name_tag
 
-            MU::Cloud::AWS.efs(region: region).create_tags(
+            MU::Cloud::AWS.efs(region: region, credentials: credentials).create_tags(
               file_system_id: cloud_id,
               tags: tags
             )

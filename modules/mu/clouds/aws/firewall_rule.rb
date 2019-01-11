@@ -196,11 +196,11 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
-              resp = MU::Cloud::AWS.ec2(region: region).describe_security_groups(group_ids: [cloud_id])
+              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(group_ids: [cloud_id])
               return {cloud_id => resp.data.security_groups.first}
             rescue ArgumentError => e
               MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::WARN, details: caller
@@ -213,7 +213,7 @@ module MU
 
           map = {}
           if !tag_key.nil? and !tag_value.nil?
-            resp = MU::Cloud::AWS.ec2(region: region).describe_security_groups(
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
                 filters: [
                     {name: "tag:#{tag_key}", values: [tag_value]}
                 ]

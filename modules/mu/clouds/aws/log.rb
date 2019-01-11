@@ -265,9 +265,9 @@ module MU
           found = nil
           if !cloud_id.nil? and !cloud_id.match(/^arn:/i)
             found ||= {}
-            found[cloud_id] = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
+            found[cloud_id] = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region, credentials: nil)
           else
-            resp = MU::Cloud::AWS.cloudwatchlogs(region: region).describe_log_groups.log_groups.each { |group|
+            resp = MU::Cloud::AWS.cloudwatchlogs(region: region, credentials: credentials).describe_log_groups.log_groups.each { |group|
               if group.arn == cloud_id or group.arn.sub(/:\*$/, "") == cloud_id
                 found ||= {}
                 found[group.log_group_name] = group
@@ -354,8 +354,8 @@ module MU
         # @param name [String]: The cloud provider's identifier for this log group.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
-        def self.getLogGroupByName(name, region: MU.curRegion)
-          MU::Cloud::AWS.cloudwatchlogs(region: region).describe_log_groups(log_group_name_prefix: name).log_groups.first
+        def self.getLogGroupByName(name, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.cloudwatchlogs(region: region, credentials: credentials).describe_log_groups(log_group_name_prefix: name).log_groups.first
         end
       end
     end

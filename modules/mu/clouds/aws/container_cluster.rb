@@ -462,8 +462,8 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           MU.log cloud_id, MU::WARN, details: flags
           MU.log region, MU::WARN
-          resp = MU::Cloud::AWS.ecs(region: region).list_clusters
-          resp = MU::Cloud::AWS.eks(region: region).list_clusters
+          resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_clusters
+          resp = MU::Cloud::AWS.eks(region: region, credentials: credentials).list_clusters
 # XXX uh, this ain't complete
         end
 

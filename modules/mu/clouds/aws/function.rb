@@ -304,10 +304,10 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
-        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, credentials: nil, flags: {})
           func = nil
           if !func_name.nil?
-            all_functions = MU::Cloud::AWS.lambda(region: region).list_functions
+            all_functions = MU::Cloud::AWS.lambda(region: region, credentials: credentials).list_functions
             if all_functions.include?(func_name)
               all_functions.functions.each do |x|
                 if x.function_name == func_name

@@ -147,9 +147,9 @@ module MU
             # Annoyingly, we might expect one of several possible artifacts,
             # since AWS couldn't decide what the real identifier of these
             # things should be
-            list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
+            list = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).list_domain_names
             if list and list.domain_names and list.domain_names.size > 0
-              descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+              descs = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
               descs.domain_status_list.each { |domain|
                 return domain if domain.arn == cloud_id
                 return domain if domain.domain_name == cloud_id

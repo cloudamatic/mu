@@ -57,7 +57,7 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Cache Clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
           map = {}
           if cloud_id
             cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cloud_id, region: region)
@@ -65,9 +65,9 @@ module MU
           end
 
           if tag_value
-            MU::Cloud::AWS.elasticache(region: region).describe_cache_clusters.cache_clusters.each { |cc|
-              resp = MU::Cloud::AWS.elasticache(region: region).list_tags_for_resource(
-                  resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: region)
+            MU::Cloud::AWS.elasticache(region: region, credentials: credentials).describe_cache_clusters.cache_clusters.each { |cc|
+              resp = MU::Cloud::AWS.elasticache(region: region, credentials: credentials).list_tags_for_resource(
+                  resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: region, credentials: credentials)
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
                 resp.tag_list.each { |tag|
@@ -88,9 +88,9 @@ module MU
         # @param region [String]: The region in which the resource resides.
         # @param account_number [String]: The account in which the resource resides.
         # @return [String]
-        def self.getARN(resource, resource_type, client_type, region: MU.curRegion, account_number: MU.account_number)
+        def self.getARN(resource, resource_type, client_type, region: MU.curRegion, credentials: nil)
           aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
-          "arn:#{aws_str}:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
+          "arn:#{aws_str}:#{client_type}:#{region}:#{MU::Cloud::AWS.credToAcct(credentials)}:#{resource_type}:#{resource}"
         end
 
         # Construct all our tags.
@@ -123,7 +123,7 @@ module MU
         def addStandardTags(resource, resource_type, region: MU.curRegion)
           MU.log "Adding tags to ElasticCache resource #{resource}"
           MU::Cloud::AWS.elasticache(region: region).add_tags_to_resource(
-            resource_name: MU::Cloud::AWS::CacheCluster.getARN(resource, resource_type, "elasticache", region: region),
+            resource_name: MU::Cloud::AWS::CacheCluster.getARN(resource, resource_type, "elasticache", region: @config['region'], credentials: @config['credentials']),
             tags: allTags
           )
         end
@@ -405,8 +405,8 @@ module MU
         # @param cc_id [String]: The cloud provider's identifier for this cache cluster.
         # @param region [String]: The cloud provider's region.
         # @return [OpenStruct]
-        def self.getCacheClusterById(cc_id, region: MU.curRegion)
-          MU::Cloud::AWS.elasticache(region: region).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
+        def self.getCacheClusterById(cc_id, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.elasticache(region: region, credentials: nil).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
         end
         
         # Retrieve the complete cloud provider description of a cache replication group.
@@ -604,7 +604,7 @@ module MU
                 end
               end
 
-              arn = MU::Cloud::AWS::CacheCluster.getARN(cluster_id, "cluster", "elasticache", region: region)
+              arn = MU::Cloud::AWS::CacheCluster.getARN(cluster_id, "cluster", "elasticache", region: region, credentials: credentials)
               attempts = 0
 
               begin

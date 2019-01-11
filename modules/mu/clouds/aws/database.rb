@@ -189,7 +189,7 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
           map = {}
           if cloud_id
-            db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
+            db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
             map[cloud_id] = db if db
           end
 
@@ -411,7 +411,7 @@ module MU
             retry
           end
 
-          database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
+          database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
           MU.log "Database #{@config['name']} is at #{database.endpoint.address}", MU::SUMMARY
           MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
@@ -796,7 +796,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           unless @config["create_cluster"]
-            database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
+            database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
 
             # Run SQL on deploy
             if @config['run_sql_on_deploy']
@@ -970,9 +970,9 @@ module MU
         # @param db_id [String]: The cloud provider's identifier for this database.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
-        def self.getDatabaseById(db_id, region: MU.curRegion)
+        def self.getDatabaseById(db_id, region: MU.curRegion, credentials: nil)
           raise MuError, "You must provide a db_id" if db_id.nil?
-          MU::Cloud::AWS.rds(region: region).describe_db_instances(db_instance_identifier: db_id).db_instances.first
+          MU::Cloud::AWS.rds(region: region, credentials: credentials).describe_db_instances(db_instance_identifier: db_id).db_instances.first
         rescue Aws::RDS::Errors::DBInstanceNotFound => e
           # We're fine with this returning nil when searching for a database instance the doesn't exist.
         end

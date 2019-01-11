@@ -606,7 +606,8 @@ module MU
                 evaluation_periods: alarm["evaluation_periods"],
                 threshold: alarm["threshold"],
                 comparison_operator: alarm["comparison_operator"],
-                region: @config["region"]
+                region: @config["region"],
+                credentials: @config['credentials']
               )
             }
           end
@@ -1833,7 +1834,7 @@ module MU
             threads << Thread.new(volume) { |myvolume|
               MU.dupGlobals(parent_thread_id)
               Thread.abort_on_exception = true
-              MU::Cloud::AWS::Server.delete_volume(myvolume, noop, skipsnapshots)
+              MU::Cloud::AWS::Server.delete_volume(myvolume, noop, skipsnapshots, credentials: credentials)
             }
           }
 
@@ -1894,7 +1895,7 @@ module MU
             # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
             cleaned_dns = false
             mu_name = server_obj.mu_name
-            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: credentials).values.first
             if !mu_zone.nil?
               zone_rrsets = []
               rrsets = MU::Cloud::AWS.route53(credentials: credentials, region: region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
@@ -2247,9 +2248,9 @@ module MU
         # @param id [String]: The cloud provider's identifier for the volume, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.delete_volume(volume, noop, skipsnapshots, id: nil, region: MU.curRegion)
+        def self.delete_volume(volume, noop, skipsnapshots, id: nil, region: MU.curRegion, credentials: nil)
           if !volume.nil?
-            resp = MU::Cloud::AWS.ec2(region: region).describe_volumes(volume_ids: [volume.volume_id])
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_volumes(volume_ids: [volume.volume_id])
             volume = resp.data.volumes.first
           end
           name = ""
@@ -2266,7 +2267,7 @@ module MU
                 desc = "#{MU.deploy_id}-MUfinal"
               end
 
-              MU::Cloud::AWS.ec2(region: region).create_snapshot(
+              MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_snapshot(
                   volume_id: volume.volume_id,
                   description: desc
               )
@@ -2274,7 +2275,7 @@ module MU
 
             retries = 0
             begin
-              MU::Cloud::AWS.ec2(region: region).delete_volume(volume_id: volume.volume_id)
+              MU::Cloud::AWS.ec2(region: region, credentials: credentials).delete_volume(volume_id: volume.volume_id)
             rescue Aws::EC2::Errors::InvalidVolumeNotFound
               MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
             rescue Aws::EC2::Errors::VolumeInUse

@@ -833,7 +833,7 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
           classic = flags['classic'] ? true : false
 
           matches = {}
@@ -841,9 +841,9 @@ module MU
           arn2name = {}
           resp = nil
           if classic
-            resp = MU::Cloud::AWS.elb(region: region).describe_load_balancers().load_balancer_descriptions
+            resp = MU::Cloud::AWS.elb(region: region, credentials: credentials).describe_load_balancers().load_balancer_descriptions
           else
-            resp = MU::Cloud::AWS.elb2(region: region).describe_load_balancers().load_balancers
+            resp = MU::Cloud::AWS.elb2(region: region, credentials: credentials).describe_load_balancers().load_balancers
           end
 
           resp.each { |lb|
@@ -859,11 +859,11 @@ module MU
           if !tag_key.nil? and !tag_value.nil? and !tag_key.empty? and list.size > 0
             tag_descriptions = nil
             if classic
-              tag_descriptions = MU::Cloud::AWS.elb(region: region).describe_tags(
+              tag_descriptions = MU::Cloud::AWS.elb(region: region, credentials: credentials).describe_tags(
                 load_balancer_names: list.keys
               ).tag_descriptions
             else
-              tag_descriptions = MU::Cloud::AWS.elb2(region: region).describe_tags(
+              tag_descriptions = MU::Cloud::AWS.elb2(region: region, credentials: credentials).describe_tags(
                 resource_arns: list.values.map { |l| l.load_balancer_arn }
               ).tag_descriptions
             end

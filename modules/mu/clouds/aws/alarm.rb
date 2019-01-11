@@ -85,7 +85,8 @@ module MU
             evaluation_periods: @config["evaluation_periods"],
             threshold: @config["threshold"],
             comparison_operator: @config["comparison_operator"],
-            region: @config["region"]
+            region: @config["region"],
+            credentials: @config['credentials']
           )
 
           @cloud_id = @mu_name
@@ -144,18 +145,18 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
         def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
-          MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region)
+          MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region, credentials: credentials)
         end
 
         # Create an alarm.
         def self.setAlarm(
                 name: nil, ok_actions: [], alarm_actions: [], insufficient_data_actions: [], metric_name: nil, namespace: nil, statistic: nil,
-                dimensions: [], period: nil, unit: nil, evaluation_periods: nil, threshold: nil, comparison_operator: nil, region: MU.curRegion
+                dimensions: [], period: nil, unit: nil, evaluation_periods: nil, threshold: nil, comparison_operator: nil, region: MU.curRegion, credentials: nil
                )
 
           # If the alarm already exists, then assume we're updating it and
           # munge in potentially new arguments.
-          ext_alarm = getAlarmByName(name, region: region)
+          ext_alarm = getAlarmByName(name, region: region, credentials: credentials)
           if ext_alarm
             if !ext_alarm.dimensions.empty?
               ext_alarm.dimensions.each { |dim|
@@ -215,8 +216,8 @@ module MU
         # @param name [String]: The cloud provider's identifier for this alarm.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
-        def self.getAlarmByName(name, region: MU.curRegion)
-          MU::Cloud::AWS.cloudwatch(region: region).describe_alarms(alarm_names: [name]).metric_alarms.first
+        def self.getAlarmByName(name, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.cloudwatch(region: region, credentials: credentials).describe_alarms(alarm_names: [name]).metric_alarms.first
         end
 
         # Publish logging data, or create a new custom container/group for your logging data

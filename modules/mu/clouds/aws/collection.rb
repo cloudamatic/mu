@@ -300,9 +300,9 @@ module MU
         end
 
         # placeholder
-        def self.find(cloud_id: nil)
+        def self.find(cloud_id: nil, region: MU.myRegion, credentials: nil)
           found = nil
-          resp = MU::Cloud::AWS::Collection.describe_stacks(
+          resp = MU::Cloud::AWS.cloudformation(region: region, credentials: credentials).describe_stacks(
             stack_name: cloud_id
           )
           if resp and resp.stacks
