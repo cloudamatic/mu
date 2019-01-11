@@ -206,8 +206,8 @@ $CONFIGURABLES = {
     "title" => "Microsoft Azure Cloud Computing Platform & Services",
     "named_subentries" => true,
     "subtree" => {
-      "project" => {
-        "title" => "Default Directory",
+      "subscription" => {
+        "title" => "Default Subscription",
         "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
       },
       "credentials" => {
@@ -221,7 +221,7 @@ $CONFIGURABLES = {
       "region" => {
         "title" => "Default Region",
         "desc" => "Default Microsoft Azure region in which we operate and deploy",
-        "default" => "us-east4"
+        "default" => "eastus"
       },
       "log_bucket_name" => {
         "title" => "Log and Secret Bucket Name",
