@@ -44,7 +44,7 @@ module MU
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :listInstanceTypes]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about

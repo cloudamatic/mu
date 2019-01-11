@@ -812,7 +812,11 @@ module MU
         ["servers", "server_pools", "container_clusters"].each { |type|
           next if @original_config[type].nil?
           @original_config[type].each { |descriptor|
-            creds_used << descriptor['credentials'] if descriptor['credentials']
+            if descriptor['credentials']
+              creds_used << descriptor['credentials']
+            else
+              creds_used << MU::Cloud::AWS.credConfig(name_only: true)
+            end
           }
         }
         creds_used << nil if creds_used.empty?
@@ -1097,7 +1101,7 @@ module MU
         # asking after it.
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
-          handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
+          handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
           return [handle] if !handle.nil?
         end
 
@@ -1114,9 +1118,9 @@ module MU
             # guess at resource names we weren't told.
             if matches.size == 1 and name.nil? and mu_name.nil?
               if cloud_id.nil?
-                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"])
+                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
               else
-                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id)
+                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
               end
 #            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
 #              # see if we can narrow it down further with some flags
@@ -1130,16 +1134,22 @@ module MU
 #                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: filtered.first['cloud_id'])
 #              end
             else
-              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
+              # There's more than one of this type of resource in the target
+              # deploy, so see if findLitterMate can narrow it down for us
+              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
             end
 
             next if straykitten.nil?
 
             kittens[straykitten.cloud_id] = straykitten
+
             # Peace out if we found the exact resource we want
             if cloud_id and straykitten.cloud_id == cloud_id
               return [straykitten]
+            # ...or if we've validated our one possible match
             elsif !cloud_id and mu_descs.size == 1 and matches.size == 1
+              return [straykitten]
+            elsif credentials and credlist.size == 1 and straykitten.credentials == credentials
               return [straykitten]
             end
           }
@@ -1253,7 +1263,7 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil)
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
@@ -1262,7 +1272,9 @@ module MU
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}). Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
+        matches = []
+
         @kittens[type].each { |sib_class, data|
           next if !name.nil? and name != sib_class
           if has_multiples
@@ -1281,7 +1293,8 @@ module MU
             end
             data.each_pair { |sib_mu_name, obj|
               if (!mu_name.nil? and mu_name == sib_mu_name) or
-                  (!cloud_id.nil? and cloud_id == obj.cloud_id)
+                  (!cloud_id.nil? and cloud_id == obj.cloud_id) or
+                  (!credentials.nil? and credentials == obj.credentials)
                 if !created_only or !obj.cloud_id.nil?
                   if return_all
                     return data.dup
@@ -1293,12 +1306,16 @@ module MU
             }
           else
             if (name.nil? or sib_class == name) and
-                (cloud_id.nil? or cloud_id == data.cloud_id)
-              return data if !created_only or !data.cloud_id.nil?
+                (cloud_id.nil? or cloud_id == data.cloud_id) and
+                (credentials.nil? or credentials == data.credentials)
+              matches << data if !created_only or !data.cloud_id.nil?
             end
           end
         }
+
+        return matches.first if matches.size == 1
       }
+
       return nil
     end
 
