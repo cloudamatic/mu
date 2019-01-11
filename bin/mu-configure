@@ -343,18 +343,20 @@ def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
         map[count.to_s]["#key"] = key
 
         # Now the menu entries for the existing ones
-        data['subtree']['#entries'].each_pair { |nameentry, subdata|
-          next if data['readonly']
-          next if !subdata.is_a?(Hash)
-          subdata["#menu"] = count.to_s+letters[lettercount]
-          subdata["#title"] = nameentry
-          subdata["#key"] = key
-          subdata["#entries"] = cloneHash(data["subtree"]["#entries"])
-          subdata["is_submenu"] = true
-          map[count.to_s+letters[lettercount]] = tree[key]["subtree"]['#entries'][nameentry]
-          map[count.to_s+letters[lettercount]]['#entries'] ||= cloneHash(data["subtree"]["#entries"])
-          lettercount = lettercount + 1
-        }
+        if data['subtree']['#entries']
+          data['subtree']['#entries'].each_pair { |nameentry, subdata|
+            next if data['readonly']
+            next if !subdata.is_a?(Hash)
+            subdata["#menu"] = count.to_s+letters[lettercount]
+            subdata["#title"] = nameentry
+            subdata["#key"] = key
+            subdata["#entries"] = cloneHash(data["subtree"]["#entries"])
+            subdata["is_submenu"] = true
+            map[count.to_s+letters[lettercount]] = tree[key]["subtree"]['#entries'][nameentry]
+            map[count.to_s+letters[lettercount]]['#entries'] ||= cloneHash(data["subtree"]["#entries"])
+            lettercount = lettercount + 1
+          }
+        end
       else
         data["subtree"].each_pair { |subkey, subdata|
           next if !AMROOT and subdata['rootonly']
