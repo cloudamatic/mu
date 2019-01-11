@@ -39,7 +39,7 @@ module MU
       rescue NoMethodError
         "AWS"
       end
-# XXX this can be more generic
+# XXX this can be more generic (loop through supportedClouds and try this)
       if MU::Cloud::Google.hosted?
         "Google"
       elsif MU::Cloud::AWS.hosted?
@@ -1584,13 +1584,16 @@ module MU
       kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
       kitten['scrub_mu_isms'] ||= false
 
+      kitten['credentials'] ||= @config['credentials']
+      kitten.delete('credentials') if !kitten['credentials']
+
       kitten["dependencies"] ||= []
 
       # Make sure the schema knows about these "new" fields, so that validation
       # doesn't trip over them.
       schema_fields.each { |field|
         if @@schema["properties"][field]
-          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG
+          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG, details: @@schema["properties"][field]
           @@schema["properties"][type]["items"]["properties"][field] ||= @@schema["properties"][field]
         end
       }

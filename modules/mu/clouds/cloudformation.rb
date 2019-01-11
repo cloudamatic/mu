@@ -42,8 +42,7 @@ module MU
         false
       end
 
-      # Stub method- there's no such thing as being "hosted" in a CloudFormation
-      # environment. See {MU::Cloud::AWS.hosted?} instead.
+      # Stub method
       def self.config_example
         nil
       end
