@@ -1,4 +1,4 @@
-# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2018 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'googleauth'
 require "net/http"
 require 'net/https'
 require 'multi_json'
@@ -25,16 +24,16 @@ module MU
 
       # Alias for #{MU::Cloud::AWS.hosted?}
       def self.hosted
-        MU::Cloud::AWS.hosted?
+        MU::Cloud::Azure.hosted?
       end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
       # describe this environment as our target one.
       def self.hosted_config
         return nil if !hosted?
-        region = getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
-        mac = getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
-        acct_num = getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
+        region = getAzureMetaData("compute/location").sub(/[a-z]$/i, "")
+        mac = getAzureMetaData("network/interfaces/macs/").split(/\n/)[0]
+        acct_num = getAzureMetaData("network/interfaces/macs/#{mac}owner-id")
         acct_num.chomp!
         {
           "region" => region,
@@ -42,17 +41,35 @@ module MU
         }
       end
 
+      # Fetch an Azure instance metadata parameter (example: public-ipv4).
+      # @param param [String]: The parameter name to fetch
+      # @return [String, nil]
+      def self.getAzureMetaData(param)
+        base_url = "http://169.254.169.254/metadata/instance"
+        begin
+          response = nil
+          Timeout.timeout(1) do
+            response = open("#{base_url}/#{param}").read
+          end
+
+          response
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
+          # This is normal on machines checking to see if they're AWS-hosted
+          logger = MU::Logger.new
+          logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
+          return nil
+        end
+      end
+
       # A non-working example configuration
       def self.config_example
         sample = hosted_config
         sample ||= {
-          "region" => "us-east-1",
-          "account_number" => "123456789012",
+          "region" => "eastus",
+          "account_id" => "123456789012",
         }
-#        sample["access_key"] = "AKIAIXKNI3JY6JVVJIHA"
-#        sample["access_secret"] = "oWjHT+2N3veyswy7+UA5i+H14KpvrOIZlnRlxpkw"
-        sample["credentials_file"] = "#{Etc.getpwuid(Process.uid).dir}/.aws/credentials"
-        sample["log_bucket_name"] = "my-mu-s3-bucket"
+        sample["credentials_file"] = "#{Etc.getpwuid(Process.uid).dir}/.azure/azure_credentials.json"
+        sample["log_bucket_name"] = "my-azure-mu-storage-account"
         sample
       end
 
