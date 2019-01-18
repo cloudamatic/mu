@@ -22,9 +22,32 @@ module MU
     # Support for Microsoft Azure as a provisioning layer.
     class Azure
 
+      @@is_in_azure = nil
+
       # Alias for #{MU::Cloud::AWS.hosted?}
       def self.hosted
         MU::Cloud::Azure.hosted?
+      end
+
+      # Determine whether we (the Mu master, presumably) are hosted in this
+      # cloud.
+      # @return [Boolean]
+      def self.hosted?
+        if !@@is_in_azure.nil?
+          return @@is_in_azure
+        end
+
+        puts getAzureMetaData("compute")
+        exit
+        
+
+        # if getAzureMetaData("compute")
+          
+        #   @@is_in_azure = true
+        #   return true
+        # end
+        # @@is_in_azure = false
+        # false
       end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
