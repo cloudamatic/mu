@@ -951,7 +951,6 @@ if AMROOT
   saveMuConfig(newcfg)
   $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
 end
-exit # XXX delete when done testing
 
 def set389DSCreds
   require 'mu'
