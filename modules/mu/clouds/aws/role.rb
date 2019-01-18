@@ -350,10 +350,19 @@ module MU
         def bindTo(entitytype, entityname)
           if entitytype == "instance_profile"
             begin
-              MU::Cloud::AWS.iam(credentials: @config['credentials']).add_role_to_instance_profile(
-                instance_profile_name: entityname,
-                role_name: @mu_name
-              )
+              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_instance_profile(
+                instance_profile_name: entityname
+              ).instance_profile
+
+              if !resp.roles.map { |r| r.role_name}.include?(@mu_name)
+                MU::Cloud::AWS.iam(credentials: @config['credentials']).add_role_to_instance_profile(
+                  instance_profile_name: entityname,
+                  role_name: @mu_name
+                )
+              end
+            rescue Exception => e
+              MU.log "Error binding role #{@mu_name} to instance profile #{entityname}: #{e.message}", MU::ERR
+              raise e
             end
           elsif ["user", "group", "role"].include?(entitytype)
             mypolicies = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policies(
