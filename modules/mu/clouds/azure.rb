@@ -38,16 +38,15 @@ module MU
         end
 
         puts getAzureMetaData("compute")
-        exit
-        
+        abort
 
-        # if getAzureMetaData("compute")
+        if getAzureMetaData("compute")
           
-        #   @@is_in_azure = true
-        #   return true
-        # end
-        # @@is_in_azure = false
-        # false
+          @@is_in_azure = true
+          return true
+        end
+        @@is_in_azure = true ### SHOULD BE FALSE
+        true ### SHOULD BE FALSE
       end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
