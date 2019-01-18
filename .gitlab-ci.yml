@@ -85,6 +85,9 @@ Parser Test:
     - mu-deploy -d modules/tests/super_complex_bok.yml
   tags: 
     - mu-master
+  only:
+    - master
+    - development
 
 Smoke Test:
   stage: Smoke Test
