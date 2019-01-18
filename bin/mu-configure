@@ -306,6 +306,14 @@ begin
   end
 rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
 end
+$IN_AZURE = false
+begin
+  Timeout.timeout(2) do
+    instance_id = open("http://169.254.169.254/metadata/instance/compute").read
+    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
+  end
+rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+end
 
 
 KNIFE_TEMPLATE = "log_level                :info
@@ -985,7 +993,6 @@ if AMROOT
   saveMuConfig(newcfg)
   $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
 end
-exit # XXX delete when done testing
 
 def set389DSCreds
   require 'mu'
