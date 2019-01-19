@@ -6,5 +6,5 @@ metadata
 # Mu Cookbooks
 
 # Supermarket Cookbooks
-cookbooks 'mongodb', '~> 0.16.2'
-cookbooks 'chef-vault', '~> 3.1.1'
+cookbook 'mongodb', '~> 0.16.2'
+cookbook 'chef-vault', '~> 3.1.1'
