@@ -46,9 +46,9 @@ ChefSpec:
 
 Rspec:
   stage: Test
-  image: chef/chefdk:latest
+  image: 1and1internet/ubuntu-16-rspec:latest
   script:
-    - echo "rspec"
+    - rspec
   allow_failure: true
 
 .New_Berks:
