@@ -1,4 +1,4 @@
-image: centos
+image: ruby:2.5-alpine
 
 stages:
   - Lint Test
@@ -46,7 +46,6 @@ ChefSpec:
 
 Rspec:
   stage: Test
-  image: backus/rubocop-rspec
   script:
     - rspec
   allow_failure: true
@@ -60,6 +59,7 @@ New_Berks:
     - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
     - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
     - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
+  allow_failure: true
   
 Berks:
   stage: Test
@@ -120,7 +120,6 @@ Dockerbuild:
 
 pages:
   stage: Deploy
-  image: ruby:2.3
   script:
   - mkdir public
   - gem install yard
