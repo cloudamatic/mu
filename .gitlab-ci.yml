@@ -131,7 +131,7 @@ pages:
   - mkdir public
   - gem install yard
   - gem install cloud-mu --pre
-  - bin/mu-gen-docs
+  - ruby bin/mu-gen-docs
   - yard doc modules -m markdown -o public
   artifacts:
     paths:
