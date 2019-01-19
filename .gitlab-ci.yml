@@ -6,6 +6,7 @@ stages:
   - Security Test
   - Smoke Test
   - Merge/Tag
+  - Build
   - Dockerbuild
   - Deploy
   
@@ -109,6 +110,12 @@ Merge/Tag:
   only:
     - master
     - development
+
+Build:
+  stage: Build Gem
+  script:
+    - gem build cloud-mu.gemspec
+    - gem install cloud-mu-*.gem
 
 Dockerbuild:
   stage: Dockerbuild
