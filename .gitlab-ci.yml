@@ -47,6 +47,7 @@ ChefSpec:
 Rspec:
   stage: Test
   script:
+    - gem install rspec
     - rspec
   allow_failure: true
 
