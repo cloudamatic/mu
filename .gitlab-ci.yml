@@ -46,12 +46,12 @@ ChefSpec:
 
 Rspec:
   stage: Test
-  image: 1and1internet/ubuntu-16-rspec:latest
+  image: backus/rubocop-rspec
   script:
     - rspec
   allow_failure: true
 
-.New_Berks:
+New_Berks:
   stage: Test
   image: chef/chefdk:latest
   script:
