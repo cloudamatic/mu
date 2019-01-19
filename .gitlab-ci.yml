@@ -1,4 +1,4 @@
-image: ruby:2.5-alpine
+image: ruby:2.5
 
 stages:
   - Lint Test
