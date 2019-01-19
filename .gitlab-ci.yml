@@ -124,7 +124,7 @@ pages:
   script:
   - mkdir public
   - gem install yard
-  - gem install cloud-mu
+  - gem install cloud-mu --pre
   - bin/mu-gen-docs
   - yard doc modules -m markdown -o public
   artifacts:

@@ -1,4 +1,9 @@
 source 'https://supermarket.chef.io'
-source :chef_server
+source chef_repo: ".."
 
-depends "mu-utility", path: '../mu-utility'
+metadata
+
+# Mu Cookbooks
+depends "mu-utility"
+
+# Supermarket Cookbooks

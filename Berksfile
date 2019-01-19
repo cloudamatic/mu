@@ -1,18 +1,18 @@
 source "https://supermarket.chef.io"
-cookbook_path = "cookbooks"
+source chef_repo: "cookbooks/"
 
 # Platform Cookbooks
-cookbook 'mu-activedirectory', path: "#{cookbook_path}/mu-activedirectory"
-cookbook 'mu-splunk', path: "#{cookbook_path}/mu-splunk"
-cookbook 'mu-firewall', path: "#{cookbook_path}/mu-firewall"
-cookbook 'mu-glusterfs', path: "#{cookbook_path}/mu-glusterfs"
-cookbook 'mu-jenkins', path: "#{cookbook_path}/mu-jenkins"
-cookbook 'mu-master', path: "#{cookbook_path}/mu-master"
-cookbook 'mu-mongo', path: "#{cookbook_path}/mu-mongo"
-cookbook 'mu-openvpn', path: "#{cookbook_path}/mu-openvpn"
-cookbook 'mu-php54', path: "#{cookbook_path}/mu-php54"
-cookbook 'mu-tools', path: "#{cookbook_path}/mu-tools"
-cookbook 'mu-utility', path: "#{cookbook_path}/mu-utility"
+cookbook 'mu-activedirectory'
+cookbook 'mu-splunk'
+cookbook 'mu-firewall'
+cookbook 'mu-glusterfs'
+cookbook 'mu-jenkins'
+cookbook 'mu-master'
+cookbook 'mu-mongo'
+cookbook 'mu-openvpn'
+cookbook 'mu-php54'
+cookbook 'mu-tools'
+cookbook 'mu-utility'
 
 # Forked Cookbooks
 # cookbook 'awscli', path: "#{cookbook_path}/awscli"
@@ -21,7 +21,7 @@ cookbook 'cloudcli', '~> 1.2.0'
 cookbook 's3fs', '~> 3.0.1'
 
 # Nagios cookbook is borked, and dragging these cookbooks down with it...
-cookbook 'nagios', path: "#{cookbook_path}/nagios"
+cookbook 'nagios'
 cookbook 'apache2', '< 4.0'
 
 # Supermarket Cookbooks that are using latest as of 09/07/18

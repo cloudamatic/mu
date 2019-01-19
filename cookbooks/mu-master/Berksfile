@@ -1,16 +1,21 @@
 source 'https://supermarket.chef.io'
-source :chef_server
+source chef_repo: ".."
 
-cookbook 'nagios', path: '../nagios'
-cookbook 'nrpe', '~> 2.0.3'
-cookbook 'mu-utility', path: '../mu-utility'
-cookbook 'mu-tools', path: '../mu-tools'
+metadata
+
+# Mu Cookbooks
+cookbook 'nagios'
+cookbook 'mu-utility'
+cookbook 'mu-tools'
+cookbook 'mu-firewall'
 cookbook 'mu-activedirectory'
+
+# Supermarket Cookbooks
+cookbook 'nrpe', '~> 2.0.3'
 cookbook 's3fs', '~> 3.0.1'
 cookbook 'postfix', '~> 5.3.1'
 cookbook 'bind', '~> 2.2.0'
 cookbook 'bind9-ng', '~> 0.1.0'
-cookbook 'mu-firewall', path: '../mu-firewall'
 cookbook 'vault-cluster', '~> 2.1.0'
 cookbook 'consul-cluster', '~> 2.0.0'
 cookbook 'hostsfile', '~> 3.0.1'

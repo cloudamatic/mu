@@ -1,2 +1,9 @@
 source 'https://supermarket.chef.io'
+
+begin
 source :chef_server
+end
+
+# Mu Cookbooks
+
+# Supermarket Cookbooks

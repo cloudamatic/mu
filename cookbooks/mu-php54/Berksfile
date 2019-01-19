@@ -1,7 +1,12 @@
 source 'https://supermarket.chef.io'
-source :chef_server
+source chef_repo: ".."
 
-cookbook 'mu-utility', path: '../mu-utility'
+metadata
+
+# Mu Cookbooks
+cookbook 'mu-utility'
+
+# Supermarket Cookbooks
 cookbook 'simple_iptables', '~> 0.8.0'
 cookbook 'apache2', '< 4.0'
 cookbook 'mysql', '~> 8.5.1'

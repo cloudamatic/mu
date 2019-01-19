@@ -1,5 +1,10 @@
 source 'https://supermarket.chef.io'
-source :chef_server
+source chef_repo: ".."
 
+metadata
+
+# Mu Cookbooks
+depends 'mu-firewall'
+
+# Supermarket Cookbooks
 depends 'yum', '~> 5.1.0'
-depends 'mu-firewall', path: '../mu-firewall'
