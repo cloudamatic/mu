@@ -663,7 +663,7 @@ def setConfigTree(tree = $CONFIGURABLES)
   tree.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
-      if data["named_subentries"]
+      if data["named_subentries"] and data["subtree"]["#entries"]
         data["subtree"]["#entries"].each_pair { |name, block|
 
           next if !block.is_a?(Hash)
