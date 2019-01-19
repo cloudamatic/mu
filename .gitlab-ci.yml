@@ -57,9 +57,9 @@ New_Berks:
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Installing $d" && cd "$d" && berks install); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Verifying $d" && cd "$d" && berks verify); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Analyzing $d" && cd "$d" && berks outdated); done
   allow_failure: true
   
 Berks:
