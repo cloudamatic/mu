@@ -116,6 +116,12 @@ Gem Build:
     - gem build cloud-mu.gemspec
     - gem install cloud-mu-*.gem
 
+Muby Build:
+  stage: Build
+  image: centos
+  script: 
+    - extras/ruby_rpm/build.sh
+
 Dockerbuild:
   stage: Dockerbuild
   image: docker:latest
