@@ -111,8 +111,8 @@ Merge/Tag:
     - master
     - development
 
-Build:
-  stage: Build Gem
+Gem Build:
+  stage: Build
   script:
     - gem build cloud-mu.gemspec
     - gem install cloud-mu-*.gem
