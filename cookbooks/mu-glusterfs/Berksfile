@@ -1,0 +1,5 @@
+source 'https://supermarket.chef.io'
+source :chef_server
+
+depends 'yum', '~> 5.1.0'
+depends 'mu-firewall', path: '../mu-firewall'

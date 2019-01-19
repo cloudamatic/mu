@@ -1,0 +1,6 @@
+source 'https://supermarket.chef.io'
+source :chef_server
+
+cookbook "windows", '~> 5.1.1'
+cookbook "chef-vault", '~> 3.1.1'
+cookbook "yum-epel", '~> 3.2.0'

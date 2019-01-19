@@ -1,0 +1,9 @@
+source 'https://supermarket.chef.io'
+source :chef_server
+
+cookbook 'java', '~> 2.2.0'
+cookbook 'jenkins', '~> 6.2.0'
+cookbook 'chef-vault', '~> 3.1.1'
+cookbook 'mu-master', path: '../mu-master'
+cookbook 'mu-utility', path: '../mu-utility'
+cookbook 'mu-tools', path: '../mu-tools'

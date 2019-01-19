@@ -125,9 +125,11 @@ pages:
   - mkdir public
   - gem install yard
   - gem install cloud-mu
+  - bin/mu-gen-docs
   - yard doc modules -m markdown -o public
   artifacts:
     paths:
     - public
   only:
   - master
+  - Azure_you_want_azure

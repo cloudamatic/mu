@@ -1,0 +1,5 @@
+source 'https://supermarket.chef.io'
+source :chef_server
+
+cookbook 'chef-vault', '~> 3.1.1'
+cookbook 'windows', '~> 5.1.1'
