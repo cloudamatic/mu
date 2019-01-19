@@ -2212,8 +2212,10 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.saveDeployData
-            sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+            if sibling.config['groom'].nil? or sibling.config['groom']
+              sibling.groomer.saveDeployData
+              sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+            end
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end
