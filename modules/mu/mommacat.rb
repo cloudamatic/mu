@@ -821,7 +821,7 @@ module MU
         }
         creds_used << nil if creds_used.empty?
 
-        creds_used.each { |credset|
+        creds_used.uniq.each { |credset|
           MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key, credentials: credset)
         }
       end
