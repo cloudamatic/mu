@@ -821,7 +821,7 @@ module MU
         }
         creds_used << nil if creds_used.empty?
 
-        creds_used.each { |credset|
+        creds_used.uniq.each { |credset|
           MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key, credentials: credset)
         }
       end
@@ -1240,9 +1240,9 @@ module MU
                       end
                     }
 
-                    matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id, credentials: creds)
+                    matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
                   else
-                    matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, credentials: creds)
+                    matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                   end
                 end
               }
@@ -2212,8 +2212,10 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.saveDeployData
-            sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+            if sibling.config['groom'].nil? or sibling.config['groom']
+              sibling.groomer.saveDeployData
+              sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+            end
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end

@@ -136,6 +136,11 @@ module MU
               "default" => MU::Config.defaultGroomer,
               "enum" => MU.supportedGroomers
           },
+          "groom" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
+          },
           "scrub_groomer" => {
               "type" => "boolean",
               "default" => false,

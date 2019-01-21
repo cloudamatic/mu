@@ -451,6 +451,17 @@ module MU
           vpc_block['region'] = dflt_region.to_s
         end
 
+        # Sometimes people set subnet_pref to "private" or "public" when they
+        # mean "all_private" or "all_public." Help them out.
+        if parent_type and 
+           MU::Config.schema["properties"][parent_type] and
+           MU::Config.schema["properties"][parent_type]["items"]["properties"]["vpc"] and
+           MU::Config.schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?("subnets") and
+           !MU::Config.schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?("subnet_id")
+           vpc_block["subnet_pref"] = "all_public" if vpc_block["subnet_pref"] == "public"
+           vpc_block["subnet_pref"] = "all_private" if vpc_block["subnet_pref"] == "private"
+        end
+
         flags = {}
         flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
 

@@ -159,19 +159,19 @@ module MU
                 end
 
                 if provider == "AWS"
-                  resp = MU::Cloud::AWS.ec2(region: r).describe_key_pairs(
+                  resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
                       filters: [{name: "key-name", values: [keyname]}]
                   )
                   resp.data.key_pairs.each { |keypair|
                     MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-                    MU::Cloud::AWS.ec2(region: r).delete_key_pair(key_name: keypair.key_name) if !@noop
+                    MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
                   }
                 end
               }
             }
-            MU::Cloud::Role.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Role"]) > 0
-            MU::Cloud::Group.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Group"]) > 0
-            MU::Cloud::User.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["User"]) > 0
+            MU::Cloud::Role.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider, credentials: credset) if @mommacat.nil? or @mommacat.numKittens(types: ["Role"]) > 0
+            MU::Cloud::Group.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider, credentials: credset) if @mommacat.nil? or @mommacat.numKittens(types: ["Group"]) > 0
+            MU::Cloud::User.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider, credentials: credset) if @mommacat.nil? or @mommacat.numKittens(types: ["User"]) > 0
           }
         }
 

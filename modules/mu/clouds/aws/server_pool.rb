@@ -436,7 +436,7 @@ module MU
                     threshold: alarm["threshold"],
                     comparison_operator: alarm["comparison_operator"],
                     region: @config["region"],
-                    credentials: @config["credentials"],
+                    credentials: @config["credentials"]
                   )
                 }
               end

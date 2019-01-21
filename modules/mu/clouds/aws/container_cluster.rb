@@ -136,7 +136,8 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"-"+@config["flavor"].downcase)
+
+          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
           if @config['kubernetes']
@@ -152,7 +153,7 @@ module MU
               filters: [ { name: "vpc-id", values: [@vpc.cloud_id] } ]
             ).route_tables
             tagme.concat(rtbs.map { |r| r.route_table_id } )
-            main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}-workers")
+            main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
             tagme << main_sg.cloud_id
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
@@ -162,7 +163,7 @@ module MU
             @endpoint = me.endpoint
             @cacert = me.certificate_authority.data
             @cluster = @mu_name
-            resp = MU::Cloud::AWS.iam.get_role(role_name: @mu_name+"-WORKERS")
+            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
             @worker_role_arn = resp.role.arn
             kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
             eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
@@ -522,6 +523,18 @@ module MU
             ok = false
           end
 
+          if cluster["flavor"] == "EKS" and !cluster["vpc"]
+            if !MU::Cloud::AWS.hosted?
+              MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
+              ok = false
+            else
+              cluster["vpc"] = {
+                "vpc_id" => MU.myVPC,
+                "subnet_pref" => "all_private"
+              }
+            end
+          end
+
           if ["ECS", "EKS"].include?(cluster["flavor"])
             std_ami = getECSImageId(cluster["flavor"], cluster['region'])
             cluster["host_image"] ||= std_ami
@@ -541,29 +554,30 @@ module MU
           if ["ECS", "EKS"].include?(cluster["flavor"])
 
             worker_pool = {
-              "name" => cluster["name"]+"-workers",
+              "name" => cluster["name"]+"workers",
+              "credentials" => cluster["credentials"],
               "region" => cluster['region'],
               "min_size" => cluster["instance_count"],
               "max_size" => cluster["instance_count"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
-              "ingress_rules" => [
-                "sgs" => ["container_cluster#{cluster['name']}"],
-                "port_range" => "1-65535"
-              ],
               "basis" => {
                 "launch_config" => {
-                  "name" => cluster["name"]+"-workers",
+                  "name" => cluster["name"]+"workers",
                   "size" => cluster["instance_type"]
                 }
               }
             }
+            if cluster["flavor"] == "EKS"
+              worker_pool["ingress_rules"] = [
+                "sgs" => ["container_cluster#{cluster['name']}"],
+                "port_range" => "1-65535"
+              ]
+            end
             if cluster["vpc"]
               worker_pool["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
-            end
-            if cluster["flavor"] == "EKS"
             end
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
@@ -595,17 +609,24 @@ module MU
 
             if cluster["flavor"] == "ECS"
               cluster["dependencies"] << {
-                "name" => cluster["name"]+"-workers",
+                "name" => cluster["name"]+"workers",
                 "type" => "server_pool",
               }
             elsif cluster["flavor"] == "EKS"
               cluster['ingress_rules'] ||= []
               cluster['ingress_rules'] << {
-                "sgs" => ["server_pool#{cluster['name']}-workers"],
+                "sgs" => ["server_pool#{cluster['name']}workers"],
                 "port" => 443
               }
               fwname = "container_cluster#{cluster['name']}"
-              acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'] }
+
+              acl = {
+                "name" => fwname,
+                "credentials" => cluster["credentials"],
+                "rules" => cluster['ingress_rules'],
+                "region" => cluster['region'],
+                "optional_tags" => cluster['optional_tags']
+              }
               acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
               acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
 
@@ -619,6 +640,7 @@ module MU
 
               role = {
                 "name" => cluster["name"]+"controlplane",
+                "credentials" => cluster["credentials"],
                 "can_assume" => [
                   { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
                 ],
@@ -630,7 +652,8 @@ module MU
               configurator.insertKitten(role, "roles")
               cluster['dependencies'] << {
                 "type" => "role",
-                "name" => cluster["name"]+"controlplane"
+                "name" => cluster["name"]+"controlplane",
+                "phase" => "groom"
               }
             end
           end

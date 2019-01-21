@@ -182,7 +182,7 @@ module MU
           end
 
           begin
-            MU::Cloud::AWS.cloudwatch(region: region).put_metric_alarm(
+            MU::Cloud::AWS.cloudwatch(region: region, credentials: credentials).put_metric_alarm(
               alarm_name: name,
               alarm_description: name,
               actions_enabled: true,

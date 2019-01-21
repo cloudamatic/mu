@@ -853,31 +853,33 @@ module MU
           end
 
           begin
-            if windows?
-              # kick off certificate generation early; WinRM will need it
-              cert, key = @deploy.nodeSSLCerts(self)
-              if @config.has_key?("basis")
-                @deploy.nodeSSLCerts(self, true)
-              end
-              if !@groomer.haveBootstrapped?
-                session = getWinRMSession(50, 60, reboot_on_problems: true)
-                initialWinRMTasks(session)
-                begin
-                  session.close
-                rescue Exception
-                  # this is allowed to fail- we're probably rebooting anyway
+            if @config['groom'].nil? or @config['groom']
+              if windows?
+                # kick off certificate generation early; WinRM will need it
+                cert, key = @deploy.nodeSSLCerts(self)
+                if @config.has_key?("basis")
+                  @deploy.nodeSSLCerts(self, true)
                 end
-              else # for an existing Windows node: WinRM, then SSH if it fails
-                begin
-                  session = getWinRMSession(1, 60)
-                rescue Exception # yeah, yeah
-                  session = getSSHSession(1, 60)
-                  # XXX maybe loop at least once if this also fails?
+                if !@groomer.haveBootstrapped?
+                  session = getWinRMSession(50, 60, reboot_on_problems: true)
+                  initialWinRMTasks(session)
+                  begin
+                    session.close
+                  rescue Exception
+                    # this is allowed to fail- we're probably rebooting anyway
+                  end
+                else # for an existing Windows node: WinRM, then SSH if it fails
+                  begin
+                    session = getWinRMSession(1, 60)
+                  rescue Exception # yeah, yeah
+                    session = getSSHSession(1, 60)
+                    # XXX maybe loop at least once if this also fails?
+                  end
                 end
+              else
+                session = getSSHSession(40, 30)
+                initialSSHTasks(session)
               end
-            else
-              session = getSSHSession(40, 30)
-              initialSSHTasks(session)
             end
           rescue BootstrapTempFail
             sleep 45
@@ -922,14 +924,16 @@ module MU
           # we're done.
           if @groomer.haveBootstrapped?
             MU.log "Node #{node} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
-            @groomer.saveDeployData
+            if @config['groom'].nil? or @config['groom']
+              @groomer.saveDeployData
+            end
             MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
             MU::MommaCat.unlock(instance.instance_id+"-groom")
             return true
           end
 
           begin
-            @groomer.bootstrap
+            @groomer.bootstrap if @config['groom'].nil? or @config['groom']
           rescue MU::Groomer::RunError
             MU::MommaCat.unlock(instance.instance_id+"-groom")
             MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
@@ -1183,10 +1187,14 @@ module MU
             # }
           # end
 
-          @groomer.saveDeployData
+          if @config['groom'].nil? or @config['groom']
+            @groomer.saveDeployData
+          end
 
           begin
-            @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?)
+            if @config['groom'].nil? or @config['groom']
+              @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?)
+            end
           rescue MU::Groomer::RunError => e
             MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN, details: e.message
           rescue Exception => e

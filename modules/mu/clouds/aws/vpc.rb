@@ -987,19 +987,18 @@ module MU
           return @route_cache[instance_id] if @route_cache.has_key?(instance_id) && @route_cache[instance_id]
           my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: MU.myCloudDescriptor)
           target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: target_instance, region: region, credentials: credentials)
-# XXX make sure accounts for being in different regions
 
           resp = nil
           my_subnets_key = my_subnets.join(",")
           target_subnets_key = target_subnets.join(",")
-          MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, region: MU.myRegion, credentials: credentials)
+          MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, region: MU.myRegion)
           MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, region: region, credentials: credentials)
 
           if MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
             return true
           else
             # The cache can be out of date at times, check again without it
-            MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, use_cache: false, region: MU.myRegion, credentials: credentials)
+            MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, use_cache: false, region: MU.myRegion)
             MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, use_cache: false, region: region, credentials: credentials)
 
             return MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
@@ -1049,16 +1048,19 @@ module MU
 
           @rtb_cache[source_subnets_key].each { |route_table|
             route_table.routes.each { |route|
-              if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active" and !route.destination_cidr_block.nil?
+              if route.destination_cidr_block != "0.0.0.0/0" and !route.destination_cidr_block.nil?
                 my_routes << NetAddr::IPv4Net.parse(route.destination_cidr_block)
                 if !route.vpc_peering_connection_id.nil?
+                  if route.state == "blackhole"
+                    MU.log "Ignoring blackhole route to #{route.destination_cidr_block} over #{route.vpc_peering_connection_id}", MU::WARN
+                  end
+                  next if route.state != "active"
                   vpc_peer_mapping[route.vpc_peering_connection_id] = route.destination_cidr_block
                 end
               end
             }
           }
           my_routes.uniq!
-
           target_routes = []
           @rtb_cache[target_subnets_key].each { |route_table|
             route_table.routes.each { |route|
@@ -1066,6 +1068,7 @@ module MU
               cidr = NetAddr::IPv4Net.parse(route.destination_cidr_block)
               shared_ip_space = false
               my_routes.each { |my_cidr|
+                target_routes << NetAddr::IPv4Net.parse(route.destination_cidr_block)
                 if my_cidr.contains(NetAddr::IPv4Net.parse(route.destination_cidr_block).nth(2)) or my_cidr.cmp(cidr)
                   shared_ip_space = true
                   break
@@ -1091,7 +1094,7 @@ module MU
         def self.get_route_tables(subnet_ids: [], vpc_ids: [], region: MU.curRegion, credentials: nil)
           resp = []
           if !subnet_ids.empty?
-            resp = MU::Cloud::AWS.ec2(region: region, credentials: nil).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_route_tables(
               filters: [
                 {
                   name: "association.subnet-id", 
