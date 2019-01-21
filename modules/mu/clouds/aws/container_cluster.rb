@@ -136,7 +136,8 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"-"+@config["flavor"].downcase)
+
+          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
           if @config['kubernetes']
@@ -162,7 +163,7 @@ module MU
             @endpoint = me.endpoint
             @cacert = me.certificate_authority.data
             @cluster = @mu_name
-            resp = MU::Cloud::AWS.iam.get_role(role_name: @mu_name+"-WORKERS")
+            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
             @worker_role_arn = resp.role.arn
             kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
             eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
