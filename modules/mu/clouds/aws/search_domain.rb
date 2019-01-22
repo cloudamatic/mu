@@ -42,6 +42,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
+          pp params
           resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
@@ -72,7 +73,7 @@ module MU
             MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @config['domain_name']
             ).domain_status
-          elsif @deploydata['domain_name']
+          elsif @deploydata and @deploydata['domain_name']
             MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @deploydata['domain_name']
             ).domain_status
@@ -180,6 +181,10 @@ module MU
           end
 
           schema = {
+            "name" => {
+              "type" => "string",
+              "pattern" => '^[a-z][a-z0-9\-]+$'
+            },
             "elasticsearch_version" => {
               "type" => "string",
               "default" => versions.first,
@@ -330,7 +335,7 @@ module MU
             if configurator.haveLitterMate?(dom['slow_logs'], "log")
               dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
             else
-              log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region'])
+              log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region']).values.first
               if !log_group
                 MU.log "Specified slow_logs CloudWatch log group '#{dom['slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
                 ok = false
@@ -340,7 +345,10 @@ module MU
             end
           else
             dom['slow_logs'] = dom['name']+"-slowlog"
-            log_group = { "name" => dom['slow_logs'] }
+            log_group = {
+              "name" => dom['slow_logs'],
+              "credentials" => dom['credentials']
+            }
             ok = false if !configurator.insertKitten(log_group, "logs")
             dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
           end
@@ -391,6 +399,7 @@ module MU
             else
               roledesc = {
                 "name" => dom['name']+"cognitorole",
+                "credentials" => dom['credentials'],
                 "can_assume" => [
                   {
                     "entity_id" => "es.amazonaws.com",
@@ -471,7 +480,7 @@ module MU
               arn = @config['slow_logs']
             else
               log_group = @deploy.findLitterMate(type: "log", name: @config['slow_logs'])
-              log_group = MU::Cloud::AWS::Log.find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region'])
+              log_group = MU::Cloud::AWS::Log.find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region']).values.first
               if log_group.nil? or log_group.arn.nil?
                 raise MuError, "Failed to retrieve ARN of sibling LogGroup '#{@config['slow_logs']}'"
               end
