@@ -14,7 +14,8 @@
 #
 # See http://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 
-require File.realpath(File.expand_path"bin/mu-load-config.rb")
+$LOAD_PATH << "#{File.realpath(File.expand_path(File.dirname(__FILE__))+"/..")}/modules"
+# require 'mu'
 
 RSpec.configure do |config|
   # rspec-expectations config goes here. You can use an alternate

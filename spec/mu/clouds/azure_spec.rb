@@ -3,21 +3,13 @@ require 'mu/clouds/azure'
 
 describe MU::Cloud::Azure do
 
-	describe ".hello" do
-		before do
-			@azure = MU::Cloud::Azure.new
-		end
+	# @azure = nil
 
-		it "responds with hello" do
-			expect(MU::Cloud::Azure.hello).to eql('hello')
-		end
-
-	end
+	# 	before(:all) do
+	# 		@azure = MU::Cloud::Azure.new
+	# 	end
 
 	describe ".hosted?" do
-		before do
-			@@azure = MU::Cloud::Azure.new
-		end
 		
 		it "responds with false" do
 			expect(MU::Cloud::Azure.hosted?).to eql(false)
@@ -25,4 +17,65 @@ describe MU::Cloud::Azure do
 
 	end
 
+	describe ".hosted" do
+		
+		it "responds with false" do
+			expect(MU::Cloud::Azure.hosted?).to eql(false)
+		end
+
+	end
+
+	describe ".required_instance_methods" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.required_instance_methods).to eql("TODO")
+		end
+	end
+
+	describe ".listRegions" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.listRegions).to eql("TODO")
+		end
+	end
+
+	describe ".listAZs" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.listAZs).to eql("TODO")
+		end
+	end
+
+	describe ".hosted_config" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.hosted_config).to eql("TODO")
+		end
+	end
+
+	describe ".config_example" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.config_example).to eql("TODO")
+		end
+	end
+
+	describe ".writeDeploySecret" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.writeDeploySecret).to eql("TODO")
+		end
+	end
+
+	describe ".listCredentials" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.listCredentials).to eql("TODO")
+		end
+	end
+
+	describe ".credConfig" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.credConfig).to eql("TODO")
+		end
+	end
+	
+	describe ".listInstanceTypes" do
+		it "responds with false" do
+			expect(MU::Cloud::Azure.listInstanceTypes).to eql("TODO")
+		end
+	end
 end
