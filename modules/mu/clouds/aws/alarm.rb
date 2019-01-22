@@ -62,8 +62,8 @@ module MU
             @config["alarm_actions"] = [] if @config["alarm_actions"].nil?
             @config["ok_actions"] = [] if @config["ok_actions"].nil?
 
-            topic_arn = MU::Cloud::AWS::Notification.createTopic(@config["notification_group"], region: @config["region"])
-            MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: @config["notification_type"], endpoint: @config["notification_endpoint"], region: @config["region"])
+            topic_arn = MU::Cloud::AWS::Notification.createTopic(@config["notification_group"], region: @config["region"], credentials: @config["credentials"])
+            MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: @config["notification_type"], endpoint: @config["notification_endpoint"], region: @config["region"], credentials: @config["credentials"])
 
             @config["alarm_actions"] << topic_arn
             @config["ok_actions"] << topic_arn

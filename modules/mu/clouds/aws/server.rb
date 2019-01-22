@@ -583,8 +583,8 @@ module MU
               alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
 
               if alarm["enable_notifications"]
-                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"], credentials: @config['credentials'])
+                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"], credentials: @config["credentials"])
                 alarm["alarm_actions"] = [topic_arn]
                 alarm["ok_actions"]  = [topic_arn]
               end

@@ -255,7 +255,7 @@ module MU
           case trig_type
           
           when 'sns'
-            
+           # XXX don't do this, use MU::Cloud::AWS::Notification 
             sns_client = MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials'])
             sub_to_what = sns_client.subscribe({
               topic_arn: trig_arn,
@@ -263,6 +263,7 @@ module MU
               endpoint: func_arn
             })
           when 'event','cloudwatch_event', 'events'
+           # XXX don't do this, use MU::Cloud::AWS::Log
             client = MU::Cloud::AWS.cloudwatch_events(region: @config['region'], credentials: @config['credentials']).put_targets({
               rule: @config['trigger']['name'],
               targets: [

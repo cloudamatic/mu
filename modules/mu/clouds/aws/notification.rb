@@ -68,17 +68,19 @@ module MU
           true
         end
 
+
         # Create a new notification group. Will check if the group exists before creating it.
         # @param topic_name [String]: The cloud provider's name for the notification group.
         # @param region [String]: The cloud provider region.
         # @param account_number [String]: The cloud provider account number.
         # @return [string]: The cloud provider's identifier.
-        def self.createTopic(topic_name, region: MU.curRegion, account_number: MU.account_number)
-          unless topicExist(topic_name, region: region, account_number: account_number)
-            MU::Cloud::AWS.sns(region: region).create_topic(name: topic_name).topic_arn
+        def self.createTopic(topic_name, region: MU.curRegion, account_number: MU.account_number, credentials: nil)
+          unless topicExist(topic_name, region: region, account_number: account_number, credentials: credentials)
+            MU::Cloud::AWS.sns(region: region, credentials: credentials).create_topic(name: topic_name).topic_arn
             MU.log "Created SNS topic #{topic_name}"
           end
-            topicExist(topic_name, region: region, account_number: account_number)
+          topicExist(topic_name, region: region, account_number: account_number, credentials: credentials)
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+":sns:"+region+":"+MU::Cloud::AWS.credToAcct(credentials)+":"+topic_name
         end
 
         # Subscribe to a notification group. This can either be an email address, SQS queue, application endpoint, etc...
@@ -87,10 +89,10 @@ module MU
         # @param protocol [String]: The type of the subscription (eg. email,https, etc..).
         # @param endpoint [String]: The endpoint of the subscription. This will depend on the 'protocol' (as an example if protocol is email, endpoint will be the email address) ..
         # @param region [String]: The cloud provider region.
-        def self.subscribe(arn: nil, protocol: nil, endpoint: nil, region: MU.curRegion)
+        def self.subscribe(arn: nil, protocol: nil, endpoint: nil, region: MU.curRegion, credentials: nil)
           retries = 0
           begin 
-            resp = MU::Cloud::AWS.sns(region: region).list_subscriptions_by_topic(topic_arn: arn).subscriptions
+            resp = MU::Cloud::AWS.sns(region: region, credentials: credentials).list_subscriptions_by_topic(topic_arn: arn).subscriptions
           rescue Aws::SNS::Errors::NotFound
             if retries < 5
               MU.log "Couldn't find topic #{arn}, retrying several times in case of a lagging resource"
@@ -110,7 +112,7 @@ module MU
           end
 
           unless already_subscribed
-            MU::Cloud::AWS.sns(region: region).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
+            MU::Cloud::AWS.sns(region: region, credentials: credentials).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
             MU.log "Subscribed #{endpoint} to SNS topic #{arn}"
           end
         end
@@ -121,10 +123,10 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param account_number [String]: The cloud provider account number.
         # @return [string]: The cloud provider's identifier.
-        def self.topicExist(topic_name, region: MU.curRegion, account_number: MU.account_number)
+        def self.topicExist(topic_name, region: MU.curRegion, account_number: MU.account_number, credentials: nil)
           arn = "arn:#{MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"}:sns:#{region}:#{account_number}:#{topic_name}"
           match = nil
-          MU::Cloud::AWS.sns(region: region).list_topics.topics.each { |topic|
+          MU::Cloud::AWS.sns(region: region, credentials: credentials).list_topics.topics.each { |topic|
             if topic.topic_arn == arn
               match = topic.topic_arn
               break
