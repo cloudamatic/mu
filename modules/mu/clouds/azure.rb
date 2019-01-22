@@ -104,7 +104,7 @@ module MU
         begin
           response = nil
           Timeout.timeout(1) do
-            response = open("#{base_url}/#{param}?api-version=#{ api_version }").read
+            response = open("#{base_url}/#{param}?api-version=#{ api_version }", "Metadata" => "true").read
           end
 
           response
