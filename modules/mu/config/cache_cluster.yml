@@ -1,0 +1,23 @@
+<% if $complexity == "complex" %>
+name: redis
+credentials: egtprod
+engine: redis
+creation_style: new
+size: cache.t2.medium
+name: memcache
+credentials: egtprod
+creation_style: new
+engine: memcached
+size: cache.t2.medium
+<% else %>
+name: redis
+credentials: egtprod
+engine: redis
+creation_style: new
+size: cache.t2.medium
+name: memcache
+credentials: egtprod
+creation_style: new
+engine: memcached
+size: cache.t2.medium
+<% end %>
