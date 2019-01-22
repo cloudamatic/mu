@@ -28,7 +28,7 @@ def validateClouds(cfg)
       found_default = false
       # Muddle up old-style single-account cloud configs into an array of
       # named accounts, which is what we're expecting to see nowadays.
-      if cfg[cloud].values.any? { |h| !h.is_a?(Hash) }
+      if cfg[cloud] and cfg[cloud].values.any? { |h| !h.is_a?(Hash) }
         puts "Converting single #{cloud} #{cfgPath} account entry to default alias"
         cfg[cloud] = {
           "default" => cfg[cloud]
