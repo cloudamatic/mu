@@ -705,18 +705,19 @@ def setConfigTree(tree = $CONFIGURABLES)
   tree.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
-      if data["named_subentries"] and data["subtree"]["#entries"]
-        data["subtree"]["#entries"].each_pair { |name, block|
+      if data["named_subentries"]
+        if data["subtree"]["#entries"]
+          data["subtree"]["#entries"].each_pair { |name, block|
 
-          next if !block.is_a?(Hash)
-puts ("Saving "+key+" "+name).yellow
-          block.each_pair { |subkey, subdata|
-            next if subkey.match(/^#/) or !subdata.is_a?(Hash)
-            cfg[key] ||= {}
-            cfg[key][name] ||= {}
-            cfg[key][name][subkey] = subdata['value'] if subdata['value']
+            next if !block.is_a?(Hash)
+            block.each_pair { |subkey, subdata|
+              next if subkey.match(/^#/) or !subdata.is_a?(Hash)
+              cfg[key] ||= {}
+              cfg[key][name] ||= {}
+              cfg[key][name][subkey] = subdata['value'] if subdata['value']
+            }
           }
-        }
+        end
       else
         data["subtree"].each_pair { |subkey, subdata|
           if !subdata["value"].nil?
@@ -1052,8 +1053,8 @@ end
 if AMROOT
   cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
   pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
-  if cur_chef_version != pref_chef_version
-    puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
+  if cur_chef_version != pref_chef_version and cur_chef_version.sub(/\-\d+$/, "") != pref_chef_version
+    puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}' from '#{cur_chef_version}'"
     chef_installer = open("https://omnitruck.chef.io/install.sh").read
     File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
       f.puts chef_installer

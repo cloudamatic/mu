@@ -54,7 +54,7 @@ module MU
             raise MuError, "timed out waiting for #{resp.mount_target_id }" if attempts >= 20
           end
 
-          addStandardTags(cloud_id: resp.file_system_id, region: @config['region'])
+          addStandardTags(cloud_id: resp.file_system_id, region: @config['region'], credentials: @config['credentials'])
           @cloud_id = resp.file_system_id
 
           if @config['mount_points'] && !@config['mount_points'].empty?
@@ -89,6 +89,7 @@ module MU
                   ip_address: target['ip_address'],
                   subnet_id: target['vpc']['subnet_id'],
                   security_groups: sgs,
+                  credentials: @config['credentials'],
                   region: @config['region']
                 )
                 target['cloud_id'] = mount_target.mount_target_id
@@ -200,10 +201,10 @@ module MU
         # @param subnet_id [String]: The subnet_id to associate the mount point with
         # @param security_groups [Array]: A list of security groups to associate with the mount point.
         # @param region [String]: The cloud provider region
-        def self.create_mount_target(cloud_id: nil, ip_address: nil, subnet_id: nil, security_groups: [], region: MU.curRegion)
+        def self.create_mount_target(cloud_id: nil, ip_address: nil, subnet_id: nil, security_groups: [], region: MU.curRegion, credentials: nil)
           MU.log "Creating mount target for filesystem #{cloud_id}"
 
-          resp = MU::Cloud::AWS.efs(region: region).create_mount_target(
+          resp = MU::Cloud::AWS.efs(region: region, credentials: credentials).create_mount_target(
             file_system_id: cloud_id,
             subnet_id: subnet_id,
             ip_address: ip_address,
@@ -215,12 +216,12 @@ module MU
           loop do
             MU.log "Waiting for #{resp.mount_target_id} to become available", MU::NOTICE if attempts % 10 == 0
             begin
-              mount_target = MU::Cloud::AWS.efs(region: region).describe_mount_targets(
+              mount_target = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_mount_targets(
                 mount_target_id: resp.mount_target_id 
               ).mount_targets.first
             rescue Aws::EFS::Errors::MountTargetNotFound
               if retries <= 3
-                sleep 5
+                sleep 10
                 retry
               else
                 return nil
@@ -272,7 +273,18 @@ module MU
               subnet = nil
               dependencies
               mp_vpc = if mp['vpc'] and mp['vpc']['vpc_name']
-                @deploy.findLitterMate(type: "vpc", name: mp['vpc']['vpc_name'])
+                @deploy.findLitterMate(type: "vpc", name: mp['vpc']['vpc_name'], credentials: @config['credentials'])
+              elsif mp['vpc']
+                MU::MommaCat.findStray(
+                  @config['cloud'],
+                  "vpcs",
+                  deploy_id: mp['vpc']["deploy_id"],
+                  credentials: @config['credentials'],
+                  mu_name: mp['vpc']["mu_name"],
+                  cloud_id: mp['vpc']['vpc_id'],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
 # XXX non-sibling, findStray version
               end
 
@@ -283,7 +295,6 @@ module MU
 #              subnet_obj = mp_vpc.subnets.select { |s|
 #                s.name == mp["vpc"]["subnet_name"] or s.cloud_id == mp["vpc"]["subnet_id"]
 #              }.first
-
               mount_target = nil
               mp_vpc.subnets.each { |subnet_obj|
                 mount_targets.map { |t|
@@ -307,7 +318,7 @@ module MU
                 "file_system_id" => mount_target.file_system_id,
                 "mount_directory" => mp["directory"],
                 "subnet_id" => mount_target.subnet_id,
-                "vpc_id" => subnet.vpc_id,
+                "vpc_id" => mp_vpc.cloud_id,
                 "availability_zone" => subnet.availability_zone,
                 "state" => mount_target.life_cycle_state,
                 "ip_address" => mount_target.ip_address,
@@ -478,7 +489,13 @@ module MU
             pool['mount_points'].each{ |mp|
               if mp['ingress_rules']
                 fwname = "storage-#{mp['name']}"
-                acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+                acl = {
+                  "name" => fwname,
+                  "rules" => mp['ingress_rules'],
+                  "region" => pool['region'],
+                  "credentials" => pool['credentials'],
+                  "optional_tags" => pool['optional_tags']
+                }
                 acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
                 acl["vpc"] = mp['vpc'].dup if mp['vpc']
                 ok = false if !configurator.insertKitten(acl, "firewall_rules")

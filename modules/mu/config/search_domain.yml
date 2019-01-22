@@ -1,6 +1,6 @@
 <% if $complexity == "complex" %>
 
-name: search_domain-complex
+name: searchdomain-complex
 instance_type: t2.small.elasticsearch
 instance_count: 4
 dedicated_masters: 1
@@ -20,6 +20,6 @@ vpc:
 
 <% else %> # IF NOT COMPLEX THEN ASSUME SIMPLE
 
-name: search_domain-simple
+name: searchdomain-simple
 instance_type: t2.small.elasticsearch
 <% end %>

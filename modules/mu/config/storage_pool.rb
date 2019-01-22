@@ -96,6 +96,7 @@ module MU
                                         "storagepool '#{pool['name']}'",
                                         configurator,
                                         dflt_region: pool['region'],
+                                        credentials: pool['credentials'],
                                         is_sibling: true,
                                         sibling_vpcs: [siblingvpc])
                   ok = false
@@ -105,7 +106,8 @@ module MU
                                         "storage_pools",
                                         "storagepool #{pool['name']}",
                                         configurator,
-                                        dflt_region: pool['region'])
+                                        dflt_region: pool['region'],
+                                        credentials: pool['credentials'])
                   ok = false
                 end
               end

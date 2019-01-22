@@ -24,7 +24,7 @@ module MU
         "type" => "object",
         "title" => "Function",
         "description" => "Create a cloud function.",
-        "required" => ["name", "cloud","runtime","iam_role","handler","code","region"],
+        "required" => ["name", "cloud","runtime","handler","code","region"],
         "additionalProperties" => false,
         "properties" => {
           "cloud" => MU::Config.cloud_primitive,
@@ -33,7 +33,6 @@ module MU
             "type" => "string",
             "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 java8 python2.7 python3.6 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x}
           },
-          "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
           "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
           "handler" => {

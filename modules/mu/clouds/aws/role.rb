@@ -62,7 +62,6 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-
           if @config['policies']
             @config['iam_policies'] ||= []
             @config['iam_policies'].concat(convert_policies_to_iam)
@@ -82,12 +81,19 @@ module MU
             end
           end
 
-          if @config['iam_policies']
+
+          if @config['iam_policies'] or @config['import']
             attached_policies = []
-            configured_policies = @config['iam_policies'].map { |p|
-              @mu_name+"-"+p.keys.first.upcase
-            }
+            configured_policies = []
+
+            if @config['iam_policies']
+              configured_policies = @config['iam_policies'].map { |p|
+                @mu_name+"-"+p.keys.first.upcase
+              }
+            end
+
             if @config['import']
+              MU.log "Attaching canned #{@config['import'].size > 1 ? "policies" : "policy"} #{@config['import'].join(", ")} to role #{@mu_name}", MU::NOTICE, details: @config['credentials']
               configured_policies.concat(@config['import'].map { |p| p.gsub(/.*?\/([^:\/]+)$/, '\1') })
             end
 
@@ -103,39 +109,42 @@ module MU
               }
             end
 
-            @config['iam_policies'].each { |policy|
-              policy_name = @mu_name+"-"+policy.keys.first.upcase
+            if @config['iam_policies']
+              @config['iam_policies'].each { |policy|
+                policy_name = @mu_name+"-"+policy.keys.first.upcase
 
-              arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
-              resp = begin
-                desc = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
+                arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
+                resp = begin
+                  desc = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
 
-                version = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy_version(
-                  policy_arn: arn,
-                  version_id: desc.policy.default_version_id
-                )
-                if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
-                  MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy.values.first
-                  update_policy(arn, policy.values.first)
-                  MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
-                else
-                  desc
+                  version = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy_version(
+                    policy_arn: arn,
+                    version_id: desc.policy.default_version_id
+                  )
+                  if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
+                    MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy.values.first
+                    update_policy(arn, policy.values.first)
+                    MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
+                  else
+                    desc
+                  end
+
+                rescue Aws::IAM::Errors::NoSuchEntity => e
+                  MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
+                  MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy(
+                    policy_name: policy_name,
+                    path: "/"+@deploy.deploy_id+"/",
+                    policy_document: JSON.generate(policy.values.first),
+                    description: "Generated from inline policy document for Mu role #{@mu_name}"
+                  )
                 end
 
-              rescue Aws::IAM::Errors::NoSuchEntity => e
-                MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
-                MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy(
-                  policy_name: policy_name,
-                  path: "/"+@deploy.deploy_id+"/",
-                  policy_document: JSON.generate(policy.values.first),
-                  description: "Generated from inline policy document for Mu role #{@mu_name}"
-                )
-              end
-
-            }
+              }
+            end
           end
 
-          if !@config['bare_policies'] and @config['iam_policies']
+          if !@config['bare_policies'] and
+             (@config['iam_policies'] or @config['import'])
             bindTo("role", @mu_name)
           end
         end
@@ -350,10 +359,19 @@ module MU
         def bindTo(entitytype, entityname)
           if entitytype == "instance_profile"
             begin
-              MU::Cloud::AWS.iam(credentials: @config['credentials']).add_role_to_instance_profile(
-                instance_profile_name: entityname,
-                role_name: @mu_name
-              )
+              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_instance_profile(
+                instance_profile_name: entityname
+              ).instance_profile
+
+              if !resp.roles.map { |r| r.role_name}.include?(@mu_name)
+                MU::Cloud::AWS.iam(credentials: @config['credentials']).add_role_to_instance_profile(
+                  instance_profile_name: entityname,
+                  role_name: @mu_name
+                )
+              end
+            rescue Exception => e
+              MU.log "Error binding role #{@mu_name} to instance profile #{entityname}: #{e.message}", MU::ERR
+              raise e
             end
           elsif ["user", "group", "role"].include?(entitytype)
             mypolicies = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policies(
@@ -366,11 +384,21 @@ module MU
             if @config['import']
               @config['import'].each { |policy|
                 if !policy.match(/^arn:/i)
-                  policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+                  p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
                 end
-                mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(
-                  policy_arn: policy
-                ).policy
+                retried = false
+                begin
+                  mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(
+                    policy_arn: p_arn
+                  ).policy
+                rescue Aws::IAM::Errors::NoSuchEntity => e
+                  if !retried
+                    p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/service-role/"+policy
+                    retried = true
+                    retry
+                  end
+                  raise e
+                end
               }
             end
 
@@ -527,15 +555,24 @@ module MU
 
           if role['import']
             role['import'].each { |policy|
-              if !policy.match(/^arn:/i)
-                policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+              arn = if !policy.match(/^arn:/i)
+                "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+              else
+                policy
               end
+              retried = false
               begin
-                MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: policy)
+                MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: arn)
               rescue Aws::IAM::Errors::NoSuchEntity => e
-                MU.log "No such canned AWS IAM policy '#{policy}'", MU::ERR
+                if !retried
+                  arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/service-role/"+policy
+                  retried = true
+                  retry
+                end
+                MU.log "No such canned AWS IAM policy '#{arn}'", MU::ERR
                 ok = false
               end
+              policy = arn
             }
           end
 

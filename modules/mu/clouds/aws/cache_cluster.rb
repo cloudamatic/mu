@@ -263,7 +263,7 @@ module MU
               retry
             end
 
-            resp = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
+            resp = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
             MU.log "Cache Cluster #{@config['identifier']} is ready to use"
             @cloud_id = resp.cache_cluster_id
           end
@@ -406,22 +406,26 @@ module MU
         # @param region [String]: The cloud provider's region.
         # @return [OpenStruct]
         def self.getCacheClusterById(cc_id, region: MU.curRegion, credentials: nil)
-          MU::Cloud::AWS.elasticache(region: region, credentials: nil).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
+          begin
+            MU::Cloud::AWS.elasticache(region: region, credentials: credentials).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
+          rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
+            nil
+          end
         end
         
         # Retrieve the complete cloud provider description of a cache replication group.
         # @param repl_group_id [String]: The cloud provider's identifier for this cache replication group.
         # @param region [String]: The cloud provider's region.
         # @return [OpenStruct]
-        def self.getCacheReplicationGroupById(repl_group_id, region: MU.curRegion)
-          MU::Cloud::AWS.elasticache(region: region).describe_replication_groups(replication_group_id: repl_group_id).replication_groups.first
+        def self.getCacheReplicationGroupById(repl_group_id, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.elasticache(region: region, credentials: credentials).describe_replication_groups(replication_group_id: repl_group_id).replication_groups.first
         end
 
         # Register a description of this cache cluster / cache replication group with this deployment's metadata. 
         def notify
           ### TO DO: Flatten the replication group deployment metadata structure. It is probably waaaaaaay too nested.
           if @config["create_replication_group"]
-            repl_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(@config['identifier'], region: @config['region'])
+            repl_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
             # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
             if @config['dns_records']
               @config['dns_records'].each { |dnsrec|
@@ -485,7 +489,8 @@ module MU
               deploy_struct[member.cache_cluster_id]["current_role"] = member.current_role
             }
           else
-            cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
+            cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
+
             vpc_sg_ids = []
             cluster.security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.security_group_id
@@ -598,6 +603,7 @@ module MU
                   loop do
                     MU.log "Waiting for #{cluster_id} to be in a removable state", MU::NOTICE
                     cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
+                    break if !cluster
                     break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
                     sleep 60
                   end
@@ -610,7 +616,7 @@ module MU
               begin
                 tags = MU::Cloud::AWS.elasticache(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
               rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
-                if attempts < 10
+                if attempts < 5
                   MU.log "Can't get tags for #{cluster_id}, retrying a few times in case of a lagging resource", MU::WARN
                   MU.log "arn #{arn}", MU::WARN
                   attempts += 1
@@ -654,7 +660,7 @@ module MU
                 threads << Thread.new(replication_group) { |myrepl_group|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id)
+                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id, credentials: credentials)
                 }
               }
             end
@@ -666,7 +672,7 @@ module MU
                 threads << Thread.new(cluster) { |mycluster|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id)
+                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id, credentials: credentials)
                 }
               }
             end
@@ -715,7 +721,7 @@ module MU
         def self.validateConfig(cache, configurator)
           ok = true
 
-          if cluster.has_key?("parameter_group_parameters") && cache["parameter_group_family"].nil?
+          if cache.has_key?("parameter_group_parameters") && cache["parameter_group_family"].nil?
             MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
             ok = false
           end
@@ -729,7 +735,7 @@ module MU
 
             # Some instance types don't support snapshotting
             if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cache["size"])
-              if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+              if cache.has_key?("snapshot_retention_limit") || cache.has_key?("snapshot_window")
                 MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cache["size"]}", MU::ERR
                 ok = false
               end
@@ -744,7 +750,7 @@ module MU
             end
 
             # memcached doesn't support snapshots
-            if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+            if cache.has_key?("snapshot_retention_limit") || cache.has_key?("snapshot_window")
               MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cache["engine"]}", MU::ERR
               ok = false
             end
@@ -762,7 +768,7 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
-        def self.terminate_cache_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_cache_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
           raise MuError, "terminate_cache_cluster requires a non-nil cache cluster descriptor" if cluster.nil? || cluster.empty?
 
           cluster_id = cluster.cache_cluster_id
@@ -773,7 +779,7 @@ module MU
           unless cluster.cache_cluster_status == "available"
             loop do
               MU.log "Waiting for #{cluster_id} to be in a removable state...", MU::NOTICE
-              cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
+              cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region, credentials: credentials)
               break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
               sleep 60
             end
@@ -786,23 +792,23 @@ module MU
             MU.log "#{cluster_id} has already been terminated", MU::WARN
           else          
             unless noop
-              def self.clusterSkipSnap(cluster_id, region)
+              def self.clusterSkipSnap(cluster_id, region, credentials)
                 # We're calling this several times so lets declare it once
                 MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                MU::Cloud::AWS.elasticache(region: region).delete_cache_cluster(cache_cluster_id: cluster_id)
+                MU::Cloud::AWS.elasticache(region: region, credentials: credentials).delete_cache_cluster(cache_cluster_id: cluster_id)
               end
 
-              def self.clusterCreateSnap(cluster_id, region)
+              def self.clusterCreateSnap(cluster_id, region, credentials)
                 MU.log "Terminating #{cluster_id}. Final snapshot name: #{cluster_id}-mufinal"
-                MU::Cloud::AWS.elasticache(region: region).delete_cache_cluster(cache_cluster_id: cluster_id, final_snapshot_identifier: "#{cluster_id}-MUfinal")
+                MU::Cloud::AWS.elasticache(region: region, credentials: credentials).delete_cache_cluster(cache_cluster_id: cluster_id, final_snapshot_identifier: "#{cluster_id}-MUfinal")
               end
 
               retries = 0
               begin
                 if cluster.engine == "memcached"
-                  clusterSkipSnap(cluster_id, region)
+                  clusterSkipSnap(cluster_id, region, credentials)
                 else
-                  skipsnapshots ? clusterSkipSnap(cluster_id, region) : clusterCreateSnap(cluster_id, region)
+                  skipsnapshots ? clusterSkipSnap(cluster_id, region, credentials) : clusterCreateSnap(cluster_id, region, credentials)
                 end
               rescue Aws::ElastiCache::Errors::InvalidCacheClusterState => e
                 if retries < 5
@@ -816,16 +822,16 @@ module MU
                 end
               rescue Aws::ElastiCache::Errors::SnapshotAlreadyExistsFault
                 MU.log "Snapshot #{cluster_id}-MUfinal already exists", MU::WARN
-                clusterSkipSnap(cluster_id, region)
+                clusterSkipSnap(cluster_id, region, credentials)
               rescue Aws::ElastiCache::Errors::SnapshotQuotaExceededFault
                 MU.log "Snapshot quota exceeded while deleting #{cluster_id}", MU::ERR
-                clusterSkipSnap(cluster_id, region)
+                clusterSkipSnap(cluster_id, region, credentials)
               end
 
               wait_start_time = Time.now
               retries = 0
               begin
-                MU::Cloud::AWS.elasticache(region: region).wait_until(:cache_cluster_deleted, cache_cluster_id: cluster_id) do |waiter|
+                MU::Cloud::AWS.elasticache(region: region, credentials: credentials).wait_until(:cache_cluster_deleted, cache_cluster_id: cluster_id) do |waiter|
                   waiter.max_attempts = nil
                   waiter.before_attempt do |attempts|
                     MU.log "Waiting for cache cluster #{cluster_id} to delete..", MU::NOTICE if attempts % 10 == 0
@@ -849,8 +855,8 @@ module MU
           MU.log "#{cluster_id} has been terminated"
 
           unless noop
-            MU::Cloud::AWS::CacheCluster.delete_subnet_group(subnet_group, region: region) if subnet_group
-            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group && !parameter_group.start_with?("default")
+            MU::Cloud::AWS::CacheCluster.delete_subnet_group(subnet_group, region: region, credentials: credentials) if subnet_group
+            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region, credentials: credentials) if parameter_group && !parameter_group.start_with?("default")
           end
         end
 
@@ -892,10 +898,10 @@ module MU
             MU.log "#{repl_group_id} has already been terminated", MU::WARN
           else
             unless noop
-              def self.skipSnap(repl_group_id, region)
+              def self.skipSnap(repl_group_id, region, credentials)
                 # We're calling this several times so lets declare it once
                 MU.log "Terminating #{repl_group_id}. Not saving final snapshot"
-                MU::Cloud::AWS.elasticache(region: region).delete_replication_group(
+                MU::Cloud::AWS.elasticache(region: region, credentials: credentials).delete_replication_group(
                   replication_group_id: repl_group_id,
                   retain_primary_cluster: false
                 )
@@ -912,7 +918,7 @@ module MU
 
               retries = 0
               begin
-                skipsnapshots ? skipSnap(repl_group_id, region) : createSnap(repl_group_id, region)
+                skipsnapshots ? skipSnap(repl_group_id, region, credentials) : createSnap(repl_group_id, region, credentials)
               rescue Aws::ElastiCache::Errors::InvalidReplicationGroupState => e
                 if retries < 5
                   MU.log "#{repl_group_id} is not in a removable state, retrying several times", MU::WARN
@@ -925,10 +931,10 @@ module MU
                 end
               rescue Aws::ElastiCache::Errors::SnapshotAlreadyExistsFault
                 MU.log "Snapshot #{repl_group_id}-MUfinal already exists", MU::WARN
-                skipSnap(repl_group_id, region)
+                skipSnap(repl_group_id, region, credentials)
               rescue Aws::ElastiCache::Errors::SnapshotQuotaExceededFault
                 MU.log "Snapshot quota exceeded while deleting #{repl_group_id}", MU::ERR
-                skipSnap(repl_group_id, region)
+                skipSnap(repl_group_id, region, credentials)
               end
 
               wait_start_time = Time.now
@@ -966,10 +972,10 @@ module MU
         # @param subnet_group_id [string]: The cloud provider's ID of the cache cluster subnet group.
         # @param region [String]: The cloud provider's region in which to operate.
         # @return [void]
-        def self.delete_subnet_group(subnet_group_id, region: MU.curRegion)
+        def self.delete_subnet_group(subnet_group_id, region: MU.curRegion, credentials: nil)
           retries ||= 0
           MU.log "Deleting Subnet group #{subnet_group_id}"
-          MU::Cloud::AWS.elasticache(region: region).delete_cache_subnet_group(cache_subnet_group_name: subnet_group_id)
+          MU::Cloud::AWS.elasticache(region: region, credentials: credentials).delete_cache_subnet_group(cache_subnet_group_name: subnet_group_id)
         rescue Aws::ElastiCache::Errors::CacheSubnetGroupNotFoundFault
           MU.log "Subnet group #{subnet_group_id} disappeared before we could remove it", MU::WARN
         rescue Aws::ElastiCache::Errors::CacheSubnetGroupInUse => e
@@ -987,10 +993,10 @@ module MU
         # @param parameter_group_id [string]: The cloud provider's ID of the cache cluster parameter group.
         # @param region [String]: The cloud provider's region in which to operate.
         # @return [void]
-        def self.delete_parameter_group(parameter_group_id, region: MU.curRegion)
+        def self.delete_parameter_group(parameter_group_id, region: MU.curRegion, credentials: nil)
           retries ||= 0
           MU.log "Deleting parameter group #{parameter_group_id}"
-          MU::Cloud::AWS.elasticache(region: region).delete_cache_parameter_group(
+          MU::Cloud::AWS.elasticache(region: region, credentials: credentials).delete_cache_parameter_group(
             cache_parameter_group_name: parameter_group_id
           )
         rescue Aws::ElastiCache::Errors::CacheParameterGroupNotFound
