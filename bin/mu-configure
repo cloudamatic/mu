@@ -201,6 +201,40 @@ $CONFIGURABLES = {
         "boolean" => true
       }
     }
+  },
+  "azure" => {
+    "title" => "Microsoft Azure Cloud Computing Platform & Services",
+    "named_subentries" => true,
+    "subtree" => {
+      "subscription" => {
+        "title" => "Default Subscription",
+        "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
+      },
+      "credentials" => {
+        "title" => "Credentials Vault:Item",
+        "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      },
+      "credentials_file" => {
+        "title" => "Credentials File",
+        "desc" => "JSON-formatted Service Account credentials for our Azure account, stored in plain text in a file."
+      },
+      "region" => {
+        "title" => "Default Region",
+        "desc" => "Default Microsoft Azure region in which we operate and deploy",
+        "default" => "eastus"
+      },
+      "log_bucket_name" => {
+        "title" => "Log and Secret Bucket Name",
+        "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
+        "changes" => ["chefrun"]
+      },
+      "default" => {
+        "title" => "Is Default Account",
+        "default" => false,
+        "desc" => "If set to true, Mu will use this set of Azure credentials when targeting Azure without a specific account having been requested",
+        "boolean" => true
+      }
+    }
   }
 }
 
@@ -269,6 +303,14 @@ begin
       "Metadata-Flavor" => "Google"
     ).read
     $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
+  end
+rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+end
+$IN_AZURE = false
+begin
+  Timeout.timeout(2) do
+    instance_id = open("http://169.254.169.254/metadata/instance/compute").read
+    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
   end
 rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
 end

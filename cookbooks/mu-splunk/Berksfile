@@ -6,6 +6,5 @@ metadata
 # Mu Cookbooks
 
 # Supermarket Cookbooks
-cookbook 'apache2', '< 4.0'
-cookbook 'php', '< 6.0'
-cookbook 'zap', '>= 0.6.0'
+cookbook 'chef-vault', '~> 3.1.1'
+cookbook 'windows', '~> 5.1.1'
