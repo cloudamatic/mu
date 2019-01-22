@@ -48,7 +48,7 @@ ChefSpec:
 Rspec:
   stage: Test
   script:
-    - cd module
+    - cd modules
     - bundle install
     - gem install rspec
     - rspec
