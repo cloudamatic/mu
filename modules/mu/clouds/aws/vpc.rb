@@ -1939,7 +1939,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
             @az = resp.availability_zone
             @ip_block = resp.cidr_block
-            @cloud_desc_cache = resp # XXX this really isn't the cloud implementation's business
+            @cloud_desc = resp # XXX this really isn't the cloud implementation's business
 
           end
 

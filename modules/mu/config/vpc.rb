@@ -451,6 +451,8 @@ module MU
           vpc_block['region'] = dflt_region.to_s
         end
 
+        vpc_block['credentials'] ||= credentials if credentials
+
         # Sometimes people set subnet_pref to "private" or "public" when they
         # mean "all_private" or "all_public." Help them out.
         if parent_type and 
