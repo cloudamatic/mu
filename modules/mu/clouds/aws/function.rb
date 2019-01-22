@@ -35,16 +35,23 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
-        
+        # Given an IAM role name, resolve to ARN. Will attempt to identify any
+        # sibling Mu role resources by this name first, and failing that, will
+        # do a plain get_role() to the IAM API for the provided name.
+        # @param name [String]
         def get_role_arn(name)
+          sib_role = @deploy.findLitterMate(name: name, type: "roles")
+          return sib_role.cloudobj.arn if sib_role
+
           begin
-            role = MU::Cloud::AWS.iam.get_role({
+            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
               role_name: name.to_s
             })
             return role['role']['arn']
           rescue Exception => e
-            Mu.log "#{e}", MU::ERR
+            MU.log "#{e}", MU::ERR
           end
+          nil
         end
 
         def get_vpc_config(vpc_name, subnet_name, sg_name,region=@config['region'])
@@ -52,7 +59,7 @@ module MU
             ## get vpc_id
             ## get sub_id and verify its in the same vpc 
             ## get sg_id and verify its in the same vpc
-            ec2_client = MU::Cloud::AWS.ec2(region: region)
+            ec2_client = MU::Cloud::AWS.ec2(region: region, credentials: @config['credentials'])
             
             vpc_filter = ec2_client.describe_vpcs({
               filters: [{ name: 'tag-value', values: [vpc_name] }]
@@ -94,7 +101,7 @@ module MU
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
-              tag_resp = MU::Cloud::AWS.lambda(region: region).tag_resource({
+              tag_resp = MU::Cloud::AWS.lambda(region: region, credentials: @config['credentials']).tag_resource({
                 resource: resource_arn,
                 tags: each_pair
               })
@@ -164,7 +171,18 @@ module MU
              lambda_properties[:vpc_config] = vpc_conf
           end
 
-          MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
+          retries = 0
+          begin
+            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
+          rescue Aws::Lambda::Errors::InvalidParameterValueException => e
+            # Freshly-made IAM roles sometimes aren't really ready
+            if retries < 5
+              sleep 10
+              retries += 1
+              retry
+            end
+            raise e
+          end
         end
 
         def groom
@@ -329,7 +347,13 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "iam_role" => {
+              "type" => "string",
+              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with the AWSLambdaBasicExecutionRole policy attached. To grant other permissions for your function, create a Mu 'role' resource and use the 'import' and 'policies' parameters to add permissions. See also: https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html"
+            }
+# XXX add some canned permission sets here, asking people to get the AWS weirdness right and then translate it into Mu-speak is just too much. Think about auto-populating when a target log group is asked for, mappings for the AWS canned policies in the URL above, writes to arbitrary S3 buckets, etc
+          }
           [toplevel_required, schema]
         end
 
@@ -339,6 +363,31 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(function, configurator)
           ok = true
+
+          if !function['iam_role']
+            roledesc = {
+              "name" => function['name']+"execrole",
+              "credentials" => function['credentials'],
+              "can_assume" => [
+                {
+                  "entity_id" => "lambda.amazonaws.com",
+                  "entity_type" => "service"
+                }
+              ],
+              "import" => [
+                "AWSLambdaBasicExecutionRole"
+              ]
+            }
+            configurator.insertKitten(roledesc, "roles")
+
+            function['dependencies'] ||= []
+            function['iam_role'] = function['name']+"execrole"
+
+            function['dependencies'] << {
+              "type" => "role",
+              "name" => function['name']+"execrole"
+            }
+          end
 
           ok
         end

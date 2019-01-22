@@ -93,7 +93,7 @@ module MU
             end
 
             if @config['import']
-              MU.log "Attaching canned policies #{@config['import'].join(", ")} to role #{@mu_name}", MU::NOTICE, details: @config['credentials']
+              MU.log "Attaching canned #{@config['import'].size > 1 ? "policies" : "policy"} #{@config['import'].join(", ")} to role #{@mu_name}", MU::NOTICE, details: @config['credentials']
               configured_policies.concat(@config['import'].map { |p| p.gsub(/.*?\/([^:\/]+)$/, '\1') })
             end
 
@@ -384,11 +384,21 @@ module MU
             if @config['import']
               @config['import'].each { |policy|
                 if !policy.match(/^arn:/i)
-                  policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+                  p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
                 end
-                mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(
-                  policy_arn: policy
-                ).policy
+                retried = false
+                begin
+                  mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(
+                    policy_arn: p_arn
+                  ).policy
+                rescue Aws::IAM::Errors::NoSuchEntity => e
+                  if !retried
+                    p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/service-role/"+policy
+                    retried = true
+                    retry
+                  end
+                  raise e
+                end
               }
             end
 
@@ -545,15 +555,24 @@ module MU
 
           if role['import']
             role['import'].each { |policy|
-              if !policy.match(/^arn:/i)
-                policy = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+              arn = if !policy.match(/^arn:/i)
+                "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+              else
+                policy
               end
+              retried = false
               begin
-                MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: policy)
+                MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: arn)
               rescue Aws::IAM::Errors::NoSuchEntity => e
-                MU.log "No such canned AWS IAM policy '#{policy}'", MU::ERR
+                if !retried
+                  arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/service-role/"+policy
+                  retried = true
+                  retry
+                end
+                MU.log "No such canned AWS IAM policy '#{arn}'", MU::ERR
                 ok = false
               end
+              policy = arn
             }
           end
 
