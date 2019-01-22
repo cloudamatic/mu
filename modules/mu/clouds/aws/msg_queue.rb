@@ -109,7 +109,8 @@ module MU
           return nil if !@cloud_id
           MU::Cloud::AWS::MsgQueue.find(
             cloud_id: @cloud_id.dup,
-            region: @config['region']
+            region: @config['region'],
+            credentials: @config['credentials']
           )
         end
 
@@ -119,7 +120,8 @@ module MU
           cloud_desc
           deploy_struct = MU::Cloud::AWS::MsgQueue.find(
             cloud_id: @cloud_id,
-            region: @config['region']
+            region: @config['region'],
+            credentials: @config['credentials']
           )
           return deploy_struct
         end
@@ -402,18 +404,18 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
           }
 
           if @config['failqueue']
-            sibling = @deploy.findLitterMate(type: "msg_queue", name: config['failqueue']['name'])
-            id = config['failqueue']['name']
+            sibling = @deploy.findLitterMate(type: "msg_queue", name: @config['failqueue']['name'])
+            id = @config['failqueue']['name']
             if sibling # resolve sibling queues to something useful
               id = sibling.cloud_id
             end
-            desc = MU::Cloud::AWS::MsgQueue.find(cloud_id: id)
+            desc = MU::Cloud::AWS::MsgQueue.find(cloud_id: id, credentials: @config['credentials'])
             if !desc
-              raise MuError, "Failed to get cloud descriptor for SQS queue #{config['failqueue']['name']}"
+              raise MuError, "Failed to get cloud descriptor for SQS queue #{@config['failqueue']['name']}"
             end
             rdr_pol = {
               "deadLetterTargetArn" => desc["QueueArn"],
-              "maxReceiveCount" => config['failqueue']['retries_before_fail']
+              "maxReceiveCount" => @config['failqueue']['retries_before_fail']
             }
             attrs["RedrivePolicy"] = JSON.generate(rdr_pol)
           end
