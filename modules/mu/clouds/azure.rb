@@ -106,7 +106,7 @@ module MU
         begin
           response = nil
           Timeout.timeout(1) do
-            response = JSON.parse(open("#{base_url}/?api-version=#{ api_version }", "Metadata" => "true").read)
+            response = MultiJson.load((open("#{base_url}/?api-version=#{ api_version }", "Metadata" => "true").read)
           end
 
           response
