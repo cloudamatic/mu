@@ -117,12 +117,20 @@ Gem Build:
   script:
     - gem build cloud-mu.gemspec
     - gem install cloud-mu-*.gem
+    - echo "Upload me to rubygems?"
+  only:
+    - master
+    - development
 
 Muby Build:
   stage: Build
   image: centos
   script: 
     - extras/ruby_rpm/build.sh
+    - echo "maybe do something cool and smart here?"
+  only:
+    - master
+  allow_failure: true
 
 Dockerbuild:
   stage: Dockerbuild
@@ -146,4 +154,3 @@ pages:
     - public
   only:
   - master
-  - Azure_you_want_azure
