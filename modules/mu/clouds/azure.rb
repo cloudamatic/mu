@@ -36,10 +36,12 @@ module MU
         end
 
         begin
-          if getAzureMetaData("compute")
-            
+          metadata = get_metadata()
+          if metadata['compute']['vmId']
             @@is_in_azure = true
             return true
+          else
+            return false
           end
         rescue
           # MU.log "Failed to get Azure MetaData. I assume I am not hosted in Azure", MU::DEBUG, details: resources
@@ -98,20 +100,20 @@ module MU
       # Fetch an Azure instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
-      def self.getAzureMetaData(param)
+      def self.get_metadata()
         base_url = "http://169.254.169.254/metadata/instance"
         api_version = '2017-12-01'
         begin
           response = nil
           Timeout.timeout(1) do
-            response = open("#{base_url}/#{param}?api-version=#{ api_version }", "Metadata" => "true").read
+            response = JSON.parse(open("#{base_url}/?api-version=#{ api_version }", "Metadata" => "true").read)
           end
 
           response
         rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
           # This is normal on machines checking to see if they're AWS-hosted
           logger = MU::Logger.new
-          logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
+          logger.log "Failed metadata request #{base_url}/: #{e.inspect}", MU::DEBUG
           return nil
         end
       end
