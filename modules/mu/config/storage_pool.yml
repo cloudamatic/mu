@@ -1,0 +1,19 @@
+<% if $complexity == "complex" %>
+# XXX glue to other resources in test BoKs, if you want to test complexity
+name: efs
+mount_points:
+- name: mountpoint
+  directory: /efs
+  ingress_rules:
+  - port: 2049
+    hosts:
+    - 0.0.0.0/0
+<% else %> # IF NOT COMPLEX THEN ASSUME SIMPLE
+name: efs
+mount_points:
+- name: mountpoint
+  directory: /efs
+  ingress_rules:
+  - port: 2049
+    hosts:
+<% end %>
