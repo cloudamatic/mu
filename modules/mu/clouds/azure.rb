@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require "net/http"
+require 'net/https'
+require 'multi_json'
+require 'stringio'
 
 module MU
   class Cloud
@@ -49,8 +53,10 @@ module MU
         "TODO"
       end
 
+      # Any cloud-specific instance methods we require our resource implementations to have, above and beyond the ones specified by {MU::Cloud}
+      # @return [Array<Symbol>]
       def self.required_instance_methods
-        "TODO"
+        []
       end
 
       def self.myRegion
@@ -83,7 +89,32 @@ module MU
 
       def self.listInstanceTypes
         "TODO"
-      end   
+      end
+      
+      
+      #END REQUIRED METHODS
+
+
+      # Fetch an Azure instance metadata parameter (example: public-ipv4).
+      # @param param [String]: The parameter name to fetch
+      # @return [String, nil]
+      def self.getAzureMetaData(param)
+        base_url = "http://169.254.169.254/metadata/instance"
+        api_version = '2017-12-01'
+        begin
+          response = nil
+          Timeout.timeout(1) do
+            response = open("#{base_url}/#{param}?api-version=#{ api_version }").read
+          end
+
+          response
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
+          # This is normal on machines checking to see if they're AWS-hosted
+          logger = MU::Logger.new
+          logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
+          return nil
+        end
+      end
     end
   end
 end

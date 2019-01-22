@@ -11,23 +11,24 @@ describe MU::Cloud::Azure do
 
 	describe ".hosted?" do
 		
-		it "responds with false" do
-			expect(MU::Cloud::Azure.hosted?).to eql(false)
+		it "responds with true or false" do
+			expect(MU::Cloud::Azure.hosted?).to be(true).or be(false)
 		end
 
 	end
 
 	describe ".hosted" do
 		
-		it "responds with false" do
-			expect(MU::Cloud::Azure.hosted?).to eql(false)
+		it "responds with true or false" do
+			expect(MU::Cloud::Azure.hosted?).to be(true).or be(false)
 		end
 
 	end
 
 	describe ".required_instance_methods" do
-		it "responds with false" do
-			expect(MU::Cloud::Azure.required_instance_methods).to eql("TODO")
+		it "responds with an empty array of required methods" do
+			methods = MU::Cloud::Azure.required_instance_methods
+			expect(methods).to eql([])
 		end
 	end
 
