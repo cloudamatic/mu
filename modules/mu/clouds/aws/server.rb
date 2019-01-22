@@ -286,7 +286,6 @@ module MU
 
           arn = nil
           if @config['generate_iam_role']
-#            @config['iam_role'], @cfm_role_name, @cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
             s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
               'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
@@ -2267,15 +2266,25 @@ module MU
                 desc = "#{MU.deploy_id}-MUfinal"
               end
 
-              MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_snapshot(
+              begin
+                MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_snapshot(
                   volume_id: volume.volume_id,
                   description: desc
-              )
+                )
+              rescue Aws::EC2::Errors::IncorrectState => e
+                if e.message.match(/'deleting'/)
+                  MU.log "Cannot snapshot volume '#{name}', is already being deleted", MU::WARN
+                end
+              end
             end
 
             retries = 0
             begin
               MU::Cloud::AWS.ec2(region: region, credentials: credentials).delete_volume(volume_id: volume.volume_id)
+            rescue Aws::EC2::Errors::IncorrectState => e
+              MU.log "Volume #{volume.volume_id} (#{name}) in incorrect state (#{e.message}), will retry", MU::WARN
+              sleep 30
+              retry
             rescue Aws::EC2::Errors::InvalidVolumeNotFound
               MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
             rescue Aws::EC2::Errors::VolumeInUse

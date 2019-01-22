@@ -854,6 +854,7 @@ module MU
 # XXX maybe break this down into policies and add those?
               end
 
+              role['credentials'] = pool['credentials'] if pool['credentials']
               configurator.insertKitten(role, "roles")
               pool["dependencies"] ||= []
               pool["dependencies"] << {
@@ -1199,9 +1200,16 @@ module MU
           }
 
           if @config['basis']['launch_config']['generate_iam_role']
-            # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
-            rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['basis']['launch_config']['iam_role'], extra_policies: @config['basis']['launch_config']['iam_policies'], canned_policies: @config['basis']['launch_config']['canned_iam_policies'])
-            launch_options[:iam_instance_profile] = rolename
+            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+# XXX are these the right patterns for a pool, or did we need wildcards?
+            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
+            }
+            role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+
+            @config['iam_role'] = role.mu_name
+
+            launch_options[:iam_instance_profile] = role.cloudobj.createInstanceProfile
           elsif @config['basis']['launch_config']['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           else
@@ -1210,18 +1218,12 @@ module MU
 
           @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
 
-          if rolename
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename, region: @config['region'])
-          else
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
-          end
-
           lc_attempts = 0
           begin
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_launch_configuration(launch_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
             if lc_attempts > 3
-              MU.log "Got error while creating #{@mu_name} Launch Config: #{e.message}, retrying in 10s", MU::WARN
+              MU.log "Got error while creating #{@mu_name} Launch Config#{@config['credentials'] ? " with credentials #{@config['credentials']}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,v | k == :user_data }
             end
             sleep 5
             lc_attempts += 1

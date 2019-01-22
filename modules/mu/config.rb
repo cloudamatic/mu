@@ -869,6 +869,9 @@ module MU
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']
+        if descriptor['credentials']
+          descriptor['vpc']['credentials'] ||= descriptor['credentials']
+        end
         if descriptor['vpc']['region'].nil? and !descriptor['region'].nil? and !descriptor['region'].empty? and descriptor['vpc']['cloud'] != "Google"
           descriptor['vpc']['region'] = descriptor['region']
         end
@@ -1214,6 +1217,7 @@ module MU
       hosts << "#{admin_ip}/32" if admin_ip
       hosts.uniq!
       name = "admin"
+      name += credentials.to_s if credentials
       realvpc = nil
 
       if vpc
@@ -1559,6 +1563,7 @@ module MU
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
 #XXX 'credentials' should probably happen here too
       schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
       if kitten['cloud'] == "Google"
@@ -1585,7 +1590,7 @@ module MU
       kitten['scrub_mu_isms'] ||= false
 
       kitten['credentials'] ||= @config['credentials']
-      kitten.delete('credentials') if !kitten['credentials']
+      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
 
       kitten["dependencies"] ||= []
 

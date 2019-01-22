@@ -361,7 +361,7 @@ module MU
       # an account name is specified which does not exist.
       # @param name [String]: The name of the key under 'aws' in mu.yaml to return
       # @return [Hash,nil]
-      def self.credConfig(name = nil, nameonly: false)
+      def self.credConfig(name = nil, name_only: false)
         # If there's nothing in mu.yaml (which is wrong), but we're running
         # on a machine hosted in AWS, *and* that machine has an IAM profile,
         # fake it with those credentials and hope for the best.
@@ -373,7 +373,7 @@ module MU
               iam_data = JSON.parse(getAWSMetaData("iam/info"))
               if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
                 @@my_hosted_cfg = hosted_config
-                return nameonly ? "#default" : @@my_hosted_cfg
+                return name_only ? "#default" : @@my_hosted_cfg
               end
             rescue JSON::ParserError => e
             end
@@ -385,19 +385,19 @@ module MU
         if name.nil?
           $MU_CFG['aws'].each_pair { |name, cfg|
             if cfg['default']
-              return nameonly ? name : cfg
+              return name_only ? name : cfg
             end
           }
         else
           if $MU_CFG['aws'][name]
-            return nameonly ? name : $MU_CFG['aws'][name]
+            return name_only ? name : $MU_CFG['aws'][name]
           elsif @@acct_to_profile_map[name.to_s]
-            return nameonly ? name : @@acct_to_profile_map[name.to_s]
+            return name_only ? name : @@acct_to_profile_map[name.to_s]
           elsif name.is_a?(Integer) or name.match(/^\d+$/)
             # Try to map backwards from an account id, if that's what we go
             $MU_CFG['aws'].each_pair { |acctname, cfg|
               if cfg['account_number'] and name.to_s == cfg['account_number'].to_s
-                return nameonly ? acctname : $MU_CFG['aws'][acctname]
+                return name_only ? acctname : $MU_CFG['aws'][acctname]
               end
             }
 
@@ -414,7 +414,7 @@ module MU
               if acct_num.to_s ==  name.to_s
                 cfg['account_number'] = acct_num.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
-                return nameonly ? name.to_s : cfg
+                return name_only ? name.to_s : cfg
                 return cfg
               end
             }
@@ -1086,7 +1086,7 @@ module MU
         # @param api [String]: Which API are we wrapping?
         def initialize(region: MU.curRegion, api: "EC2", credentials: nil)
           @cred_obj = MU::Cloud::AWS.loadCredentials(credentials)
-          @credentials = MU::Cloud::AWS.credConfig(credentials, nameonly: true)
+          @credentials = MU::Cloud::AWS.credConfig(credentials, name_only: true)
 
           if !@cred_obj
             raise MuError, "Unable to locate valid AWS credentials for #{api} API. #{credentials ? "Credentials requested were '#{credentials}'": ""}"
