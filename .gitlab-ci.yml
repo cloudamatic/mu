@@ -48,6 +48,8 @@ ChefSpec:
 Rspec:
   stage: Test
   script:
+    - cd module
+    - bundle install
     - gem install rspec
     - rspec
   allow_failure: true
