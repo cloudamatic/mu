@@ -405,7 +405,7 @@ module MU
 
     # List of known/supported Cloud providers. This may be modified at runtime
     # if an implemention is defective or missing required methods.
-    @@supportedCloudList = ["AWS", "CloudFormation", "Google"]
+    @@supportedCloudList = ['AWS', 'CloudFormation', 'Google', 'Azure']
 
     # List of known/supported Cloud providers
     def self.supportedClouds
