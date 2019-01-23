@@ -1053,7 +1053,7 @@ end
 if AMROOT
   cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
   pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
-  if cur_chef_version != pref_chef_version and cur_chef_version.sub(/\-\d+$/, "") != pref_chef_version
+  if (cur_chef_version != pref_chef_version and cur_chef_version.sub(/\-\d+$/, "") != pref_chef_version) or cur_chef_version.match(/is not installed/)
     puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}' from '#{cur_chef_version}'"
     chef_installer = open("https://omnitruck.chef.io/install.sh").read
     File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
