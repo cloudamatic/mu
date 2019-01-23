@@ -1,4 +1,4 @@
-name              'nagios'
+name              'mu-nagios'
 maintainer 'Mu'
 maintainer_email 'mu-developers@googlegroups.com'
 license           'BSD-3-Clause'

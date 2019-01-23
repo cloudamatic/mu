@@ -1,4 +1,4 @@
-name 'awscli'
+name 'mu-awscli'
 maintainer 'Shlomo Swidler'
 maintainer_email 'shlomo.swidler@orchestratus.com'
 license 'BSD-3-Clause'
