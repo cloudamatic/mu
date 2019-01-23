@@ -247,18 +247,6 @@ module MU
           return tags
         end
 
-        # Add our standard tag set to an Amazon RDS resource.
-        # @param resource [String]: The name of the resource
-        # @param resource_type [String]: The type of the resource (one of `db, es, og, pg, ri, secgrp, snapshot, subgrp`)
-        # @param region [String]: The cloud provider region
-        def addStandardTags(resource, resource_type, region: MU.curRegion)
-          MU.log "Adding tags to RDS resource #{resource}: #{allTags}"
-          MU::Cloud::AWS.rds(region: region).add_tags_to_resource(
-              resource_name: MU::Cloud::AWS::Database.getARN(resource, resource_type, "rds", region: region),
-              tags: allTags
-          )
-        end
-
         # Getting the password for the master user, and saving it in a database / cluster specif vault
         def getPassword
           if @config['password'].nil?
@@ -335,12 +323,10 @@ module MU
             point_in_time_config[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
           end
 
-          if @config["read_replica_of"]#|| @config["create_read_replica"]
+          if @config["read_replica_of"]# || @config["create_read_replica"]
             srcdb = @config['source_identifier']
-            puts @config['name']
-            pp @config["read_replica_of"]
             if @config["read_replica_of"]["region"] and @config['region'] != @config["read_replica_of"]["region"]
-              srcdb = MU::Cloud::AWS::Database.getARN(@config['source_identifier'], "db", "rds", region: @config["read_replica_of"]["region"])
+              srcdb = MU::Cloud::AWS::Database.getARN(@config['source_identifier'], "db", "rds", region: @config["read_replica_of"]["region"], credentials: @config['credentials'])
             end
             read_replica_struct = {
               db_instance_identifier: @config['identifier'],
@@ -377,7 +363,9 @@ module MU
                 resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(read_replica_struct)
               end
             elsif @config["creation_style"] == "new"
-              MU.log "Creating pristine database instance #{@config['identifier']}"
+              MU.log "Creating pristine database instance #{@config['identifier']} (#{@config['name']}) in #{@config['region']}"
+puts @config['credentials']
+pp config
               resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(config)
             end
           rescue Aws::RDS::Errors::InvalidParameterValue => e
@@ -562,7 +550,7 @@ module MU
           loop do
             MU.log "Waiting for #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
             attempts += 1
-            cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'])
+            cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
             break unless cluster.status != "available"
             sleep 30
           end
@@ -584,13 +572,13 @@ module MU
             loop do
               MU.log "Waiting for #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
               attempts += 1
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'])
+              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
               break unless cluster.status != "available"
               sleep 30
             end
           end
 
-          cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'])
+          cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cluster.db_cluster_identifier, target: "#{cluster.endpoint}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
           return cluster.db_cluster_identifier
         end
@@ -985,8 +973,8 @@ module MU
         # @param db_cluster_id [String]: The cloud provider's identifier for this database cluster.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
-        def self.getDatabaseClusterById(db_cluster_id, region: MU.curRegion)
-          MU::Cloud::AWS.rds(region: region).describe_db_clusters(db_cluster_identifier: db_cluster_id).db_clusters.first
+        def self.getDatabaseClusterById(db_cluster_id, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.rds(region: region, credentials: credentials).describe_db_clusters(db_cluster_identifier: db_cluster_id).db_clusters.first
         rescue Aws::RDS::Errors::DBClusterNotFoundFault => e
           # We're fine with this returning nil when searching for a database cluster the doesn't exist.
         end
@@ -1007,7 +995,7 @@ module MU
             deploy_struct = 
             if db["create_cluster"]
               db["identifier"] = @mu_name.downcase if db["identifier"].nil?
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'])
+              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'], credentials: @config['credentials'])
               # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
               if db['dns_records']
                 db['dns_records'].each { |dnsrec|
@@ -1245,7 +1233,7 @@ module MU
           resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_clusters
           resp.db_clusters.each { |cluster|
             cluster_id = cluster.db_cluster_identifier
-            arn = MU::Cloud::AWS::Database.getARN(cluster_id, "cluster", "rds", region: region)
+            arn = MU::Cloud::AWS::Database.getARN(cluster_id, "cluster", "rds", region: region, credentials: credentials)
             tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
 
             found_muid = false
@@ -1270,7 +1258,7 @@ module MU
               threads << Thread.new(cluster) { |mydbcluster|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase)
+                MU::Cloud::AWS::Database.terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase, credentials: credentials)
               }
             end
           }
@@ -1454,16 +1442,20 @@ module MU
         def self.validateConfig(db, configurator)
           ok = true
 
-          db_cluster_engines = %w{aurora}
-          db["create_cluster"] =
-            if db_cluster_engines.include?(db["engine"])
-              true
+          if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
+            case db['engine']
+            when "mysql", "aurora", "aurora-mysql"
+              db["engine"] = "aurora-mysql"
+            when "postgres", "postgresql", "postgresql-mysql"
+              db["engine"] = "aurora-postgresql"
             else
-              false
+              ok = false
+              MU.log "Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
             end
+          end
 
           db["license_model"] ||=
-            if db["engine"] == "postgres"
+            if ["postgres", "postgresql", "aurora-postgresql"].include?(db["engine"])
               "postgresql-license"
             elsif db["engine"] == "mysql"
               "general-public-license"
@@ -1472,8 +1464,8 @@ module MU
             end
 
           if db["create_read_replica"] or db['read_replica_of']
-            if db["engine"] != "postgres" and db["engine"] != "mysql"
-              MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+            if !["postgres", "postgresql", "mysql", "aurora-mysql", "aurora-postgresql", "mariadb"].include?(db["engine"])
+              MU.log "Read replica(s) database instances not supported for #{db["engine"]}.", MU::ERR
               ok = false
             end
           end
@@ -1598,6 +1590,7 @@ module MU
             loop do
               MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
               db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
+              return if db.nil?
               break unless %w{creating modifying backing-up}.include?(db.db_instance_status)
               sleep 60
             end
@@ -1686,7 +1679,7 @@ module MU
         # Remove an RDS database cluster and associated artifacts
         # @param cluster [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_rds_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
           raise MuError, "terminate_rds_cluster requires a non-nil database cluster descriptor" if cluster.nil?
           cluster_id = cluster.db_cluster_identifier
 
@@ -1696,6 +1689,7 @@ module MU
             region: region,
             deploy_id: deploy_id,
             cloud_id: cloud_id,
+            credentials: credentials,
             mu_name: mu_name
           ).first
 
@@ -1706,7 +1700,7 @@ module MU
           unless cluster.status == "available"
             loop do
               MU.log "Waiting for #{cluster_id} to be in a removable state...", MU::NOTICE
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cluster_id, region: region)
+              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cluster_id, region: region, credentials: credentials)
               break unless %w{creating modifying backing-up}.include?(cluster.status)
               sleep 60
             end
@@ -1718,20 +1712,20 @@ module MU
             MU.log "#{cluster_id} has already been terminated", MU::WARN
           else
             unless noop
-              def self.clusterSkipSnap(cluster_id, region)
+              def self.clusterSkipSnap(cluster_id, region, credentials)
                 # We're calling this several times so lets declare it once
                 MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                MU::Cloud::AWS.rds(region: region).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: true)
+                MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: true)
               end
 
-              def self.clusterCreateSnap(cluster_id, region)
+              def self.clusterCreateSnap(cluster_id, region, credentials)
                 MU.log "Terminating #{cluster_id}. Saving final snapshot: #{cluster_id}-mufinal"
-                MU::Cloud::AWS.rds(region: region).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: false, final_db_snapshot_identifier: "#{cluster_id}-mufinal")
+                MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: false, final_db_snapshot_identifier: "#{cluster_id}-mufinal")
               end
 
               retries = 0
               begin
-                skipsnapshots ? clusterSkipSnap(cluster_id, region) : clusterCreateSnap(cluster_id, region)
+                skipsnapshots ? clusterSkipSnap(cluster_id, region, credentials) : clusterCreateSnap(cluster_id, region, credentials)
               rescue Aws::RDS::Errors::InvalidDBClusterStateFault => e
                 if retries < 5
                   MU.log "#{cluster_id} is not in a removable state, retrying several times", MU::WARN
@@ -1742,10 +1736,10 @@ module MU
                   MU.log "#{cluster_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
                 end
               rescue Aws::RDS::Errors::DBClusterSnapshotAlreadyExistsFault
-                clusterSkipSnap(cluster_id, region)
+                clusterSkipSnap(cluster_id, region, credentials)
                 MU.log "Snapshot of #{cluster_id} already exists", MU::WARN
               rescue Aws::RDS::Errors::DBClusterQuotaExceeded
-                clusterSkipSnap(cluster_id, region)
+                clusterSkipSnap(cluster_id, region, credentials)
                 MU.log "Snapshot quota exceeded while deleting #{cluster_id}", MU::ERR
               end
             end
@@ -1754,7 +1748,7 @@ module MU
           # We're wating until getDatabaseClusterById returns nil. This assumes the database cluster object doesn't linger around in "deleted" state for a while.
           loop do
             MU.log "Waiting for #{cluster_id} to terminate", MU::NOTICE
-            cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cluster_id, region: region)
+            cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cluster_id, region: region, credentials: credentials)
             break unless cluster
             sleep 30
           end

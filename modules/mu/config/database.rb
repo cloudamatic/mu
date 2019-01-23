@@ -179,11 +179,11 @@ module MU
             },
             "create_cluster" => {
               "type" => "boolean",
-                "description" => "Rather to create a database cluster. This only applies to aurora",
+                "description" => "Create a database cluster instead of a standalone database.",
                 "default_if" => [
                   {
                     "key_is" => "engine",
-                    "value_is" => "aurora",
+                    "value_is" => "aurora-mysql",
                     "set" => true
                   }
                 ]
@@ -341,21 +341,27 @@ module MU
         # Automatically manufacture another database object, which will serve
         # as a read replica of this one, if we've set create_read_replica.
         if db['create_read_replica']
-          replica = Marshal.load(Marshal.dump(db))
-          replica['name'] = db['name']+"-replica"
-          replica["credentials"] = db["credentials"]
-          replica['create_read_replica'] = false
-          replica['read_replica_of'] = {
-            "db_name" => db['name'],
-            "cloud" => db['cloud'],
-            "region" => db['read_replica_region'] || db['region']
-          }
-          replica['dependencies'] << {
-            "type" => "database",
-            "name" => db["name"],
-            "phase" => "groom"
-          }
-          read_replicas << replica
+          if db['create_cluster']
+            db["create_read_replica"] = false
+            MU.log "Ignoring extraneous create_read_replica flag on database cluster #{db['name']}", MU::WARN
+          else
+            replica = Marshal.load(Marshal.dump(db))
+            replica['name'] = db['name']+"-replica"
+            replica["credentials"] = db["credentials"]
+            replica['create_read_replica'] = false
+            replica["create_cluster"] = false
+            replica['read_replica_of'] = {
+              "db_name" => db['name'],
+              "cloud" => db['cloud'],
+              "region" => db['read_replica_region'] || db['region']
+            }
+            replica['dependencies'] << {
+              "type" => "database",
+              "name" => db["name"],
+              "phase" => "groom"
+            }
+            read_replicas << replica
+          end
         end
 
         # Do database cluster nodes the same way we do read replicas, by
@@ -367,6 +373,7 @@ module MU
             node["name"] = "#{db['name']}-#{num}"
             node["credentials"] = db["credentials"]
             node["create_cluster"] = false
+            node["create_read_replica"] = false
             node["creation_style"] = "new"
             node["add_cluster_node"] = true
             node["member_of_cluster"] = {
