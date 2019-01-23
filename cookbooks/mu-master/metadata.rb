@@ -13,7 +13,7 @@ version '0.9.0'
 	supports os
 end
 
-depends 'nagios'
+depends 'mu-nagios'
 depends 'nrpe', '~> 2.0.3'
 depends 'mu-utility'
 depends 'mu-tools'
