@@ -769,9 +769,11 @@ module MU
     def haveLitterMate?(name, type)
       @kittencfg_semaphore.synchronize {
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
-        @kittens[cfg_plural].each { |kitten|
-          return kitten if kitten['name'] == name.to_s
-        }
+        if @kittens[cfg_plural]
+          @kittens[cfg_plural].each { |kitten|
+            return kitten if kitten['name'] == name.to_s
+          }
+        end
       }
       false
     end
@@ -783,13 +785,15 @@ module MU
       @kittencfg_semaphore.synchronize {
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         deletia = nil
-        @kittens[cfg_plural].each { |kitten|
-          if kitten['name'] == name
-            deletia = kitten
-            break
-          end
-        }
-        @kittens[type].delete(deletia) if !deletia.nil?
+        if @kittens[cfg_plural]
+          @kittens[cfg_plural].each { |kitten|
+            if kitten['name'] == name
+              deletia = kitten
+              break
+            end
+          }
+          @kittens[type].delete(deletia) if !deletia.nil?
+        end
       }
     end
 

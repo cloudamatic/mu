@@ -571,6 +571,8 @@ module MU
 
           # If we came up via AutoScale, the Alarm module won't have had our
           # instance ID to associate us with itself. So invoke that here.
+          # XXX might be possible to do this with regular alarm resources and
+          # dependencies now
           if !@config['basis'].nil? and @config["alarms"] and !@config["alarms"].empty?
             @config["alarms"].each { |alarm|
               alarm_obj = MU::MommaCat.findStray(

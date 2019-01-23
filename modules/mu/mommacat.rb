@@ -1276,6 +1276,7 @@ module MU
         matches = []
 
         @kittens[type].each { |sib_class, data|
+
           next if !name.nil? and name != sib_class
           if has_multiples
             if !name.nil?

@@ -58,12 +58,16 @@ module MU
             @config["dimensions"] = dimensions
           end
 
+          @config["alarm_actions"] = [] if @config["alarm_actions"].nil?
+          @config["ok_actions"] = [] if @config["ok_actions"].nil?
           if @config["enable_notifications"]
-            @config["alarm_actions"] = [] if @config["alarm_actions"].nil?
-            @config["ok_actions"] = [] if @config["ok_actions"].nil?
 
-            topic_arn = MU::Cloud::AWS::Notification.createTopic(@config["notification_group"], region: @config["region"], credentials: @config["credentials"])
-            MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: @config["notification_type"], endpoint: @config["notification_endpoint"], region: @config["region"], credentials: @config["credentials"])
+            topic_arn = if @config["notification_group"].match(/^arn:/)
+              @config["notification_group"]
+            else
+              topic = @deploy.findLitterMate(name: @config["notification_group"], type: "notifiers")
+              topic.cloudobj.arn
+            end
 
             @config["alarm_actions"] << topic_arn
             @config["ok_actions"] << topic_arn
