@@ -343,6 +343,7 @@ module MU
         if db['create_read_replica']
           replica = Marshal.load(Marshal.dump(db))
           replica['name'] = db['name']+"-replica"
+          replica["credentials"] = db["credentials"]
           replica['create_read_replica'] = false
           replica['read_replica_of'] = {
             "db_name" => db['name'],
@@ -364,6 +365,7 @@ module MU
           (1..db["cluster_node_count"]).each{ |num|
             node = Marshal.load(Marshal.dump(db))
             node["name"] = "#{db['name']}-#{num}"
+            node["credentials"] = db["credentials"]
             node["create_cluster"] = false
             node["creation_style"] = "new"
             node["add_cluster_node"] = true
