@@ -37,12 +37,12 @@ include_recipe "nagios::server_#{node['nagios']['server']['install_method']}"
 case node['nagios']['server']['web_server']
 when 'nginx'
   Chef::Log.info 'Setting up Nagios server via NGINX'
-  include_recipe 'mu-nagios::nginx'
+  include_recipe 'nagios::nginx'
   web_user = node['nginx']['user']
   web_group = node['nginx']['group'] || web_user
 when 'apache'
   Chef::Log.info 'Setting up Nagios server via Apache2'
-  include_recipe 'mu-nagios::apache'
+  include_recipe 'nagios::apache'
   web_user = node['apache']['user']
   web_group = node['apache']['group'] || web_user
 else
@@ -108,12 +108,12 @@ Nagios.instance.host_name_attribute = node['nagios']['host_name_attribute']
 
 # loading default configuration data
 if node['nagios']['server']['load_default_config']
-  include_recipe 'mu-nagios::_load_default_config'
+  include_recipe 'nagios::_load_default_config'
 end
 
 # loading all databag configurations
 if node['nagios']['server']['load_databag_config']
-  include_recipe 'mu-nagios::_load_databag_config'
+  include_recipe 'nagios::_load_databag_config'
 end
 
 directory "#{node['nagios']['conf_dir']}/dist" do

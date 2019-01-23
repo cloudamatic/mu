@@ -4,12 +4,12 @@ source chef_repo: ".."
 metadata
 
 # Mu Cookbooks
-cookbook 'mu-nagios'
+cookbook 'nagios'
 cookbook 'mu-utility'
 cookbook 'mu-tools'
 cookbook 'mu-firewall'
 cookbook 'mu-activedirectory'
-cookbook 'mu-s3fs'
+cookbook 's3fs'
 
 # Supermarket Cookbooks
 cookbook 'nrpe', '~> 2.0.3'

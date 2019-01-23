@@ -4,7 +4,7 @@ source chef_repo: ".."
 metadata
 
 # Mu Cookbooks
-cookbook "mu-nagios"
+cookbook "nagios"
 cookbook "mu-utility"
 cookbook "mu-splunk"
 cookbook "mu-firewall"

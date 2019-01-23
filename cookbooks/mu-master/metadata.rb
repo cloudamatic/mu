@@ -13,12 +13,12 @@ version '0.9.0'
 	supports os
 end
 
-depends 'mu-nagios'
+depends 'nagios'
 depends 'nrpe', '~> 2.0.3'
 depends 'mu-utility'
 depends 'mu-tools'
 depends 'mu-activedirectory'
-depends 'mu-s3fs'
+depends 's3fs'
 depends 'postfix', '~> 5.3.1'
 depends 'bind', '~> 2.2.0'
 depends 'bind9-ng', '~> 0.1.0'
