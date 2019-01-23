@@ -252,22 +252,18 @@ module MU
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
       # @param deploy_id [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
-      def self.writeDeploySecret(deploy_id, value, name = nil)
+      def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
         name ||= deploy_id+"-secret"
         begin
-          creds = credConfig
-
-          creds['log_bucket_name']
-
-          MU.log "Writing #{name} to S3 bucket #{creds['log_bucket_name']}"
-          MU::Cloud::AWS.s3(region: myRegion).put_object(
+          MU.log "Writing #{name} to S3 bucket #{adminBucketName(credentials)}"
+          MU::Cloud::AWS.s3(region: myRegion, credentials: credentials).put_object(
             acl: "private",
-            bucket: creds['log_bucket_name'],
+            bucket: adminBucketName(credentials),
             key: name,
             body: value
           )
         rescue Aws::S3::Errors => e
-          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
         end
       end
 
@@ -355,6 +351,16 @@ module MU
         end
 
         $MU_CFG['aws'].keys
+      end 
+
+      def self.adminBucketName(credentials = nil)
+         #XXX find a default if this particular account doesn't have a log_bucket_name configured
+        cfg = credConfig(credentials)
+        cfg['log_bucket_name']
+      end
+
+      def self.adminBucketUrl(credentials = nil)
+        "s3://"+adminBucketName+"/"
       end
 
       # Return the $MU_CFG data associated with a particular profile/name/set of

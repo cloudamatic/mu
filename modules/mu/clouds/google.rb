@@ -69,6 +69,60 @@ module MU
         $MU_CFG['google'].keys
       end
 
+      def self.adminBucketName(credentials = nil)
+         #XXX find a default if this particular account doesn't have a log_bucket_name configured
+        cfg = credConfig(credentials)
+        cfg['log_bucket_name']
+      end
+
+      def self.adminBucketUrl(credentials = nil)
+        "gs://"+adminBucketName+"/"
+      end
+
+      # Return the $MU_CFG data associated with a particular profile/name/set of
+      # credentials. If no account name is specified, will return one flagged as
+      # default. Returns nil if GCP is not configured. Throws an exception if 
+      # an account name is specified which does not exist.
+      # @param name [String]: The name of the key under 'aws' in mu.yaml to return
+      # @return [Hash,nil]
+      def self.credConfig(name = nil, name_only: false)
+        # If there's nothing in mu.yaml (which is wrong), but we're running
+        # on a machine hosted in GCP, fake it with that machine's service
+        # account and hope for the best.
+        if !$MU_CFG['google'] or !$MU_CFG['google'].is_a?(Hash) or $MU_CFG['google'].size == 0
+          return @@my_hosted_cfg if @@my_hosted_cfg
+
+          if hosted?
+            begin
+#              iam_data = JSON.parse(getAWSMetaData("iam/info"))
+#              if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
+                @@my_hosted_cfg = hosted_config
+                return name_only ? "#default" : @@my_hosted_cfg
+#              end
+            rescue JSON::ParserError => e
+            end
+          end
+
+          return nil
+        end
+
+        if name.nil?
+          $MU_CFG['google'].each_pair { |name, cfg|
+            if cfg['default']
+              return name_only ? name : cfg
+            end
+          }
+        else
+          if $MU_CFG['google'][name]
+            return name_only ? name : $MU_CFG['google'][name]
+          elsif @@acct_to_profile_map[name.to_s]
+            return name_only ? name : @@acct_to_profile_map[name.to_s]
+          end
+
+          raise MuError, "Google credential set #{name} was requested, but I see no such working credentials in mu.yaml"
+        end
+      end
+
       # If we've configured Google as a provider, or are simply hosted in GCP, 
       # decide what our default region is.
       def self.myRegion

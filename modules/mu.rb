@@ -678,14 +678,23 @@ module MU
   end
 
 
-  # Return the name of the S3 Mu log and key bucket for this Mu server.
+  # Return the name of the Mu log and key bucket for this Mu server. Not
+  # necessarily in any specific cloud provider.
   # @return [String]
-  # XXX account for Google and non-cloud situations
-  def self.adminBucketName
-    bucketname = $MU_CFG['aws']['log_bucket_name']
-    if bucketname.nil? or bucketname.empty?
-      bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU::Cloud::AWS.getAWSMetaData("instance-id")
-    end
+  def self.adminBucketName(platform = nil, credentials: nil)
+    return nil if platform and !MU::Cloud.supportedClouds.include?(platform)
+
+    clouds = platform.nil? ? MU::Cloud.supportedClouds : [platform]
+    clouds.each { |cloud|
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      bucketname = cloudclass.adminBucketName(credentials)
+      begin
+        if platform or (cloudclass.hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
+          return bucketname
+        end
+      end
+    }
+
     return bucketname
   end
 
