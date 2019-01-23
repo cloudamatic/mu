@@ -134,7 +134,7 @@ module MU
                       "onlycloud" => @onlycloud,
                       "skipsnapshots" => @skipsnapshots,
                     }
-                    ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notification", "Log", "VPC", "Collection"].each { |t|
+                    ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Collection"].each { |t|
                       resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
 # XXX check if class is supported in this cloud
                       if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0

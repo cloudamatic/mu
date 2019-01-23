@@ -84,7 +84,7 @@ module MU
     class Alarm;
     end
     # Stub base class; real implementations generated at runtime
-    class Notification;
+    class Notifier;
     end
     # Stub base class; real implementations generated at runtime
     class Log;
@@ -231,12 +231,12 @@ module MU
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
       },
-      :Notification => {
+      :Notifier => {
         :has_multiples => false,
         :can_live_in_vpc => false,
-        :cfg_name => "notification",
-        :cfg_plural => "notifications",
-        :interface => self.const_get("Notification"),
+        :cfg_name => "notifier",
+        :cfg_plural => "notifiers",
+        :interface => self.const_get("Notifier"),
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,

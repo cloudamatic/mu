@@ -335,6 +335,8 @@ module MU
       @@my_hosted_cfg = nil
       @@acct_to_profile_map = {}
 
+      # Map the name of a credential set back to an AWS account number
+      # @param name [String]
       def self.credToAcct(name = nil)
         creds = credConfig(name)
 

@@ -86,7 +86,7 @@ module MU
         # @param client_type [String]: The name of the client (eg. elasticache, rds, ec2, s3)
         # @param resource_type [String]: The type of the resource
         # @param region [String]: The region in which the resource resides.
-        # @param account_number [String]: The account in which the resource resides.
+        # @param credentials [String]: The account in which the resource resides.
         # @return [String]
         def self.getARN(resource, resource_type, client_type, region: MU.curRegion, credentials: nil)
           aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"

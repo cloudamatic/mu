@@ -335,8 +335,10 @@ module MU
             point_in_time_config[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
           end
 
-          if @config["read_replica_of"] || @config["create_read_replica"]
+          if @config["read_replica_of"]#|| @config["create_read_replica"]
             srcdb = @config['source_identifier']
+            puts @config['name']
+            pp @config["read_replica_of"]
             if @config["read_replica_of"]["region"] and @config['region'] != @config["read_replica_of"]["region"]
               srcdb = MU::Cloud::AWS::Database.getARN(@config['source_identifier'], "db", "rds", region: @config["read_replica_of"]["region"])
             end
@@ -375,7 +377,7 @@ module MU
                 resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(read_replica_struct)
               end
             elsif @config["creation_style"] == "new"
-              MU.log "Creating database instance #{@config['identifier']}"
+              MU.log "Creating pristine database instance #{@config['identifier']}"
               resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(config)
             end
           rescue Aws::RDS::Errors::InvalidParameterValue => e
@@ -414,7 +416,9 @@ module MU
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
           MU.log "Database #{@config['name']} is at #{database.endpoint.address}", MU::SUMMARY
-          MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
+          if @config['auth_vault']
+            MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
+          end
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'
@@ -1226,7 +1230,7 @@ module MU
               threads << Thread.new(db) { |mydb|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase)
+                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase, credentials: credentials)
               }
             end
           }
@@ -1559,7 +1563,7 @@ module MU
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
           db_id = db.db_instance_identifier
 
@@ -1604,15 +1608,15 @@ module MU
           if %w{deleting deleted}.include?(db.db_instance_status)
             MU.log "#{db_id} has already been terminated", MU::WARN
           else
-            def self.dbSkipSnap(db_id, region)
+            def self.dbSkipSnap(db_id, region, credentials)
               # We're calling this several times so lets declare it once
               MU.log "Terminating #{db_id} (not saving final snapshot)"
-              MU::Cloud::AWS.rds(region: region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
+              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
             end
 
-            def self.dbCreateSnap(db_id, region)
+            def self.dbCreateSnap(db_id, region, credentials)
               MU.log "Terminating #{db_id} (final snapshot: #{db_id}-mufinal)"
-              MU::Cloud::AWS.rds(region: region).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id}-mufinal", skip_final_snapshot: false)
+              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id}-mufinal", skip_final_snapshot: false)
             end
 
             if !noop
@@ -1620,9 +1624,9 @@ module MU
               begin
                 if db.db_cluster_identifier || db.read_replica_source_db_instance_identifier
                   # make sure we don't create final snapshot for a database instance that is part of a cluster, or if it's a read replica database instance
-                  dbSkipSnap(db_id, region)
+                  dbSkipSnap(db_id, region, credentials)
                 else
-                  skipsnapshots ? dbSkipSnap(db_id, region) : dbCreateSnap(db_id, region)
+                  skipsnapshots ? dbSkipSnap(db_id, region, credentials) : dbCreateSnap(db_id, region, credentials)
                 end
               rescue Aws::RDS::Errors::InvalidDBInstanceState => e
                 if retries < 5
@@ -1634,10 +1638,10 @@ module MU
                   MU.log "#{db_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
                 end
               rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
-                dbSkipSnap(db_id, region)
+                dbSkipSnap(db_id, region, credentials)
                 MU.log "Snapshot of #{db_id} already exists", MU::WARN
               rescue Aws::RDS::Errors::SnapshotQuotaExceeded
-                dbSkipSnap(db_id, region)
+                dbSkipSnap(db_id, region, credentials)
                 MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
               end
             end

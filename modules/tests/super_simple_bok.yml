@@ -46,3 +46,7 @@ container_clusters:
 cache_clusters:
 -
   <%= include("../mu/config/cache_cluster.yml") %>
+
+notifiers:
+-
+  <%= include("../mu/config/notifier.yml") %>
