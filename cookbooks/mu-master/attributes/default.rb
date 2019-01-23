@@ -77,7 +77,7 @@ default['nagios']['host_name_attribute'] = 'chef_node_name'
 default['application_attributes']['logs']['volume_size_gb'] = 50
 default['application_attributes']['logs']['mount_device'] = "/dev/xvdl"
 default['application_attributes']['logs']['label'] = "#{node['hostname']} /Mu_Logs"
-default['application_attributes']['logs']['secure_location'] = MU.adminBucketName
+#default['application_attributes']['logs']['secure_location'] = MU.adminBucketName
 default['application_attributes']['logs']['ebs_keyfile'] = "log_vol_ebs_key"
 default['application_attributes']['logs']['mount_directory'] = "/Mu_Logs"
 
