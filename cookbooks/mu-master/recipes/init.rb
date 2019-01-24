@@ -234,7 +234,7 @@ file  "#{MU_BASE}/lib/.git/hooks/pre-commit" do
   action :delete
 end
 
-[MU_BASE+"/var", MU_BASE+"/install", MU_BASE+"/deprecated-bash-library.sh"].each do |dir|
+[MU_BASE+"/var", MU_BASE+"/var/ssl"].each do |dir|
   directory dir do
     recursive true
     mode 0755
