@@ -308,7 +308,9 @@ rpms.each_pair { |pkg, src|
     end
   end
 }
-package "jq"
+package "jq" do
+  ignore_failure true # sometimes we can't see EPEL immediately
+end
 package removepackages do
   action :remove
 end
