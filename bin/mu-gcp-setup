@@ -127,7 +127,7 @@ if $opts[:sg]
 
 end
 
-$bucketname = $MU_CFG['google']['log_bucket_name']
+$bucketname = MU::Cloud::Google.adminBucketName
 
 if $opts[:logs]
   exists = false
@@ -163,7 +163,8 @@ if $opts[:logs]
         bucketobj
       )
     else
-      raise MuError, e.inspect
+      pp e.backtrace
+      raise MU::MuError, e.inspect
     end
   end
 
