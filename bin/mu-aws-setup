@@ -50,8 +50,9 @@ if MU::Cloud::AWS.hosted? and !$MU_CFG['aws']
   new_cfg = $MU_CFG.dup
   cfg_blob = MU::Cloud::AWS.hosted_config
   if cfg_blob
+    cfg_blob['log_bucket_name'] ||= $MU_CFG['hostname']
     new_cfg["aws"] = cfg_blob
-    MU.log "Adding AWS stanza to #{cfgPath}", MU::NOTICE
+    MU.log "Adding auto-detected AWS stanza to #{cfgPath}", MU::NOTICE
     if new_cfg != $MU_CFG or !cfgExists?
       MU.log "Generating #{cfgPath}"
       saveMuConfig(new_cfg) # XXX and reload it
