@@ -25,6 +25,7 @@
 include_recipe 'mu-master::firewall-holes'
 service_certs = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
 
+directory "#{$MU_CFG['datadir']}"
 directory "#{$MU_CFG['datadir']}/ssl"
 template "#{$MU_CFG['datadir']}/ssl/openssl.cnf" do
   source "openssl.cnf.erb"
