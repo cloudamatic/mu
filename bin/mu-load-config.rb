@@ -171,7 +171,7 @@ def cfgPath
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
     elsif Dir.exists?("/opt/mu")
-      File.realpath(File.expand_path(File.dirname(__FILE__)+"/../../etc"))+"/mu.yaml"
+      "/opt/mu/etc/mu.yaml"
     else
       "#{home}/.mu.yaml"
     end

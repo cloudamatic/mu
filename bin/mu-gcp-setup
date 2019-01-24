@@ -50,11 +50,12 @@ if MU::Cloud::Google.hosted? and !$MU_CFG['google']
   cfg_blob = MU::Cloud::Google.hosted_config
   if cfg_blob
     cfg_blob['log_bucket_name'] ||= $MU_CFG['hostname']
-    new_cfg["google"] = cfg_blob
+    new_cfg["google"] = { "default" => cfg_blob }
     MU.log "Adding auto-detected Google stanza to #{cfgPath}", MU::NOTICE
     if new_cfg != $MU_CFG or !cfgExists?
       MU.log "Generating #{cfgPath}"
-      saveMuConfig(new_cfg) # XXX and reload it
+      saveMuConfig(new_cfg)
+      $MU_CFG = new_cfg
     end
   end
 end
