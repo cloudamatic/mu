@@ -1571,14 +1571,14 @@ module MU
 #XXX 'credentials' should probably happen here too
       schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
       if kitten['cloud'] == "Google"
-        kitten["project"] ||= MU::Cloud::Google.defaultProject
+        kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
-          if MU::Cloud::Google.myRegion.nil?
+          if MU::Cloud::Google.myRegion((kitten['credentials'])).nil?
             raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
           end
-          kitten['region'] ||= MU::Cloud::Google.myRegion
+          kitten['region'] ||= MU::Cloud::Google.myRegion(kitten['credentials'])
         end
       else
         if MU::Cloud::AWS.myRegion.nil?

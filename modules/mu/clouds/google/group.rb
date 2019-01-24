@@ -113,7 +113,7 @@ module MU
 
         def bind_group
           bindings = []
-          ext_policy = MU::Cloud::Google.resource_manager.get_project_iam_policy(
+          ext_policy = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).get_project_iam_policy(
             @config['project']
           )
 
@@ -145,12 +145,12 @@ module MU
             MU.log "Adding group #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
 
             begin
-              MU::Cloud::Google.resource_manager.set_project_iam_policy(
+              MU::Cloud::Google.resource_manager(credentials: @config['credentials']).set_project_iam_policy(
                 @config['project'],
                 req_obj
               )
             rescue ::Google::Apis::ClientError => e
-              if e.message.match(/does not exist/i) and !$MU_CFG['google']['masquerade_as']
+              if e.message.match(/does not exist/i) and !MU::Cloud::Google.credConfig(@config['credentials'])['masquerade_as']
                 raise MuError, "Group #{@config['name']} does not exist, and we cannot create Google groups in non-GSuite environments.\nVisit https://groups.google.com to manage groups."
               end
               raise e

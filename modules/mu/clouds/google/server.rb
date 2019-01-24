@@ -331,7 +331,7 @@ next if !create
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
+                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, flags: { "skipsnapshots" => true } )
                 }
               end
             end
@@ -573,7 +573,7 @@ next if !create
         # @param ip [String]: An IP address associated with the instance
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {}, credentials: nil)
 # XXX put that 'ip' value into flags
           instance = nil
           flags["project"] ||= MU::Cloud::Google.defaultProject
@@ -1008,14 +1008,14 @@ next if !create
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials: credentials)
           skipsnapshots = flags["skipsnapshots"]
           onlycloud = flags["onlycloud"]
 # XXX make damn sure MU.deploy_id is set
 
           MU::Cloud::Google.listAZs(region).each { |az|
             disks = []
-            resp = MU::Cloud::Google.compute.list_instances(
+            resp = MU::Cloud::Google.compute(credentials: credentials).list_instances(
               flags["project"],
               az,
               filter: "description eq #{MU.deploy_id}"
@@ -1029,14 +1029,14 @@ next if !create
                     disks << disk if !disk.auto_delete
                   }
                 end
-                deletia = MU::Cloud::Google.compute.delete_instance(
+                deletia = MU::Cloud::Google.compute(credentials: credentials).delete_instance(
                   flags["project"],
                   az,
                   instance.name
                 ) if !noop
                 MU.log "Removing service account #{saname}"
                 begin
-                  MU::Cloud::Google.iam.delete_project_service_account(
+                  MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(
                     "projects/#{flags["project"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
                   ) if !noop
                 rescue ::Google::Apis::ClientError => e
@@ -1051,7 +1051,7 @@ next if !create
 # XXX make sure we don't miss anything that got created with dumb flags
             end
 # XXX honor snapshotting
-            MU::Cloud::Google.compute.delete(
+            MU::Cloud::Google.compute(credentials: credentials).delete(
               "disk",
               flags["project"],
               az,

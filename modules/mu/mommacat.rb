@@ -1095,7 +1095,7 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}", MU::DEBUG, details: flags
 
         # See if the thing we're looking for is a member of the deploy that's
         # asking after it.
@@ -1114,6 +1114,7 @@ module MU
             next if matches.nil? or matches.size == 0
             momma = MU::MommaCat.getLitter(deploy_id)
             straykitten = nil
+
             # If we found exactly one match in this deploy, use its metadata to
             # guess at resource names we weren't told.
             if matches.size == 1 and name.nil? and mu_name.nil?
@@ -1308,7 +1309,7 @@ module MU
           else
             if (name.nil? or sib_class == name) and
                 (cloud_id.nil? or cloud_id == data.cloud_id) and
-                (credentials.nil? or credentials == data.credentials)
+                (credentials.nil? or data.credentials.nil? or credentials == data.credentials)
               matches << data if !created_only or !data.cloud_id.nil?
             end
           end

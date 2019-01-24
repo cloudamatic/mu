@@ -125,9 +125,10 @@ module MU
 
       # If we've configured Google as a provider, or are simply hosted in GCP, 
       # decide what our default region is.
-      def self.myRegion
-        if $MU_CFG['google'] and $MU_CFG['google']['region']
-          @@myRegion_var = $MU_CFG['google']['region']
+      def self.myRegion(credentials = nil)
+        cfg = credConfig(credentials)
+        if cfg and cfg['region']
+          @@myRegion_var = cfg['region']
         elsif MU::Cloud::Google.hosted?
           zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
           @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
@@ -447,7 +448,7 @@ module MU
 
         @@instance_types ||= {}
         @@instance_types[region] ||= {}
-        result = MU::Cloud::Google.compute(credentials: credentials).list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
+        result = MU::Cloud::Google.compute.list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
         result.items.each { |type|
           @@instance_types[region][type.name] ||= {}
           @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
@@ -608,11 +609,13 @@ module MU
       # codebase.
       class Endpoint
         @api = nil
+        @credentials = nil
 
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
         def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
+          @credentials = credentials
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes, credentials: credentials)
           if masquerade
@@ -627,7 +630,7 @@ module MU
         # @param region [String]: The region in which to loop for the resources
         # @param noop [Boolean]: If true, will only log messages about resources to be deleted, without actually deleting them
         # @param filter [String]: The Compute API filter string to use to isolate appropriate resources
-        def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}")
+        def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}", credentials: nil)
           list_sym = "list_#{type.sub(/y$/, "ie")}s".to_sym
           resp = nil
           begin
@@ -727,7 +730,7 @@ module MU
                   MU.setLogging(MU::Logger::NORMAL)
                   MU.log "Attempting to enable #{svc_name} in project #{project}, then waiting for 30s", MU::WARN
                   MU.setLogging(save_verbosity)
-                  MU::Cloud::Google.service_manager.enable_service(svc_name, enable_obj)
+                  MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
                   sleep 30
                   retries += 1
                   retry
@@ -766,7 +769,7 @@ module MU
                 if retval.status != "DONE"
                   sleep 7
                   begin
-                    resp = MU::Cloud::Google.compute(credentials: credentials).get_global_operation(
+                    resp = MU::Cloud::Google.compute(credentials: @credentials).get_global_operation(
                       arguments.first, # there's always a project id
                       retval.name
                     )
@@ -832,7 +835,7 @@ module MU
                   resource_names: ["projects/"+arguments.first],
                   filter: %Q{labels."compute.googleapis.com/resource_id"="#{retval.target_id}" OR labels."ssl_certificate_id"="#{retval.target_id}"} # XXX I guess we need to cover all of the possible keys, ugh
                 )
-                logs = MU::Cloud::Google.logging.list_entry_log_entries(logreq)
+                logs = MU::Cloud::Google.logging(credentials: @credentials).list_entry_log_entries(logreq)
                 details = nil
                 if logs.entries
                   details = logs.entries.map { |e| e.json_payload }

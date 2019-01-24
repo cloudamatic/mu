@@ -264,7 +264,7 @@ module MU
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
           MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
-          chef_node.normal.application_attributes = @config['application_attributes']
+          chef_node.normal['application_attributes'] = @config['application_attributes']
           chef_node.save
         end
         if @server.deploy.original_config.has_key?('parameters')
