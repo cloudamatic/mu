@@ -134,7 +134,7 @@ def loadMuConfig(default_cfg_overrides = nil)
   if !global_cfg.has_key?("installdir")
     if ENV['MU_INSTALLDIR']
       global_cfg["installdir"] = ENV['MU_INSTALLDIR']
-    elsif Gem.paths and Gem.paths.home
+    elsif Gem.paths and Gem.paths.home and !Dir.exists?("/opt/mu/lib")
       global_cfg["installdir"] = File.realpath(File.expand_path(File.dirname(Gem.paths.home))+"/../../../")
     else
       global_cfg["installdir"] = "/opt/mu"
