@@ -1297,7 +1297,7 @@ MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
 MU::Groomer::Chef.loadChefLib
 chef_node = ::Chef::Node.load("MU-MASTER")
 run_list = ["role[mu-master]"]
-run_list << "role[mu-master-jenkins]" if $MU_CFG['jenkins']['enable']
+run_list << "role[mu-master-jenkins]" if $MU_CFG['jenkins'] and $MU_CFG['jenkins']['enable']
 run_list.concat($MU_CFG['master_runlist_extras']) if $MU_CFG['master_runlist_extras'].is_a?(Array)
 set_runlist = false
 run_list.each { |rl|
