@@ -9,10 +9,10 @@ cookbook 'mu-utility'
 cookbook 'mu-tools'
 cookbook 'mu-firewall'
 cookbook 'mu-activedirectory'
+cookbook 's3fs'
 
 # Supermarket Cookbooks
 cookbook 'nrpe', '~> 2.0.3'
-cookbook 's3fs', '~> 3.0.1'
 cookbook 'postfix', '~> 5.3.1'
 cookbook 'bind', '~> 2.2.0'
 cookbook 'bind9-ng', '~> 0.1.0'

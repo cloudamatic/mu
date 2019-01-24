@@ -27,7 +27,7 @@ include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 include_recipe 'mu-tools::gcloud'
-include_recipe 'mu-master::eks-kubectl'
+#include_recipe 'mu-master::eks-kubectl'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"

@@ -48,11 +48,11 @@ ChefSpec:
 Rspec:
   stage: Test
   script:
-    - cd module
+    - cd modules
     - bundle install
     - gem install rspec
+    - cd ../
     - rspec
-  allow_failure: true
 
 New_Berks:
   stage: Test
