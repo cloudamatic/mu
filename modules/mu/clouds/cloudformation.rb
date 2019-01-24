@@ -37,13 +37,78 @@ module MU
       end
 
       # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.hosted_config} instead.
+      def self.hosted_config
+        nil
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.credConfig} instead.
+      def self.credConfig(name = nil, name_only: false)
+        nil
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.listCredentials} instead.
+      def self.listCredentials
+        nil
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. Calls {MU::Cloud::AWS.listInstanceTypes} to return sensible
+      # values, if we happen to have AWS credentials configured.
+      def self.listInstanceTypes(region = myRegion)
+        MU::Cloud::AWS.listRegions(region)
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. Calls {MU::Cloud::AWS.listAZs} to return sensible
+      # values, if we happen to have AWS credentials configured.
+      def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
+        MU::Cloud::AWS.listAZs(region: region, account: account, credentials: credentials)
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. Calls {MU::Cloud::AWS.listRegions} to return sensible
+      # values, if we happen to have AWS credentials configured.
+      def self.listRegions(us_only = false, credentials: nil)
+        MU::Cloud::AWS.listRegions(us_only, credentials: credentials)
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. Calls {MU::Cloud::AWS.myRegion} to return sensible
+      # values, if we happen to have AWS credentials configured.
+      def self.myRegion
+        MU::Cloud::AWS.myRegion
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.adminBucketName} instead.
+      def self.adminBucketName(credentials = nil)
+        nil
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.adminBucketUrl} instead.
+      def self.adminBucketUrl(credentials = nil)
+        nil
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
       # environment. See {MU::Cloud::AWS.hosted?} instead.
       def self.hosted?
         false
       end
 
-      # Stub method
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.config_example} instead.
       def self.config_example
+        nil
+      end
+
+      # Stub method- there's no such thing as being "hosted" in a CloudFormation
+      # environment. See {MU::Cloud::AWS.writeDeploySecret} instead.
+      def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
         nil
       end
 
