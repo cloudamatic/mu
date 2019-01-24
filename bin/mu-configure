@@ -989,6 +989,7 @@ else
 end
 
 if AMROOT
+  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
   newcfg = cloneHash($MU_CFG)
   newcfg['multiuser'] = true
   saveMuConfig(newcfg)
