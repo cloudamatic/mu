@@ -44,10 +44,10 @@ real_datadir="$MU_DATADIR"
 
 
 source $MU_INSTALLDIR/lib/install/deprecated-bash-library.sh
-if [ -x $MU_INSTALLDIR/lib/bin/mu-gen-env ];then
-  $MU_INSTALLDIR/lib/bin/mu-gen-env > $HOMEDIR/.murc
-  source $HOMEDIR/.murc
-fi
+#if [ -x $MU_INSTALLDIR/lib/bin/mu-gen-env ];then
+#  $MU_INSTALLDIR/lib/bin/mu-gen-env > $HOMEDIR/.murc
+#  source $HOMEDIR/.murc
+#fi
 export MU_DATADIR="$real_datadir"
 
 cd $MU_CHEF_CACHE
