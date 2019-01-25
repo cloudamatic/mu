@@ -63,6 +63,7 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching group group.
         def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           found = nil
           found
         end

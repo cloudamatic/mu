@@ -153,7 +153,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           if region
             ["forwarding_rule", "region_backend_service"].each { |type|
@@ -297,6 +297,7 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         end
 
         private
@@ -333,7 +334,7 @@ module MU
           else
             certdata = @deploy.nodeSSLCerts(self, 2048)
             cert_pem = certdata[0].to_s+File.read("/etc/pki/Mu_CA.pem")
-            gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1])
+            gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1], credentials: @config['credentials'])
 
 # TODO we need a method like MU::Cloud::AWS.findSSLCertificate, with option to hunt down an existing one
             desc[:ssl_certificates] = [gcpcert.self_link]

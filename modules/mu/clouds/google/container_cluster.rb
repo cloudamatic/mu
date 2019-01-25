@@ -118,7 +118,7 @@ module MU
           )
 
           MU.log "Creating GKE cluster #{@mu_name.downcase}", details: desc
-          cluster = MU::Cloud::Google.container.create_cluster(
+          cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_cluster(
             @config['project'],
             @config['availability_zone'],
             requestobj
@@ -126,7 +126,7 @@ module MU
 
           resp = nil
           begin
-            resp = MU::Cloud::Google.container.get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
+            resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
             sleep 30 if resp.status != "RUNNING"
           end while resp.nil? or resp.status != "RUNNING"
 #          labelCluster # XXX need newer API release
@@ -143,13 +143,14 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ContainerClusters
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
           deploydata = describe[2]
           @config['availability_zone'] ||= deploydata['zone']
-          resp = MU::Cloud::Google.container.get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
+          resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
 #          pp resp
 
 #          labelCluster # XXX need newer API release
@@ -176,7 +177,7 @@ module MU
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
-          desc = MU.structToHash(MU::Cloud::Google.container.get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase))
+          desc = MU.structToHash(MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase))
           desc["project"] = @config['project']
           desc["cloud_id"] = @cloud_id
           desc["mu_name"] = @mu_name.downcase
@@ -191,18 +192,18 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           skipsnapshots = flags["skipsnapshots"]
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           MU::Cloud::Google.listAZs(region).each { |az|
-            found = MU::Cloud::Google.container.list_zone_clusters(flags["project"], az)
+            found = MU::Cloud::Google.container(credentials: credentials).list_zone_clusters(flags["project"], az)
 #filter: "description eq #{MU.deploy_id}"
             if found and found.clusters
               found.clusters.each { |cluster|
                 next if !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i)
                 MU.log "Deleting GKE cluster #{cluster.name}"
                 if !noop
-                  MU::Cloud::Google.container.delete_zone_cluster(flags["project"], az, cluster.name)
+                  MU::Cloud::Google.container(credentials: credentials).delete_zone_cluster(flags["project"], az, cluster.name)
                   begin
-                    MU::Cloud::Google.container.get_zone_cluster(flags["project"], az, cluster.name)
+                    MU::Cloud::Google.container(credentials: credentials).get_zone_cluster(flags["project"], az, cluster.name)
                     sleep 60
                   rescue ::Google::Apis::ClientError => e
                     if e.message.match(/is currently creating cluster/)
@@ -282,7 +283,7 @@ module MU
           labelset = MU::Cloud::Google.container(:SetLabelsRequest).new(
             resource_labels: labels
           )
-          MU::Cloud::Google.container.resource_project_zone_cluster_labels(@config["project"], @config['availability_zone'], @mu_name.downcase, labelset)
+          MU::Cloud::Google.container(credentials: @config['credentials']).resource_project_zone_cluster_labels(@config["project"], @config['availability_zone'], @mu_name.downcase, labelset)
         end
 
       end #class

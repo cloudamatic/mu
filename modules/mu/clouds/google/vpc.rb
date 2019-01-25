@@ -127,7 +127,7 @@ module MU
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
         def cloud_desc
-          @config['project'] ||= MU::Cloud::Google.defaultProject
+          @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
 
           resp = MU::Cloud::Google.compute(credentials: @config['credentials']).get_network(@config['project'], @cloud_id)
           if @cloud_id.nil? or @cloud_id == ""
@@ -205,7 +205,7 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 #MU.log "CALLED MU::Cloud::Google::VPC.find(#{cloud_id}, #{region}, #{tag_key}, #{tag_value}) with credentials #{credentials} from #{caller[0]}", MU::NOTICE, details: flags
 
           resp = {}
@@ -415,8 +415,8 @@ module MU
         # @param target_instance [OpenStruct]: The cloud descriptor of the instance to check.
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
-        def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
-          project ||= MU::Cloud::Google.defaultProject
+        def self.haveRouteToInstance?(target_instance, region: MU.curRegion, credentials: nil)
+          project ||= MU::Cloud::Google.defaultProject(credentials)
           return false if MU.myCloud != "Google"
 # XXX see if we reside in the same Network and overlap subnets
 # XXX see if we peer with the target's Network
@@ -462,7 +462,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           purge_subnets(noop, project: flags['project'], credentials: credentials)
           ["route", "network"].each { |type|
@@ -797,7 +797,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param regions [Array<String>]: The cloud provider regions to check
         # @return [void]
-        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: MU::Cloud::Google.defaultProject, credentials: nil)
+        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: nil, credentials: nil)
+          project ||= MU::Cloud::Google.defaultProject(credentials)
           parent_thread_id = Thread.current.object_id
           regionthreads = []
           regions.each { |r|

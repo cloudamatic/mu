@@ -110,7 +110,7 @@ module MU
             threads << Thread.new { 
               fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
               MU.log "Creating firewall #{fwdesc[:name]} in project #{@config['project']}", details: fwobj
-              resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
+              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@config['project'], fwobj)
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
             }
@@ -156,10 +156,10 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           found = {}
-          resp = MU::Cloud::Google.compute.list_firewalls(flags["project"])
+          resp = MU::Cloud::Google.compute(credentials: credentials).list_firewalls(flags["project"])
           if resp and resp.items
             resp.items.each { |fw|
               next if !cloud_id.nil? and fw.name != cloud_id
@@ -175,9 +175,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
-          MU::Cloud::Google.compute.delete(
+          MU::Cloud::Google.compute(credentials: credentials).delete(
             "firewall",
             flags["project"],
             nil,

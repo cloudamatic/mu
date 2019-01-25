@@ -89,7 +89,8 @@ module MU
         # @param rolename [String]:
         # @param project [String]:
         # @param scopes [Array<String>]: https://developers.google.com/identity/protocols/googlescopes
-        def self.createServiceAccount(rolename, project: MU::Cloud::Google.defaultProject, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"])
+        def self.createServiceAccount(rolename, project: nil, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"], credentials: nil)
+          project ||= MU::Cloud::Google.defaultProject(credentials)
 #https://www.googleapis.com/auth/devstorage.read_only ?
           name = MU::Cloud::Google.nameStr(rolename)
 
@@ -239,7 +240,8 @@ next if !create
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
-            project: @config['project']
+            project: @config['project'],
+            credentials: @config['credentials']
           )
           MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
 
@@ -405,7 +407,7 @@ next if !create
           return nil if @config.nil? or @deploy.nil?
 
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-          if !@config["vpc"].nil? and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
+          if !@config["vpc"].nil? and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 
             if !@nat.nil?
               if @nat.cloud_desc.nil?
@@ -537,7 +539,7 @@ next if !create
           end
 
           nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-          if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
+          if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
           end
@@ -576,7 +578,7 @@ next if !create
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {}, credentials: nil)
 # XXX put that 'ip' value into flags
           instance = nil
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           if !region.nil? and MU::Cloud::Google.listRegions.include?(region)
             regions = [region]
           else
@@ -810,7 +812,8 @@ next if !create
         # @param region [String]: The cloud provider region
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: MU::Cloud::Google.defaultProject, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample)
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample)
+          project ||= MU::Cloud::Google.defaultProject(credentials)
           instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
           if instance.nil?
             raise MuError, "Failed to find instance '#{instance_id}' in createImage"
@@ -931,7 +934,7 @@ next if !create
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
           # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
-          if MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc) or public_ips.size == 0
+          if MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials']) or public_ips.size == 0
             @config['canonical_ip'] = private_ips.first
             return private_ips.first
           else
@@ -1008,7 +1011,7 @@ next if !create
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials: credentials)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           skipsnapshots = flags["skipsnapshots"]
           onlycloud = flags["onlycloud"]
 # XXX make damn sure MU.deploy_id is set

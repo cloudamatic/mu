@@ -44,7 +44,7 @@ module MU
               )
             )
             MU.log "Creating service account #{@mu_name}"
-            MU::Cloud::Google.iam.create_service_account(
+            MU::Cloud::Google.iam(credentials: @config['credentials']).create_service_account(
               "projects/"+@config['project'],
               req_obj
             )
@@ -57,12 +57,12 @@ module MU
             bind_human_user
           else
             if @config['create_api_key']
-              resp = MU::Cloud::Google.iam.list_project_service_account_keys(
+              resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
                 cloud_desc.name
               )
               if resp.keys.size == 0
                 MU.log "Generating API keys for service account #{@mu_name}"
-                resp = MU::Cloud::Google.iam.create_service_account_key(
+                resp = MU::Cloud::Google.iam(credentials: @config['credentials']).create_service_account_key(
                   cloud_desc.name
                 )
                 scratchitem = MU::Master.storeScratchPadSecret("Google Cloud Service Account credentials for #{@mu_name}:\n<pre style='text-align:left;'>#{resp.private_key_data}</pre>")
@@ -77,7 +77,7 @@ module MU
           if @config['type'] == "interactive"
             return nil
           else
-            resp = MU::Cloud::Google.iam.list_project_service_accounts(
+            resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_accounts(
               "projects/"+@config["project"]
             )
 
@@ -109,8 +109,8 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
-          resp = MU::Cloud::Google.iam.list_project_service_accounts(
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(
             "projects/"+flags["project"]
           )
 
@@ -120,7 +120,7 @@ module MU
                 begin
                   MU.log "Deleting service account #{sa.name}", details: sa
                   if !noop
-                    MU::Cloud::Google.iam.delete_project_service_account(sa.name)
+                    MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(sa.name)
                   end
                 rescue ::Google::Apis::ClientError => e
                   raise e if !e.message.match(/^notFound: /)
@@ -136,8 +136,9 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
         def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           found = nil
-          resp = MU::Cloud::Google.iam.list_project_service_accounts(
+          resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(
             "projects/"+flags["project"]
           )
 
@@ -194,7 +195,7 @@ module MU
           # admin_directory only works in a GSuite environment
           if !user['name'].match(/@/i) and $MU_CFG['google']['masquerade_as']
             # XXX flesh this check out, need to test with a GSuite site
-            pp MU::Cloud::Google.admin_directory.get_user(user['name'])
+            pp MU::Cloud::Google.admin_directory(credentials: user['credentials']).get_user(user['name'])
           end
 
           if user['groups'] and user['groups'].size > 0 and
@@ -215,7 +216,7 @@ module MU
 
         def bind_human_user
           bindings = []
-          ext_policy = MU::Cloud::Google.resource_manager.get_project_iam_policy(
+          ext_policy = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).get_project_iam_policy(
             @config['project']
           )
 
@@ -247,7 +248,7 @@ module MU
             MU.log "Adding #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
 
             begin
-              MU::Cloud::Google.resource_manager.set_project_iam_policy(
+              MU::Cloud::Google.resource_manager(credentials: @config['credentials']).set_project_iam_policy(
                 @config['project'],
                 req_obj
               )

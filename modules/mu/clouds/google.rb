@@ -258,8 +258,8 @@ module MU
       # @param cert [String,OpenSSL::X509::Certificate]: An x509 certificate
       # @param key [String,OpenSSL::PKey]: An x509 private key
       # @return [Google::Apis::ComputeBeta::SslCertificate]
-      def self.createSSLCertificate(name, cert, key, flags = {})
-        flags["project"] ||= MU::Cloud::Google.defaultProject
+      def self.createSSLCertificate(name, cert, key, flags = {}, credentials: nil)
+        flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         flags["description"] ||= MU.deploy_id
         certobj = ::Google::Apis::ComputeBeta::SslCertificate.new(
           name: name,
@@ -718,7 +718,7 @@ module MU
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
-                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject
+                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project
                 )
