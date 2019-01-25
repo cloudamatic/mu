@@ -1471,12 +1471,15 @@ module MU
     # TODO check for loops
     def self.check_dependencies(config)
       ok = true
+
       config.each { |type|
         if type.instance_of?(Array)
           type.each { |container|
             if container.instance_of?(Array)
               container.each { |resource|
                 if resource.kind_of?(Hash) and resource["dependencies"] != nil
+                  append = []
+                  delete = []
                   resource["dependencies"].each { |dependency|
                     collection = dependency["type"]+"s"
                     found = false
@@ -1485,6 +1488,14 @@ module MU
                       config[collection].each { |service|
                         names_seen << service["name"].to_s
                         found = true if service["name"].to_s == dependency["name"].to_s
+                        if service["virtual_name"]
+                          names_seen << service["virtual_name"].to_s
+                          found = true if service["virtual_name"].to_s == dependency["name"].to_s
+                          append_me = dependency.dup
+                          append_me['name'] = service['name']
+                          append << append_me
+                          delete << dependency
+                        end
                       }
                     end
                     if !found
@@ -1492,6 +1503,15 @@ module MU
                       ok = false
                     end
                   }
+                  if append.size > 0
+                    append.uniq!
+                    resource["dependencies"].concat(append)
+                  end
+                  if delete.size > 0
+                    delete.each { |delete_me|
+                      resource["dependencies"].delete(delete_me)
+                    }
+                  end
                 end
               }
             end
@@ -1576,7 +1596,7 @@ module MU
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
           if MU::Cloud::Google.myRegion((kitten['credentials'])).nil?
-            raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
+            raise ValidationError, "Google '#{type}' resource '#{kitten['name']}' declared without a region, but no default Google region declared in mu.yaml under #{kitten['credentials'].nil? ? "default" : kitten['credentials']} credential set" 
           end
           kitten['region'] ||= MU::Cloud::Google.myRegion(kitten['credentials'])
         end
@@ -2020,6 +2040,10 @@ module MU
         @@schema["properties"][cfg[:cfg_plural]] = {
           "type" => "array",
           "items" => schemaclass.schema
+        }
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["virtual_name"] = {
+          "description" => "Internal use.",
+          "type" => "string"
         }
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive

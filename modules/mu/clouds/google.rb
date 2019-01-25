@@ -282,21 +282,24 @@ module MU
       # for consumption by the various GCP APIs.
       # @param scopes [Array<String>]: One or more scopes for which to authorizer the caller. Will vary depending on the API you're calling.
       def self.loadCredentials(scopes = nil, credentials: nil)
-        return @@authorizers[scopes.to_s] if @@authorizers[scopes.to_s]
+        if @@authorizers[credentials] and @@authorizers[credentials][scopes.to_s]
+          return @@authorizers[credentials][scopes.to_s]
+        end
 
         cfg = credConfig(credentials)
 
         if cfg
           data = nil
+          @@authorizers[credentials] ||= {}
   
           def self.get_machine_credentials(scopes)
             @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
             MU.log "We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
 
-            @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
-            @@authorizers[scopes.to_s].fetch_access_token!
+            @@authorizers[credentials][scopes.to_s] = ::Google::Auth.get_application_default(scopes)
+            @@authorizers[credentials][scopes.to_s].fetch_access_token!
             @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
-            @@authorizers[scopes.to_s]
+            @@authorizers[credentials][scopes.to_s]
           end
 
           if cfg["credentials_file"]
@@ -308,8 +311,8 @@ module MU
                 :scope => scopes
               }
               @@svc_account_name = data["client_email"]
-              @@authorizers[scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
-              return @@authorizers[scopes.to_s]
+              @@authorizers[credentials][scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
+              return @@authorizers[credentials][scopes.to_s]
             rescue JSON::ParserError, Errno::ENOENT, Errno::EACCES => e
               if !MU::Cloud::Google.hosted?
                 raise MuError, "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid (#{e.message})"
@@ -335,8 +338,8 @@ module MU
               :scope => scopes
             }
             @@svc_account_name = data["client_email"]
-            @@authorizers[scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
-            return @@authorizers[scopes.to_s]
+            @@authorizers[credentials][scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
+            return @@authorizers[credentials][scopes.to_s]
           elsif MU::Cloud::Google.hosted?
             return get_machine_credentials(scopes)
           else
@@ -485,7 +488,7 @@ module MU
         require 'google/apis/compute_beta'
 
         if subclass.nil?
-          @@compute_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], credentials: nil)
+          @@compute_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], credentials: credentials)
           return @@compute_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ComputeBeta").const_get(subclass)
@@ -498,7 +501,7 @@ module MU
         require 'google/apis/storage_v1'
 
         if subclass.nil?
-          @@storage_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "StorageV1::StorageService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@storage_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "StorageV1::StorageService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@storage_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("StorageV1").const_get(subclass)
@@ -511,7 +514,7 @@ module MU
         require 'google/apis/iam_v1'
 
         if subclass.nil?
-          @@iam_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "IamV1::IamService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@iam_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "IamV1::IamService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@iam_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
@@ -525,7 +528,7 @@ module MU
     
         if subclass.nil?
           begin
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: $MU_CFG['google']['masquerade_as'], credentials: nil)
+            @@admin_directory_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: $MU_CFG['google']['masquerade_as'], credentials: credentials)
           rescue Signet::AuthorizationError => e
             MU.log "Cannot masquerade as #{$MU_CFG['google']['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
             raise e
@@ -542,7 +545,7 @@ module MU
         require 'google/apis/cloudresourcemanager_v1'
 
         if subclass.nil?
-          @@resource_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@resource_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -555,7 +558,7 @@ module MU
         require 'google/apis/container_v1'
 
         if subclass.nil?
-          @@container_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@container_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@container_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ContainerV1").const_get(subclass)
@@ -568,7 +571,7 @@ module MU
         require 'google/apis/servicemanagement_v1'
 
         if subclass.nil?
-          @@service_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@service_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@service_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ServicemanagementV1").const_get(subclass)
@@ -581,7 +584,7 @@ module MU
         require 'google/apis/sqladmin_v1beta4'
 
         if subclass.nil?
-          @@sql_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@sql_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@sql_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("SqladminV1beta4").const_get(subclass)
@@ -594,7 +597,7 @@ module MU
         require 'google/apis/logging_v2'
 
         if subclass.nil?
-          @@logging_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "LoggingV2::LoggingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: nil)
+          @@logging_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "LoggingV2::LoggingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
           return @@logging_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("LoggingV2").const_get(subclass)
@@ -610,6 +613,7 @@ module MU
       class Endpoint
         @api = nil
         @credentials = nil
+        attr_reader :issuer
 
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
@@ -622,6 +626,7 @@ module MU
             @api.authorization.sub = masquerade
             @api.authorization.fetch_access_token!
           end
+          @issuer = @api.authorization.issuer
         end
 
         # Generic wrapper for deleting Compute resources
@@ -715,6 +720,8 @@ module MU
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
+#              elsif e.message.match(/^forbidden:/)
+#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil

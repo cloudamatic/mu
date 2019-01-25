@@ -558,6 +558,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             vpc['route_tables'].each { |tbl|
               newvpc = {
                 "name" => vpc['name']+"-"+tbl['name'],
+                "virtual_name" => vpc['name'],
                 "ip_block" => blocks.shift,
                 "route_tables" => [tbl],
                 "parent_block" => vpc['ip_block'],
