@@ -1194,7 +1194,7 @@ module MU
 
           begin
             if @config['groom'].nil? or @config['groom']
-              @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?)
+              @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?, timeout: @config['groomer_timeout'])
             end
           rescue MU::Groomer::RunError => e
             MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN, details: e.message

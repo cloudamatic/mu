@@ -141,6 +141,11 @@ module MU
               "default" => true,
               "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
           },
+          "groomer_timeout" => {
+              "type" => "integer",
+              "default" => 1800,
+              "description" => "Maximum execution time for a groomer run"
+          },
           "scrub_groomer" => {
               "type" => "boolean",
               "default" => false,

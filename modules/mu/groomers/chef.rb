@@ -253,13 +253,12 @@ module MU
       # @param max_retries [Integer]: The maximum number of attempts at a successful run to make before giving up.
       # @param output [Boolean]: Display Chef's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
-      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false)
+      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
         self.class.loadChefLib
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
-        timeout = @server.windows? ? 1800 : 600
         pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
