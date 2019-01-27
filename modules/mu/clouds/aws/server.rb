@@ -258,7 +258,7 @@ module MU
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-                  MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, flags: { "skipsnapshots" => true } )
+                  MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, region: @config['region'], credentials: @config['credentials'], flags: { "skipsnapshots" => true } )
                 }
               end
             end
