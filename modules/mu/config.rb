@@ -766,16 +766,27 @@ module MU
     # @param name [String]: The name of the resource being checked
     # @param type [String]: The type of resource being checked
     # @return [Boolean]
-    def haveLitterMate?(name, type)
+    def haveLitterMate?(name, type, has_multiple: false)
       @kittencfg_semaphore.synchronize {
+        matches = []
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         if @kittens[cfg_plural]
           @kittens[cfg_plural].each { |kitten|
-            return kitten if kitten['name'] == name.to_s
+            if kitten['name'] == name.to_s or kitten['virtual_name'] == name.to_s
+              if has_multiple
+                matches << kitten
+              else
+                return kitten
+              end
+            end
           }
         end
+        if has_multiple
+          return matches
+        else
+          return false
+        end
       }
-      false
     end
 
     # Remove a resource from the current stack
@@ -1258,7 +1269,7 @@ module MU
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
       acl.delete("vpc") if !acl["vpc"]
-      acl["region"] == region if !region.nil? and !region.empty?
+      acl["region"] = region if !region.nil? and !region.empty?
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end
@@ -1671,6 +1682,12 @@ module MU
         }
       }
 
+      # Do another pass of resolving intra-stack VPC peering, in case an
+      # early-parsing VPC needs more details from a later-parsing one
+      @kittens["vpcs"].each { |vpc|
+        ok = false if !MU::Config::VPC.resolvePeers(vpc, self)
+      }
+
       # add some default holes to allow dependent instances into databases
       @kittens["databases"].each { |db|
         if db['port'].nil?
@@ -1928,8 +1945,7 @@ module MU
         },
         "project" => {
           "type" => "string",
-          "description" => "GOOGLE: The project into which to deploy resources",
-          "default" => MU::Cloud::Google.defaultProject
+          "description" => "GOOGLE: The project into which to deploy resources"
         },
         "region" => MU::Config.region_primitive,
         "credentials" => MU::Config.credentials_primitive,
