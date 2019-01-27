@@ -1154,7 +1154,7 @@ module MU
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
       acl.delete("vpc") if !acl["vpc"]
-      acl["region"] == region if !region.nil? and !region.empty?
+      acl["region"] = region if !region.nil? and !region.empty?
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end
