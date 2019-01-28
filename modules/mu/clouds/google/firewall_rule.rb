@@ -40,9 +40,9 @@ module MU
             @cloud_id ||= MU::Cloud::Google.nameStr(@mu_name+"-ingress-allow")
           else
             if !@vpc.nil?
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true, max_length: 61)
             else
-              @mu_name = @deploy.getResourceName(@config['name'])
+              @mu_name = @deploy.getResourceName(@config['name'], max_length: 61)
             end
           end
 
@@ -77,7 +77,7 @@ module MU
 
             ["ingress", "egress"].each { |dir|
               if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
-                setname = MU::Cloud::Google.nameStr(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"))
+                setname = @deploy.getResourceName(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"), max_length: 61).downcase
                 @cloud_id ||= setname
                 allrules[setname] ||= {
                   :name => setname,

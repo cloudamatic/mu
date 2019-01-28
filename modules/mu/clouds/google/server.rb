@@ -89,19 +89,20 @@ module MU
         # @param rolename [String]:
         # @param project [String]:
         # @param scopes [Array<String>]: https://developers.google.com/identity/protocols/googlescopes
-        def self.createServiceAccount(rolename, project: nil, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"], credentials: nil)
+        # XXX this should be a MU::Cloud::Google::User resource
+        def self.createServiceAccount(rolename, deploy, project: nil, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"], credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
 #https://www.googleapis.com/auth/devstorage.read_only ?
-          name = MU::Cloud::Google.nameStr(rolename)
+          name = deploy.getResourceName(rolename, max_length: 30).downcase
 
           saobj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
-            account_id: rolename.gsub(/[^a-z]/, ""), # XXX this mangling isn't required in the console, so why is it here?
+            account_id: name.gsub(/[^a-z]/, ""), # XXX this mangling isn't required in the console, so why is it here?
             service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
               display_name: rolename,
 # do NOT specify project_id or name, we know that much
             )
           )
-          resp = MU::Cloud::Google.iam.create_service_account(
+          resp = MU::Cloud::Google.iam(credentials: credentials).create_service_account(
             "projects/#{project}",
             saobj
           )
@@ -136,8 +137,10 @@ module MU
         # @return [Array]: The Compute :AttachedDisk objects describing disks that've been created
         def self.diskConfig(config, create = true, disk_as_url = true)
           disks = []
-          puts config['image_id']
-          puts config['basis']
+          if config['image_id'].nil? and config['basis'].nil?
+            pp config.keys
+            raise MuError, "Can't generate disk configuration for server #{config['name']} without an image ID or basis specified"
+          end
 
           img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'])
 
@@ -240,6 +243,7 @@ next if !create
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
+            @deploy,
             project: @config['project'],
             credentials: @config['credentials']
           )
@@ -1201,7 +1205,7 @@ next if !create
             img_project = Regexp.last_match[1]
             img_name = Regexp.last_match[2]
             begin
-              snaps = MU::Cloud::Google.compute.list_snapshots(
+              snaps = MU::Cloud::Google.compute(credentials: server['credentials']).list_snapshots(
                 img_project,
                 filter: "name eq #{img_name}-.*"
               )

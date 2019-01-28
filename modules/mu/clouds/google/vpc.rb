@@ -162,29 +162,49 @@ module MU
           if !@config['peers'].nil?
             count = 0
             @config['peers'].each { |peer|
-              tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-              if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
-                peer['vpc']['deploy_id'] = @deploy.deploy_id
+              if peer['vpc']['vpc_name']
+                peer_obj = @deploy.findLitterMate(name: peer['vpc']['vpc_name'], type: "vpcs")
+                if peer_obj
+                  if peer_obj.config['peers']
+                    skipme = false
+                    peer_obj.config['peers'].each { |peerpeer|
+                      if peerpeer['vpc']['vpc_name'] == @config['name'] and
+                         (peer['vpc']['vpc_name'] <=> @config['name']) == -1
+                        skipme = true
+                        MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
+# XXX and if deploy_id matches or is unset
+                      end
+                    }
+                    next if skipme
+                  end
+                end
+
+              else
+                tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
+                if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
+                  peer['vpc']['deploy_id'] = @deploy.deploy_id
+                end
+
+                peer_obj = MU::MommaCat.findStray(
+                    "Google",
+                    "vpcs",
+                    deploy_id: peer['vpc']['deploy_id'],
+                    cloud_id: peer['vpc']['vpc_id'],
+                    name: peer['vpc']['vpc_name'],
+                    tag_key: tag_key,
+                    tag_value: tag_value,
+                    dummy_ok: true
+                ).first
               end
 
-              peer_obj = MU::MommaCat.findStray(
-                  "Google",
-                  "vpcs",
-                  deploy_id: peer['vpc']['deploy_id'],
-                  cloud_id: peer['vpc']['vpc_id'],
-                  name: peer['vpc']['vpc_name'],
-                  tag_key: tag_key,
-                  tag_value: tag_value,
-                  dummy_ok: true
-              )
+              raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil?
 
-              raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
-
-              url = if peer_obj.first.cloudobj.url
-                peer_obj.first.cloudobj.url
-              elsif peer_obj.first.cloudobj.deploydata
-                peer_obj.first.cloudobj.deploydata['self_link']
+              url = if peer_obj.cloudobj.url
+                peer_obj.cloudobj.url
+              elsif peer_obj.cloudobj.deploydata
+                peer_obj.cloudobj.deploydata['self_link']
               else
+                pp peer_obj.cloudobj.cloud_desc
                 raise MuError, "Can't find the damn URL of my damn peer VPC #{peer['vpc']}"
               end
               peerreq = MU::Cloud::Google.compute(:NetworksAddPeeringRequest).new(
@@ -193,7 +213,7 @@ module MU
                 peer_network: url
               )
 
-              MU.log "Peering #{@mu_name} with #{url}", details: peerreq
+              MU.log "Peering #{@url} with #{url}, connection name is #{@cloud_id}", details: peerreq
               MU::Cloud::Google.compute(credentials: @config['credentials']).add_network_peering(
                 @config['project'],
                 @cloud_id,
@@ -571,6 +591,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             vpc['route_tables'].each { |tbl|
               newvpc = {
                 "name" => vpc['name']+"-"+tbl['name'],
+                "credentials" => vpc['credentials'],
                 "virtual_name" => vpc['name'],
                 "ip_block" => blocks.shift,
                 "route_tables" => [tbl],
@@ -601,9 +622,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 # XXX we need routes to peered Networks too
 
             if has_nat or has_deny
-              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"], false)
+              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"], false, credentials: vpc['credentials'])
             else
-              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"])
+              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"], credentials: vpc['credentials'])
             end
             if has_nat and !has_deny
               vpc['route_tables'].first["routes"] << {
@@ -627,6 +648,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               if route['gateway'] == "#NAT"
                 nat_cfg = MU::Cloud::Google::Server.genericNAT
                 nat_cfg['name'] = vpc['name']+"-natstion-"+nat_count.to_s
+                nat_cfg['credentials'] = vpc['credentials']
                 # XXX ingress/egress rules?
                 # XXX for master too if applicable
                 nat_cfg["application_attributes"] = {
@@ -663,10 +685,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         private
 
-        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, publicroute = true)
+        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, publicroute = true, credentials: nil)
           private_acl = {
             "name" => vpc_name+"-rt",
             "cloud" => "Google",
+            "credentials" => credentials,
             "project" => project,
             "vpc" => { "vpc_name" => vpc_name },
             "dependencies" => [ { "type" => "vpc", "name" => vpc_name } ],

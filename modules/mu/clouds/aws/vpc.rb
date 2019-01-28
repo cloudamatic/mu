@@ -504,7 +504,7 @@ module MU
                         if peerpeer['vpc']['vpc_name'] == @config['name'] and
                            (peer['vpc']['vpc_name'] <=> @config['name']) == -1
                           skipme = true
-                          MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::WARN
+                          MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
 # XXX and if deploy_id matches or is unset
                         end
                       }

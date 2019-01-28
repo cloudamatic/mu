@@ -205,7 +205,6 @@ module MU
             )
           }
         rescue ::Google::Apis::ClientError => e
-        puts e.inspect
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
           else
@@ -727,8 +726,9 @@ module MU
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
-              elsif e.message.match(/^forbidden:/)
-                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
+# uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
+#              elsif e.message.match(/^forbidden:/)
+#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil

@@ -74,6 +74,7 @@ module MU
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
+            @deploy,
             project: @config['project']
           )
           MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
