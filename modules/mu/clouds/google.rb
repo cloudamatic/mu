@@ -26,6 +26,7 @@ module MU
       @@default_project = nil
       @@myRegion_var = nil
       @@authorizers = {}
+      @@acct_to_profile_map = {}
 
       # Any cloud-specific instance methods we require our resource
       # implementations to have, above and beyond the ones specified by
@@ -118,7 +119,7 @@ module MU
           elsif @@acct_to_profile_map[name.to_s]
             return name_only ? name : @@acct_to_profile_map[name.to_s]
           end
-
+# XXX whatever process might lead us to populate @@acct_to_profile_map with some mappings, like projectname -> account profile, goes here
           raise MuError, "Google credential set #{name} was requested, but I see no such working credentials in mu.yaml"
         end
       end
@@ -204,7 +205,12 @@ module MU
             )
           }
         rescue ::Google::Apis::ClientError => e
-          raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
+        puts e.inspect
+          if e.inspect.match(/body: "Not Found"/)
+            raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
+          else
+            raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
+          end
         end
       end
 
@@ -667,22 +673,23 @@ module MU
                     else
                       resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, obj.name)
                     end
+
                     if resp.error and resp.error.errors and resp.error.errors.size > 0
                       failed = true
                       retries += 1
-                      if resp.error.errors.first.code == "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE" and retries < 3
-                        sleep 10
+                      if resp.error.errors.first.code == "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE" and retries < 6
+                        sleep 15
                       else
                         MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
                         raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
                       end
                     else
-# TODO validate that the resource actually went away, because it seems not to do so very reliably
+                      failed = false
                     end
-                    failed = false
+# TODO validate that the resource actually went away, because it seems not to do so very reliably
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/^notFound: /)
-                  end while failed and retries < 3
+                  end while failed and retries < 6
                 end
               }
             }

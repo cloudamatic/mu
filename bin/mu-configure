@@ -158,6 +158,7 @@ $CONFIGURABLES = {
       "log_bucket_name" => {
         "title" => "Log and Secret Bucket Name",
         "desc" => "S3 bucket into which we'll synchronize deploy secrets, and if we're hosted in AWS, collected system logs",
+        "required" => true,
         "changes" => ["chefrun"]
       },
       "default" => {
@@ -174,6 +175,7 @@ $CONFIGURABLES = {
     "subtree" => {
       "project" => {
         "title" => "Default Project",
+        "required" => true,
         "desc" => "Default Google Cloud Platform project in which we operate and deploy. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json"
       },
       "credentials" => {
@@ -192,6 +194,7 @@ $CONFIGURABLES = {
       "log_bucket_name" => {
         "title" => "Log and Secret Bucket Name",
         "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in GCP, collected system logs",
+        "required" => true,
         "changes" => ["chefrun"]
       },
       "default" => {
