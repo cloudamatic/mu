@@ -1674,13 +1674,18 @@ module MU
 
       # Make sure validation has been called for all on-the-fly generated
       # resources.
-      types.each { |type|
-        @kittens[type].each { |descriptor|
-          if !descriptor["#MU_VALIDATED"]
-            ok = false if !insertKitten(descriptor, type)
-          end
+      validated_something_new = false
+      begin
+        validated_something_new = false
+        types.each { |type|
+          @kittens[type].each { |descriptor|
+            if !descriptor["#MU_VALIDATED"]
+              validated_something_new = true
+              ok = false if !insertKitten(descriptor, type)
+            end
+          }
         }
-      }
+      end while validated_something_new
 
       # Do another pass of resolving intra-stack VPC peering, in case an
       # early-parsing VPC needs more details from a later-parsing one
