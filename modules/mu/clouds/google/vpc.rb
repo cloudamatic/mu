@@ -207,19 +207,21 @@ module MU
                 pp peer_obj.cloudobj.cloud_desc
                 raise MuError, "Can't find the damn URL of my damn peer VPC #{peer['vpc']}"
               end
+              cnxn_name = MU::Cloud::Google.nameStr(@mu_name+"-peer-"+count.to_s)
               peerreq = MU::Cloud::Google.compute(:NetworksAddPeeringRequest).new(
-                name: MU::Cloud::Google.nameStr(@mu_name+"-peer-"+count.to_s),
+                name: cnxn_name,
                 auto_create_routes: true,
                 peer_network: url
               )
 
-              MU.log "Peering #{@url} with #{url}, connection name is #{@cloud_id}", details: peerreq
+              MU.log "Peering #{@url} with #{url}, connection name is #{cnxn_name}", details: peerreq
+
               MU::Cloud::Google.compute(credentials: @config['credentials']).add_network_peering(
                 @config['project'],
                 @cloud_id,
                 peerreq
               )
-
+              count += 1
             }
           end
         end
