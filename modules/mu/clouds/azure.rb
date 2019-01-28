@@ -93,6 +93,13 @@ module MU
         "TODO"
       end
       
+      def self.adminBucketName(credentials = nil)
+        "TODO"
+      end
+
+      def self.adminBucketUrl(credentials = nil)
+        "TODO"
+      end
       
       #END REQUIRED METHODS
 
