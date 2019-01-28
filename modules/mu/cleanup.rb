@@ -60,6 +60,10 @@ module MU
         MU.setVar("dataDir", MU.mainDataDir)
       end
 
+
+# XXX AWS needs to check MU::Cloud::AWS.isGovCloud? on some things, or gracefully handle the API not existing
+      types_in_order = ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "DNSZone", "Collection"]
+
       # Load up our deployment metadata
       if !mommacat.nil?
         @mommacat = mommacat
@@ -100,6 +104,8 @@ module MU
 # XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
         creds.each_pair { |provider, credsets|
           credsets.each_pair { |credset, regions|
+            global_vs_region_semaphore = Mutex.new
+            global_done = []
             regions.each { |r|
               @regionthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
@@ -108,8 +114,6 @@ module MU
                 if $MU_CFG[provider.downcase][credset]["project"]
 # XXX GCP credential schema needs an array for projects
                   projects << $MU_CFG[provider.downcase][credset]["project"]
-                else
-                  projects << ""
                 end
 
                 if projects == [""]
@@ -134,11 +138,29 @@ module MU
                       "onlycloud" => @onlycloud,
                       "skipsnapshots" => @skipsnapshots,
                     }
-                    ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Collection"].each { |t|
-                      resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
-# XXX check if class is supported in this cloud
+                    types_in_order.each { |t|
+                      begin
+                        skipme = false
+                        global_vs_region_semaphore.synchronize {
+                          if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
+                            if !global_done.include?(t)
+                              global_done << t
+                            else
+                              skipme = true
+                            end
+                          end
+                        }
+                        next if skipme
+                      rescue MU::Cloud::MuCloudResourceNotImplemented => e
+                        next
+                      rescue MU::MuError, NoMethodError => e
+                        MU.log e.message, MU::WARN
+                        next
+                      end
+
                       if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
                         begin
+                          resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
                           resclass.cleanup(
                             noop: @noop,
                             ignoremaster: @ignoremaster,
@@ -158,6 +180,7 @@ module MU
                   t.join
                 end
 
+                # XXX move to MU::AWS
                 if provider == "AWS"
                   resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
                       filters: [{name: "key-name", values: [keyname]}]
@@ -169,43 +192,14 @@ module MU
                 end
               }
             }
-            MU::Cloud::Role.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider, credentials: credset) if @mommacat.nil? or @mommacat.numKittens(types: ["Role"]) > 0
-            MU::Cloud::Group.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider, credentials: credset) if @mommacat.nil? or @mommacat.numKittens(types: ["Group"]) > 0
-            MU::Cloud::User.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider, credentials: credset) if @mommacat.nil? or @mommacat.numKittens(types: ["User"]) > 0
           }
         }
-
-        # knock over region-agnostic resources
 
         @regionthreads.each do |t|
           t.join
         end
         @projectthreads = []
 
-
-        $MU_CFG['google'].each_pair { |credset, cfg|
-          project = cfg["project"]
-          @projectthreads << Thread.new {
-            MU.dupGlobals(parent_thread_id)
-            flags = {
-              "project" => project,
-              "onlycloud" => @onlycloud,
-              "skipsnapshots" => @skipsnapshots,
-            }
-            MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
-            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
-            MU::Cloud::Database.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
-            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
-    
-          }
-        }
-
-        if !MU::Cloud::AWS.isGovCloud?
-          if $MU_CFG['aws']
-            MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
-          end
-        end
 
         @projectthreads.each do |t|
           t.join

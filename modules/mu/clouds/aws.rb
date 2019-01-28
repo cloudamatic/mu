@@ -614,9 +614,9 @@ module MU
           if matches.size == 1
             return matches.first
           elsif matches.size == 0
-            raise MuError, "No IAM or ACM certificate named #{name} was found"
+            raise MuError, "No IAM or ACM certificate named #{name} was found in #{region}"
           elsif matches.size > 1
-            raise MuError, "Multiple certificates named #{name} were found. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."            
+            raise MuError, "Multiple certificates named #{name} were found in #{region}. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."            
           end
         end
 

@@ -180,7 +180,13 @@ module MU
 
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
 
-              url = peer_obj.first.cloudobj.url || peer_obj.first.cloudobj.deploydata['self_link']
+              url = if peer_obj.first.cloudobj.url
+                peer_obj.first.cloudobj.url
+              elsif peer_obj.first.cloudobj.deploydata
+                peer_obj.first.cloudobj.deploydata['self_link']
+              else
+                raise MuError, "Can't find the damn URL of my damn peer VPC #{peer['vpc']}"
+              end
               peerreq = MU::Cloud::Google.compute(:NetworksAddPeeringRequest).new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-peer-"+count.to_s),
                 auto_create_routes: true,
@@ -456,6 +462,13 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         def self.get_route_tables(subnet_ids: [], vpc_ids: [], region: MU.curRegion)
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          true
+        end
+
         # Remove all VPC resources associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -652,7 +665,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, publicroute = true)
           private_acl = {
-            "name" => vpc_name+"-routables",
+            "name" => vpc_name+"-rt",
             "cloud" => "Google",
             "project" => project,
             "vpc" => { "vpc_name" => vpc_name },

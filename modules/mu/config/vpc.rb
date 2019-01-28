@@ -401,16 +401,39 @@ module MU
       def self.resolvePeers(vpc, configurator)
         ok = true
         if !vpc["peers"].nil?
+          append = []
+          delete = []
           vpc["peers"].each { |peer|
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+            # We check for multiple siblings because some implementations
+            # (Google) can split declared VPCs into parts to get the mimic the
+            # routing behaviors we expect.
+            siblings = configurator.haveLitterMate?(peer['vpc']["vpc_name"], "vpcs", has_multiple: true)
+
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and
-               configurator.haveLitterMate?(peer['vpc']["vpc_name"], "vpcs") and
+            if !peer['vpc']["vpc_name"].nil? and siblings.size > 0 and
                peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+
               peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
-              vpc["dependencies"] << {
-                "type" => "vpc",
-                "name" => peer['vpc']["vpc_name"]
+              siblings.each { |sib|
+                if sib['name'] != peer['vpc']["vpc_name"]
+                  if sib['name'] != vpc['name']
+                    append_me = { "vpc" => peer["vpc"].dup }
+                    append_me['vpc']['vpc_name'] = sib['name']
+                    append << append_me
+                    vpc["dependencies"] << {
+                      "type" => "vpc",
+                      "name" => sib['name']
+                    }
+                  end
+                  delete << peer
+                else
+                  vpc["dependencies"] << {
+                    "type" => "vpc",
+                    "name" => peer['vpc']["vpc_name"]
+                  }
+                end
+                delete << peer if sib['name'] == vpc['name']
               }
               # If we're using a VPC from somewhere else, make sure the flippin'
               # thing exists, and also fetch its id now so later search routines
@@ -426,6 +449,12 @@ module MU
                 ok = false
               end
             end
+          }
+          append.each { |append_me|
+            vpc["peers"] << append_me
+          }
+          delete.each { |delete_me|
+            vpc["peers"].delete(delete_me)
           }
         end
         ok

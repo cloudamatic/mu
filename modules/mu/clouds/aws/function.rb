@@ -287,8 +287,12 @@ module MU
           return deploy_struct
         end
 
-
-
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
 
         # Remove all functions associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done

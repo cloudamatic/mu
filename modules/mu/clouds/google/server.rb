@@ -293,16 +293,20 @@ next if !create
 
             MU.log "Creating instance #{@mu_name}"
             begin
-            instance = MU::Cloud::Google.compute.insert_instance(
-              @config['project'],
-              @config['availability_zone'],
-              instanceobj
-            )
+              instance = MU::Cloud::Google.compute.insert_instance(
+                @config['project'],
+                @config['availability_zone'],
+                instanceobj
+              )
+              if instance and instance.name
+                @cloud_id = instance.name
+              else
+                sleep 10
+              end
             rescue ::Google::Apis::ClientError => e
               MU.log e.message, MU::ERR
               raise e
-            end
-            @cloud_id = instance.name # XXX or instance.target_link... pick a convention, would you?
+            end while @cloud_id.nil?
 
             if !@config['async_groom']
               sleep 5
@@ -1003,6 +1007,13 @@ next if !create
         # @return [Boolean]
         def active?
           true
+        end
+
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
         end
 
         # Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in whatever Groomer was used.

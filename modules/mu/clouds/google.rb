@@ -391,8 +391,8 @@ module MU
       def self.defaultProject(credentials = nil)
         cfg = credConfig(credentials)
         return myProject if !cfg or !cfg['project']
-        loadCredentials(credentials) if !@@default_project
-        @@default_project
+        loadCredentials(credentials) if !@@authorizers[credentials]
+        cfg['project']
       end
 
       # List all Google Cloud Platform projects available to our credentials
@@ -640,9 +640,9 @@ module MU
           resp = nil
           begin
             if region
-              resp = MU::Cloud::Google.compute(credentials: credentials).send(list_sym, project, region, filter: filter)
+              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter)
             else
-              resp = MU::Cloud::Google.compute(credentials: credentials).send(list_sym, project, filter: filter)
+              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter)
             end
           rescue ::Google::Apis::ClientError => e
             return if e.message.match(/^notFound: /)
@@ -663,9 +663,9 @@ module MU
                     resp = nil
                     failed = false
                     if region
-                      resp = MU::Cloud::Google.compute(credentials: credentials).send(delete_sym, project, region, obj.name)
+                      resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, region, obj.name)
                     else
-                      resp = MU::Cloud::Google.compute(credentials: credentials).send(delete_sym, project, obj.name)
+                      resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, obj.name)
                     end
                     if resp.error and resp.error.errors and resp.error.errors.size > 0
                       failed = true
@@ -720,8 +720,8 @@ module MU
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
-#              elsif e.message.match(/^forbidden:/)
-#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
+              elsif e.message.match(/^forbidden:/)
+                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
@@ -832,7 +832,7 @@ module MU
               end
             end
             return retval
-          rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError => e
+          rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError, ::Google::Apis::TransmissionError => e
             if e.class.name == "Google::Apis::ClientError" and
                (!method_sym.to_s.match(/^insert_/) or !e.message.match(/^notFound: /) or
                 (e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/))

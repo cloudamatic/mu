@@ -40,7 +40,7 @@ module MU
     end
 
     # Methods which a cloud resource implementation, e.g. Server, must implement
-    generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
+    generic_class_methods = [:find, :cleanup, :validateConfig, :schema, :isGlobal?]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
