@@ -968,7 +968,11 @@ module MU
               if args[:region] and cloudbase.respond_to?(:listRegions)
                 next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
               end
-              cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
+              begin
+                cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
+              rescue MU::MuError => e
+                next
+              end
 
               found = cloudclass.find(args)
               if !found.nil?

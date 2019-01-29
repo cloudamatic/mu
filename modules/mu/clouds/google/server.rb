@@ -117,17 +117,17 @@ module MU
         # the latest version, if applicable.
         # @param image_id [String]: URL to a Google disk image
         # @return [Google::Apis::ComputeBeta::Image]
-        def self.fetchImage(image_id)
+        def self.fetchImage(image_id, credentials: nil)
           img_proj = img_name = nil
           begin
             img_proj = image_id.gsub(/.*?\/?projects\/([^\/]+)\/.*/, '\1')
             img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
-            img = MU::Cloud::Google.compute.get_image(img_proj, img_name)
+            img = MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
             if !img.deprecated.nil? and !img.deprecated.replacement.nil?
               image_id = img.deprecated.replacement
             end
           end while !img.deprecated.nil? and img.deprecated.state == "DEPRECATED" and !img.deprecated.replacement.nil?
-          MU::Cloud::Google.compute.get_image(img_proj, img_name)
+          MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
         end
 
         # Generator for disk configuration parameters for a Compute instance
@@ -135,14 +135,14 @@ module MU
         # @param create [Boolean]: Actually create extra (non-root) disks, or just the one declared as the root disk of the image
         # @param disk_as_url [Boolean]: Whether to declare the disk type as a short string or full URL, which can vary depending on the calling resource
         # @return [Array]: The Compute :AttachedDisk objects describing disks that've been created
-        def self.diskConfig(config, create = true, disk_as_url = true)
+        def self.diskConfig(config, create = true, disk_as_url = true, credentials: nil)
           disks = []
           if config['image_id'].nil? and config['basis'].nil?
             pp config.keys
             raise MuError, "Can't generate disk configuration for server #{config['name']} without an image ID or basis specified"
           end
 
-          img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'])
+          img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'], credentials: credentials)
 
 # XXX slurp settings from /dev/sda or w/e by convention?
           disktype = "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-standard"
@@ -193,7 +193,7 @@ next if !create
               )
               MU.log "Creating disk #{diskname}", details: newdiskobj
 
-              newdisk = MU::Cloud::Google.compute.insert_disk(
+              newdisk = MU::Cloud::Google.compute(credentials: credentials).insert_disk(
                 config['project'],
                 config['availability_zone'],
                 newdiskobj
@@ -250,7 +250,7 @@ next if !create
           MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
 
           begin
-            disks = MU::Cloud::Google::Server.diskConfig(@config)
+            disks = MU::Cloud::Google::Server.diskConfig(@config, credentials: @config['credentials'])
             interfaces = MU::Cloud::Google::Server.interfaceConfig(@config, @vpc)
 
             if @config['routes']
@@ -297,7 +297,7 @@ next if !create
 
             MU.log "Creating instance #{@mu_name}"
             begin
-              instance = MU::Cloud::Google.compute.insert_instance(
+              instance = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance(
                 @config['project'],
                 @config['availability_zone'],
                 instanceobj
@@ -375,7 +375,7 @@ next if !create
         # Ask the Google API to stop this node
         def stop
           MU.log "Stopping #{@cloud_id}"
-          MU::Cloud::Google.compute.stop_instance(
+          MU::Cloud::Google.compute(credentials: @config['credentials']).stop_instance(
             @config['project'],
             @config['availability_zone'],
             @cloud_id
@@ -388,7 +388,7 @@ next if !create
         # Ask the Google API to start this node
         def start
           MU.log "Starting #{@cloud_id}"
-          MU::Cloud::Google.compute.start_instance(
+          MU::Cloud::Google.compute(credentials: @config['credentials']).start_instance(
             @config['project'],
             @config['availability_zone'],
             @cloud_id
@@ -608,7 +608,7 @@ next if !create
                 MU::Cloud::Google.listAZs(region).each { |az|
                   resp = nil
                   begin
-                    resp = MU::Cloud::Google.compute.get_instance(
+                    resp = MU::Cloud::Google.compute(credentials: credentials).get_instance(
                       flags["project"],
                       az,
                       cloud_id
@@ -792,13 +792,14 @@ next if !create
                 exclude_storage: img_cfg['image_exclude_storage'],
                 make_public: img_cfg['public'],
                 tags: @config['tags'],
-                zone: @config['availability_zone']
+                zone: @config['availability_zone'],
+                credentials: @config['credentials']
             )
             @deploy.notify("images", @config['name'], {"image_id" => image_id})
             @config['image_created'] = true
             if img_cfg['image_then_destroy']
               MU.log "Image #{image_id} ready, removing source node #{node}"
-              MU::Cloud::Google.compute.delete_instance(
+              MU::Cloud::Google.compute(credentials: @config['credentials']).delete_instance(
                 @config['project'],
                 @config['availability_zone'],
                 @cloud_id
@@ -820,7 +821,7 @@ next if !create
         # @param region [String]: The cloud provider region
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample)
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample, credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
           instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
           if instance.nil?
@@ -850,13 +851,13 @@ next if !create
                 )
                 diskname = disk.source.gsub(/.*?\//, "")
                 MU.log "Creating snapshot of #{diskname} in #{zone}", MU::NOTICE, details: snapobj
-                snap = MU::Cloud::Google.compute.create_disk_snapshot(
+                snap = MU::Cloud::Google.compute(credentials: credentials).create_disk_snapshot(
                   project,
                   zone,
                   diskname,
                   snapobj
                 )
-                MU::Cloud::Google.compute.set_snapshot_labels(
+                MU::Cloud::Google.compute(credentials: credentials).set_snapshot_labels(
                   project,
                   snap.name,
                   MU::Cloud::Google.compute(:GlobalSetLabelsRequest).new(
@@ -884,36 +885,36 @@ next if !create
             family: family
           )
 
-          newimage = MU::Cloud::Google.compute.insert_image(
+          newimage = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_image(
             project,
             imageobj
           )
           newimage.name
         end
 
-        def cloud_desc
-          max_retries = 5
-          retries = 0
-          if !@cloud_id.nil?
-            begin
-              return MU::Cloud::Google.compute.get_instance(
-                @config['project'],
-                @config['availability_zone'],
-                @cloud_id
-              )
-            rescue ::Google::Apis::ClientError => e
-              if e.message.match(/^notFound: /)
-                return nil
-              else
-                raise e
-              end
-            end
-          end
-          nil
-        end
+#        def cloud_desc
+#          max_retries = 5
+#          retries = 0
+#          if !@cloud_id.nil?
+#            begin
+#              return MU::Cloud::Google.compute(credentials: @config['credentials']).get_instance(
+#                @config['project'],
+#                @config['availability_zone'],
+#                @cloud_id
+#              )
+#            rescue ::Google::Apis::ClientError => e
+#              if e.message.match(/^notFound: /)
+#                return nil
+#              else
+#                raise e
+#              end
+#            end
+#          end
+#          nil
+#        end
 
         def cloud_desc
-          MU::Cloud::Google::Server.find(cloud_id: @cloud_id).values.first
+          MU::Cloud::Google::Server.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
         end
 
         # Return the IP address that we, the Mu server, should be using to access
@@ -977,7 +978,7 @@ next if !create
           )
 
           begin
-            newdisk = MU::Cloud::Google.compute.insert_disk(
+            newdisk = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_disk(
               @config['project'],
               @config['availability_zone'],
               newdiskobj
@@ -997,7 +998,7 @@ next if !create
             source: newdisk.self_link,
             type: "PERSISTENT"
           )
-          attachment = MU::Cloud::Google.compute.attach_disk(
+          attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
             @config['project'],
             @config['availability_zone'],
             @cloud_id,
@@ -1191,7 +1192,7 @@ next if !create
 
           real_image = nil
           begin
-            real_image = MU::Cloud::Google::Server.fetchImage(server['image_id'].to_s)
+            real_image = MU::Cloud::Google::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'])
           rescue ::Google::Apis::ClientError => e
             MU.log e.inspect, MU::WARN
           end

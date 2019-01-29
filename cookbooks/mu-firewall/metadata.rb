@@ -13,4 +13,4 @@ version          '0.1.0'
 	supports os
 end
 
-depends	'firewall', '~> 2.6.5'
+depends	'firewall', '~> 2.7.0'

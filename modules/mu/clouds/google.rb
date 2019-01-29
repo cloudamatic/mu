@@ -179,6 +179,7 @@ module MU
       # XXX add equivalent for AWS and call agnostically
       def self.grantDeploySecretAccess(acct, deploy_id = MU.deploy_id, name = nil, credentials: nil)
         name ||= deploy_id+"-secret"
+        aclobj = nil
         begin
           MU.log "Granting #{acct} access to list Cloud Storage bucket #{adminBucketName(credentials)}"
           MU::Cloud::Google.storage.insert_bucket_access_control(
@@ -207,6 +208,10 @@ module MU
         rescue ::Google::Apis::ClientError => e
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
+          elsif e.inspect.match(/The metadata for object "null" was edited during the operation/)
+            MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::WARN, details: aclobj
+            sleep 10
+            retry
           else
             raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
           end

@@ -76,7 +76,7 @@ module MU
 #            machine_type: "zones/"+az+"/machineTypes/"+size,
             machine_type: size,
             labels: labels,
-            disks: MU::Cloud::Google::Server.diskConfig(@config, false, false),
+            disks: MU::Cloud::Google::Server.diskConfig(@config, false, false, credentials: @config['credentials']),
             network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
             metadata: {
               :items => [
@@ -227,7 +227,7 @@ module MU
 
             real_image = nil
             begin
-              real_image = MU::Cloud::Google::Server.fetchImage(launch['image_id'].to_s)
+              real_image = MU::Cloud::Google::Server.fetchImage(launch['image_id'].to_s, credentials: pool['credentials'])
             rescue ::Google::Apis::ClientError => e
               MU.log e.inspect, MU::WARN
             end
