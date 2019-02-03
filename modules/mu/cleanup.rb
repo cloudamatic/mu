@@ -145,6 +145,7 @@ module MU
                           if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
                             if !global_done.include?(t)
                               global_done << t
+                              flags['global'] = true
                             else
                               skipme = true
                             end
