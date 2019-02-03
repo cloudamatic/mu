@@ -144,6 +144,7 @@ module MU
         name ||= deploy_id+"-secret"
         begin
           MU.log "Writing #{name} to Cloud Storage bucket #{adminBucketName(credentials)}"
+
           f = Tempfile.new(name) # XXX this is insecure and stupid
           f.write value
           f.close
@@ -151,7 +152,7 @@ module MU
             bucket: adminBucketName(credentials),
             name: name
           )
-          ebs_key = MU::Cloud::Google.storage.insert_object(
+          ebs_key = MU::Cloud::Google.storage(credentials: credentials).insert_object(
             adminBucketName(credentials),
             objectobj,
             upload_source: f.path
@@ -180,9 +181,11 @@ module MU
       def self.grantDeploySecretAccess(acct, deploy_id = MU.deploy_id, name = nil, credentials: nil)
         name ||= deploy_id+"-secret"
         aclobj = nil
+
+        retries = 0
         begin
           MU.log "Granting #{acct} access to list Cloud Storage bucket #{adminBucketName(credentials)}"
-          MU::Cloud::Google.storage.insert_bucket_access_control(
+          MU::Cloud::Google.storage(credentials: credentials).insert_bucket_access_control(
             adminBucketName(credentials),
             MU::Cloud::Google.storage(:BucketAccessControl).new(
               bucket: adminBucketName(credentials),
@@ -199,7 +202,8 @@ module MU
 
           [name, "log_vol_ebs_key"].each { |obj|
             MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{adminBucketName(credentials)}"
-            MU::Cloud::Google.storage.insert_object_access_control(
+            pp aclobj
+            MU::Cloud::Google.storage(credentials: credentials).insert_object_access_control(
               adminBucketName(credentials),
               obj,
               aclobj
@@ -208,6 +212,14 @@ module MU
         rescue ::Google::Apis::ClientError => e
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
+          elsif e.inspect.match(/notFound: No such object:/)
+            if retries < 5
+              sleep 5
+              retries += 1
+              retry
+            else
+              raise e
+            end
           elsif e.inspect.match(/The metadata for object "null" was edited during the operation/)
             MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::WARN, details: aclobj
             sleep 10
@@ -732,8 +744,8 @@ module MU
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
-#              elsif e.message.match(/^forbidden:/)
-#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
+              elsif e.message.match(/^forbidden:/)
+                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
@@ -849,7 +861,7 @@ module MU
                (!method_sym.to_s.match(/^insert_/) or !e.message.match(/^notFound: /) or
                 (e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/))
                )
-              if e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/)
+              if e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/) and retval
                 logreq = MU::Cloud::Google.logging(:ListLogEntriesRequest).new(
                   resource_names: ["projects/"+arguments.first],
                   filter: %Q{labels."compute.googleapis.com/resource_id"="#{retval.target_id}" OR labels."ssl_certificate_id"="#{retval.target_id}"} # XXX I guess we need to cover all of the possible keys, ugh

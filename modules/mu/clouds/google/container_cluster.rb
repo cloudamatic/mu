@@ -39,14 +39,7 @@ module MU
             deploydata = describe[2]
             @config['availability_zone'] = deploydata['zone']
           else
-            @mu_name ||=
-              if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
-                @deploy.getResourceName(@config["name"], max_length: 15)
-              else
-                @deploy.getResourceName(@config["name"], max_length: 63)
-              end
-
-            @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+            @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 40)
           end
         end
 
@@ -64,6 +57,14 @@ module MU
 
           @config['availability_zone'] ||= MU::Cloud::Google.listAZs(@config['region']).sample
 
+          if @vpc.nil? and @config['vpc'] and @config['vpc']['vpc_name']
+            @vpc = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs")
+          end
+
+          if !@vpc
+            raise MuError, "ContainerCluster #{@config['name']} unable to locate its resident VPC from #{@config['vpc']}"
+          end
+
           subnet = nil
           @vpc.subnets.each { |s|
             if s.az == @config['region']
@@ -71,13 +72,14 @@ module MU
               break
             end
           }
-
+puts @config['credentials']
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
             @deploy,
-            project: @config['project']
+            project: @config['project'],
+            credentials: @config['credentials']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
+          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email, credentials: @config['credentials'])
 
           @config['ssh_user'] ||= "mu"
 
@@ -119,6 +121,8 @@ module MU
           )
 
           MU.log "Creating GKE cluster #{@mu_name.downcase}", details: desc
+          pp @vpc.subnets.map { |x| x.config['name'] }
+          pp requestobj
           cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_cluster(
             @config['project'],
             @config['availability_zone'],
@@ -200,13 +204,17 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           skipsnapshots = flags["skipsnapshots"]
+
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           MU::Cloud::Google.listAZs(region).each { |az|
             found = MU::Cloud::Google.container(credentials: credentials).list_zone_clusters(flags["project"], az)
-#filter: "description eq #{MU.deploy_id}"
             if found and found.clusters
               found.clusters.each { |cluster|
-                next if !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i)
+
+                if !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
+                   cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                  next
+                end
                 MU.log "Deleting GKE cluster #{cluster.name}"
                 if !noop
                   MU::Cloud::Google.container(credentials: credentials).delete_zone_cluster(flags["project"], az, cluster.name)

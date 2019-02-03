@@ -121,6 +121,11 @@ module MU
           base = MU.structToHash(cloud_desc)
           base["cloud_id"] = @cloud_id
           base.merge!(@config.to_h)
+if @config['name'] == "gkeprivate"
+  pp base.keys
+  puts base['cloud_id']
+end
+
           base
         end
 
@@ -892,7 +897,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # Is this subnet privately-routable only, or public?
           # @return [Boolean]
           def private?
-            routes = MU::Cloud::Google.compute(credentials: @config['credentials']).list_routes(
+            routes = MU::Cloud::Google.compute(credentials: @parent.config['credentials']).list_routes(
               @parent.config['project'],
               filter: "network eq #{@parent.url}"
             ).items

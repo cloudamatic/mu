@@ -861,11 +861,42 @@ module MU
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
             MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
-            if !@config['vpc']["vpc_name"].nil? and
+            if !@config['vpc']["vpc_name"].nil? and @deploy
+              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs", return_all: true)
+              if sib_by_name.is_a?(Array)
+                if sib_by_name.size == 1
+                  @vpc = matches.first
+                else
+# XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
+                  # we got multiple matches, try to pick one by preferred subnet
+                  # behavior
+                  sib_by_name.each { |sibling|
+                    all_private = sibling.subnets.map { |s| s.private? }.all?(true)
+                    all_public = sibling.subnets.map { |s| s.private? }.all?(false)
+                    if all_private and ["private", "all_private"].include?(@config['vpc']['subnet_pref'])
+                      @vpc = sibling
+                      break
+                    elsif all_public and ["public", "all_public"].include?(@config['vpc']['subnet_pref'])
+                      @vpc = sibling
+                      break
+                    else
+                      MU.log "Got multiple matching VPCs for #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}"
+                      @vpc = sibling
+                      break
+                    end
+                  }
+                end
+              else
+MU.log "in dependencies() and findLitterMate gave me "+sib_by_name.to_s+" on behalf of "+self.to_s, MU::NOTICE, details: @config['vpc']
+                @vpc = sib_by_name
+              end
+            end
+
+            if !@vpc and !@config['vpc']["vpc_name"].nil? and
                 @dependencies.has_key?("vpc") and
                 @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
               @vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
-            else
+            elsif !@vpc
               tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
               if !@config['vpc'].has_key?("vpc_id") and
                   !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?

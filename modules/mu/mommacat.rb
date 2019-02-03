@@ -217,10 +217,13 @@ module MU
         if @original_config.nil? or !@original_config.is_a?(Hash)
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
+        credsets = {}
         @appname = @original_config['name']
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
             @original_config[data[:cfg_plural]].each { |resource|
+              credsets[resource['cloud']] ||= []
+              credsets[resource['cloud']] << resource['credentials']
               @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
               @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
             }
@@ -233,13 +236,13 @@ module MU
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
         if !@original_config['scrub_mu_isms']
-          # TODO there's a nicer way to do this than hardcoding strings
-          if @clouds["AWS"] and @clouds["AWS"] > 0
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, @deploy_secret)
-          end
-          if @clouds["Google"] and @clouds["Google"] > 0
-            MU::Cloud::Google.writeDeploySecret(@deploy_id, @deploy_secret)
-          end
+          credsets.each_pair { |cloud, creds|
+            creds.uniq!
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+            creds.each { |credentials|
+              cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
+            }
+          }
         end
         if set_context_to_me
           MU::MommaCat.setThreadContext(self)
@@ -1277,8 +1280,13 @@ module MU
         matches = []
 
         @kittens[type].each { |sib_class, data|
+          virtual_name = nil
 
-          next if !name.nil? and name != sib_class
+          if !has_multiples and data and !data.is_a?(Hash) and data.config and data.config.is_a?(Hash) and data.config['virtual_name'] and name == data.config['virtual_name']
+            virtual_name = data.config['virtual_name']
+          elsif !name.nil? and name != sib_class
+            next
+          end
           if has_multiples
             if !name.nil?
               if return_all
@@ -1307,7 +1315,7 @@ module MU
               end
             }
           else
-            if (name.nil? or sib_class == name) and
+            if (name.nil? or sib_class == name or virtual_name == name) and
                 (cloud_id.nil? or cloud_id == data.cloud_id) and
                 (credentials.nil? or data.credentials.nil? or credentials == data.credentials)
               matches << data if !created_only or !data.cloud_id.nil?
@@ -1316,7 +1324,11 @@ module MU
         }
 
         return matches.first if matches.size == 1
+        if return_all and matches.size > 1
+          return matches
+        end
       }
+
 
       return nil
     end

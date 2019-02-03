@@ -92,6 +92,7 @@ module MU
         # XXX this should be a MU::Cloud::Google::User resource
         def self.createServiceAccount(rolename, deploy, project: nil, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"], credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
+
 #https://www.googleapis.com/auth/devstorage.read_only ?
           name = deploy.getResourceName(rolename, max_length: 30).downcase
 
@@ -102,10 +103,12 @@ module MU
 # do NOT specify project_id or name, we know that much
             )
           )
+
           resp = MU::Cloud::Google.iam(credentials: credentials).create_service_account(
             "projects/#{project}",
             saobj
           )
+
           MU::Cloud::Google.compute(:ServiceAccount).new(
             email: resp.email,
             scopes: scopes
@@ -247,7 +250,7 @@ next if !create
             project: @config['project'],
             credentials: @config['credentials']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
+          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email, credentials: @config['credentials'])
 
           begin
             disks = MU::Cloud::Google::Server.diskConfig(@config, credentials: @config['credentials'])
