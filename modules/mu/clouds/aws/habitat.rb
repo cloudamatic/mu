@@ -46,7 +46,23 @@ module MU
             account_name: @mu_name,
             email: @config['email']
           )
-          pp resp
+
+          createid = resp.create_account_status.id
+
+          begin
+            resp = MU::Cloud::AWS.orgs(credentials: @config['credentials']).describe_create_account_status(
+              create_account_request_id: createid
+            )
+            createstatus = resp.create_account_status.state
+            if !["SUCCEEDED", "IN_PROGRESS"].include?(resp.create_account_status.state)
+              raise MuError, "Failed to create account #{@mu_name}: #{resp.create_account_status.failure_reason}"
+            end
+            if resp.create_account_status.state == "IN_PROGRESS"
+              sleep 10
+            end
+          end while resp.create_account_status.state == "IN_PROGRESS"
+
+          MU.log "Creation of account #{@mu_name} (#{resp.create_account_status.account_id}) complete"
         end
 
         # Return the cloud descriptor for the Habitat
@@ -124,7 +140,7 @@ module MU
 
           parentorg = MU::Cloud::AWS::Folder.find(credentials: habitat['credentials']).values.first
           if acct_num != parentorg.master_account_id
-            MU.log "The Organization master account for habitat #{habitat["name"]} is #{parentorg.master_account_id}, but my credentials (#{ habitat['credentials'] ?  habitat['credentials'] : "default"}) are for account #{acct_num}. Accounts can only be created and managed with credentials from an Organization's master account.", MU::ERR
+            MU.log "The Organization master account for habitat #{habitat["name"]} is #{parentorg.master_account_id}, but my credentials (#{ habitat['credentials'] ?  habitat['credentials'] : "default"}) are for a non-master account (#{acct_num}). AWS accounts can only be created and managed with credentials from an Organization's master account.", MU::ERR
             ok = false
           end
 
