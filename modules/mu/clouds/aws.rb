@@ -63,6 +63,7 @@ module MU
           end
         elsif cred_cfg['credentials_file'] and
               !cred_cfg['credentials_file'].empty?
+
           # pull access key and secret from an awscli-style credentials file
           begin
             File.read(cred_cfg["credentials_file"]) # make sure it's there
@@ -74,7 +75,7 @@ module MU
             data = credfile.has_section?("default") ? credfile["default"] : credfile[credfile.sections.first]
             if data["aws_access_key_id"] and data["aws_secret_access_key"]
               cred_obj = Aws::Credentials.new(
-                cred_cfg['aws_access_key_id'], cred_cfg['aws_secret_access_key']
+                data['aws_access_key_id'], data['aws_secret_access_key']
               )
               if name.nil?
 #                Aws.config = {
@@ -265,6 +266,42 @@ module MU
         rescue Aws::S3::Errors => e
           raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
         end
+      end
+
+  # Log bucket policy for enabling CloudTrail logging to our log bucket in S3.
+      def self.cloudtrailBucketPolicy(credentials = nil)
+        cfg = credConfig(credentials)
+        policy_json = '{
+      		"Version": "2012-10-17",
+      		"Statement": [
+      			{
+      				"Sid": "AWSCloudTrailAclCheck20131101",
+      				"Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
+                "Service": "cloudtrail.amazonaws.com"
+              },
+      				"Action": "s3:GetBucketAcl",
+      				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'"
+      			},
+      			{
+      				"Sid": "AWSCloudTrailWrite20131101",
+      				"Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':iam::'+credToAcct(credentials)+':root",
+                "Service": "cloudtrail.amazonaws.com"
+              },
+      				"Action": "s3:PutObject",
+      				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/AWSLogs/'+credToAcct(credentials)+'/*",
+      				"Condition": {
+      					"StringEquals": {
+      						"s3:x-amz-acl": "bucket-owner-full-control"
+      					}
+      				}
+      			}
+      		]
+      	}'
+        ERB.new(policy_json).result
       end
 
       @@is_in_aws = nil

@@ -698,36 +698,5 @@ module MU
     return bucketname
   end
 
-  # Log bucket policy for enabling CloudTrail logging to our log bucket in S3.
-  CLOUDTRAIL_BUCKET_POLICY = '{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Sid": "AWSCloudTrailAclCheck20131101",
-				"Effect": "Allow",
-        "Principal": {
-          "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
-          "Service": "cloudtrail.amazonaws.com"
-        },
-				"Action": "s3:GetBucketAcl",
-				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':s3:::<%= $bucketname %>"
-			},
-			{
-				"Sid": "AWSCloudTrailWrite20131101",
-				"Effect": "Allow",
-        "Principal": {
-          "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
-          "Service": "cloudtrail.amazonaws.com"
-        },
-				"Action": "s3:PutObject",
-				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':s3:::<%= $bucketname %>/AWSLogs/<%= MU.account_number %>/*",
-				"Condition": {
-					"StringEquals": {
-						"s3:x-amz-acl": "bucket-owner-full-control"
-					}
-				}
-			}
-		]
-	}'
 
 end
