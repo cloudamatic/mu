@@ -893,6 +893,13 @@ module MU
         @@kms_api[credentials][region]
       end
 
+      # Amazon's Organizations API
+      def self.orgs(credentials: nil)
+        @@organizations_api ||= {}
+        @@organizations_api[credentials] ||= MU::Cloud::AWS::Endpoint.new(api: "Organizations", credentials: credentials)
+        @@organizations_api[credentials]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -1190,6 +1197,7 @@ module MU
       @@cognito_ident_api ={}
       @@cognito_user_api ={}
       @@kms_api ={}
+      @@organizataion_api ={}
     end
   end
 end
