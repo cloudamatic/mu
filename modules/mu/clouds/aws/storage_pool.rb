@@ -36,7 +36,7 @@ module MU
         # @return [String]: The cloud provider's identifier for this storage pool.
         def create
           MU.log "Creating storage pool #{@mu_name}"
-          resp = MU::Cloud::AWS.efs(@config['region']).create_file_system(
+          resp = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).create_file_system(
             creation_token: @mu_name,
             performance_mode: @config['storage_type']
           )
@@ -44,7 +44,7 @@ module MU
           attempts = 0
           loop do
             MU.log "Waiting for #{@mu_name}: #{resp.file_system_id} to become available" if attempts % 5 == 0
-            storage_pool = MU::Cloud::AWS.efs(@config['region']).describe_file_systems(
+            storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
               creation_token: @mu_name
             ).file_systems.first
             break if storage_pool.life_cycle_state == "available"
@@ -54,7 +54,7 @@ module MU
             raise MuError, "timed out waiting for #{resp.mount_target_id }" if attempts >= 20
           end
 
-          addStandardTags(cloud_id: resp.file_system_id, region: @config['region'])
+          addStandardTags(cloud_id: resp.file_system_id, region: @config['region'], credentials: @config['credentials'])
           @cloud_id = resp.file_system_id
 
           if @config['mount_points'] && !@config['mount_points'].empty?
@@ -89,6 +89,7 @@ module MU
                   ip_address: target['ip_address'],
                   subnet_id: target['vpc']['subnet_id'],
                   security_groups: sgs,
+                  credentials: @config['credentials'],
                   region: @config['region']
                 )
                 target['cloud_id'] = mount_target.mount_target_id
@@ -103,6 +104,12 @@ module MU
           return @cloud_id
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticfilesystem:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":file-system/"+@cloud_id
+        end
+
         # Locate an existing storage pool and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region
@@ -110,10 +117,10 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching storage pool
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
           map = {}
           if cloud_id
-            storge_pool = MU::Cloud::AWS.efs(region).describe_file_systems(
+            storge_pool = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems(
               file_system_id: cloud_id
             ).file_systems.first
             
@@ -121,11 +128,11 @@ module MU
           end
 
           if tag_value
-            storage_pools = MU::Cloud::AWS.efs(region).describe_file_systems.file_systems
+            storage_pools = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems.file_systems
           
             if !storage_pools.empty?
               storage_pools.each{ |pool|
-                tags = MU::Cloud::AWS.efs(region).describe_tags(
+                tags = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_tags(
                   file_system_id: pool.file_system_id
                 ).tags
 
@@ -151,7 +158,7 @@ module MU
         # Add our standard tag set to an Amazon EFS File System.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region
-        def addStandardTags(cloud_id: nil, region: MU.curRegion)
+        def addStandardTags(cloud_id: nil, region: MU.curRegion, credentials: nil)
           if cloud_id
             tags = []
             MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -174,7 +181,7 @@ module MU
 
             tags << {key: "Name", value: @mu_name} unless name_tag
 
-            MU::Cloud::AWS.efs(region).create_tags(
+            MU::Cloud::AWS.efs(region: region, credentials: credentials).create_tags(
               file_system_id: cloud_id,
               tags: tags
             )
@@ -194,10 +201,10 @@ module MU
         # @param subnet_id [String]: The subnet_id to associate the mount point with
         # @param security_groups [Array]: A list of security groups to associate with the mount point.
         # @param region [String]: The cloud provider region
-        def self.create_mount_target(cloud_id: nil, ip_address: nil, subnet_id: nil, security_groups: [], region: MU.curRegion)
+        def self.create_mount_target(cloud_id: nil, ip_address: nil, subnet_id: nil, security_groups: [], region: MU.curRegion, credentials: nil)
           MU.log "Creating mount target for filesystem #{cloud_id}"
 
-          resp = MU::Cloud::AWS.efs(region).create_mount_target(
+          resp = MU::Cloud::AWS.efs(region: region, credentials: credentials).create_mount_target(
             file_system_id: cloud_id,
             subnet_id: subnet_id,
             ip_address: ip_address,
@@ -209,12 +216,12 @@ module MU
           loop do
             MU.log "Waiting for #{resp.mount_target_id} to become available", MU::NOTICE if attempts % 10 == 0
             begin
-              mount_target = MU::Cloud::AWS.efs(region).describe_mount_targets(
+              mount_target = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_mount_targets(
                 mount_target_id: resp.mount_target_id 
               ).mount_targets.first
             rescue Aws::EFS::Errors::MountTargetNotFound
               if retries <= 3
-                sleep 5
+                sleep 10
                 retry
               else
                 return nil
@@ -238,7 +245,7 @@ module MU
         # @param region [String]: The cloud provider region
         def self.modify_security_groups(cloud_id: nil, replace: false , security_groups: [], region: MU.curRegion)
           unless replace
-            extisting_sgs = MU::Cloud::AWS.efs(region).describe_mount_target_security_groups(
+            extisting_sgs = MU::Cloud::AWS.efs(region: region).describe_mount_target_security_groups(
               mount_target_id: cloud_id
             ).security_groups
 
@@ -246,7 +253,7 @@ module MU
           end
 
           security_groups.uniq!
-          resp = MU::Cloud::AWS.efs(region).modify_mount_target_security_groups(
+          resp = MU::Cloud::AWS.efs(region: region).modify_mount_target_security_groups(
             mount_target_id: cloud_id,
             security_groups: security_groups
           )
@@ -255,7 +262,7 @@ module MU
         # Register a description of this storage pool with this deployment's metadata.
         def notify
           deploy_struct = {}
-          storage_pool = MU::Cloud::AWS.efs(@config['region']).describe_file_systems(
+          storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
             creation_token: @mu_name
           ).file_systems.first
 
@@ -266,19 +273,33 @@ module MU
               subnet = nil
               dependencies
               mp_vpc = if mp['vpc'] and mp['vpc']['vpc_name']
-                @deploy.findLitterMate(type: "vpc", name: mp['vpc']['vpc_name'])
+                @deploy.findLitterMate(type: "vpc", name: mp['vpc']['vpc_name'], credentials: @config['credentials'])
+              elsif mp['vpc']
+                MU::MommaCat.findStray(
+                  @config['cloud'],
+                  "vpcs",
+                  deploy_id: mp['vpc']["deploy_id"],
+                  credentials: @config['credentials'],
+                  mu_name: mp['vpc']["mu_name"],
+                  cloud_id: mp['vpc']['vpc_id'],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
 # XXX non-sibling, findStray version
               end
 
-              mount_targets = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
+              mount_targets = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
                 file_system_id: storage_pool.file_system_id
               ).mount_targets
 
+#              subnet_obj = mp_vpc.subnets.select { |s|
+#                s.name == mp["vpc"]["subnet_name"] or s.cloud_id == mp["vpc"]["subnet_id"]
+#              }.first
               mount_target = nil
               mp_vpc.subnets.each { |subnet_obj|
                 mount_targets.map { |t|
-                  mnt_cidr = NetAddr::CIDR.create(t.ip_address+"/32")
-                  if mnt_cidr.is_contained?(subnet_obj.ip_block)
+                  subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
+                  if subnet_cidr_obj.contains(NetAddr::IPv4.parse(t.ip_address))
                     mount_target = t
                     subnet = subnet_obj.cloud_desc
                   end
@@ -286,7 +307,7 @@ module MU
                 break if mount_target
               }
 
-              # mount_target = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
+              # mount_target = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
                 # mount_target_id: mp["cloud_id"]
               # ).mount_targets.first
 
@@ -297,7 +318,7 @@ module MU
                 "file_system_id" => mount_target.file_system_id,
                 "mount_directory" => mp["directory"],
                 "subnet_id" => mount_target.subnet_id,
-                "vpc_id" => subnet.vpc_id,
+                "vpc_id" => mp_vpc.cloud_id,
                 "availability_zone" => subnet.availability_zone,
                 "state" => mount_target.life_cycle_state,
                 "ip_address" => mount_target.ip_address,
@@ -321,17 +342,24 @@ module MU
           return deploy_struct
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           supported_regions = %w{us-west-2 us-east-1 eu-west-1}
           if supported_regions.include?(region)
             begin 
-              resp = MU::Cloud::AWS.efs(region).describe_file_systems
+              resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).describe_file_systems
               return if resp.nil? or resp.file_systems.nil?
               storage_pools = resp.file_systems
             rescue Aws::EFS::Errors::AccessDeniedException
@@ -344,7 +372,7 @@ module MU
 
             if !storage_pools.empty?
               storage_pools.each{ |pool|
-                tags = MU::Cloud::AWS.efs(region).describe_tags(
+                tags = MU::Cloud::AWS.efs(credentials: credentials, region: region).describe_tags(
                   file_system_id: pool.file_system_id
                 ).tags
 
@@ -366,7 +394,7 @@ module MU
 
             # How to identify mount points in a reliable way? Mount points are not tagged, which means we can only reliably identify mount points based on a filesystem ID. We can you our deployment metadata, but it isn’t necessarily reliable
             # begin
-              # resp = MU::Cloud::AWS.efs(region).delete_mount_target(
+              # resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).delete_mount_target(
                 # mount_target_id: "MountTargetId"
               # )
               # MU.log "Deleted mount target"
@@ -376,7 +404,7 @@ module MU
 
             if !our_pools.empty?
               our_pools.each{ |pool|
-                mount_targets = MU::Cloud::AWS.efs(region).describe_mount_targets(
+                mount_targets = MU::Cloud::AWS.efs(credentials: credentials, region: region).describe_mount_targets(
                   file_system_id: pool.file_system_id
                 ).mount_targets
 
@@ -385,7 +413,7 @@ module MU
                     MU.log "Deleting mount target #{mp.mount_target_id} for filesystem #{pool.name}: #{pool.file_system_id}"
                     unless noop
                       begin
-                        resp = MU::Cloud::AWS.efs(region).delete_mount_target(
+                        resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).delete_mount_target(
                           mount_target_id: mp.mount_target_id
                           )
                       rescue Aws::EFS::Errors::BadRequest => e
@@ -399,7 +427,7 @@ module MU
                 unless noop
                   attempts = 0
                   begin
-                    resp = MU::Cloud::AWS.efs(region).delete_file_system(
+                    resp = MU::Cloud::AWS.efs(credentials: credentials, region: region).delete_file_system(
                       file_system_id: pool.file_system_id
                     )
                   rescue Aws::EFS::Errors::BadRequest => e
@@ -468,7 +496,13 @@ module MU
             pool['mount_points'].each{ |mp|
               if mp['ingress_rules']
                 fwname = "storage-#{mp['name']}"
-                acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+                acl = {
+                  "name" => fwname,
+                  "rules" => mp['ingress_rules'],
+                  "region" => pool['region'],
+                  "credentials" => pool['credentials'],
+                  "optional_tags" => pool['optional_tags']
+                }
                 acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
                 acl["vpc"] = mp['vpc'].dup if mp['vpc']
                 ok = false if !configurator.insertKitten(acl, "firewall_rules")

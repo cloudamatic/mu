@@ -95,13 +95,13 @@ module MU
             end
             if @config['global']
               MU.log "Creating Global Forwarding Rule #{@mu_name}", MU::NOTICE, details: ruleobj
-              resp = MU::Cloud::Google.compute.insert_global_forwarding_rule(
+              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_global_forwarding_rule(
                 @config['project'],
                 ruleobj
               )
             else
               MU.log "Creating regional Forwarding Rule #{@mu_name} in #{@config['region']}", MU::NOTICE, details: ruleobj
-              resp = MU::Cloud::Google.compute.insert_forwarding_rule(
+              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_forwarding_rule(
                 @config['project'],
                 @config['region'],
                 ruleobj
@@ -119,12 +119,12 @@ module MU
         # @return [Hash]
         def notify
           rules = {}
-          resp = MU::Cloud::Google.compute.list_global_forwarding_rules(
+          resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_global_forwarding_rules(
             @config["project"],
             filter: "description eq #{@deploy.deploy_id}"
           )
           if resp.nil? or resp.items.nil? or resp.items.size == 0
-            resp = MU::Cloud::Google.compute.list_forwarding_rules(
+            resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_forwarding_rules(
               @config["project"],
               @config['region'],
               filter: "description eq #{@deploy.deploy_id}"
@@ -147,17 +147,24 @@ module MU
         def registerNode(instance_id, targetgroups: nil)
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
         # Remove all load balancers associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           if region
             ["forwarding_rule", "region_backend_service"].each { |type|
-              MU::Cloud::Google.compute.delete(
+              MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["project"],
                 region,
@@ -168,7 +175,7 @@ module MU
 
           if flags['global']
             ["global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
-              MU::Cloud::Google.compute.delete(
+              MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["project"],
                 noop
@@ -296,7 +303,8 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         end
 
         private
@@ -312,7 +320,7 @@ module MU
             default_service: backend.self_link
           )
           MU.log "Creating url map #{tg['name']}", details: urlmap_obj
-          urlmap = MU::Cloud::Google.compute.insert_url_map(
+          urlmap = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_url_map(
             @config['project'],
             urlmap_obj
           )
@@ -326,20 +334,20 @@ module MU
           if tg['proto'] == "HTTP"
             target_obj = MU::Cloud::Google.compute(:TargetHttpProxy).new(desc)
             MU.log "Creating http target proxy #{tg['name']}", details: target_obj
-            MU::Cloud::Google.compute.insert_target_http_proxy(
+            MU::Cloud::Google.compute(credentials: @config['credentials']).insert_target_http_proxy(
               @config['project'],
               target_obj
             )
           else
             certdata = @deploy.nodeSSLCerts(self, 2048)
             cert_pem = certdata[0].to_s+File.read("/etc/pki/Mu_CA.pem")
-            gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1])
+            gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1], credentials: @config['credentials'])
 
 # TODO we need a method like MU::Cloud::AWS.findSSLCertificate, with option to hunt down an existing one
             desc[:ssl_certificates] = [gcpcert.self_link]
             target_obj = MU::Cloud::Google.compute(:TargetHttpsProxy).new(desc)
             MU.log "Creating https target proxy #{tg['name']}", details: target_obj
-            MU::Cloud::Google.compute.insert_target_https_proxy(
+            MU::Cloud::Google.compute(credentials: @config['credentials']).insert_target_https_proxy(
               @config['project'],
               target_obj
             )
@@ -385,13 +393,13 @@ module MU
           backend_obj = MU::Cloud::Google.compute(:BackendService).new(desc)
           MU.log "Creating backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", details: backend_obj
           if @config['private'] and !@config['global']
-            return MU::Cloud::Google.compute.insert_region_backend_service(
+            return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_backend_service(
               @config['project'],
               @config['region'],
               backend_obj
             )
           else
-            return MU::Cloud::Google.compute.insert_backend_service(
+            return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_backend_service(
               @config['project'],
               backend_obj
             )
@@ -421,12 +429,12 @@ module MU
 # type: SSL, HTTP2
             MU.log "Creating #{proto} health check #{name}", details: hc_obj
             if proto == "HTTP"
-              return MU::Cloud::Google.compute.insert_http_health_check(
+              return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_http_health_check(
                 @config['project'],
                 hc_obj
               )
             else
-              return MU::Cloud::Google.compute.insert_https_health_check(
+              return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_https_health_check(
                 @config['project'],
                 hc_obj
               )
@@ -466,7 +474,7 @@ module MU
             end
             hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(desc)
             MU.log "INSERTING HEALTH CHECK", MU::NOTICE, details: hc_obj
-            return MU::Cloud::Google.compute.insert_health_check(
+            return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_health_check(
               @config['project'],
               hc_obj
             )

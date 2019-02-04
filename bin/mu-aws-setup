@@ -28,12 +28,12 @@ require 'rubygems'
 require 'bundler/setup'
 require 'json'
 require 'erb'
-require 'trollop'
+require 'optimist'
 require 'json-schema'
 require 'mu'
 Dir.chdir(MU.installDir)
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-i] [-s] [-l] [-u] [-d]
@@ -46,6 +46,20 @@ Usage:
   opt :ephemeral, "Make sure all of our instance store (ephemeral) block devices are mapped and available.", :require => false, :default => false, :type => :boolean
 end
 
+if MU::Cloud::AWS.hosted? and !$MU_CFG['aws']
+  new_cfg = $MU_CFG.dup
+  cfg_blob = MU::Cloud::AWS.hosted_config
+  if cfg_blob
+    cfg_blob['log_bucket_name'] ||= $MU_CFG['hostname']
+    new_cfg["aws"] = { "default" => cfg_blob }
+    MU.log "Adding auto-detected AWS stanza to #{cfgPath}", MU::NOTICE
+    if new_cfg != $MU_CFG or !cfgExists?
+      MU.log "Generating #{cfgPath}"
+      saveMuConfig(new_cfg)
+      $MU_CFG = new_cfg
+    end
+  end
+end
 
 my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 

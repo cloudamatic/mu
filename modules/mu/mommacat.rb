@@ -217,10 +217,13 @@ module MU
         if @original_config.nil? or !@original_config.is_a?(Hash)
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
+        credsets = {}
         @appname = @original_config['name']
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
             @original_config[data[:cfg_plural]].each { |resource|
+              credsets[resource['cloud']] ||= []
+              credsets[resource['cloud']] << resource['credentials']
               @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
               @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
             }
@@ -233,13 +236,13 @@ module MU
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
         if !@original_config['scrub_mu_isms']
-          # TODO there's a nicer way to do this than hardcoding strings
-          if @clouds["AWS"] and @clouds["AWS"] > 0
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, @deploy_secret)
-          end
-          if @clouds["Google"] and @clouds["Google"] > 0
-            MU::Cloud::Google.writeDeploySecret(@deploy_id, @deploy_secret)
-          end
+          credsets.each_pair { |cloud, creds|
+            creds.uniq!
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+            creds.each { |credentials|
+              cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
+            }
+          }
         end
         if set_context_to_me
           MU::MommaCat.setThreadContext(self)
@@ -807,8 +810,23 @@ module MU
       @ssh_private_key = File.read("#{ssh_dir}/#{@ssh_key_name}")
       @ssh_private_key.chomp!
 
-      if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool"]) > 0
-        MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key)
+      if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool", "ContainerCluster"]) > 0
+        creds_used = []
+        ["servers", "server_pools", "container_clusters"].each { |type|
+          next if @original_config[type].nil?
+          @original_config[type].each { |descriptor|
+            if descriptor['credentials']
+              creds_used << descriptor['credentials']
+            else
+              creds_used << MU::Cloud::AWS.credConfig(name_only: true)
+            end
+          }
+        }
+        creds_used << nil if creds_used.empty?
+
+        creds_used.uniq.each { |credset|
+          MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key, credentials: credset)
+        }
       end
 
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key]
@@ -1037,6 +1055,7 @@ module MU
         name: nil,
         mu_name: nil,
         cloud_id: nil,
+        credentials: nil,
         region: nil,
         tag_key: nil,
         tag_value: nil,
@@ -1056,6 +1075,13 @@ module MU
         shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
         resourceclass = MU::Cloud.loadCloudType(cloud, shortclass)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+
+        credlist = if credentials
+          [credentials]
+        else
+          cloudclass.listCredentials
+        end
+
         if (tag_key and !tag_value) or (!tag_key and tag_value)
           raise MuError, "Can't call findStray with only one of tag_key and tag_value set, must be both or neither"
         end
@@ -1072,13 +1098,13 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}", MU::DEBUG, details: flags
 
         # See if the thing we're looking for is a member of the deploy that's
         # asking after it.
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
-          handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
+          handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
           return [handle] if !handle.nil?
         end
 
@@ -1091,13 +1117,14 @@ module MU
             next if matches.nil? or matches.size == 0
             momma = MU::MommaCat.getLitter(deploy_id)
             straykitten = nil
+
             # If we found exactly one match in this deploy, use its metadata to
             # guess at resource names we weren't told.
             if matches.size == 1 and name.nil? and mu_name.nil?
               if cloud_id.nil?
-                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"])
+                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
               else
-                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id)
+                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
               end
 #            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
 #              # see if we can narrow it down further with some flags
@@ -1111,16 +1138,22 @@ module MU
 #                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: filtered.first['cloud_id'])
 #              end
             else
-              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
+              # There's more than one of this type of resource in the target
+              # deploy, so see if findLitterMate can narrow it down for us
+              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
             end
 
             next if straykitten.nil?
 
             kittens[straykitten.cloud_id] = straykitten
+
             # Peace out if we found the exact resource we want
             if cloud_id and straykitten.cloud_id == cloud_id
               return [straykitten]
+            # ...or if we've validated our one possible match
             elsif !cloud_id and mu_descs.size == 1 and matches.size == 1
+              return [straykitten]
+            elsif credentials and credlist.size == 1 and straykitten.credentials == credentials
               return [straykitten]
             end
           }
@@ -1142,77 +1175,84 @@ module MU
 
         matches = []
 
-        if cloud_id or (tag_key and tag_value) or !flags.empty?
-          regions = []
-          begin
-            if region
-              regions << region
-            else
-              regions = cloudclass.listRegions
+        credlist.each { |creds|
+          if cloud_id or (tag_key and tag_value) or !flags.empty?
+            regions = []
+            begin
+              if region
+                regions << region
+              else
+                regions = cloudclass.listRegions(credentials: creds)
+              end
+            rescue NoMethodError # Not all cloud providers have regions
+              regions = [""]
             end
-          rescue NoMethodError # Not all cloud providers have regions
-            regions = [""]
-          end
 
-          if cloud == "Google" and ["vpcs", "firewall_rules"].include?(cfg_plural)
-            regions = [nil]
-          end
-
-          cloud_descs = {}
-          regions.each { |r|
-            cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags)
-            # Stop if you found the thing
-            if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
-              break
+            if cloud == "Google" and ["vpcs", "firewall_rules"].include?(cfg_plural)
+              regions = [nil]
             end
-          }
-          regions.each { |r|
-            next if cloud_descs[r].nil?
-            cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
-              # We already have a MU::Cloud object for this guy, use it
-              if kittens.has_key?(kitten_cloud_id)
-                matches << kittens[kitten_cloud_id]
-              elsif kittens.size == 0
-                if !dummy_ok
-                  next
-                end
-                # If we don't have a MU::Cloud object, manufacture a dummy one.
-                # Give it a fake name if we have to and have decided that's ok.
-                if (name.nil? or name.empty?)
-                  if !dummy_ok
-                    MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
-                    next
-                  else
-                    if !mu_name.nil?
-                      name = mu_name
-                    elsif !tag_value.nil?
-                      name = tag_value
-                    else
-                      name = kitten_cloud_id
-                    end
-                  end
-                end
-                cfg = {"name" => name, "cloud" => cloud, "region" => r}
-                # If we can at least find the config from the deploy this will
-                # belong with, use that, even if it's an ungroomed resource.
-                if !calling_deploy.nil? and
-                   !calling_deploy.original_config.nil? and
-                   !calling_deploy.original_config[type+"s"].nil?
-                  calling_deploy.original_config[type+"s"].each { |s|
-                    if s["name"] == name
-                      cfg = s.dup
-                      break
-                    end
-                  }
 
-                  matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
-                else
-                  matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
-                end
+            cloud_descs = {}
+            regions.each { |r|
+              cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds)
+              # Stop if you found the thing
+              if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
+                break
               end
             }
-          }
-        end
+            regions.each { |r|
+              next if cloud_descs[r].nil?
+              cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
+                # We already have a MU::Cloud object for this guy, use it
+                if kittens.has_key?(kitten_cloud_id)
+                  matches << kittens[kitten_cloud_id]
+                elsif kittens.size == 0
+                  if !dummy_ok
+                    next
+                  end
+                  # If we don't have a MU::Cloud object, manufacture a dummy one.
+                  # Give it a fake name if we have to and have decided that's ok.
+                  if (name.nil? or name.empty?)
+                    if !dummy_ok
+                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
+                      next
+                    else
+                      if !mu_name.nil?
+                        name = mu_name
+                      elsif !tag_value.nil?
+                        name = tag_value
+                      else
+                        name = kitten_cloud_id
+                      end
+                    end
+                  end
+                  cfg = {
+                    "name" => name,
+                    "cloud" => cloud,
+                    "region" => r,
+                    "credentials" => creds
+                  }
+                  # If we can at least find the config from the deploy this will
+                  # belong with, use that, even if it's an ungroomed resource.
+                  if !calling_deploy.nil? and
+                     !calling_deploy.original_config.nil? and
+                     !calling_deploy.original_config[type+"s"].nil?
+                    calling_deploy.original_config[type+"s"].each { |s|
+                      if s["name"] == name
+                        cfg = s.dup
+                        break
+                      end
+                    }
+
+                    matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+                  else
+                    matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
+                  end
+                end
+              }
+            }
+          end
+        }
       rescue Exception => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
@@ -1227,7 +1267,7 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil)
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
@@ -1236,9 +1276,17 @@ module MU
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}). Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
+        matches = []
+
         @kittens[type].each { |sib_class, data|
-          next if !name.nil? and name != sib_class
+          virtual_name = nil
+
+          if !has_multiples and data and !data.is_a?(Hash) and data.config and data.config.is_a?(Hash) and data.config['virtual_name'] and name == data.config['virtual_name']
+            virtual_name = data.config['virtual_name']
+          elsif !name.nil? and name != sib_class
+            next
+          end
           if has_multiples
             if !name.nil?
               if return_all
@@ -1255,7 +1303,8 @@ module MU
             end
             data.each_pair { |sib_mu_name, obj|
               if (!mu_name.nil? and mu_name == sib_mu_name) or
-                  (!cloud_id.nil? and cloud_id == obj.cloud_id)
+                  (!cloud_id.nil? and cloud_id == obj.cloud_id) or
+                  (!credentials.nil? and credentials == obj.credentials)
                 if !created_only or !obj.cloud_id.nil?
                   if return_all
                     return data.dup
@@ -1266,13 +1315,21 @@ module MU
               end
             }
           else
-            if (name.nil? or sib_class == name) and
-                (cloud_id.nil? or cloud_id == data.cloud_id)
-              return data if !created_only or !data.cloud_id.nil?
+            if (name.nil? or sib_class == name or virtual_name == name) and
+                (cloud_id.nil? or cloud_id == data.cloud_id) and
+                (credentials.nil? or data.credentials.nil? or credentials == data.credentials)
+              matches << data if !created_only or !data.cloud_id.nil?
             end
           end
         }
+
+        return matches.first if matches.size == 1
+        if return_all and matches.size > 1
+          return matches
+        end
       }
+
+
       return nil
     end
 
@@ -1373,12 +1430,13 @@ module MU
     def self.createTag(resource = nil,
         tag_name="MU-ID",
         tag_value=MU.deploy_id,
-        region: MU.curRegion)
+        region: MU.curRegion,
+        credentials: nil)
       attempts = 0
 
       if !MU::Cloud::CloudFormation.emitCloudFormation
         begin
-          MU::Cloud::AWS.ec2(region).create_tags(
+          MU::Cloud::AWS.ec2(credentials: credentials, region: region).create_tags(
             resources: [resource],
             tags: [
               {
@@ -1412,7 +1470,7 @@ module MU
     # @param resource [String]: The cloud provider identifier of the resource to tag
     # @param region [String]: The cloud provider region
     # @return [void]
-    def self.createStandardTags(resource = nil, region: MU.curRegion)
+    def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
       tags = []
       listStandardTags.each_pair { |name, value|
         if !value.nil?
@@ -1425,7 +1483,7 @@ module MU
 
       attempts = 0
       begin
-        MU::Cloud::AWS.ec2(region).create_tags(
+        MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
           resources: [resource],
           tags: tags
         )
@@ -1508,7 +1566,7 @@ module MU
 
       mu_zone = nil
       # XXX GCP!
-      if MU::Cloud::AWS.hosted and !MU::Cloud::AWS.isGovCloud?
+      if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
         zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
         mu_zone = zones.values.first if !zones.nil?
       end
@@ -2168,8 +2226,10 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.saveDeployData
-            sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+            if sibling.config['groom'].nil? or sibling.config['groom']
+              sibling.groomer.saveDeployData
+              sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+            end
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end

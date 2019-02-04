@@ -24,7 +24,7 @@ module MU
         "type" => "object",
         "title" => "Function",
         "description" => "Create a cloud function.",
-        "required" => ["name", "cloud","runtime","iam_role","handler","code","region"],
+        "required" => ["name", "cloud","runtime","handler","code","region"],
         "additionalProperties" => false,
         "properties" => {
           "cloud" => MU::Config.cloud_primitive,
@@ -33,7 +33,6 @@ module MU
             "type" => "string",
             "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 java8 python2.7 python3.6 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x}
           },
-          "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
           "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
           "handler" => {
@@ -46,16 +45,13 @@ module MU
             "default" => 3
           },
           "tags" => MU::Config.tags_primitive,
+          "optional_tags" => MU::Config.optional_tags_primitive,
           "memory" => {
             "type" => "integer",
             "default" => 128,
             "description" => "Memory to allocation for function, in MB. The value must be a multiple of 64 MB."
           },
           "dependencies" => MU::Config.dependencies_primitive,
-          "optional_tags" => {
-            "type" => "boolean",
-            "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true"
-          },
           "triggers" => {
             "type" => "array",
             "items" => {

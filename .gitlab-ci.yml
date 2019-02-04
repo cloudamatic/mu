@@ -1,4 +1,4 @@
-image: centos
+image: ruby:2.5
 
 stages:
   - Lint Test
@@ -6,6 +6,7 @@ stages:
   - Security Test
   - Smoke Test
   - Merge/Tag
+  - Build
   - Dockerbuild
   - Deploy
   
@@ -23,13 +24,19 @@ Cookstyle:
   script:
     - cookstyle cookbooks/
   allow_failure: true
-  
+
 Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/
+    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
   allow_failure: true
+
+Foodcritic Deprecations:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14
 
 ChefSpec:
   stage: Test
@@ -40,20 +47,22 @@ ChefSpec:
 
 Rspec:
   stage: Test
-  image: chef/chefdk:latest
   script:
-    - echo "rspec"
-  allow_failure: true
+    - cd modules
+    - bundle install
+    - gem install rspec
+    - cd ../
+    - rspec
 
-.New_Berks:
+New_Berks:
   stage: Test
   image: chef/chefdk:latest
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Installing $d" && cd "$d" && berks install); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Verifying $d" && cd "$d" && berks verify); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Analyzing $d" && cd "$d" && berks outdated); done
   
 Berks:
   stage: Test
@@ -79,6 +88,9 @@ Parser Test:
     - mu-deploy -d modules/tests/super_complex_bok.yml
   tags: 
     - mu-master
+  only:
+    - master
+    - development
 
 Smoke Test:
   stage: Smoke Test
@@ -100,6 +112,26 @@ Merge/Tag:
     - master
     - development
 
+Gem Build:
+  stage: Build
+  script:
+    - gem build cloud-mu.gemspec
+    - gem install cloud-mu-*.gem
+    - echo "Upload me to rubygems?"
+  only:
+    - master
+    - development
+
+Muby Build:
+  stage: Build
+  image: centos
+  script: 
+    - extras/ruby_rpm/build.sh
+    - echo "maybe do something cool and smart here?"
+  only:
+    - master
+  allow_failure: true
+
 Dockerbuild:
   stage: Dockerbuild
   image: docker:latest
@@ -111,11 +143,12 @@ Dockerbuild:
 
 pages:
   stage: Deploy
-  image: ruby:2.3
   script:
+  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - mkdir public
-  - gem install yard
-  - yard doc modules -m markdown -o public
+  - gem build cloud-mu.gemspec
+  - gem install cloud-mu-*.gem
+  - ruby bin/mu-gen-docs
   artifacts:
     paths:
     - public

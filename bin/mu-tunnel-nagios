@@ -22,13 +22,13 @@ logger = Syslog::Logger.new "mu-tunnel-nagios"
 
 require 'net/ssh/config'
 require 'net/ssh/gateway'
-require 'trollop'
+require 'optimist'
 require 'etc'
 SSH_CMD = "env -i /usr/bin/ssh"
 NAGIOS_HOME = "/opt/mu/var/nagios_user_home"
 
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 A utility to run a command through a remote SSH tunnel. Intended to serve as an intermediary for Nagios plugins attempting to contact private nodes through a bastion host.
 Usage:
@@ -57,7 +57,7 @@ nat_ssh_key = $opts[:key]
 verbose = $opts[:verbose]
 
 if !dest_host or !dest_port or !cmd
-  Trollop::die "Missing required arguments"
+  Optimist::die "Missing required arguments"
 end
 nat_host = dest_host if !nat_host
 

@@ -1,0 +1,10 @@
+source 'https://supermarket.chef.io'
+source chef_repo: ".."
+
+metadata
+
+# Mu Cookbooks
+cookbook 'mu-firewall'
+
+# Supermarket Cookbooks
+cookbook 'yum', '~> 5.1.0'

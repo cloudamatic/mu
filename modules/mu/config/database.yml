@@ -1,7 +1,7 @@
 <% if $complexity == "complex" %>
 
 name: database-complex
-size: <%= db_size %>
+size: db.r4.large
 engine: postgres
 engine_version: 9.6.6
 storage: 5
@@ -20,7 +20,7 @@ region: us-west-2
 
 name: database-simple
 size: <%= db_size %>
-engine: postgres
+engine: mariadb
 storage: 5
 
 <% end %>

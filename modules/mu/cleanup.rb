@@ -15,7 +15,7 @@
 require 'json'
 require 'net/http'
 require 'net/smtp'
-require 'trollop'
+require 'optimist'
 require 'fileutils'
 
 Thread.abort_on_exception = true
@@ -60,6 +60,10 @@ module MU
         MU.setVar("dataDir", MU.mainDataDir)
       end
 
+
+# XXX AWS needs to check MU::Cloud::AWS.isGovCloud? on some things, or gracefully handle the API not existing
+      types_in_order = ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "DNSZone", "Collection"]
+
       # Load up our deployment metadata
       if !mommacat.nil?
         @mommacat = mommacat
@@ -82,90 +86,111 @@ module MU
         end
       end
 
-      projects = {
-        "Google" => MU::Cloud::Google.listProjects,
-        "AWS" => ["dummy"]
-      }
-
       if !@skipcloud
+        creds = {}
+        MU::Cloud.supportedClouds.each { |cloud|
+          if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+            creds[cloud] ||= {}
+            $MU_CFG[cloud.downcase].keys.each { |credset|
+              creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
+            }
+          end
+        }
         parent_thread_id = Thread.current.object_id
-        regions = {}
-        regions['AWS'] = MU::Cloud::AWS.listRegions
-        regions['Google'] = MU::Cloud::Google.listRegions
         deleted_nodes = 0
         @regionthreads = []
         keyname = "deploy-#{MU.deploy_id}"
 # XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
-        regions.each_pair { |provider, list|
-          list.each { |r|
-            @regionthreads << Thread.new {
-              MU.dupGlobals(parent_thread_id)
-              MU.setVar("curRegion", r)
-              if projects[provider].size == 1
-                MU.log "Checking for #{provider} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
-              end
+        creds.each_pair { |provider, credsets|
+          credsets.each_pair { |credset, regions|
+            global_vs_region_semaphore = Mutex.new
+            global_done = []
+            regions.each { |r|
+              @regionthreads << Thread.new {
+                MU.dupGlobals(parent_thread_id)
+                MU.setVar("curRegion", r)
+                projects = []
+                if $MU_CFG[provider.downcase][credset]["project"]
+# XXX GCP credential schema needs an array for projects
+                  projects << $MU_CFG[provider.downcase][credset]["project"]
+                end
 
-              # We do these in an order that unrolls dependent resources
-              # sensibly, and we hit :Collection twice because AWS
-              # CloudFormation sometimes fails internally.
-              projectthreads = []
-              projects[provider].each { |project|
-                projectthreads << Thread.new {
-                  MU.dupGlobals(parent_thread_id)
-                  MU.setVar("curRegion", r)
-                  if projects[provider].size > 1
-                    MU.log "Checking for #{provider} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
-                  end
-                  MU.dupGlobals(parent_thread_id)
-                  flags = { "project" => project }
-                  MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
-                  MU::Cloud::Function.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Function"]) > 0
-                  MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-                  begin
-                    MU::Cloud::ContainerCluster.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ContainerCluster"]) > 0
-                  rescue Seahorse::Client::NetworkingError => e
-                    MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
-                  end
-                  MU::Cloud::SearchDomain.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["SearchDomain"]) > 0
-                  MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
-                  if provider == "AWS"
-                    MU::Cloud::MsgQueue.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["MsgQueue"]) > 0
-                    MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
-                  end
-                  MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["CacheCluster"]) > 0
-                  MU::Cloud::StoragePool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["StoragePool"]) > 0
-                  if provider == "AWS"
-                    MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
-                  end
-                  if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
-                    MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags)
-                    if provider == "AWS"
-                      MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags)
+                if projects == [""]
+                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+                end
+
+                # We do these in an order that unrolls dependent resources
+                # sensibly, and we hit :Collection twice because AWS
+                # CloudFormation sometimes fails internally.
+                projectthreads = []
+                projects.each { |project|
+                  projectthreads << Thread.new {
+                    MU.dupGlobals(parent_thread_id)
+                    MU.setVar("curRegion", r)
+                    if project != ""
+                      MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
                     end
-                  end
-                  MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
-                  MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
-                  MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
-                  if provider == "AWS" and (@mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0)
-                    MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags)
-                    MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags)
-                  end
-                  MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
-                }
-              }
-              projectthreads.each do |t|
-                t.join
-              end
 
-              if provider == "AWS"
-                resp = MU::Cloud::AWS.ec2(r).describe_key_pairs(
-                    filters: [{name: "key-name", values: [keyname]}]
-                )
-                resp.data.key_pairs.each { |keypair|
-                  MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-                  MU::Cloud::AWS.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+                    MU.dupGlobals(parent_thread_id)
+                    flags = {
+                      "project" => project,
+                      "onlycloud" => @onlycloud,
+                      "skipsnapshots" => @skipsnapshots,
+                    }
+                    types_in_order.each { |t|
+                      begin
+                        skipme = false
+                        global_vs_region_semaphore.synchronize {
+                          if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
+                            if !global_done.include?(t)
+                              global_done << t
+                            else
+                              skipme = true
+                            end
+                          end
+                        }
+                        next if skipme
+                      rescue MU::Cloud::MuCloudResourceNotImplemented => e
+                        next
+                      rescue MU::MuError, NoMethodError => e
+                        MU.log e.message, MU::WARN
+                        next
+                      end
+
+                      if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
+                        begin
+                          resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
+                          resclass.cleanup(
+                            noop: @noop,
+                            ignoremaster: @ignoremaster,
+                            region: r,
+                            cloud: provider,
+                            flags: flags,
+                            credentials: credset
+                          )
+                        rescue Seahorse::Client::NetworkingError => e
+                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
+                        end
+                      end
+                    }
+                  }
                 }
-              end
+                projectthreads.each do |t|
+                  t.join
+                end
+
+                # XXX move to MU::AWS
+                if provider == "AWS"
+                  resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
+                      filters: [{name: "key-name", values: [keyname]}]
+                  )
+                  resp.data.key_pairs.each { |keypair|
+                    MU.log "Deleting key pair #{keypair.key_name} from #{r}"
+                    MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
+                  }
+                end
+              }
             }
           }
         }
@@ -175,26 +200,6 @@ module MU
         end
         @projectthreads = []
 
-        # knock over region-agnostic resources
-
-        projects["Google"].each { |project|
-          @projectthreads << Thread.new {
-            MU.dupGlobals(parent_thread_id)
-            flags = { "global" => true, "project" => project }
-            MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
-            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
-            MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
-            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
-    
-          }
-        }
-
-        if !MU::Cloud::AWS.isGovCloud?
-          if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
-            MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
-          end
-        end
 
         @projectthreads.each do |t|
           t.join
@@ -215,7 +220,7 @@ module MU
         q = Chef::Search::Query.new
         begin
           q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-            next if item.is_a?(Fixnum)
+            next if item.is_a?(Integer)
             item.each { |node|
               deadnodes << node.name
             }
@@ -225,7 +230,7 @@ module MU
 
         begin
           q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-            next if item.is_a?(Fixnum)
+            next if item.is_a?(Integer)
             item.each { |node|
               deadnodes << node.name
             }
@@ -306,7 +311,7 @@ module MU
 
       if !@noop and !@skipcloud
         if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
-          MU::Cloud::AWS.s3(MU.myRegion).delete_object(
+          MU::Cloud::AWS.s3(region: MU.myRegion).delete_object(
             bucket: MU.adminBucketName,
             key: "#{MU.deploy_id}-secret"
           )

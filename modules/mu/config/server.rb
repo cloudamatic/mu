@@ -136,17 +136,23 @@ module MU
               "default" => MU::Config.defaultGroomer,
               "enum" => MU.supportedGroomers
           },
+          "groom" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
+          },
+          "groomer_timeout" => {
+              "type" => "integer",
+              "default" => 1800,
+              "description" => "Maximum execution time for a groomer run"
+          },
           "scrub_groomer" => {
               "type" => "boolean",
               "default" => false,
               "description" => "Remove pre-existing groomer agents from node before bootstrapping. Especially useful for image builds."
           },
           "tags" => MU::Config.tags_primitive,
-          "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-              "default" => true
-          },
+          "optional_tags" => MU::Config.optional_tags_primitive,
           "alarms" => MU::Config::Alarm.inline,
           "active_directory" => {
               "type" => "object",
@@ -559,7 +565,9 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
 
-        server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
+        if !server['scrub_mu_isms']
+          server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
+        end
 
         if !server["vpc"].nil?
           # Common mistake- using all_public or all_private subnet_pref for

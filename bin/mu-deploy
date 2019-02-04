@@ -21,11 +21,11 @@ require 'rubygems'
 require 'bundler/setup'
 require 'json'
 require 'erb'
-require 'trollop'
+require 'optimist'
 require 'json-schema'
 require 'mu'
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-j] [-p parameter=value] /path/to/stack/config.[json|yaml] [-u deploy_id [-l]] [-r deploy_id]
@@ -87,7 +87,7 @@ end
 
 MU.log "Loading #{config}", html: $opts[:web], details: $opts
 
-conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params)
+conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params, updating: $opts[:update])
 stack_conf = conf_engine.config
 
 if $opts[:dryrun] or $opts[:verbose]

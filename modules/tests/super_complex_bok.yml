@@ -15,6 +15,8 @@ parameters:
     default: superBoK_logs
   - name: queues_name
     default: superBoK_queues
+  - name: server_pools_name
+    default: superBoK_ServerPool
 
 <% $complexity = 'complex' %>
 
@@ -27,6 +29,9 @@ logs:
 servers:
 -
   <%= include("../mu/config/server.yml") %>
+server_pools:
+-
+  <%= include("../mu/config/server_pool.yml") %>
 search_domains:
 -
   <%= include("../mu/config/search_domain.yml") %>
@@ -34,3 +39,15 @@ search_domains:
 databases:
 -
   <%= include("../mu/config/database.yml") %>
+
+container_clusters:
+-
+  <%= include("../mu/config/container_cluster.yml") %>
+
+cache_clusters:
+-
+  <%= include("../mu/config/cache_cluster.yml") %>
+
+notifiers:
+-
+  <%= include("../mu/config/notifier.yml") %>

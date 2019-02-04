@@ -19,7 +19,7 @@
 # XXX this is nonsense if we're not in AWS
 response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
 instance_id = response.body
-search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
+search_domains = ["ec2.internal", "sclearerver.#{instance_id}.platform-mu", "platform-mu"]
 
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
@@ -27,7 +27,7 @@ include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 include_recipe 'mu-tools::gcloud'
-include_recipe 'mu-master::eks-kubectl'
+#include_recipe 'mu-master::eks-kubectl'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -39,7 +39,7 @@ master_ips.each { |host|
   if host.match(/^(?:10\.|172\.(1[6789]|2[0-9]|3[01])\.|192\.168\.)/)
     hostsfile_entry host do
       hostname $MU_CFG['hostname']
-      aliases [node['name'], "MU-MASTER"]
+      aliases [node.name, "MU-MASTER"]
       action :append
     end
   end
@@ -51,28 +51,28 @@ master_ips.each { |host|
   end
 }
 
-if !node[:update_nagios_only]
+if !node['update_nagios_only']
 
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
     if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
       include_recipe 'mu-master::sssd'
     elsif $MU_CFG['ldap']['type'] == "Active Directory"
-      node.normal[:ad] = {}
-      node.normal[:ad][:computer_name] = "MU-MASTER"
-      node.normal[:ad][:node_class] = "mumaster"
-      node.normal[:ad][:node_type] = "domain_node"
-      node.normal[:ad][:domain_operation] = "join"
-      node.normal[:ad][:domain_name] = $MU_CFG['ldap']['domain_name']
-      search_domains << node.normal[:ad][:domain_name]
-      node.normal[:ad][:netbios_name] = $MU_CFG['ldap']['domain_netbios_name']
-      node.normal[:ad][:dcs] = $MU_CFG['ldap']['dcs']
-      node.normal[:ad][:domain_join_vault] = $MU_CFG['ldap']['join_creds']['vault']
-      node.normal[:ad][:domain_join_item] = $MU_CFG['ldap']['join_creds']['item']
-      node.normal[:ad][:domain_join_username_field] = $MU_CFG['ldap']['join_creds']['username_field']
-      node.normal[:ad][:domain_join_password_field] = $MU_CFG['ldap']['join_creds']['password_field']
-      if !node[:application_attributes][:sshd_allow_groups].match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
-        node.normal[:application_attributes][:sshd_allow_groups] = node[:application_attributes][:sshd_allow_groups]+" "+$MU_CFG['ldap']['user_group_name'].downcase
+      node.normal['ad'] = {}
+      node.normal['ad']['computer_name'] = "MU-MASTER"
+      node.normal['ad']['node_class'] = "mumaster"
+      node.normal['ad']['node_type'] = "domain_node"
+      node.normal['ad']['domain_operation'] = "join"
+      node.normal['ad']['domain_name'] = $MU_CFG['ldap']['domain_name']
+      search_domains << node.normal['ad']['domain_name']
+      node.normal['ad']['netbios_name'] = $MU_CFG['ldap']['domain_netbios_name']
+      node.normal['ad']['dcs'] = $MU_CFG['ldap']['dcs']
+      node.normal['ad']['domain_join_vault'] = $MU_CFG['ldap']['join_creds']['vault']
+      node.normal['ad']['domain_join_item'] = $MU_CFG['ldap']['join_creds']['item']
+      node.normal['ad']['domain_join_username_field'] = $MU_CFG['ldap']['join_creds']['username_field']
+      node.normal['ad']['domain_join_password_field'] = $MU_CFG['ldap']['join_creds']['password_field']
+      if !node['application_attributes']['sshd_allow_groups'].match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
+        node.normal['application_attributes']['sshd_allow_groups'] = node['application_attributes']['sshd_allow_groups']+" "+$MU_CFG['ldap']['user_group_name'].downcase
       end
       node.save
       include_recipe "mu-activedirectory::domain-node"
@@ -121,13 +121,13 @@ if !node[:update_nagios_only]
   # remove it if we've got a version bump coming down the pike.
   execute "remove old Nagios binary" do
     command "rm -f /usr/sbin/nagios"
-    not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node[:nagios][:server][:version]}'"
+    not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node['nagios']['server']['version']}'"
   end
 end
 
 include_recipe "mu-master::update_nagios_only"
 
-if !node[:update_nagios_only]
+if !node['update_nagios_only']
   package "nagios-plugins-all"
 
   directory "/home/nagios" do
@@ -164,13 +164,13 @@ if !node[:update_nagios_only]
   template "/etc/dhcp/dhclient-eth0.conf" do
     source "dhclient-eth0.conf.erb"
     mode 0644
-    notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node[:platform]) && node[:platform_version].to_i == 7
+    notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 7
     variables(
       :search_domains => search_domains
     )
   end
 
-  svrname = node[:hostname]
+  svrname = node['hostname']
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     svrname = $MU_CFG['public_address']
   end
@@ -228,15 +228,15 @@ if !node[:update_nagios_only]
 
   # Use a real hostname for mail if we happen to have one assigned
   if !MU.mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
-    node.normal[:postfix][:main][:myhostname] = MU.mu_public_addr
-    node.normal[:postfix][:main][:mydomain] = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
-    node.normal[:postfix][:main][:myorigin] = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+    node.normal['postfix']['main']['myhostname'] = MU.mu_public_addr
+    node.normal['postfix']['main']['mydomain'] = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+    node.normal['postfix']['main']['myorigin'] = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
   else
-    node.normal[:postfix][:main][:myhostname] = $MU_CFG['hostname']
-    node.normal[:postfix][:main][:mydomain] = "platform-mu"
-    node.normal[:postfix][:main][:myorigin] = "platform-mu"
+    node.normal['postfix']['main']['myhostname'] = $MU_CFG['hostname']
+    node.normal['postfix']['main']['mydomain'] = "platform-mu"
+    node.normal['postfix']['main']['myorigin'] = "platform-mu"
   end
-  node.normal[:postfix][:main][:inet_interfaces] = "all"
+  node.normal['postfix']['main']['inet_interfaces'] = "all"
   node.save
 
 
@@ -393,17 +393,17 @@ if !node[:update_nagios_only]
 
 
   begin
-    node.normal[:mu][:user_map] = MU::Master.listUsers
-    node.normal[:mu][:user_list] = []
-    node[:mu][:user_map].each_pair { |user, data|
-      node.normal[:mu][:user_list] << "#{user} (#{data['email']})"
+    node.normal['mu']['user_map'] = MU::Master.listUsers
+    node.normal['mu']['user_list'] = []
+    node['mu']['user_map'].each_pair { |user, data|
+      node.normal['mu']['user_list'] << "#{user} (#{data['email']})"
     }
     node.save
   
     file "/root/.gitconfig" do
       content "[user]
-        name = #{node[:mu][:user_map]['mu']['realname']}
-        email = #{node[:mu][:user_map]['mu']['email']}
+        name = #{node['mu']['user_map']['mu']['realname']}
+        email = #{node['mu']['user_map']['mu']['email']}
 [push]
         default = current
 "
@@ -416,7 +416,7 @@ if !node[:update_nagios_only]
       action :delete  
     end
 
-    node[:mu][:user_map].each_pair { |mu_user, data|
+    node['mu']['user_map'].each_pair { |mu_user, data|
       execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
         not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
       end
@@ -436,7 +436,7 @@ if !node[:update_nagios_only]
 
  Mu metadata are stored in #{MU.mainDataDir}
 
- Users: #{node[:mu][:user_list].join(", ")}
+ Users: #{node['mu']['user_list'].join(", ")}
 
 *******************************************************************************
 

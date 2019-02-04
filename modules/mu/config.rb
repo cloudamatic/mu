@@ -39,9 +39,10 @@ module MU
       rescue NoMethodError
         "AWS"
       end
-      if MU::Cloud::Google.hosted
+# XXX this can be more generic (loop through supportedClouds and try this)
+      if MU::Cloud::Google.hosted?
         "Google"
-      elsif MU::Cloud::AWS.hosted
+      elsif MU::Cloud::AWS.hosted?
         "AWS"
       end
     end
@@ -133,10 +134,12 @@ module MU
 # XXX I think this is a NOOP?
       end
     end
+
     # Accessor for our Basket of Kittens schema definition, with various
     # cloud-specific details merged so we can generate documentation for them.
     def self.docSchema
       docschema = Marshal.load(Marshal.dump(@@schema))
+      only_children = {}
       MU::Cloud.resource_types.each_pair { |classname, attrs|
         MU::Cloud.supportedClouds.each { |cloud|
           begin
@@ -146,16 +149,56 @@ module MU
           end
           res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
           required, res_schema = res_class.schema(self)
+          res_schema.each { |key, cfg|
+            if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
+              only_children[attrs[:cfg_plural]] ||= {}
+              only_children[attrs[:cfg_plural]][key] ||= {}
+              only_children[attrs[:cfg_plural]][key][cloud] = cfg
+            end
+          }
+        }
+      }
+
+      # recursively chase down description fields in arrays and objects of our
+      # schema and prepend stuff to them for documentation
+      def self.prepend_descriptions(prefix, cfg)
+#        cfg["description"] ||= ""
+#        cfg["description"] = prefix+cfg["description"]
+        cfg["prefix"] = prefix
+        if cfg["type"] == "array" and cfg["items"]
+          cfg["items"] = prepend_descriptions(prefix, cfg["items"])
+        elsif cfg["type"] == "object" and cfg["properties"]
+          cfg["properties"].each_pair { |key, subcfg|
+            cfg["properties"][key] = prepend_descriptions(prefix, cfg["properties"][key])
+          }
+        end
+        cfg
+      end
+
+      MU::Cloud.resource_types.each_pair { |classname, attrs|
+        MU::Cloud.supportedClouds.each { |cloud|
+          res_class = nil
+          begin
+            res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
+          rescue MU::Cloud::MuCloudResourceNotImplemented
+            next
+          end
+          required, res_schema = res_class.schema(self)
           next if required.size == 0 and res_schema.size == 0
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
-            cfg["description"] = cloud.upcase+": "+cfg["description"]
+            cfg["description"] = "+"+cloud.upcase+"+: "+cfg["description"]
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
               MU.log "Munging #{cloud}-specific #{classname.to_s} schema into BasketofKittens => #{attrs[:cfg_plural]} => #{key}", MU::DEBUG, details: docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
             else
+              if only_children[attrs[:cfg_plural]][key]
+                prefix = only_children[attrs[:cfg_plural]][key].keys.map{ |x| x.upcase }.join(" & ")+" ONLY"
+                cfg = prepend_descriptions(prefix, cfg)
+              end
+
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
             end
             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
@@ -166,6 +209,7 @@ module MU
           docschema['required'].uniq!
         }
       }
+
       docschema
     end
 
@@ -472,6 +516,7 @@ module MU
     end
 
     attr_reader :kittens
+    attr_reader :updating
     attr_reader :kittencfg_semaphore
 
     # Load, resolve, and validate a configuration file ("Basket of Kittens").
@@ -479,7 +524,7 @@ module MU
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new)
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -496,6 +541,7 @@ module MU
       @@config_path = path
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
+      @updating = updating
 
       ok = true
       params.each_pair { |name, value|
@@ -677,32 +723,40 @@ module MU
     # subnets.
     # @param ip_block [String]: CIDR of the network to subdivide
     # @param subnets_desired [Integer]: Number of subnets we want back
+    # @param max_mask [Integer]: The highest netmask we're allowed to use for a subnet (various by cloud provider)
     # @return [MU::Config::Tail]: Resulting subnet tails, or nil if an error occurred.
-    def divideNetwork(ip_block, subnets_desired)
-      cidr = NetAddr::CIDR.create(ip_block.to_s)
-      # Round the number of addresses we're splitting into down to the nearest power
-      # of two so they'll fit in the available bit space
-      raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
-      avail_addrs = 2 ** (32 - cidr.bits)
-      subnet_size = ((avail_addrs/subnets_desired) >> 1)
-#          subnet_bits = 32 - (subnet_size).to_s(2).size
+    def divideNetwork(ip_block, subnets_desired, max_mask = 28)
+      cidr = NetAddr::IPv4Net.parse(ip_block.to_s)
+
+      # Ugly but reliable method of landing on the right subnet size
+      subnet_bits = cidr.netmask.prefix_len
       begin
-        subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => subnets_desired)
+        subnet_bits += 1
+
+        if subnet_bits > max_mask
+          MU.log "Can't subdivide #{cidr.to_s} into #{subnets_desired.to_s}", MU::ERR
+          raise MuError, "Subnets smaller than /#{max_mask} not permitted"
+        end
+      end while cidr.subnet_count(subnet_bits) < subnets_desired
+
+      if cidr.subnet_count(subnet_bits) > subnets_desired
+        MU.log "Requested #{subnets_desired.to_s} subnets from #{cidr.to_s}, leaving #{(cidr.subnet_count(subnet_bits)-subnets_desired).to_s} unused /#{subnet_bits.to_s}s available", MU::NOTICE
+      end
+
+      begin
+        subnets = []
+        (0..subnets_desired).each { |x|
+          subnets << cidr.nth_subnet(subnet_bits, x).to_s
+        }
       rescue RuntimeError => e
         if e.message.match(/exceeds subnets available for allocation/)
           MU.log e.message, MU::ERR
-          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
+          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.netmask.prefix_len} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
           return nil
         else
           raise e
         end
       end
-
-      # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
-      # it's annoying, so we end up using the IP space inefficiently. Lop
-      # off the extra subnets we end up with and don't want. It would be
-      # nice if we just did all this math ourselves and did it better.
-      subnets.slice!(subnets_desired,subnets.size-1) if subnets.size > subnets_desired
 
       subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
       subnets
@@ -712,14 +766,27 @@ module MU
     # @param name [String]: The name of the resource being checked
     # @param type [String]: The type of resource being checked
     # @return [Boolean]
-    def haveLitterMate?(name, type)
+    def haveLitterMate?(name, type, has_multiple: false)
       @kittencfg_semaphore.synchronize {
+        matches = []
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
-        @kittens[cfg_plural].each { |kitten|
-          return kitten if kitten['name'] == name.to_s
-        }
+        if @kittens[cfg_plural]
+          @kittens[cfg_plural].each { |kitten|
+            if kitten['name'] == name.to_s or kitten['virtual_name'] == name.to_s
+              if has_multiple
+                matches << kitten
+              else
+                return kitten
+              end
+            end
+          }
+        end
+        if has_multiple
+          return matches
+        else
+          return false
+        end
       }
-      false
     end
 
     # Remove a resource from the current stack
@@ -729,13 +796,15 @@ module MU
       @kittencfg_semaphore.synchronize {
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         deletia = nil
-        @kittens[cfg_plural].each { |kitten|
-          if kitten['name'] == name
-            deletia = kitten
-            break
-          end
-        }
-        @kittens[type].delete(deletia) if !deletia.nil?
+        if @kittens[cfg_plural]
+          @kittens[cfg_plural].each { |kitten|
+            if kitten['name'] == name
+              deletia = kitten
+              break
+            end
+          }
+          @kittens[type].delete(deletia) if !deletia.nil?
+        end
       }
     end
 
@@ -764,7 +833,10 @@ module MU
                 }
               end
               siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
-              insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+              if !siblingfw["#MU_VALIDATED"]
+# XXX raise failure somehow
+                insertKitten(siblingfw, "firewall_rules")
+              end
             end
           }
         end
@@ -812,6 +884,9 @@ module MU
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']
+        if descriptor['credentials']
+          descriptor['vpc']['credentials'] ||= descriptor['credentials']
+        end
         if descriptor['vpc']['region'].nil? and !descriptor['region'].nil? and !descriptor['region'].empty? and descriptor['vpc']['cloud'] != "Google"
           descriptor['vpc']['region'] = descriptor['region']
         end
@@ -830,7 +905,9 @@ module MU
           # things that live in subnets need their VPCs to be fully
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
-            insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+            if !siblingvpc["#MU_VALIDATED"]
+              ok = false if !insertKitten(siblingvpc, "vpcs")
+            end
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
@@ -838,6 +915,7 @@ module MU
                                   self,
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
+                                  credentials: descriptor['credentials'],
                                   sibling_vpcs: @kittens['vpcs'])
             ok = false
           end
@@ -849,11 +927,19 @@ module MU
           if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
                                   "#{shortclass} #{descriptor['name']}",
                                   self,
+                                  credentials: descriptor['credentials'],
                                   dflt_region: descriptor['region'])
             MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
           end
         end
+
+        # if we didn't specify credentials but can inherit some from our target
+        # VPC, do so
+        if descriptor["vpc"]["credentials"]
+          descriptor["credentials"] ||= descriptor["vpc"]["credentials"] 
+        end
+
         # Clean crud out of auto-created VPC declarations so they don't trip
         # the schema validator when it's invoked later.
         if !["server", "server_pool", "database"].include?(cfg_name)
@@ -875,7 +961,12 @@ module MU
          ["server", "server_pool", "database"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
 
-        acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
+        acl = {
+          "name" => fwname,
+          "rules" => descriptor['ingress_rules'],
+          "region" => descriptor['region'],
+          "credentials" => descriptor["credentials"]
+        }
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
@@ -919,7 +1010,9 @@ module MU
               "name" => acl_include["rule_name"]
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            if !siblingfw["#MU_VALIDATED"]
+              ok = false if !insertKitten(siblingfw, "firewall_rules")
+            end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -932,6 +1025,7 @@ module MU
         descriptor["alarms"].each { |alarm|
           alarm["name"] = "#{cfg_name}-#{descriptor["name"]}-#{alarm["name"]}"
           alarm['dimensions'] = [] if !alarm['dimensions']
+          alarm["credentials"] = descriptor["credentials"]
           alarm["#TARGETCLASS"] = cfg_name
           alarm["#TARGETNAME"] = descriptor['name']
           alarm['cloud'] = descriptor['cloud']
@@ -1063,6 +1157,26 @@ module MU
       }
     end
 
+    # Configuration chunk for choosing a set of cloud credentials
+    # @return [Hash]
+    def self.credentials_primitive
+      {
+          "type" => "string",
+          "description" => "Specify a non-default set of credentials to use when authenticating to cloud provider APIs, as listed in `mu.yaml` under each provider's subsection."
+      }
+    end
+
+    # Configuration chunk for creating resource tags as an array of key/value
+    # pairs.
+    # @return [Hash]
+    def self.optional_tags_primitive
+      {
+        "type" => "boolean",
+        "description" => "Tag the resource with our optional tags (+MU-HANDLE+, +MU-MASTER-NAME+, +MU-OWNER+).",
+        "default" => true
+      }
+    end
+
     # Configuration chunk for creating resource tags as an array of key/value
     # pairs.
     # @return [Hash]
@@ -1107,7 +1221,7 @@ module MU
     # @param cloud [String]: The parent resource's cloud plugin identifier
     # @param region [String]: Cloud provider region, if applicable.
     # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil, credentials: nil)
       if !cloud or (cloud == "AWS" and !region)
         raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
       end
@@ -1118,6 +1232,7 @@ module MU
       hosts << "#{admin_ip}/32" if admin_ip
       hosts.uniq!
       name = "admin"
+      name += credentials.to_s if credentials
       realvpc = nil
 
       if vpc
@@ -1152,9 +1267,9 @@ module MU
         ]
       end
 
-      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
+      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
       acl.delete("vpc") if !acl["vpc"]
-      acl["region"] == region if !region.nil? and !region.empty?
+      acl["region"] = region if !region.nil? and !region.empty?
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end
@@ -1367,12 +1482,15 @@ module MU
     # TODO check for loops
     def self.check_dependencies(config)
       ok = true
+
       config.each { |type|
         if type.instance_of?(Array)
           type.each { |container|
             if container.instance_of?(Array)
               container.each { |resource|
                 if resource.kind_of?(Hash) and resource["dependencies"] != nil
+                  append = []
+                  delete = []
                   resource["dependencies"].each { |dependency|
                     collection = dependency["type"]+"s"
                     found = false
@@ -1381,6 +1499,14 @@ module MU
                       config[collection].each { |service|
                         names_seen << service["name"].to_s
                         found = true if service["name"].to_s == dependency["name"].to_s
+                        if service["virtual_name"]
+                          names_seen << service["virtual_name"].to_s
+                          found = true if service["virtual_name"].to_s == dependency["name"].to_s
+                          append_me = dependency.dup
+                          append_me['name'] = service['name']
+                          append << append_me
+                          delete << dependency
+                        end
                       }
                     end
                     if !found
@@ -1388,6 +1514,15 @@ module MU
                       ok = false
                     end
                   }
+                  if append.size > 0
+                    append.uniq!
+                    resource["dependencies"].concat(append)
+                  end
+                  if delete.size > 0
+                    delete.each { |delete_me|
+                      resource["dependencies"].delete(delete_me)
+                    }
+                  end
                 end
               }
             end
@@ -1463,23 +1598,24 @@ module MU
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
-
-      schema_fields = ["region", "us_only", "scrub_mu_isms"]
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
+#XXX 'credentials' should probably happen here too
+      schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
       if kitten['cloud'] == "Google"
-        kitten["project"] ||= MU::Cloud::Google.defaultProject
+        kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
-          if !$MU_CFG['google'] or !$MU_CFG['google']['region']
-            raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
+          if MU::Cloud::Google.myRegion((kitten['credentials'])).nil?
+            raise ValidationError, "Google '#{type}' resource '#{kitten['name']}' declared without a region, but no default Google region declared in mu.yaml under #{kitten['credentials'].nil? ? "default" : kitten['credentials']} credential set" 
           end
-          kitten['region'] ||= $MU_CFG['google']['region']
+          kitten['region'] ||= MU::Cloud::Google.myRegion(kitten['credentials'])
         end
       else
-        if !$MU_CFG['aws'] or !$MU_CFG['aws']['region']
-          raise ValidationError, "AWS resource declared without a region, but no default AWS region declared in mu.yaml"
+        if MU::Cloud::AWS.myRegion.nil?
+          raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end
-        kitten['region'] ||= $MU_CFG['aws']['region']
+        kitten['region'] ||= MU::Cloud::AWS.myRegion
       end
 
       kitten['us_only'] ||= @config['us_only']
@@ -1488,13 +1624,16 @@ module MU
       kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
       kitten['scrub_mu_isms'] ||= false
 
+      kitten['credentials'] ||= @config['credentials']
+      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
+
       kitten["dependencies"] ||= []
 
       # Make sure the schema knows about these "new" fields, so that validation
       # doesn't trip over them.
       schema_fields.each { |field|
         if @@schema["properties"][field]
-          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG
+          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG, details: @@schema["properties"][field]
           @@schema["properties"][type]["items"]["properties"][field] ||= @@schema["properties"][field]
         end
       }
@@ -1535,12 +1674,23 @@ module MU
 
       # Make sure validation has been called for all on-the-fly generated
       # resources.
-      types.each { |type|
-        @kittens[type].each { |descriptor|
-          if !descriptor["#MU_VALIDATED"]
-            ok = false if !insertKitten(descriptor, type)
-          end
+      validated_something_new = false
+      begin
+        validated_something_new = false
+        types.each { |type|
+          @kittens[type].each { |descriptor|
+            if !descriptor["#MU_VALIDATED"]
+              validated_something_new = true
+              ok = false if !insertKitten(descriptor, type)
+            end
+          }
         }
+      end while validated_something_new
+
+      # Do another pass of resolving intra-stack VPC peering, in case an
+      # early-parsing VPC needs more details from a later-parsing one
+      @kittens["vpcs"].each { |vpc|
+        ok = false if !MU::Config::VPC.resolvePeers(vpc, self)
       }
 
       # add some default holes to allow dependent instances into databases
@@ -1591,7 +1741,7 @@ module MU
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
-#      raise ValidationError if !ok
+      raise ValidationError if !ok
 
 # XXX Does commenting this out make sense? Do we want to apply it to top-level
 # keys and ignore resources, which validate when insertKitten is called now?
@@ -1615,7 +1765,7 @@ module MU
 
     # Emit our Basket of Kittesn schema in a format that YARD can comprehend
     # and turn into documentation.
-    def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false)
+    def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
       return if schema.nil?
       if schema["type"] == "object"
         printme = Array.new
@@ -1644,7 +1794,7 @@ module MU
               req = false
             end
 
-            printme << self.printSchema(dummy_kitten_class, class_hierarchy+ [name], prop, false, req)
+            printme << self.printSchema(dummy_kitten_class, class_hierarchy+ [name], prop, false, req, prefix: schema["prefix"])
           }
           printme << "# @!endgroup"
         end
@@ -1680,7 +1830,8 @@ module MU
         end
 
         docstring = "\n"
-        docstring = docstring + "# **REQUIRED.**\n" if required
+        docstring = docstring + "# **REQUIRED**\n" if required
+        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
         docstring = docstring + "#\n"
         docstring = docstring + "# @return [#{type}]\n"
@@ -1689,7 +1840,7 @@ module MU
         return docstring
 
       elsif schema["type"] == "array"
-        return self.printSchema(dummy_kitten_class, class_hierarchy, schema['items'], true, required)
+        return self.printSchema(dummy_kitten_class, class_hierarchy, schema['items'], true, required, prefix: prefix)
       else
         name = class_hierarchy.last
         if schema['type'].nil?
@@ -1702,15 +1853,27 @@ module MU
           type = schema['type'].capitalize
         end
         docstring = "\n"
-        docstring = docstring + "# **REQUIRED.**\n" if required and schema['default'].nil?
-        docstring = docstring + "# Default: `#{schema['default']}`\n" if !schema['default'].nil?
-        if !schema['enum'].nil?
-          docstring = docstring + "# Must be one of: `#{schema['enum'].join(', ')}.`\n"
+
+        prefixes = []
+        prefixes << "# **REQUIRED**" if required and schema['default'].nil?
+        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
+        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
+        if !schema['enum'].nil? and !schema["enum"].empty?
+          prefixes << "# **Must be one of: `#{schema['enum'].join(', ')}`**"
         elsif !schema['pattern'].nil?
           # XXX unquoted regex chars confuse the hell out of YARD. How do we
           # quote {}[] etc in YARD-speak?
-          docstring = docstring + "# Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`.\n"
+          prefixes << "# **Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`**"
         end
+
+        if prefixes.size > 0
+          docstring += prefixes.join(",\n")
+          if schema['description'] and schema['description'].size > 1
+            docstring += " - "
+          end
+          docstring += "\n"
+        end
+
         docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
         docstring = docstring + "#\n"
         docstring = docstring + "# @return [#{type}]\n"
@@ -1787,10 +1950,10 @@ module MU
         },
         "project" => {
           "type" => "string",
-          "description" => "GOOGLE: The project into which to deploy resources",
-          "default" => MU::Cloud::Google.defaultProject
+          "description" => "GOOGLE: The project into which to deploy resources"
         },
         "region" => MU::Config.region_primitive,
+        "credentials" => MU::Config.credentials_primitive,
         "us_only" => {
             "type" => "boolean",
             "description" => "For resources which span regions, restrict to regions inside the United States",
@@ -1899,8 +2062,13 @@ module MU
           "type" => "array",
           "items" => schemaclass.schema
         }
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["virtual_name"] = {
+          "description" => "Internal use.",
+          "type" => "string"
+        }
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["credentials"] = MU::Config.credentials_primitive
         @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
       rescue NameError => e
         failed << type

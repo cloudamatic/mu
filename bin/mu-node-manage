@@ -13,12 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'trollop'
+require 'optimist'
 require 'json'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-c] [-w] [-l] [-d] [-a] [-e <environment>] [-p <platform>] [-m <mode>] [-o <chefopts>] [-x <command>] [ deploy_id|node_name [ ... ] ]
@@ -40,10 +40,10 @@ end
 MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
 
 if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs", "chefupgrade"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs, chefupgrade")
+  Optimist::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs, chefupgrade")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
-  Trollop::die(:platform, "--platform must be one of: linux, windows")
+  Optimist::die(:platform, "--platform must be one of: linux, windows")
 end
 if !$opts[:xecute] and !$opts[:override_chef_runlist] and !$opts[:mode_given]
   $opts[:list] = true
@@ -52,7 +52,7 @@ if $opts[:override_chef_runlist] and !$opts[:mode_given]
   $opts[:mode_given] = true
 end
 if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:list]
-  Trollop::educate
+  Optimist::educate
   exit 1
 end
 

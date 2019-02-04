@@ -7,10 +7,10 @@
 # All rights reserved - Do Not Redistribute
 #
 
-case node[:platform]
+case node['platform']
   when "centos"
     package "centos-release-gluster"
 
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end

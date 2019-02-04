@@ -93,11 +93,7 @@ module MU
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
             },
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "add_firewall_rules" => MU::Config::FirewallRule.reference,
             "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
             "dns_sync_wait" => {

@@ -20,91 +20,99 @@ region="`curl -s http://169.254.169.254/latest/meta-data/placement/availability-
 
 # cleanse inherited ephemeral devices that don't actually exist
 for d in r s t u ;do
-	if [ ! -f "/dev/xvd$d" ];then
-		sed -Ein "s'^(/dev/xvd$d)'#\\1'" /etc/fstab
-	fi
+  if [ ! -f "/dev/xvd$d" ];then
+    sed -Ein "s'^(/dev/xvd$d)'#\\1'" /etc/fstab
+  fi
 done
 
-if [ -f /etc/debian_version ];then
-	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
-		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
-	fi
-	apt-get update -y
-	if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
-	if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
-	AWSCLI=/usr/local/bin/aws
+if ping -c 5 8.8.8.8 > /dev/null; then
+  if [ -f /etc/debian_version ];then
+    if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
+      echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
+    fi
+    apt-get update -y
+    if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
+    if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
+    AWSCLI=/usr/local/bin/aws
 <% if !$mu.skipApplyUpdates %>
-	if [ ! -f /.mu-installer-ran-updates ];then
-		service ssh stop
-		apt-get --fix-missing -y upgrade 
-		if [ $? -eq 0 ]
-		then
-		  echo "Successfully updated packages"
-		  updates_run=1
-		else
-		  echo "FAILED PACKAGE UPDATE" >&2
-		fi
-		# Proceed regardless
-		touch /.mu-installer-ran-updates
+    if [ ! -f /.mu-installer-ran-updates ];then
+      service ssh stop
+      apt-get --fix-missing -y upgrade 
+      if [ $? -eq 0 ]
+      then
+        echo "Successfully updated packages"
+        updates_run=1
+      else
+        echo "FAILED PACKAGE UPDATE" >&2
+      fi
+      # Proceed regardless
+      touch /.mu-installer-ran-updates
 
-		# XXX this logic works on Ubuntu, is it Debian-friendly?
-		latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
-		running_kernel="`uname -r`"
-		if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
-			need_reboot=1
-		else
-			service ssh start
-		fi
-	fi
+      # XXX this logic works on Ubuntu, is it Debian-friendly?
+      latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
+      running_kernel="`uname -r`"
+      if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
+        need_reboot=1
+      else
+        service ssh start
+      fi
+    fi
 <% end %>
-elif [ -x /usr/bin/yum ];then
-	version=`/bin/rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
-	if [ -z "$version" ];then
-		amazon_version=`/bin/rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
-		if [ "$amazon_version" == "2014" ] || [ "$amazon_version" == "2015" ] || [ "$amazon_version" == "2016" ];then
-			version=6
-		fi
-	fi
-	if [ $version -eq 7 ];then
-		userdata_dir="/var/lib/cloud/instances/$instance_id"
-	else
-		userdata_dir="/var/lib/cloud/instance"
-	fi
-	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
-		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
-	fi
+  elif [ -x /usr/bin/yum ];then
+    version=`/bin/rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+    if [ -z "$version" ];then
+      amazon_version=`/bin/rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
+      if [ "$amazon_version" == "2014" ] || [ "$amazon_version" == "2015" ] || [ "$amazon_version" == "2016" ];then
+        version=6
+      fi
+    fi
+    if [ $version -eq 7 ];then
+      userdata_dir="/var/lib/cloud/instances/$instance_id"
+    else
+      userdata_dir="/var/lib/cloud/instance"
+    fi
+    if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
+      cat /etc/rc.d/rc.local | grep -v '^/bin/sh /var/lib/cloud/instances/' >> /tmp/rc.local.$$
+      echo "/bin/sh $userdata_dir/user-data.txt" >> /tmp/rc.local.$$
+      mv /tmp/rc.local.$$ /etc/rc.d/rc.local
+    fi
 
-  sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
+    sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
 
-	if [ $version == 7 ];then
-		chmod 755 /etc/rc.d/rc.local
-	fi
-	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
-	# Ugh, rando EPEL mirror
-	if [ ! -f /etc/yum.repos.d/epel.repo ];then
-		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
-	fi
+    if [ $version == 7 ];then
+      chmod 755 /etc/rc.d/rc.local
+      systemctl reset-failed sshd.service
+    fi
+    if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
+    # Ugh, rando EPEL mirror
+    if [ ! -f /etc/yum.repos.d/epel.repo ];then
+      /bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
+    fi
 <% if !$mu.skipApplyUpdates %>
-	if [ ! -f /.mu-installer-ran-updates ];then
-		service sshd stop
-		kernel_update=`yum list updates | grep kernel`
-		yum -y update
-		if [ $? -eq 0 ]
-		then
-		  echo "Successfully updated packages"
-		  updates_run=1
-		else
-		  echo "FAILED PACKAGE UPDATE" >&2
-		fi
-		# Proceed regardless
-		touch /.mu-installer-ran-updates
-		if [ -n "$kernel_update" ]; then
-			need_reboot=1
-		else
-			service sshd start
-		fi
-	fi
+    if [ ! -f /.mu-installer-ran-updates ];then
+      service sshd stop
+      kernel_update=`yum list updates | grep kernel`
+      yum -y update
+      if [ $? -eq 0 ]
+      then
+        echo "Successfully updated packages"
+        updates_run=1
+      else
+        echo "FAILED PACKAGE UPDATE" >&2
+      fi
+      # Proceed regardless
+      touch /.mu-installer-ran-updates
+      if [ -n "$kernel_update" ]; then
+        need_reboot=1
+      else
+        service sshd start
+      fi
+    fi
+  fi
 <% end %>
+else
+  /bin/logger "***** Unable to verify internet connectivity, skipping package updates from userdata"
+  touch /.mu-installer-ran-updates
 fi
 
 AWSCLI='command -v aws'
@@ -137,24 +145,27 @@ umask 0077
 
 # Install Chef now, because why not?
 if [ ! -f /opt/chef/embedded/bin/ruby ];then
-	curl https://www.chef.io/chef/install.sh > chef-install.sh
-	set +e
-	# We may run afoul of a synchronous bootstrap process doing the same thing. So
-	# wait until we've managed to run successfully.
-	while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
-		sleep 10
-	done
-	touch /opt/mu_installed_chef
-	set -e
+  curl https://www.chef.io/chef/install.sh > chef-install.sh
+  set +e
+  # We may run afoul of a synchronous bootstrap process doing the same thing. So
+  # wait until we've managed to run successfully.
+  while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
+    sleep 10
+  done
+  touch /opt/mu_installed_chef
+  set -e
 fi
 
 <% if !$mu.skipApplyUpdates %>
 if [ "$need_reboot" == "1" ];then
-	shutdown -r now "Applying new kernel"
+  shutdown -r now "Applying new kernel"
 fi
 <% end %>
+fi
 
-$AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+if [ "$AWSCLI" != "" ];then
+  $AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+fi
 
 echo '
 require "openssl"
@@ -167,7 +178,9 @@ deploykey="<%= $mu.deployKey %>"
 instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 
 # Make double-sure sshd is actually up
-service sshd restart
+if ! ( netstat -na | grep LISTEN | grep ':22 ' );then
+  service sshd start
+fi
 
 /usr/bin/curl -k --data mu_id="<%= $mu.muID %>" --data mu_resource_name="<%= $mu.resourceName %>" --data mu_resource_type="<%= $mu.resourceType %>" --data mu_instance_id="$instance_id" --data mu_bootstrap="1" --data mu_user="<%= $mu.muUser %>" --data mu_deploy_secret="`/opt/chef/embedded/bin/ruby encrypt_deploy_secret.rb`" https://<%= $mu.publicIP %>:2260/
 /bin/rm -f <%= $mu.muID %>-secret mu_deploy_key.pub chef-install.sh encrypt_deploy_secret.rb

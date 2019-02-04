@@ -18,10 +18,10 @@
 
 include_recipe "mu-splunk::client"
 
-if node[:splunk][:discovery] == "groupname"
+if node['splunk']['discovery'] == "groupname"
   splunk_servers = search(
       :node,
-      "splunk_is_server:true AND splunk_groupname:#{node[:splunk_groupname]}"
+      "splunk_is_server:true AND splunk_groupname:#{node['splunk_groupname']}"
   ).sort! do
   |a, b|
     a.name <=> b.name
@@ -36,7 +36,7 @@ else
   end
 end
 
-splunk_auth_info = chef_vault_item(node[:splunk][:auth][:data_bag], node[:splunk][:auth][:data_bag_item])['auth']
+splunk_auth_info = chef_vault_item(node['splunk']['auth']['data_bag'], node['splunk']['auth']['data_bag_item'])['auth']
 user, pw = splunk_auth_info.split(':')
 
 if node['platform_family'] != "windows"

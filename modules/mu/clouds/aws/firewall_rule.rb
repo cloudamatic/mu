@@ -51,7 +51,6 @@ module MU
           vpc_id = @vpc.cloud_id if !@vpc.nil?
           groupname = @mu_name
           description = groupname
-          MU.log "Creating EC2 Security Group #{groupname}"
 
           sg_struct = {
             :group_name => groupname,
@@ -62,14 +61,16 @@ module MU
           end
 
           begin
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
+            MU.log "Creating EC2 Security Group #{groupname}", details: sg_struct
+
+            secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
           rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
             MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
             filters = [{name: "group-name", values: [groupname]}]
             filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
 
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
+            secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(filters: filters).security_groups.first
             deploy_id = @deploy.deploy_id if !@deploy_id.nil?
             if secgroup.nil?
               raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
@@ -78,25 +79,25 @@ module MU
           end
 
           begin
-            MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(group_ids: [secgroup.group_id])
           rescue Aws::EC2::Errors::InvalidGroupNotFound => e
             MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
             sleep 10
             retry
           end
 
-          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'])
-          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'])
+          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'], credentials: @config['credentials'])
+          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'])
+              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'])
+              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
             }
           end
 
@@ -167,12 +168,12 @@ module MU
 
           begin
             if egress
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
             else
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
@@ -182,6 +183,12 @@ module MU
           end
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":security-group/"+@cloud_id
+        end
+
         # Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region
@@ -189,11 +196,11 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
-              resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
+              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(group_ids: [cloud_id])
               return {cloud_id => resp.data.security_groups.first}
             rescue ArgumentError => e
               MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::WARN, details: caller
@@ -206,7 +213,7 @@ module MU
 
           map = {}
           if !tag_key.nil? and !tag_value.nil?
-            resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
                 filters: [
                     {name: "tag:#{tag_key}", values: [tag_value]}
                 ]
@@ -221,12 +228,19 @@ module MU
           map
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
         # Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           tagfilters = [
               {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
@@ -234,7 +248,7 @@ module MU
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
           end
 
-          resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
+          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_security_groups(
               filters: tagfilters
           )
 
@@ -297,13 +311,13 @@ module MU
               begin
 
                 if ingress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(region).revoke_security_group_ingress(
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).revoke_security_group_ingress(
                       group_id: sg.group_id,
                       ip_permissions: ingress_to_revoke
                   )
                 end
                 if egress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(region).revoke_security_group_egress(
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).revoke_security_group_egress(
                       group_id: sg.group_id,
                       ip_permissions: egress_to_revoke
                   )
@@ -319,7 +333,7 @@ module MU
 
             retries = 0
             begin
-              MU::Cloud::AWS.ec2(region).delete_security_group(group_id: sg.group_id) if !noop
+              MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_security_group(group_id: sg.group_id) if !noop
             rescue Aws::EC2::Errors::InvalidGroupNotFound
               MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
@@ -453,13 +467,13 @@ module MU
               MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
               begin
                 if ingress
-                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
                       group_id: @cloud_id,
                       ip_permissions: ec2_rules
                   )
                 end
                 if egress
-                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
                       group_id: @cloud_id,
                       ip_permissions: ec2_rules
                   )
@@ -565,7 +579,7 @@ module MU
                   if !lb.nil? and !lb.cloud_desc.nil?
                     lb.cloud_desc.security_groups.each { |lb_sg|
                       ec2_rule[:user_id_group_pairs] << {
-                        user_id: MU.account_number,
+                        user_id: MU::Cloud::AWS.credToAcct(@config['credentials']),
                         group_id: lb_sg
                       }
                     }

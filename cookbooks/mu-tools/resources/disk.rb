@@ -49,8 +49,8 @@ action :create do
     action :nothing
   end
 
-  mkfs_cmd = node[:platform_version].to_i == 6 ? "mkfs.ext4 -F #{device}" : "mkfs.xfs -i size=512 #{device}"
-  guard_cmd = node[:platform_version].to_i == 6 ? "tune2fs -l #{device} > /dev/null" : "xfs_admin -l #{device} > /dev/null"
+  mkfs_cmd = node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{device}" : "mkfs.xfs -i size=512 #{device}"
+  guard_cmd = node['platform_version'].to_i == 6 ? "tune2fs -l #{device} > /dev/null" : "xfs_admin -l #{device} > /dev/null"
 
   execute mkfs_cmd do
     if new_resource.preserve_data

@@ -35,16 +35,23 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
-        
+        # Given an IAM role name, resolve to ARN. Will attempt to identify any
+        # sibling Mu role resources by this name first, and failing that, will
+        # do a plain get_role() to the IAM API for the provided name.
+        # @param name [String]
         def get_role_arn(name)
+          sib_role = @deploy.findLitterMate(name: name, type: "roles")
+          return sib_role.cloudobj.arn if sib_role
+
           begin
-            role = MU::Cloud::AWS.iam(@config['region']).get_role({
+            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
               role_name: name.to_s
             })
             return role['role']['arn']
           rescue Exception => e
-            Mu.log "#{e}", MU::ERR
+            MU.log "#{e}", MU::ERR
           end
+          nil
         end
 
         def get_vpc_config(vpc_name, subnet_name, sg_name,region=@config['region'])
@@ -52,7 +59,7 @@ module MU
             ## get vpc_id
             ## get sub_id and verify its in the same vpc 
             ## get sg_id and verify its in the same vpc
-            ec2_client = MU::Cloud::AWS.ec2(region)
+            ec2_client = MU::Cloud::AWS.ec2(region: region, credentials: @config['credentials'])
             
             vpc_filter = ec2_client.describe_vpcs({
               filters: [{ name: 'tag-value', values: [vpc_name] }]
@@ -94,7 +101,7 @@ module MU
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
-              tag_resp = MU::Cloud::AWS.lambda(region).tag_resource({
+              tag_resp = MU::Cloud::AWS.lambda(region: region, credentials: @config['credentials']).tag_resource({
                 resource: resource_arn,
                 tags: each_pair
               })
@@ -164,11 +171,22 @@ module MU
              lambda_properties[:vpc_config] = vpc_conf
           end
 
-          MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
+          retries = 0
+          begin
+            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
+          rescue Aws::Lambda::Errors::InvalidParameterValueException => e
+            # Freshly-made IAM roles sometimes aren't really ready
+            if retries < 5
+              sleep 10
+              retries += 1
+              retry
+            end
+            raise e
+          end
         end
 
         def groom
-          desc = MU::Cloud::AWS.lambda(@config['region']).get_function(
+          desc = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).get_function(
             function_name: @mu_name
           )
           func_arn = desc.configuration.function_arn if !desc.empty?
@@ -199,7 +217,7 @@ module MU
 
               MU.log trigger_properties, MU::DEBUG
               begin
-                add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
+                add_trigger = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
 # XXX check properly for existence
               end
@@ -216,11 +234,11 @@ module MU
             arn = nil
             case svc.downcase
             when 'sns'
-              arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{name}"
+              arn = "arn:aws:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 'alarm','events', 'event', 'cloudwatch_event'
-              arn = "arn:aws:events:#{@config['region']}:#{MU.account_number}:rule/#{name}"
+              arn = "arn:aws:events:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:rule/#{name}"
             when 'apigateway'
-              arn = "arn:aws:apigateway:#{@config['region']}:#{MU.account_number}:#{name}"
+              arn = "arn:aws:apigateway:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 's3'
               arn = ''
             end
@@ -237,15 +255,16 @@ module MU
           case trig_type
           
           when 'sns'
-            
-            sns_client = MU::Cloud::AWS.sns(@config['region'])
+           # XXX don't do this, use MU::Cloud::AWS::Notification 
+            sns_client = MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials'])
             sub_to_what = sns_client.subscribe({
               topic_arn: trig_arn,
               protocol: protocol,
               endpoint: func_arn
             })
           when 'event','cloudwatch_event', 'events'
-            client = MU::Cloud::AWS.cloudwatch_events(@config['region']).put_targets({
+           # XXX don't do this, use MU::Cloud::AWS::Log
+            client = MU::Cloud::AWS.cloudwatch_events(region: @config['region'], credentials: @config['credentials']).put_targets({
               rule: @config['trigger']['name'],
               targets: [
                 {
@@ -268,23 +287,27 @@ module MU
           return deploy_struct
         end
 
-
-
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
 
         # Remove all functions associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          MU::Cloud::AWS.lambda(region).list_functions.functions.each { |f|
-            desc = MU::Cloud::AWS.lambda(region).get_function(
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU::Cloud::AWS.lambda(credentials: credentials, region: region).list_functions.functions.each { |f|
+            desc = MU::Cloud::AWS.lambda(credentials: credentials, region: region).get_function(
               function_name: f.function_name
             )
             if desc.tags and desc.tags["MU-ID"] == MU.deploy_id
               MU.log "Deleting Lambda function #{f.function_name}"
               if !noop
-                MU::Cloud::AWS.lambda(region).delete_function(
+                MU::Cloud::AWS.lambda(credentials: credentials, region: region).delete_function(
                   function_name: f.function_name
                 )
               end
@@ -293,18 +316,21 @@ module MU
 
         end
 
-
-
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.function_arn
+        end
 
         # Locate an existing function.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
-        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, credentials: nil, flags: {})
           func = nil
           if !func_name.nil?
-            all_functions = MU::Cloud::AWS.lambda(region).list_functions
+            all_functions = MU::Cloud::AWS.lambda(region: region, credentials: credentials).list_functions
             if all_functions.include?(func_name)
               all_functions.functions.each do |x|
                 if x.function_name == func_name
@@ -326,7 +352,13 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "iam_role" => {
+              "type" => "string",
+              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with the AWSLambdaBasicExecutionRole policy attached. To grant other permissions for your function, create a Mu 'role' resource and use the 'import' and 'policies' parameters to add permissions. See also: https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html"
+            }
+# XXX add some canned permission sets here, asking people to get the AWS weirdness right and then translate it into Mu-speak is just too much. Think about auto-populating when a target log group is asked for, mappings for the AWS canned policies in the URL above, writes to arbitrary S3 buckets, etc
+          }
           [toplevel_required, schema]
         end
 
@@ -336,6 +368,31 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(function, configurator)
           ok = true
+
+          if !function['iam_role']
+            roledesc = {
+              "name" => function['name']+"execrole",
+              "credentials" => function['credentials'],
+              "can_assume" => [
+                {
+                  "entity_id" => "lambda.amazonaws.com",
+                  "entity_type" => "service"
+                }
+              ],
+              "import" => [
+                "AWSLambdaBasicExecutionRole"
+              ]
+            }
+            configurator.insertKitten(roledesc, "roles")
+
+            function['dependencies'] ||= []
+            function['iam_role'] = function['name']+"execrole"
+
+            function['dependencies'] << {
+              "type" => "role",
+              "name" => function['name']+"execrole"
+            }
+          end
 
           ok
         end

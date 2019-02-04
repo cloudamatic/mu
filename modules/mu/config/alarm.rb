@@ -65,7 +65,6 @@ module MU
           "dimensions" => {
             "type" => "array",
             "description" => "What to monitor",
-#            "minItems" => 1,
             "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
@@ -262,6 +261,31 @@ module MU
               MU.log "You must specify 'cloud_class'", MU::ERR
             end
           }
+        end
+
+        if alarm["enable_notifications"]
+          if !alarm["notification_group"].match(/^arn:/i)
+            if !configurator.haveLitterMate?(alarm["notification_group"], "notifiers")
+              notifier = {
+                "name" => alarm["notification_group"],
+                "region" => alarm["region"],
+                "cloud" => alarm["cloud"],
+                "credentials" => alarm["credentials"],
+                "subscriptions" => [
+                  {
+                    "endpoint" => alarm["notification_endpoint"],
+                    "type" => alarm["notification_type"],
+                  }
+                ]
+              }
+              ok = false if !configurator.insertKitten(notifier, "notifiers")
+            end
+            alarm["dependencies"] ||= []
+            alarm["dependencies"] << {
+              "name" => alarm["notification_group"],
+              "type" => "notifier"
+            }
+          end
         end
 
         ok

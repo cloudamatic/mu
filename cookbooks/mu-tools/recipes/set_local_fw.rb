@@ -18,8 +18,8 @@
 
 
 master_ips = get_mu_master_ips
-case node[:platform]
-when "centos", "redhat"
+case node['platform']
+when platform_family?('rhel')
   include_recipe 'mu-firewall'
 
   if elversion >= 7 # Can use firewalld, but not if iptables is already rigged

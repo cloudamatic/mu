@@ -15,8 +15,8 @@ node.normal['mongodb']['config']['replSet'] = "mu"
 node.save
 
 
-node[:application_attributes][:mongo_dirs].each { |path|
-  directory "#{path['dir']}" do
+node['application_attributes']['mongo_dirs'].each { |path|
+  directory path['dir'] do
     owner "mongod"
     group "mongod"
   end
@@ -26,7 +26,7 @@ node[:application_attributes][:mongo_dirs].each { |path|
   mount path['dir'] do
     device path['dev']
     action [:mount, :enable]
-    notifies :restart, "service[#{node[:mongodb][:default_init_name]}]", :delayed
+    notifies :restart, "service[#{node['mongodb']['default_init_name']}]", :delayed
   end
 }
 execute "fix /tmp permissions" do
@@ -75,7 +75,7 @@ $mongo_mu_pwd = mongo_mu_auth_info['password']
 # being atomic). If so, we'll be managing the cluster memberships.
 found_master = false
 i_am_master = false
-node[:deployment][:servers][:mongo].each_pair { |name, data|
+node['deployment']['servers']['mongo'].each_pair { |name, data|
   if data['mongo_master']
     found_master = true
     if name == Chef::Config[:node_name]
@@ -84,7 +84,7 @@ node[:deployment][:servers][:mongo].each_pair { |name, data|
   end
 }
 if !found_master
-  node.normal['deployment']['servers']['mongo'][Chef::Config[:node_name]]['mongo_master'] = true
+  node.normal['deployment']['servers']['mongo'][Chef::Config['node_name']]['mongo_master'] = true
   node.save
   i_am_master = true
 end
@@ -116,10 +116,10 @@ if i_am_master
     sensitive true
   end
 
-  bash "mongo Create DB #{node[:mongodb][:mu_db_name]}" do
+  bash "mongo Create DB #{node['mongodb']['mu_db_name']}" do
     code <<-EOH
 			mongo admin -u #{$mongo_admin_usr} -p #{$mongo_admin_pwd} <<-EOF
-			use #{node[:mongodb][:mu_db_name]}
+			use #{node['mongodb']['mu_db_name']}
 			db.createUser({user: "#{$mongo_mu_usr}", pwd: "#{$mongo_mu_pwd}", roles: ['readWrite']})
 			exit
 			EOF
