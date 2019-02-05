@@ -487,7 +487,10 @@ module MU
 #          MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
 #        end
 #        if user_list.nil? or user_list.size == 0
-          mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
+          resp = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/")
+          return nil if !resp
+
+          mac = resp.split(/\n/)[0]
           acct_num = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
           acct_num.chomp!
 #        else
