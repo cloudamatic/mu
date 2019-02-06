@@ -152,12 +152,24 @@ module MU
           return nil
         end
 
-        if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
-          @@myRegion_var ||= MU::Cloud::AWS.ec2(region: $MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
-        elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
-          @@myRegion_var ||= MU::Cloud::AWS.ec2(region: ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+        def validate_region(r)
+          MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+        end
+
+        if $MU_CFG and $MU_CFG['aws']
+          $MU_CFG['aws'].each_pair { |credset, cfg|
+            next if !cfg['region']
+            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'])
+              @@myRegion_var = cfg['region']
+              break if cfg['default']
+            end
+          }
+        elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty? and
+              validate_region(ENV['EC2_REGION'])
+          # Make sure this string is valid by way of the API
+          @@myRegion_var = ENV['EC2_REGION']
         else
-          # hacky, but useful in a pinch
+          # hacky, but useful in a pinch (and if we're hosted in AWS)
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
           @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
         end
@@ -936,7 +948,8 @@ module MU
       # Amazon's Organizations API
       def self.orgs(credentials: nil)
         @@organizations_api ||= {}
-        @@organizations_api[credentials] ||= MU::Cloud::AWS::Endpoint.new(api: "Organizations", credentials: credentials)
+# XXX org api doesn't seem to work in many regions
+        @@organizations_api[credentials] ||= MU::Cloud::AWS::Endpoint.new(api: "Organizations", credentials: credentials, region: "us-east-1")
         @@organizations_api[credentials]
       end
 
