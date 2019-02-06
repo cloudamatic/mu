@@ -74,7 +74,7 @@ Berks:
     - berks verify
     - berks outdated
 
-BrakeMan:
+.BrakeMan:
   stage: Security Test
   image: codeclimate/codeclimate-brakeman:latest
   script:
@@ -99,14 +99,13 @@ Muby Build:
   image: centos
   script: 
     - yum -y groupinstall 'Development Tools'
-    - um -y install rpm-build zlib zlib-devel
+    - yum -y install rpm-build zlib zlib-devel
     - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
     - echo "maybe do something cool and smart here?"
   only:
     - master
     - cicd_updates
   allow_failure: true
-
 
 Parser Test:
   stage: Smoke Test
