@@ -24,7 +24,7 @@ if node['deployment'].has_key?('storage_pools')
   case node['platform']
   when 'ubuntu'
     package "nfs-common"
-  when "rhel", "amazon", "centos"
+  when "rhel", "amazon", "centos" # ~FC024
     package %w{nfs-utils nfs4-acl-tools}
   end
 
@@ -48,7 +48,7 @@ if node['deployment'].has_key?('storage_pools')
           endpoint = target['ip_address']
         end
 
-        if node[:platform_family] == "rhel" and node[:platform_version].to_i < 6 and node['platform'] != "amazon"
+        if node['platform_family'] == "rhel" and node['platform_version'].to_i < 6 and node['platform'] != "amazon"
           service "portmap" do
             action [:enable, :start]
           end

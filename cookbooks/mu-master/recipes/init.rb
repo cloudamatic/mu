@@ -40,7 +40,7 @@ CHEF_CLIENT_VERSION="14.4.56"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="Azure_you_want_azure" # GIT HOOK EDITABLE DO NOT TOUCH
-realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD` # ~FC048
 
 if ENV.key?('MU_BRANCH')
   MU_BRANCH = ENV['MU_BRANCH']

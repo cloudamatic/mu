@@ -5,7 +5,7 @@ property :preserve_data, :kind_of => [TrueClass, FalseClass], :required => false
 property :reboot_after_create, :kind_of => [TrueClass, FalseClass], :required => false, :default => false
 property :size, Integer, default: 8
 
-actions :create
+actions :create # ~FC092
 default_action :create
 
 action :create do

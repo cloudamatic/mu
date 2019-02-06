@@ -338,7 +338,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
 
       Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
   
-      ruby_block "do a bunch of weird stuff" do
+      ruby_block "do a bunch of weird stuff" do # ~FC014
         block do
           cmd = Mixlib::ShellOut.new('chcon -Rv --type=user_home_t /home')
           cmd.run_command

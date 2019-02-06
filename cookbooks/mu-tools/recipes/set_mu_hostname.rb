@@ -37,7 +37,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
   end
 
   case node['platform']
-    when "rhel", "centos", "amazon"
+    when "rhel", "centos", "amazon" # ~FC024
       template "/etc/sysconfig/network" do
         source "etc_sysconfig_network.erb"
         notifies :run, "execute[set hostname]", :immediately if elversion != 7
