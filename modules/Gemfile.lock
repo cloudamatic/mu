@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (1.9.0.pre.beta)
+    cloud-mu (2.0.0.pre.alpha)
       addressable (~> 2.5)
       aws-sdk-core (< 3)
       bundler (~> 1.17)
