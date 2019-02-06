@@ -99,6 +99,7 @@ Muby Build:
   image: centos
   script: 
     - rpm -q rpm-build || yum -y install rpm-build
+    - rpm -q gcc || yum -y install gcc
     - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
     - echo "maybe do something cool and smart here?"
   only:
