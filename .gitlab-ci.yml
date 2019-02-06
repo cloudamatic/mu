@@ -98,6 +98,7 @@ Muby Build:
   stage: Build
   image: centos
   script: 
+    - rpm -q rpm-build || yum -y install rpm-build
     - /usr/bin/rpmbuild -ba ./muby.spec
     - echo "maybe do something cool and smart here?"
   only:
