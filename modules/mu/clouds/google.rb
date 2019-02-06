@@ -25,6 +25,7 @@ module MU
       @@authtoken = nil
       @@default_project = nil
       @@myRegion_var = nil
+      @@my_hosted_cfg = nil
       @@authorizers = {}
       @@acct_to_profile_map = {}
 

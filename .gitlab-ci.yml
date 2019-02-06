@@ -4,9 +4,9 @@ stages:
   - Lint Test
   - Test
   - Security Test
+  - Build
   - Smoke Test
   - Merge/Tag
-  - Build
   - Dockerbuild
   - Deploy
   
@@ -80,37 +80,6 @@ BrakeMan:
   script:
     - echo "BrakeMan!"
 
-Parser Test:
-  stage: Smoke Test
-  script:
-    - mu-deploy -d modules/tests/super_simple_bok.yml
-    - mu-deploy -d modules/tests/super_complex_bok.yml
-  tags: 
-    - mu-master
-  only:
-    - master
-    - development
-
-Smoke Test:
-  stage: Smoke Test
-  script:
-    - mu-upload-chef-artifacts -sn
-    - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
-  tags: 
-    - mu-master
-  only:
-    - master
-    - development
-  when: manual
-
-Merge/Tag:
-  stage: Merge/Tag
-  script:
-    - echo "Merge and tag here"
-  only:
-    - master
-    - development
-
 Gem Build:
   stage: Build
   script:
@@ -132,6 +101,41 @@ Muby Build:
     - master
     - cicd_updates
   allow_failure: true
+
+
+Parser Test:
+  stage: Smoke Test
+  script:
+    - gem build cloud-mu.gemspec
+    - gem install cloud-mu-*.gem
+    - mu-deploy -d modules/tests/super_simple_bok.yml
+    - mu-deploy -d modules/tests/super_complex_bok.yml
+  # tags: 
+  #   - mu-master
+  only:
+    - master
+    - development
+    - cicd_updates
+
+Smoke Test:
+  stage: Smoke Test
+  script:
+    - mu-upload-chef-artifacts -sn
+    - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
+  tags: 
+    - mu-master
+  only:
+    - master
+    - development
+  when: manual
+
+Merge/Tag:
+  stage: Merge/Tag
+  script:
+    - echo "Merge and tag here"
+  only:
+    - master
+    - development
 
 Dockerbuild:
   stage: Dockerbuild
