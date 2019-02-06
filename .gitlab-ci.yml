@@ -90,6 +90,9 @@ Gem Build:
     - master
     - development
     - cicd_updates
+  artifacts:
+    paths:
+    - cloud-mu-*.gem
 
 Muby Build:
   stage: Build
@@ -106,11 +109,12 @@ Muby Build:
 Parser Test:
   stage: Smoke Test
   script:
-    - gem build cloud-mu.gemspec
-    - gem install cloud-mu-*.gem
     - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+    - gem install cloud-mu-*.gem
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
+  dependencies:
+  - Gem Build
   # tags: 
   #   - mu-master
   only:
@@ -152,9 +156,10 @@ pages:
   script:
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - mkdir public
-  - gem build cloud-mu.gemspec
   - gem install cloud-mu-*.gem
   - ruby bin/mu-gen-docs
+  dependencies:
+  - Gem Build
   artifacts:
     paths:
     - public
