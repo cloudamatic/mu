@@ -121,6 +121,7 @@ Gem Build:
   only:
     - master
     - development
+    - cicd_updates
 
 Muby Build:
   stage: Build
@@ -130,6 +131,7 @@ Muby Build:
     - echo "maybe do something cool and smart here?"
   only:
     - master
+    - cicd_updates
   allow_failure: true
 
 Dockerbuild:
@@ -154,3 +156,4 @@ pages:
     - public
   only:
   - master
+  - cicd_updates
