@@ -33,17 +33,23 @@ module MU
     end
 
     # The default cloud provider for new resources. Must exist in MU.supportedClouds
+    # return [String]
     def self.defaultCloud
-      begin
-        MU.myCloud
-      rescue NoMethodError
-        "AWS"
-      end
-# XXX this can be more generic (loop through supportedClouds and try this)
-      if MU::Cloud::Google.hosted?
-        "Google"
-      elsif MU::Cloud::AWS.hosted?
-        "AWS"
+      configured = {}
+      MU::Cloud.supportedClouds.each { |cloud|
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        if $MU_CFG[cloud.downcase] and !$MU_CFG[cloud.downcase].empty?
+          configured[cloud] = $MU_CFG[cloud.downcase].size
+        elsif cloudclass.hosted?
+          configured[cloud] = 1
+        end
+      }
+      if configured.size > 0
+        return configured.keys.sort { |a, b|
+          configured[b] <=> configured[a]
+        }.first
+      else
+        return MU::Cloud.supportedClouds.first
       end
     end
 
