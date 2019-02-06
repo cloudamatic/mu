@@ -123,6 +123,7 @@ Parser Test:
     - master
     - development
     - cicd_updates
+  allow_failure: true
 
 Smoke Test:
   stage: Smoke Test
