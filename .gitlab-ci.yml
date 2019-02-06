@@ -108,6 +108,7 @@ Parser Test:
   script:
     - gem build cloud-mu.gemspec
     - gem install cloud-mu-*.gem
+    - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
   # tags: 
