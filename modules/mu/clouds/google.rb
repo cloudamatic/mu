@@ -411,11 +411,28 @@ module MU
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
+      # @param credentials [String]
+      # @return [String]
       def self.defaultProject(credentials = nil)
         cfg = credConfig(credentials)
         return myProject if !cfg or !cfg['project']
         loadCredentials(credentials) if !@@authorizers[credentials]
         cfg['project']
+      end
+
+      # We want a default place to put new projects for the Habitat resource,
+      # so if we have a root folder, we can go ahead and use that.
+      # @param credentials [String]
+      # @return [String]
+      def self.defaultFolder(credentials = nil)
+        project = defaultProject(credentials)
+        resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_project_ancestry(project)
+        resp.ancestor.each { |a|
+          if a.resource_id.type == "folder"
+            return a.resource_id.id
+          end
+        }
+        nil
       end
 
       # List all Google Cloud Platform projects available to our credentials
@@ -572,6 +589,19 @@ module MU
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
+        end
+      end
+
+      # Google's Cloud Resource Manager API V2, which apparently has all the folder bits
+      # @param subclass [<Google::Apis::CloudresourcemanagerV2beta1>]: If specified, will return the class ::Google::Apis::CloudresourcemanagerV2beta1::subclass instead of an API client instance
+      def self.folder(subclass = nil, credentials: nil)
+        require 'google/apis/cloudresourcemanager_v2beta1'
+
+        if subclass.nil?
+          @@resource2_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "CloudresourcemanagerV2beta1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          return @@resource2_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2beta1").const_get(subclass)
         end
       end
 
@@ -909,6 +939,7 @@ module MU
       @@iam_api = {}
       @@logging_api = {}
       @@resource_api = {}
+      @@resource2_api = {}
       @@service_api = {}
       @@admin_directory_api = {}
     end
