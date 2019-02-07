@@ -6,4 +6,4 @@ metadata
 # Mu Cookbooks
 
 # Supermarket Cookbooks
-cookbook	'firewall', '~> 2.6.5'
+cookbook	'firewall', '~> 2.7.0'
