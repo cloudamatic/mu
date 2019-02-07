@@ -152,7 +152,7 @@ module MU
           return nil
         end
 
-        def validate_region(r)
+        def self.validate_region(r)
           MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
         end
 
