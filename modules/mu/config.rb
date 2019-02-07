@@ -40,6 +40,7 @@ module MU
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         if $MU_CFG[cloud.downcase] and !$MU_CFG[cloud.downcase].empty?
           configured[cloud] = $MU_CFG[cloud.downcase].size
+          configured[cloud] += 0.5 if cloudclass.hosted? # tiebreaker
         elsif cloudclass.hosted?
           configured[cloud] = 1
         end

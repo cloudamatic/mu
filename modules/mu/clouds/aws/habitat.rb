@@ -62,6 +62,8 @@ module MU
             end
           end while resp.create_account_status.state == "IN_PROGRESS"
 
+          @cloud_id = resp.create_account_status.account_id
+
           MU.log "Creation of account #{@mu_name} (#{resp.create_account_status.account_id}) complete"
         end
 
@@ -96,6 +98,20 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          return if !orgMasterCreds?(credentials)
+
+          resp = MU::Cloud::AWS.orgs(credentials: credentials).list_accounts
+
+          if resp and resp.accounts
+            resp.accounts.each { |acct|
+              if acct.name.match(/^#{Regexp.quote(MU.deploy_id)}/) or acct.name.match(/BUNS/)
+                if !noop
+                  pp acct
+                end
+                MU.log "AWS accounts cannot be deleted via the API. To delete #{acct.name}, you must sign in with its root user #{acct.email}, ensure that its signup process has been completed, then visit ", MU::NOTICE, details: ["https://console.aws.amazon.com/", acct.email, acct.id]
+              end
+            }
+          end
         end
 
         # Locate an existing account
@@ -121,6 +137,19 @@ module MU
           [toplevel_required, schema]
         end
 
+        # Figure out what account we're calling from, and then figure out if
+        # it's the organization's master account- the only place from which
+        # we can create accounts, amongst other things.
+        # @param credentials [String]
+        # @return [Boolean]
+        def self.orgMasterCreds?(credentials = nil)
+          user_list = MU::Cloud::AWS.iam(credentials:  credentials).list_users.users
+          acct_num = MU::Cloud::AWS.iam(credentials:  credentials).list_users.users.first.arn.split(/:/)[4]
+
+          parentorg = MU::Cloud::AWS::Folder.find(credentials: credentials).values.first
+          acct_num == parentorg.master_account_id
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::habitats}, bare and unvalidated.
         # @param habitat [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -132,14 +161,7 @@ module MU
             MU.log "No email address specified in habitat #{habitat['name']}, and AWS requires a unique contact email. Will generate an alias to #{$MU_CFG['mu_admin_email']} at run time.", MU::NOTICE
           end
 
-          # Figure out what account we're calling from, and then figure out if
-          # it's the organization's master account- the only place from which
-          # we can create accounts.
-          user_list = MU::Cloud::AWS.iam(credentials:  habitat['credentials']).list_users.users
-          acct_num = MU::Cloud::AWS.iam(credentials:  habitat['credentials']).list_users.users.first.arn.split(/:/)[4]
-
-          parentorg = MU::Cloud::AWS::Folder.find(credentials: habitat['credentials']).values.first
-          if acct_num != parentorg.master_account_id
+          if !orgMasterCreds?(habitat['credentials'])
             MU.log "The Organization master account for habitat #{habitat["name"]} is #{parentorg.master_account_id}, but my credentials (#{ habitat['credentials'] ?  habitat['credentials'] : "default"}) are for a non-master account (#{acct_num}). AWS accounts can only be created and managed with credentials from an Organization's master account.", MU::ERR
             ok = false
           end
