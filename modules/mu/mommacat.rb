@@ -2252,9 +2252,9 @@ MESSAGE_END
     # @param poolname [Boolean]: If true, generate certificates for the base name of the server pool of which this node is a member, rather than for the individual node
     # @param keysize [Integer]: The size of the private key to use when generating this certificate
     def nodeSSLCerts(resource, poolname = false, keysize = 4096)
-      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = resource.getSSHConfig
+      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = resource.getSSHConfig if resource.respond_to?(:getSSHConfig)
 
-      deploy_id = resource.deploy_id || resource.deploy.deploy_id
+      deploy_id = resource.deploy_id || @deploy_id || resource.deploy.deploy_id
 
       cert_cn = poolname ? deploy_id + "-" + resource.config['name'].upcase : resource.mu_name
 
@@ -2282,7 +2282,7 @@ MESSAGE_END
 
         if results.size == 0
           certs[cert_cn] = {
-            "sans" => ["IP:#{canonical_ip}"],
+#            "sans" => ["IP:#{canonical_ip}"],
             "cn" => cert_cn
           }
           if canonical_ip
@@ -2303,7 +2303,7 @@ MESSAGE_END
         end
 
         certs.each { |certname, data|
-          MU.log "Generating SSL certificate #{certname} for #{resource}"
+          MU.log "Generating SSL certificate #{certname} for #{resource} with key size #{keysize.to_s}"
 
           # Create and save a key
           key = OpenSSL::PKey::RSA.new keysize

@@ -61,8 +61,7 @@ module MU
       end
 
 
-# XXX AWS needs to check MU::Cloud::AWS.isGovCloud? on some things, or gracefully handle the API not existing
-      types_in_order = ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "DNSZone", "Collection"]
+      types_in_order = ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "DNSZone", "Collection", "Habitat"]
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -92,7 +91,7 @@ module MU
           if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds[cloud] ||= {}
-            $MU_CFG[cloud.downcase].keys.each { |credset|
+            cloudclass.listCredentials.each { |credset|
               creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
             }
           end
@@ -116,7 +115,8 @@ module MU
                   projects << $MU_CFG[provider.downcase][credset]["project"]
                 end
 
-                if projects == [""]
+                if projects == []
+                  projects << "" # dummy
                   MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
                 end
 
@@ -145,6 +145,7 @@ module MU
                           if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
                             if !global_done.include?(t)
                               global_done << t
+                              flags['global'] = true
                             else
                               skipme = true
                             end
@@ -183,7 +184,7 @@ module MU
                 # XXX move to MU::AWS
                 if provider == "AWS"
                   resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
-                      filters: [{name: "key-name", values: [keyname]}]
+                    filters: [{name: "key-name", values: [keyname]}]
                   )
                   resp.data.key_pairs.each { |keypair|
                     MU.log "Deleting key pair #{keypair.key_name} from #{r}"

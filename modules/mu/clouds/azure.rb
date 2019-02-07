@@ -65,11 +65,11 @@ module MU
         "TODO"
       end
 
-      def self.listRegions
+      def self.listRegions(credentials = nil)
         "TODO"
       end
 
-      def self.listAZs
+      def self.listAZs(region = nil)
         "TODO"
       end
 

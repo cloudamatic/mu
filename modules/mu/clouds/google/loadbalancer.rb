@@ -151,7 +151,7 @@ module MU
         # is it localized to a region/zone?
         # @return [Boolean]
         def self.isGlobal?
-          false
+          true
         end
 
         # Remove all load balancers associated with the currently loaded deployment.
@@ -159,7 +159,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: nil, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           if region
@@ -339,7 +339,7 @@ module MU
               target_obj
             )
           else
-            certdata = @deploy.nodeSSLCerts(self, 2048)
+            certdata = @deploy.nodeSSLCerts(self, false, 2048)
             cert_pem = certdata[0].to_s+File.read("/etc/pki/Mu_CA.pem")
             gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1], credentials: @config['credentials'])
 
@@ -407,7 +407,7 @@ module MU
         end
 
         def createHealthCheck(hc, namebase)
-          MU.log "HEALTH CHECK", MU::NOTICE, details: hc
+#          MU.log "HEALTH CHECK", MU::NOTICE, details: hc
           target = hc['target'].match(/^([^:]+):(\d+)(.*)/)
           proto = target[1]
           port = target[2]
