@@ -23,6 +23,7 @@
 
 case node['platform']
   when "windows"
+    Chef::Log.info 'Unsupported platform Windows'
   else
     bash "update-pip" do
       code <<-EOF
