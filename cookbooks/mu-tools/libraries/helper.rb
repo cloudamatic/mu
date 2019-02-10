@@ -232,7 +232,6 @@ module Mutools
           "mu_id" => mu_get_tag_value("MU-ID"),
           "mu_resource_name" => node['service_name'],
           "mu_instance_id" => get_aws_metadata("meta-data/instance-id") || get_google_metadata("name"),
-          "mu_resource_name" => node[:service_name],
           "mu_resource_type" => res_type,
           "mu_user" => node['deployment']['mu_user'] || node['deployment']['chef_user'],
           "mu_deploy_secret" => secret,
