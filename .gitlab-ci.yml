@@ -74,7 +74,7 @@ Berks:
     - berks verify
     - berks outdated
 
-BrakeMan:
+.BrakeMan:
   stage: Security Test
   image: codeclimate/codeclimate-brakeman:latest
   script:
@@ -98,15 +98,16 @@ Muby Build:
   stage: Build
   image: centos
   script: 
-    - rpm -q rpm-build || yum -y install rpm-build
-    - rpm -q gcc || yum -y install gcc
+    - yum -y groupinstall 'Development Tools'
+    - yum -y install rpm-build
+    #- yum -y install zlib zlib-devel openssl #THESE SHOULD BE LISTED IN THE .spec FILE
+    - yum-builddep extras/ruby_rpm/muby.spec
     - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
     - echo "maybe do something cool and smart here?"
   only:
     - master
     - cicd_updates
   allow_failure: true
-
 
 Parser Test:
   stage: Smoke Test
