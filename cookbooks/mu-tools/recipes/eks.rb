@@ -66,7 +66,7 @@ EOH
     package "kubelet"
     package "kubectl"
   else
-    Chef::Log.info("I don't know how to turn this #{node['platform']} AMI (#{node['platform_version'].to_s}) into a Kubernetes worker, hopefully it's the official, pre-configured AMI")
+    Chef::Log.info("I don't know how to turn this #{node['platform']} AMI (#{node['platform_version']}) into a Kubernetes worker, hopefully it's the official, pre-configured AMI")
   end
 
   service "docker" do
@@ -137,8 +137,8 @@ EOH
 
   opento.uniq.each { |src|
     [:tcp, :udp, :icmp].each { |proto|
-      execute "iptables -I INPUT -p #{proto.to_s} -s #{src}" do
-        not_if "iptables -L -n | tr -s ' ' | grep -- '#{proto.to_s} -- #{src.sub(/\/32$/, "")}' > /dev/null"
+      execute "iptables -I INPUT -p #{proto} -s #{src}" do
+        not_if "iptables -L -n | tr -s ' ' | grep -- '#{proto} -- #{src.sub(/\/32$/, "")}' > /dev/null"
       end
     }
   }

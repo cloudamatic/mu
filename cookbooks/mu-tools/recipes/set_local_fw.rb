@@ -48,7 +48,7 @@ when platform_family?('rhel')
 
   opento.uniq.each { |src|
     [:tcp, :udp, :icmp].each { |proto|
-      firewall_rule "allow all #{src} #{proto.to_s} traffic" do
+      firewall_rule "allow all #{src} #{proto} traffic" do
         source src
         protocol proto
       end

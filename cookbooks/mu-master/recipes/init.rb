@@ -174,7 +174,7 @@ if platform_family?("rhel")
 
 
   if elversion < 6 or elversion >= 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion.to_s})"
+    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
 
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
