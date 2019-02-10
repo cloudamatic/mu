@@ -83,7 +83,7 @@ class Nagios
       @custom_options      = {}
       super()
     end
-    # rubocop:enable MethodLength
+    
 
     def check_command
       if blank?(@arguments)
@@ -236,7 +236,7 @@ class Nagios
         end
       end
     end
-    # rubocop:enable MethodLength
+    
 
     # servicegroups
     # This directive is used to define the description of the service, which may contain spaces,
@@ -441,7 +441,7 @@ class Nagios
         'register'                     => 'register',
       }
     end
-    # rubocop:enable MethodLength
+    
 
     def merge_members(obj)
       obj.contacts.each { |m| push(m) }
