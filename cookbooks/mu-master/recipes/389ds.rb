@@ -50,7 +50,7 @@ directory "/root/389ds.tmp" do
   recursive true
   mode 0700
 end
-$CREDS.each_pair { |creds, cfg|
+$CREDS.each_pair { |creds, _cfg|
   user = pw = data = nil
   if $MU_CFG["ldap"].has_key?(creds)
     data = chef_vault_item($MU_CFG['ldap'][creds]['vault'], $MU_CFG['ldap'][creds]['item'])
@@ -131,7 +131,7 @@ ruby_block "import SSL certificates for 389ds" do
     certimportcmd = "/usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/389ds.tmp/blank -W \"\""
     require 'pty'
     require 'expect'
-    PTY.spawn(certimportcmd) { |r, w, pid|
+    PTY.spawn(certimportcmd) { |r, w, _pid|
       begin
         r.expect("Enter new password:") do
           w.puts
