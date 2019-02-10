@@ -29,7 +29,7 @@ service 'splunk_stop' do
   if node['platform_family'] != 'windows'
     service_name 'splunk'
     provider Chef::Provider::Service::Init
-    only_if { ::File.exists?("/etc/init.d/splunk") }
+    only_if { ::File.exist?("/etc/init.d/splunk") }
   else
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows

@@ -87,16 +87,16 @@ end
 #  owner "opscode-pgsql"
 #  group "opscode-pgsql"
 #  action :nothing
-#  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
-#  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+#  only_if { !::File.exist?("/tmp/.s.PGSQL.5432") }
+#  only_if { ::File.exist?("/var/run/postgresql/.s.PGSQL.5432") }
 #end
 link "/var/run/postgresql/.s.PGSQL.5432" do
   to "/tmp/.s.PGSQL.5432"
 #  owner "opscode-pgsql"
 #  group "opscode-pgsql"
   notifies :create, "directory[/var/run/postgresql]", :before
-  only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
-#  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
+  only_if { !::File.exist?("/var/run/postgresql/.s.PGSQL.5432") }
+#  only_if { ::File.exist?("/tmp/.s.PGSQL.5432") }
 end
 execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute
@@ -504,7 +504,7 @@ bash "add localhost ssh to authorized_keys and config" do
 end
 execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
   umask 0177
-  not_if { ::File.exists?("#{ROOT_SSH_DIR}/id_rsa") }
+  not_if { ::File.exist?("#{ROOT_SSH_DIR}/id_rsa") }
   notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
 end
 file "/etc/chef/client.pem" do

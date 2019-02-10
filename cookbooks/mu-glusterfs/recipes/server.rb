@@ -58,7 +58,7 @@ case node['platform']
       end
 
       execute "mdadm --detail --scan >> /etc/mdadm.conf" do
-        not_if { File.exists?("/etc/mdadm.conf") }
+        not_if { File.exist?("/etc/mdadm.conf") }
       end
 
       execute "mkfs -t xfs -i size=512 #{node['glusterfs']['server']['raid_dev']}" do

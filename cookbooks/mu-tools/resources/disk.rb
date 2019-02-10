@@ -24,7 +24,7 @@ action :create do
       :dev => devicename,
       :size => new_resource.size
     )
-    not_if { ::File.exists?(device) }
+    not_if { ::File.exist?(device) }
   end
 
   reboot "Rebooting after adding #{path}" do
@@ -71,7 +71,7 @@ action :create do
     end
 
     execute "/sbin/restorecon -R #{path}" do
-      only_if { ::File.exists?("/sbin/restorecon") }
+      only_if { ::File.exist?("/sbin/restorecon") }
       action :nothing
     end
 

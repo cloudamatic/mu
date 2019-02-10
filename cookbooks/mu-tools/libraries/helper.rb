@@ -157,7 +157,7 @@ module Mutools
     end
 
     def get_first_nameserver
-      if File.exists?("/etc/resolv.conf")
+      if File.exist?("/etc/resolv.conf")
         File.readlines("/etc/resolv.conf").each { |l|
           l.chomp!
           if l.match(/^nameserver (\d+\.\d+\.\d+\.\d+)$/)
@@ -190,9 +190,9 @@ module Mutools
       elsif !get_google_metadata("instance/name").nil?
         include_recipe "mu-tools::gcloud"
         ["/opt/google-cloud-sdk/bin/gsutil", "/bin/gsutil"].each { |gsutil|
-          next if !File.exists?(gsutil)
+          next if !File.exist?(gsutil)
           Chef::Log.info("Fetching deploy secret: #{gsutil} cp gs://#{bucket}/#{filename} -")
-          if File.exists?("/usr/bin/python2.7")
+          if File.exist?("/usr/bin/python2.7")
             # secret = %x{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
             secret = shell_out("CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
           else

@@ -75,7 +75,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
   				aide --init
   				mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
         EOH
-        not_if { File.exists?("/var/lib/aide/aide.db.gz") }
+        not_if { File.exist?("/var/lib/aide/aide.db.gz") }
       end
       cron "AIDE daily scan" do
         action :create
@@ -83,7 +83,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
         hour "5"
         user "root"
         command "/usr/sbin/aide --check"
-        only_if { File.exists?("/usr/sbin/aide") }
+        only_if { File.exist?("/usr/sbin/aide") }
       end
   
       cookbook_file "/etc/security/limits.conf" do
@@ -357,7 +357,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
           fe.search_file_replace_line(/^AllowUsers.*$/, valid_users)
           fe.write_file
         end
-        only_if { ::File.exists?("/tmp/moveusers.tgz") }
+        only_if { ::File.exist?("/tmp/moveusers.tgz") }
       end
   
       execute "mount -oremount /dev/shm" do

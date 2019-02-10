@@ -83,14 +83,14 @@ end
 
 
 node['jenkins_plugins'].each { |plugin|
-#  if !::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
+#  if !::File.exist?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
 #    restart_jenkins = true
 #  end
 # XXX this runs as the 'jenkins' user, yet download the files as 0600/root
   jenkins_plugin plugin
   # do
     # notifies :restart, 'service[jenkins]', :delayed
-    #not_if { ::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi") }
+    #not_if { ::File.exist?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi") }
   # end
 }
 

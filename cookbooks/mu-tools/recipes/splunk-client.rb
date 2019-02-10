@@ -60,7 +60,7 @@ deploy_svr = splunk_servers.first
 if !deploy_svr.nil?
   execute 'Splunk client poll for deploy server' do
     command "\"#{splunk_cmd}\" set deploy-poll #{deploy_svr['splunk']['receiver_ip']}:8089 -auth #{user}:#{pw}"
-    not_if { ::File.exists?(deploy_guard) }
+    not_if { ::File.exist?(deploy_guard) }
     notifies :create, "file[#{deploy_guard}]", :immediately
     notifies :restart, "service[splunk]", :delayed
   end
