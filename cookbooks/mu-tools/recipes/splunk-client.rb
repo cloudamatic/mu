@@ -65,5 +65,5 @@ if !deploy_svr.nil?
     notifies :restart, "service[splunk]", :delayed
   end
 else
-  Chef::Log.info ("Configured to run a Splunk client, but no Splunk servers were found.")
+  Chef::Log.info("Configured to run a Splunk client, but no Splunk servers were found.")
 end

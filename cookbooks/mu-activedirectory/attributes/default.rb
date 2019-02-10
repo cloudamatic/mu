@@ -91,7 +91,7 @@ if node['ad']['dc_ips'].empty?
       begin
         default['ad']['dc_ips'] << resolver.getaddress(dc).to_s
       rescue Resolv::ResolvError => e
-        Chef::Log.warn ("Couldn't resolve domain controller #{dc}!")
+        Chef::Log.warn("Couldn't resolve domain controller #{dc}!")
       end
     end
   } rescue NoMethodError
