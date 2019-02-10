@@ -45,7 +45,7 @@ action :create do
     # also expunge files so we don't eat up a bunch of disk space quietly
     # underneath our new mount
     command "( cd #{path} && tar -cpf - . | su -c 'cd /mnt#{backupname}/ && tar -xpf -' ) && find #{path}/ -type f -exec rm -f {} \\;"
-    only_if { ::Dir.exists?(path) and ::Dir.exists?("/mnt#{backupname}") }
+    only_if { ::Dir.exist?(path) and ::Dir.exist?("/mnt#{backupname}") }
     action :nothing
   end
 

@@ -40,7 +40,7 @@ service 'splunk_stop' do
     start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
     stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
     pattern "splunkd.exe"
-    only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
+    only_if { ::Dir.exist?("c:/Program Files/SplunkUniversalForwarder") }
     not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
   end
   supports :status => true
@@ -61,7 +61,7 @@ if node['platform_family'] == 'windows'
       }
     EOH
     not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
-    only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
+    only_if { ::Dir.exist?("c:/Program Files/SplunkUniversalForwarder") }
   end
 end
 

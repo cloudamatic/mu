@@ -120,7 +120,7 @@ file "use a clean /etc/hosts during install" do
 "
   notifies :create, "remote_file[back up /etc/hosts]", :before
   only_if { RUNNING_STANDALONE }
-  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+  not_if { ::Dir.exist?("#{MU_BASE}/lib/.git") }
 end
 
 execute "reconfigure Chef server" do
@@ -219,7 +219,7 @@ git "#{MU_BASE}/lib" do
   revision MU_BRANCH
   checkout_branch MU_BRANCH
   enable_checkout false
-  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+  not_if { ::Dir.exist?("#{MU_BASE}/lib/.git") }
   notifies :run, "bash[set git default branch to #{MU_BRANCH}]", :immediately
 end
 
@@ -275,7 +275,7 @@ end
 # REMOVE OLD RUBYs
 execute "clean up old Ruby 2.1.6" do
   command "rm -rf /opt/rubies/ruby-2.1.6"
-  only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
+  only_if { ::Dir.exist?("/opt/rubies/ruby-2.1.6") }
 end
 
 yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
@@ -284,12 +284,12 @@ end
 
 execute "Kill ruby-2.3.1" do
   command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y"
-  only_if { ::Dir.exists?("/opt/rubies/ruby-2.3.1") }
+  only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
 execute "clean up old ruby-2.3.1" do
   command "rm -rf /opt/rubies/ruby-2.3.1"
-  only_if { ::Dir.exists?("/opt/rubies/ruby-2.3.1") }
+  only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
 # Regular old rpm-based installs
@@ -406,8 +406,8 @@ end
         package_name "knife-windows"
         version Regexp.last_match[1]
         action :remove
-        only_if { ::Dir.exists?(dir) }
-        only_if { ::Dir.exists?(gemdir) }
+        only_if { ::Dir.exist?(dir) }
+        only_if { ::Dir.exist?(gemdir) }
       end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
@@ -426,7 +426,7 @@ end
 #      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
 #      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
 #      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      only_if { ::Dir.exists?(gemdir) }
+#      only_if { ::Dir.exist?(gemdir) }
       # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
 #    end
   end

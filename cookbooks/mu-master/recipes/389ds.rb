@@ -73,7 +73,7 @@ end
 
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do
-  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
+  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
   action :nothing
 end
 
@@ -84,7 +84,7 @@ template "/root/389ds.tmp/389-directory-setup.inf"do
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS
-  not_if { ::Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") }
+  not_if { ::Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") }
   notifies :run, "execute[initialize 389 Directory Services]", :immediately
 end
 

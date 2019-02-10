@@ -23,7 +23,7 @@ if !node['application_attributes']['skip_recipes'].include?('rsyslog')
     package "rsyslog-gnutls"
     execute "chcon -R -h -t var_log_t /Mu_Logs" do
       action :nothing
-      only_if { ::Dir.exists?("/Mu_Logs") }
+      only_if { ::Dir.exist?("/Mu_Logs") }
     end
     service "rsyslog" do
       action [:enable, :start]

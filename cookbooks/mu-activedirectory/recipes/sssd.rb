@@ -93,7 +93,7 @@ case node['platform_family']
       
       # execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
       #   cwd "/root"
-      #   not_if { ::Dir.exists?("/root/adcli") }
+      #   not_if { ::Dir.exist?("/root/adcli") }
       # end
 
       # execute "git fetch && git pull" do
