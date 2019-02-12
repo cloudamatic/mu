@@ -31,6 +31,11 @@ module MU
       # Determine whether we (the Mu master, presumably) are hosted in Azure.
       # @return [Boolean]
       def self.hosted?
+        if $MU_CFG.has_key?("azure_is_hosted")
+          @@is_in_aws = $MU_CFG["azure_is_hosted"]
+          return $MU_CFG["azure_is_hosted"]
+        end
+
         if !@@is_in_azure.nil?
           return @@is_in_azure
         end

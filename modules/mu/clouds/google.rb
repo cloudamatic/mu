@@ -242,6 +242,10 @@ module MU
       # cloud.
       # @return [Boolean]
       def self.hosted?
+        if $MU_CFG.has_key?("google_is_hosted")
+          @@is_in_aws = $MU_CFG["google_is_hosted"]
+          return $MU_CFG["google_is_hosted"]
+        end
         if !@@is_in_gcp.nil?
           return @@is_in_gcp
         end
