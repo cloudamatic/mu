@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '2.0.0-alpha5'
-  s.date        = '2019-02-12'
+  s.version     = '2.0.0-alpha6'
+  s.date        = '2019-02-13'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -55,7 +55,7 @@ EOF
   s.add_runtime_dependency 'solve', '~> 4.0'
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
-  s.add_runtime_dependency 'net-ssh-multi', ">= 1.2.1"
+  s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
   s.add_runtime_dependency 'googleauth', "~> 0.6"
   s.add_runtime_dependency 'google-api-client', "~> 0.25"
   s.add_runtime_dependency 'rubocop', '~> 0.58'

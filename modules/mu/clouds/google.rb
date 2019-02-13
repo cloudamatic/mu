@@ -572,9 +572,9 @@ module MU
     
         if subclass.nil?
           begin
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: $MU_CFG['google']['masquerade_as'], credentials: credentials)
+            @@admin_directory_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
           rescue Signet::AuthorizationError => e
-            MU.log "Cannot masquerade as #{$MU_CFG['google']['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
+            MU.log "Cannot masquerade as #{MU::Cloud::Google.credConfig(credentials)['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
             raise e
           end
           return @@admin_directory_api[credentials]
