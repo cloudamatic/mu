@@ -28,6 +28,11 @@ require 'fileutils'
 require 'erb'
 require 'tmpdir'
 
+$IN_GEM = false
+if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
+  $IN_GEM = true
+end
+
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
@@ -197,6 +202,11 @@ $CONFIGURABLES = {
         "required" => true,
         "changes" => ["chefrun"]
       },
+      "masequerade_as" => {
+        "title" => "GSuite Masquerade User",
+        "required" => false,
+        "desc" => "For Google Cloud projects which are attached to a GSuite domain. GCP service accounts cannot view or manage GSuite resources (groups, users, etc) directly, but must instead masquerade as a GSuite user which has delegated authority to the service account. See also: https://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
+      },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,
@@ -281,10 +291,11 @@ end
 
 $INITIALIZE = (!File.size?("#{MU_BASE}/etc/mu.yaml") or $opts[:force])
 $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG)
+if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM
   puts "Global configuration has not been initialized or is missing. Must run as root to correct."
   exit 1
 end
+
 if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
   puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
   exit 1
@@ -315,7 +326,7 @@ begin
     instance_id = open("http://169.254.169.254/metadata/instance/compute").read
     $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
   end
-rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
 end
 
 
@@ -385,6 +396,7 @@ def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
           "required" => true
         }
         map[count.to_s]["#addnew"] = true
+        map[count.to_s]["#title"] = data['title']
         map[count.to_s]["#key"] = key
 
         # Now the menu entries for the existing ones
@@ -480,7 +492,7 @@ def cloneGitRepo(repo)
   puts "Testing ability to check out Git repository #{repo.bold}"
   fullrepo = repo
   if !repo.match(/@|:\/\//) # we try ssh first
-    fullrepo = "git@github.com:"+repo 
+    fullrepo = "git@github.com:"+repo
     puts "Doesn't look like a full URL, trying SSH to #{fullrepo}"
   end
   cwd = Dir.pwd
@@ -511,7 +523,7 @@ def cloneGitRepo(repo)
       end
     end
     if !repo.match(/@|:\/\//)
-      fullrepo = "git://github.com/"+repo 
+      fullrepo = "git://github.com/"+repo
       puts ""
       puts "No luck there, trying #{fullrepo}".bold
       puts "/usr/bin/git clone #{fullrepo}"
@@ -522,7 +534,7 @@ def cloneGitRepo(repo)
         return fullrepo
       else
         puts output.red.on_black
-        fullrepo = "https://github.com/"+repo 
+        fullrepo = "https://github.com/"+repo
         puts "Final attempt, trying #{fullrepo}"
         puts "/usr/bin/git clone #{fullrepo}"
         output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
@@ -745,8 +757,8 @@ def displayCurrentOpts(tree = $CONFIGURABLES)
   count = 1
   optlist = []
   tree.each_pair { |key, data|
-    next if !AMROOT and data['rootonly']
     next if !data.is_a?(Hash)
+    next if !AMROOT and data['rootonly']
     if data["title"].nil? or data["#menu"].nil?
       next
     end
@@ -780,7 +792,7 @@ end
 ###############################################################################
 
 trap("INT"){ puts "" ; exit }
-importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG
+importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG or $IN_GEM
 importCLIValues
 setDefaults
 assignMenuEntries # populates $MENU_MAP
@@ -821,7 +833,7 @@ def validate(newval, reqs, addnewline = true, in_use: [])
       puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must be true or false)".light_red.on_black
       puts "\n\n" if addnewline
       ok = false
-    elsif in_use.size > 0 and in_use.include?(newval)
+    elsif in_use and in_use.size > 0 and in_use.include?(newval)
       puts "\n##{reqs['title'].bold} #{newval} not available".light_red.on_black
       puts "\n\n" if addnewline
       ok = false
@@ -830,7 +842,7 @@ def validate(newval, reqs, addnewline = true, in_use: [])
         puts "\nSupplied value for #{reqs['title'].bold} did not pass validation".light_red.on_black
         puts "\n\n" if addnewline
         ok = false
-      elsif reqs['negate_pattern'] 
+      elsif reqs['negate_pattern']
         if newval.to_s.match(reqs['pattern'])
           puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must NOT match #{reqs['pattern']})".light_red.on_black
           puts "\n\n" if addnewline
@@ -915,7 +927,9 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
         map[answer],
         minimap,
         map[answer]['#title']+" (NEW)",
-        map[answer]['#entries'].keys.reject { |k| k.match(/^#/) }
+        if map[answer]['#entries']
+          map[answer]['#entries'].keys.reject { |k| k.match(/^#/) }
+        end
       )
       if newtree
         newname = newtree["name"]["value"]
@@ -945,7 +959,7 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
       newtree, newmap = menu(
         map[answer],
         minimap,
-        map[answer]["#title"], 
+        map[answer]["#title"],
         (map[answer]['#entries'].keys - [map[answer]['#title']])
       )
       map[answer] = newtree if newtree
@@ -1070,7 +1084,9 @@ if AMROOT
 end
 
 if $INITIALIZE
-  %x{/sbin/service iptables stop} # Chef run will set up correct rules later
+  if AMROOT
+    %x{/sbin/service iptables stop} # Chef run will set up correct rules later
+  end
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 else
@@ -1091,6 +1107,12 @@ rescue MU::MuError => e
 rescue LoadError
   system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
   require 'mu'
+end
+
+if $IN_GEM
+  puts $MU_CFG.to_yaml
+  saveMuConfig($MU_CFG)
+  exit
 end
 
 if AMROOT and ($INITIALIZE or $CHANGES.include?("hostname"))
@@ -1130,6 +1152,7 @@ def updateChefRbs
   user = AMROOT ? "mu" : Etc.getpwuid(Process.uid).name
   chefuser = user.gsub(/\./, "")
   templates = { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE }
+  Dir.mkdir(HOMEDIR+"/.chef") if !Dir.exists?(HOMEDIR+"/.chef")
   if AMROOT
     templates["/etc/chef/client.rb"] = CLIENT_TEMPLATE
     templates["/etc/opscode/pivotal.rb"] = PIVOTAL_TEMPLATE
@@ -1252,7 +1275,7 @@ if $INITIALIZE or $CHANGES.include?("vault")
   system("chef-client -o 'recipe[mu-master::vault]'")
 end
 
-if $MU_CFG['ldap']['type'] == "389 Directory Services" 
+if $MU_CFG['ldap']['type'] == "389 Directory Services"
   begin
     MU::Master::LDAP.listUsers
   rescue Exception => e # XXX lazy exception handling is lazy

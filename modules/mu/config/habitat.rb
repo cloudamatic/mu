@@ -15,15 +15,15 @@
 module MU
   class Config
     # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/project.rb
-    class Project
+    class Habitat
 
-      # Base configuration schema for a Project
+      # Base configuration schema for a Habitat
       # @return [Hash]
       def self.schema
         {
           "type" => "object",
           "additionalProperties" => false,
-          "description" => "Set up a cloud account (AWS account, Google Cloud project, etc)",
+          "description" => "Generate a cloud habitat (AWS account, Google Cloud project, Azure Directory, etc)",
           "properties" => {
             "name" => { "type" => "string" },
             "folder" => MU::Config::Folder.reference
@@ -36,32 +36,32 @@ module MU
       def self.reference
         {
           "type" => "object",
-          "description" => "Deploy into or connect with resources in a specific account/project",
+          "description" => "Deploy into or connect with resources in a specific habitat (AWS account, GCP project, etc)",
           "minProperties" => 1,
           "additionalProperties" => false,
           "properties" => {
             "id" => {
               "type" => "string",
-              "description" => "Discover this account/project by looking for this cloud provider identifier, such as 836541910896 (an AWS account number) or my-project-196124 (a Google Cloud project id)"
+              "description" => "Discover this habitat by looking for this cloud provider identifier, such as 836541910896 (an AWS account number) or my-project-196124 (a Google Cloud project id)"
             },
             "name" => {
               "type" => "string",
-              "description" => "Discover this account/project by Mu-internal name; typically the shorthand 'name' field of an Account object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+              "description" => "Discover this habitat by Mu-internal name; typically the shorthand 'name' field of a Habitat object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
             },
             "cloud" => MU::Config.cloud_primitive,
             "deploy_id" => {
               "type" => "string",
-              "description" => "Search for this account/project in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
+              "description" => "Search for this Habitat in an existing Mu deploy by Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
             }
           }
         }
       end
 
-      # Generic pre-processing of {MU::Config::BasketofKittens::project}, bare and unvalidated.
-      # @param project [Hash]: The resource to process and validate
+      # Generic pre-processing of {MU::Config::BasketofKittens::habitat}, bare and unvalidated.
+      # @param habitat [Hash]: The resource to process and validate
       # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(project, configurator)
+      def self.validate(habitat, configurator)
         ok = true
         ok
       end

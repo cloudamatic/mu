@@ -652,7 +652,8 @@ module MU
           @issuer = @api.authorization.issuer
         end
 
-        # Generic wrapper for deleting Compute resources
+        # Generic wrapper for deleting Compute resources, which are consistent
+        # enough that we can get away with this.
         # @param type [String]: The type of resource, typically the string you'll find in all of the API calls referring to it
         # @param project [String]: The project in which we should look for the resources
         # @param region [String]: The region in which to loop for the resources
@@ -667,6 +668,7 @@ module MU
             else
               resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter)
             end
+
           rescue ::Google::Apis::ClientError => e
             return if e.message.match(/^notFound: /)
           end

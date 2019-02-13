@@ -40,6 +40,7 @@ module MU
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         if $MU_CFG[cloud.downcase] and !$MU_CFG[cloud.downcase].empty?
           configured[cloud] = $MU_CFG[cloud.downcase].size
+          configured[cloud] += 0.5 if cloudclass.hosted? # tiebreaker
         elsif cloudclass.hosted?
           configured[cloud] = 1
         end
@@ -1131,9 +1132,13 @@ module MU
         if ok
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
           plain_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
-          return false if !parser.validateConfig(plain_descriptor, self)
+          passed = parser.validateConfig(plain_descriptor, self)
 
-          descriptor.merge!(plain_descriptor)
+          if passed
+            descriptor.merge!(plain_descriptor)
+          else
+            ok = false
+          end
           descriptor['#MU_VALIDATED'] = true
         end
 
@@ -1168,7 +1173,7 @@ module MU
     def self.credentials_primitive
       {
           "type" => "string",
-          "description" => "Specify a non-default set of credentials to use when authenticating to cloud provider APIs, as listed in `mu.yaml` under each provider's subsection."
+          "description" => "Specify a non-default set of credentials to use when authenticating to cloud provider APIs, as listed in `mu.yaml` under each provider's subsection. If "
       }
     end
 
@@ -1605,19 +1610,26 @@ module MU
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
-#XXX 'credentials' should probably happen here too
-      schema_fields = ["region", "us_only", "scrub_mu_isms", "credentials"]
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
+
+      schema_fields = ["us_only", "scrub_mu_isms", "credentials"]
+      if !resclass.isGlobal?
+        schema_fields << "region"
+      end
+
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
+           !resclass.isGlobal? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
           if MU::Cloud::Google.myRegion((kitten['credentials'])).nil?
             raise ValidationError, "Google '#{type}' resource '#{kitten['name']}' declared without a region, but no default Google region declared in mu.yaml under #{kitten['credentials'].nil? ? "default" : kitten['credentials']} credential set" 
           end
           kitten['region'] ||= MU::Cloud::Google.myRegion(kitten['credentials'])
         end
-      else
+      elsif !resclass.isGlobal?
         if MU::Cloud::AWS.myRegion.nil?
           raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end
