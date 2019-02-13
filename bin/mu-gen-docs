@@ -28,7 +28,9 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 require 'mu'
 require 'yard'
 
+bindir = File.dirname(Gem.ruby)
+
 MU::Config.emitSchemaAsRuby
 MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
 File.umask(0022)
-exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; /usr/local/ruby-current/bin/yard stats --list-undoc modules"
+exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} #{bindir}/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; #{bindir}/yard stats --list-undoc modules"
