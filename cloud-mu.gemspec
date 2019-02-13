@@ -54,6 +54,8 @@ EOF
   s.add_runtime_dependency 'nokogiri', "~> 1.8"
   s.add_runtime_dependency 'solve', '~> 4.0'
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
+  s.add_runtime_dependency 'net-ssh', "~> 4.2"
+  s.add_runtime_dependency 'net-ssh-multi', ">= 1.2.1"
   s.add_runtime_dependency 'googleauth', "~> 0.6"
   s.add_runtime_dependency 'google-api-client', "~> 0.25"
   s.add_runtime_dependency 'rubocop', '~> 0.58'
