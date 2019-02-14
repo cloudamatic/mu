@@ -35,25 +35,6 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
-        # Given an IAM role name, resolve to ARN. Will attempt to identify any
-        # sibling Mu role resources by this name first, and failing that, will
-        # do a plain get_role() to the IAM API for the provided name.
-        # @param name [String]
-        def get_role_arn(name)
-          sib_role = @deploy.findLitterMate(name: name, type: "roles")
-          return sib_role.cloudobj.arn if sib_role
-
-          begin
-            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
-              role_name: name.to_s
-            })
-            return role['role']['arn']
-          rescue Exception => e
-            MU.log "#{e}", MU::ERR
-          end
-          nil
-        end
-
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
@@ -118,7 +99,6 @@ module MU
           end
 
           if @config.has_key?('vpc')
-            MU.log @vpc.cloud_id, MU::NOTICE, details: @config['vpc']
             sgs = []
             if @config['add_firewall_rules']
               @config['add_firewall_rules'].each { |sg|
@@ -130,7 +110,6 @@ module MU
               :subnet_ids => @config['vpc']['subnets'].map { |s| s["subnet_id"] },
               :security_group_ids => sgs
             }
-            pp lambda_properties[:vpc_config]
           end
 
           retries = 0
@@ -188,7 +167,6 @@ module MU
             }
           
           end 
-raise "feck off"
         end
 
 
@@ -319,7 +297,18 @@ raise "feck off"
           schema = {
             "iam_role" => {
               "type" => "string",
-              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with the AWSLambdaBasicExecutionRole policy attached. To grant other permissions for your function, create a Mu 'role' resource and use the 'import' and 'policies' parameters to add permissions. See also: https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html"
+              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."
+            },
+            "permissions" => {
+              "type" => "array",
+              "description" => "if `iam_role` is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
+              "items" => {
+                "policy" => {
+                  "type" => "string",
+                  "description" => "A permission to add to our Lambda function's default role, corresponding to standard AWS policies (see https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html)",
+                  "enum" => ["basic", "kinesis", "dynamo", "sqs", "network", "xray"]
+                }
+              }
             },
 # XXX add some canned permission sets here, asking people to get the AWS weirdness right and then translate it into Mu-speak is just too much. Think about auto-populating when a target log group is asked for, mappings for the AWS canned policies in the URL above, writes to arbitrary S3 buckets, etc
           }
@@ -354,6 +343,8 @@ raise "feck off"
             ok = false if !configurator.insertKitten(acl, "firewall_rules")
             function["add_firewall_rules"] = [] if function["add_firewall_rules"].nil?
             function["add_firewall_rules"] << {"rule_name" => fwname}
+            function["permissions"] ||= []
+            function["permissions"] << "network"
             function['dependencies'] ||= []
             function['dependencies'] << {
               "name" => fwname,
@@ -362,6 +353,21 @@ raise "feck off"
           end
 
           if !function['iam_role']
+            policy_map = {
+              "basic" => "AWSLambdaBasicExecutionRole",
+              "kinesis" => "AWSLambdaKinesisExecutionRole",
+              "dynamo" => "AWSLambdaDynamoDBExecutionRole",
+              "sqs" => "AWSLambdaSQSQueueExecutionRole ",
+              "network" => "AWSLambdaVPCAccessExecutionRole",
+              "xray" => "AWSXrayWriteOnlyAccess"
+            }
+            policies = if function['permissions']
+              function['permissions'].map { |p|
+                policy_map[p]
+              }
+            else
+              ["AWSLambdaBasicExecutionRole"]
+            end
             roledesc = {
               "name" => function['name']+"execrole",
               "credentials" => function['credentials'],
@@ -371,9 +377,7 @@ raise "feck off"
                   "entity_type" => "service"
                 }
               ],
-              "import" => [
-                "AWSLambdaBasicExecutionRole"
-              ]
+              "import" => policies
             }
             configurator.insertKitten(roledesc, "roles")
 
@@ -387,6 +391,27 @@ raise "feck off"
           end
 
           ok
+        end
+
+        private
+
+        # Given an IAM role name, resolve to ARN. Will attempt to identify any
+        # sibling Mu role resources by this name first, and failing that, will
+        # do a plain get_role() to the IAM API for the provided name.
+        # @param name [String]
+        def get_role_arn(name)
+          sib_role = @deploy.findLitterMate(name: name, type: "roles")
+          return sib_role.cloudobj.arn if sib_role
+
+          begin
+            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
+              role_name: name.to_s
+            })
+            return role['role']['arn']
+          rescue Exception => e
+            MU.log "#{e}", MU::ERR
+          end
+          nil
         end
 
       end
