@@ -2190,7 +2190,7 @@ module MU
                   "permissions" => ["s3:GetObject"],
                   "targets" => [
                     {
-                      "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(server['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem'
+                      "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(server['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(server['credentials'])+'/Mu_CA.pem'
                     }
                   ]
                 }

@@ -1633,9 +1633,9 @@ module MU
           if MU::Cloud::Google.myRegion((kitten['credentials'])).nil?
             raise ValidationError, "Google '#{type}' resource '#{kitten['name']}' declared without a region, but no default Google region declared in mu.yaml under #{kitten['credentials'].nil? ? "default" : kitten['credentials']} credential set" 
           end
-          kitten['region'] ||= MU::Cloud::Google.myRegion(kitten['credentials'])
+          kitten['region'] ||= MU::Cloud::Google.myRegion
         end
-      elsif !resclass.isGlobal?
+      elsif kitten["cloud"] == "AWS" and !resclass.isGlobal?
         if MU::Cloud::AWS.myRegion.nil?
           raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end
