@@ -101,7 +101,7 @@ Muby Build:
     - yum -y groupinstall 'Development Tools'
     - yum -y install rpm-build
     #- yum -y install zlib zlib-devel openssl #THESE SHOULD BE LISTED IN THE .spec FILE
-    - yum-builddep extras/ruby_rpm/muby.spec
+    - yum-builddep -y extras/ruby_rpm/muby.spec
     - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
     - echo "maybe do something cool and smart here?"
   only:
