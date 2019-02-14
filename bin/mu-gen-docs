@@ -34,7 +34,7 @@ rescue
   MU.log "Using the YARD gem"
   yard = File.dirname(Gem.ruby)+'/yard'
 end
-
+pp yard
 MU::Config.emitSchemaAsRuby
 MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
 File.umask(0022)
