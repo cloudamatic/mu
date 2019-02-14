@@ -26,7 +26,6 @@ require 'optimist'
 require 'json-schema'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
-require 'yard'
 
 begin
   yard = `which yard`.chomp
