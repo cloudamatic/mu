@@ -161,9 +161,10 @@ pages:
   script:
   - printenv
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-  - mkdir public
+  - mkdir /usr/local/bin/yard
   - gem install cloud-mu-*.gem
   - ruby bin/mu-gen-docs
+  - mkdir public
   dependencies:
   - Gem Build
   artifacts:
