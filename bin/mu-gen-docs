@@ -28,8 +28,10 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 require 'mu'
 
 begin
+  MU.log "Using the system YARD"
   yard = `which yard`.chomp
 rescue
+  MU.log "Using the YARD gem"
   yard = File.dirname(Gem.ruby)+'/yard'
 end
 
