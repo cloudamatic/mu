@@ -35,7 +35,7 @@ Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14 -t chef15
+    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15
 
 ChefSpec:
   stage: Test
