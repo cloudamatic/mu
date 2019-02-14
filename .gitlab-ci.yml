@@ -52,6 +52,7 @@ Rspec:
     - gem install rspec
     - cd ../
     - rspec
+  allow_failure: true
 
 New_Berks:
   stage: Test
