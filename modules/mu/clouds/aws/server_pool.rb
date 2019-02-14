@@ -665,6 +665,7 @@ module MU
                               "type" => "object",
                               "additionalProperties" => false,
                               "required" => ["name", "value"],
+                              "description" => "What resource to monitor with the alarm we are implicitly declaring",
                               "properties" => {
                                 "name" => {
                                   "type" => "string",

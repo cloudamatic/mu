@@ -151,6 +151,9 @@ module MU
           return nil
         end
 
+        # Given an AWS region, check the API to make sure it's a valid one
+        # @param r [String]
+        # @return [String]
         def self.validate_region(r)
           MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
         end
@@ -406,12 +409,20 @@ module MU
         $MU_CFG['aws'].keys
       end 
 
+      # Resolve the administrative S3 bucket for a given credential set, or
+      # return a default.
+      # @param credentials [String]
+      # @return [String]
       def self.adminBucketName(credentials = nil)
          #XXX find a default if this particular account doesn't have a log_bucket_name configured
         cfg = credConfig(credentials)
         cfg['log_bucket_name']
       end
 
+      # Resolve the administrative S3 bucket for a given credential set, or
+      # return a default.
+      # @param credentials [String]
+      # @return [String]
       def self.adminBucketUrl(credentials = nil)
         "s3://"+adminBucketName+"/"
       end

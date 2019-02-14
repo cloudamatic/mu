@@ -71,12 +71,20 @@ module MU
         $MU_CFG['google'].keys
       end
 
+      # Resolve the administrative Cloud Storage bucket for a given credential
+      # set, or return a default.
+      # @param credentials [String]
+      # @return [String]
       def self.adminBucketName(credentials = nil)
          #XXX find a default if this particular account doesn't have a log_bucket_name configured
         cfg = credConfig(credentials)
         cfg['log_bucket_name']
       end
 
+      # Resolve the administrative Cloud Storage bucket for a given credential
+      # set, or return a default.
+      # @param credentials [String]
+      # @return [String]
       def self.adminBucketUrl(credentials = nil)
         "gs://"+adminBucketName(credentials)+"/"
       end
