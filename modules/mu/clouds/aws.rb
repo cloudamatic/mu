@@ -148,7 +148,7 @@ module MU
         return @@myRegion_var if @@myRegion_var
         return nil if credConfig.nil? and !hosted?
 
-        if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted?
+        if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted? and !ENV['EC2_REGION']
           return nil
         end
 
