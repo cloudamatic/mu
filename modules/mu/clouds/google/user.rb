@@ -200,13 +200,13 @@ module MU
           ok = true
 
           # admin_directory only works in a GSuite environment
-          if !user['name'].match(/@/i) and $MU_CFG['google']['masquerade_as']
+          if !user['name'].match(/@/i) and MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as']
             # XXX flesh this check out, need to test with a GSuite site
             pp MU::Cloud::Google.admin_directory(credentials: user['credentials']).get_user(user['name'])
           end
 
           if user['groups'] and user['groups'].size > 0 and
-             !$MU_CFG['google']['masquerade_as']
+             !MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as']
             MU.log "Cannot change Google group memberships in non-GSuite environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
             ok = false
           end
@@ -260,7 +260,7 @@ module MU
                 req_obj
               )
             rescue ::Google::Apis::ClientError => e
-              if e.message.match(/does not exist/i) and !$MU_CFG['google']['masquerade_as']
+              if e.message.match(/does not exist/i) and !MU::Cloud::Google.credConfig(@config['credentials'])['masquerade_as']
                 raise MuError, "User #{@config['name']} does not exist, and we cannot create Google user in non-GSuite environments.\nVisit https://accounts.google.com to create new accounts."
               end
               raise e

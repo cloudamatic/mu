@@ -327,6 +327,11 @@ module MU
       # cloud.
       # @return [Boolean]
       def self.hosted?
+        if $MU_CFG.has_key?("aws_is_hosted")
+          @@is_in_aws = $MU_CFG["aws_is_hosted"]
+          return $MU_CFG["aws_is_hosted"]
+        end
+
         require 'open-uri'
 
         if !@@is_in_aws.nil?

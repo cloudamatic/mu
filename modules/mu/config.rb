@@ -1152,19 +1152,22 @@ module MU
       ok
     end
 
-    allregions = []
-    allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+# XXX this is some primitive nonsense and needs to be cloud-agnostic
+    @@allregions = []
+    @@allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
+    @@allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
 
     # Configuration chunk for choosing a provider region
     # @return [Hash]
     def self.region_primitive
-      allregions = []
-      allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+      if !@@allregions or @@allregions.empty?
+        @@allregions = []
+        @@allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
+        @@allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+      end
       {
         "type" => "string",
-        "enum" => allregions
+        "enum" => @@allregions
       }
     end
 

@@ -15,8 +15,8 @@
 module MU
   class Cloud
     class Google
-      # Creates an Google project as configured in {MU::Config::BasketofKittens::habitats}
-      class Habitat < MU::Cloud::Habitat
+      # Creates an Google project as configured in {MU::Config::BasketofKittens::folders}
+      class Folder < MU::Cloud::Folder
         @deploy = nil
         @config = nil
 
@@ -25,7 +25,7 @@ module MU
         attr_reader :cloud_id
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::habitats}
+        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::folders}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
@@ -35,44 +35,29 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          labels = {}
 
           name_string = @deploy.getResourceName(@config["name"], max_length: 30).downcase
 
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            if !value.nil?
-              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
-            end
-          }
-
-          desc = {
+          folder_obj = MU::Cloud::Google.folder(:Folder).new(
             name: name_string,
-            project_id: name_string,
-            labels: labels
-          }
-          if @config['folder'] and @config['folder']['id']
-            desc["parent"] = @config['folder']['id']
-          end
-
-          project_obj = MU::Cloud::Google.resource_manager(:Project).new(desc)
-pp project_obj
-          MU.log "Creating project #{@mu_name}", details: project_obj
-          resp = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+            display_name: name_string
+          )
+pp folder_obj
+          MU.log "Creating folder #{@mu_name}", details: folder_obj
+          resp = MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj)
 
           @cloud_id = name_string.downcase
         end
 
-        # Return the cloud descriptor for the Habitat
+        # Return the cloud descriptor for the Folder
         def cloud_desc
-          MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
+          MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first
         end
 
         # Return the metadata for this project's configuration
         # @return [Hash]
         def notify
-          desc = MU.structToHash(MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
-              filter: "name:#{cloud_id}"
-            ).projects.first)
+          desc = MU.structToHash(MU::Cloud::Google.folder(credentials: credentials).get_folder(@cloud_id))
           desc["mu_name"] = @mu_name
           desc["cloud_id"] = @cloud_id
           desc
@@ -101,15 +86,8 @@ pp project_obj
         def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           found = {}
           if cloud_id
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
-              filter: "name:#{cloud_id}"
-            ).projects.first
-            found[resp.name] = resp
+            found[cloud_id] = MU::Cloud::Google.folder(credentials: credentials).get_folder(cloud_id)
           else
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects().projects
-            resp.each { |p|
-              found[p.name] = p
-            }
           end
           
           found
@@ -125,20 +103,13 @@ pp project_obj
           [toplevel_required, schema]
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::habitats}, bare and unvalidated.
-        # @param habitat [Hash]: The resource to process and validate
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::folders}, bare and unvalidated.
+        # @param folder [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(habitat, configurator)
+        def self.validateConfig(folder, configurator)
           ok = true
 
-          if habitat['folder'] and habitat['folder']['name'] and !habitat['folder']['deploy_id']
-            habitat["dependencies"] ||= []
-            habitat["dependencies"] << {
-              "type" => "folder",
-              "name" => habitat['folder']['name']
-            }
-          end
 
           ok
         end
