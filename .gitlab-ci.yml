@@ -81,19 +81,19 @@ stages:
 #   script:
 #     - echo "BrakeMan!"
 
-# Gem Build:
-#   stage: Build
-#   script:
-#     - gem build cloud-mu.gemspec
-#     - gem install cloud-mu-*.gem
-#     - echo "Upload me places? Pehaps to rubygems?"
-#   only:
-#     - master
-#     - development
-#     - cicd_updates
-#   artifacts:
-#     paths:
-#     - cloud-mu-*.gem
+Gem Build:
+  stage: Build
+  script:
+    - gem build cloud-mu.gemspec
+    - gem install cloud-mu-*.gem
+    - echo "Upload me places? Pehaps to rubygems?"
+  only:
+    - master
+    - development
+    - cicd_updates
+  artifacts:
+    paths:
+    - cloud-mu-*.gem
 
 # Muby Build:
 #   stage: Build
