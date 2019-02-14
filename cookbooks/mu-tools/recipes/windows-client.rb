@@ -35,13 +35,13 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
 #        code <<-EOH
 #          Start-Process -wait -FilePath "#{Chef::Config[:file_cache_path]}/cygwin-x86_64.exe" -ArgumentList "-q -n -l #{Chef::Config[:file_cache_path]} -L -R c:/bin/cygwin -s http://mirror.cs.vt.edu/pub/cygwin/cygwin/ -P #{pkgs.join(",")}"
 #        EOH
-#        not_if { ::File.exists?("#{cygwindir}/Cygwin.bat") }
+#        not_if { ::File.exist?("#{cygwindir}/Cygwin.bat") }
 #      end
 
       # Be prepared to reinit installs that are missing key utilities
 #      file "#{cygwindir}/etc/setup/installed.db" do
 #        action :delete
-#        not_if { ::File.exists?("#{cygwindir}/bin/cygcheck.exe") }
+#        not_if { ::File.exist?("#{cygwindir}/bin/cygcheck.exe") }
 #      end
 
 #      pkgs.each { |pkg|

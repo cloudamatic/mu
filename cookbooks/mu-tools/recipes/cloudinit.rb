@@ -51,7 +51,7 @@ if !node['application_attributes']['skip_recipes'].include?('epel') and !node['a
   elsif platform_family?("debian")
     package "cloud-init"
   elsif platform_family?("windows")
-    Chef::Log.info ("Windows use ec2config, no cloud-init package is necessary")
+    Chef::Log.info("Windows use ec2config, no cloud-init package is necessary")
   else
     Chef::Log.info("Unsupported platform #{node['platform']}")
   end

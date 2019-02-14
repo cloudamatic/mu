@@ -4,9 +4,9 @@ stages:
   - Lint Test
   - Test
   - Security Test
+  - Build
   - Smoke Test
   - Merge/Tag
-  - Build
   - Dockerbuild
   - Deploy
   
@@ -30,13 +30,12 @@ Foodcritic:
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
-  allow_failure: true
 
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14
+    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14 -t chef15
 
 ChefSpec:
   stage: Test
@@ -75,22 +74,57 @@ Berks:
     - berks verify
     - berks outdated
 
-BrakeMan:
+.BrakeMan:
   stage: Security Test
   image: codeclimate/codeclimate-brakeman:latest
   script:
     - echo "BrakeMan!"
 
-Parser Test:
-  stage: Smoke Test
+Gem Build:
+  stage: Build
   script:
-    - mu-deploy -d modules/tests/super_simple_bok.yml
-    - mu-deploy -d modules/tests/super_complex_bok.yml
-  tags: 
-    - mu-master
+    - gem build cloud-mu.gemspec
+    - gem install cloud-mu-*.gem
+    - echo "Upload me places? Pehaps to rubygems?"
   only:
     - master
     - development
+    - cicd_updates
+  artifacts:
+    paths:
+    - cloud-mu-*.gem
+
+Muby Build:
+  stage: Build
+  image: centos
+  script: 
+    - yum -y groupinstall 'Development Tools'
+    - yum -y install rpm-build
+    #- yum -y install zlib zlib-devel openssl #THESE SHOULD BE LISTED IN THE .spec FILE
+    - yum-builddep extras/ruby_rpm/muby.spec
+    - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
+    - echo "maybe do something cool and smart here?"
+  only:
+    - master
+    - cicd_updates
+  allow_failure: true
+
+Parser Test:
+  stage: Smoke Test
+  script:
+    - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+    - gem install cloud-mu-*.gem
+    - mu-deploy -d modules/tests/super_simple_bok.yml
+    - mu-deploy -d modules/tests/super_complex_bok.yml
+  dependencies:
+  - Gem Build
+  # tags: 
+  #   - mu-master
+  only:
+    - master
+    - development
+    - cicd_updates
+  allow_failure: true
 
 Smoke Test:
   stage: Smoke Test
@@ -112,26 +146,6 @@ Merge/Tag:
     - master
     - development
 
-Gem Build:
-  stage: Build
-  script:
-    - gem build cloud-mu.gemspec
-    - gem install cloud-mu-*.gem
-    - echo "Upload me to rubygems?"
-  only:
-    - master
-    - development
-
-Muby Build:
-  stage: Build
-  image: centos
-  script: 
-    - extras/ruby_rpm/build.sh
-    - echo "maybe do something cool and smart here?"
-  only:
-    - master
-  allow_failure: true
-
 Dockerbuild:
   stage: Dockerbuild
   image: docker:latest
@@ -146,11 +160,13 @@ pages:
   script:
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - mkdir public
-  - gem build cloud-mu.gemspec
   - gem install cloud-mu-*.gem
   - ruby bin/mu-gen-docs
+  dependencies:
+  - Gem Build
   artifacts:
     paths:
     - public
   only:
   - master
+  - cicd_updates

@@ -25,8 +25,6 @@ action :add do
       configure_network_interface
       set_replication_static_ports
       set_computer_name(admin_creds)
-    when platform_family?('rhel')
-      # To do: Do Active Directory on Linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")
   end
@@ -36,8 +34,6 @@ action :remove do
   case node['platform']
     when "windows"
       demote
-    when platform_family?('rhel')
-      # To do: Do Active Directory on Linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")
   end
@@ -48,7 +44,7 @@ end
 # end
 
 def promote
-  unless is_domain_controller?(new_resource.computer_name)
+  unless domain_controller?(new_resource.computer_name)
     Chef::Log.info("Promoting #{new_resource.computer_name} to domain controller in #{new_resource.dns_name} domain")
     cmd = powershell_out("Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue; Install-ADDSDomainController -InstallDns -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -Force -Confirm:$false; Restart-Computer -Force")
     kill_ssh
@@ -58,7 +54,7 @@ def promote
 end
 
 def demote
-  if is_domain_controller?(new_resource.computer_name)
+  if domain_controller?(new_resource.computer_name)
     Chef::Log.info("Demoting domain controller #{new_resource.computer_name} in #{new_resource.dns_name} domain")
     cmd = powershell_out("Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue; Uninstall-WindowsFeature DNS; Uninstall-ADDSDomainController -Credential #{admin_creds} -LocalAdministratorPassword (convertto-securestring '#{new_resource.domain_admin_password}'  -asplaintext -force) -Force -Confirm:$false; Restart-Computer -Force")
     kill_ssh

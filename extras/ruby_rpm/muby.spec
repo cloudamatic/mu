@@ -9,6 +9,10 @@ URL: http://www.ruby-lang.org/
 Prefix: /opt/rubies
 Source: https://cache.ruby-lang.org/pub/ruby/2.5/ruby-%{version}.tar.gz
 
+BuildRequires: zlib
+BuildRequires: zlib-devel
+BuildRequires: openssl
+
 %description
 I was drunk when I wrote this spec file
     

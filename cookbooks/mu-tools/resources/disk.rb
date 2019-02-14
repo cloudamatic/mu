@@ -5,7 +5,7 @@ property :preserve_data, :kind_of => [TrueClass, FalseClass], :required => false
 property :reboot_after_create, :kind_of => [TrueClass, FalseClass], :required => false, :default => false
 property :size, Integer, default: 8
 
-actions :create
+actions :create # ~FC092
 default_action :create
 
 action :create do
@@ -24,7 +24,7 @@ action :create do
       :dev => devicename,
       :size => new_resource.size
     )
-    not_if { ::File.exists?(device) }
+    not_if { ::File.exist?(device) }
   end
 
   reboot "Rebooting after adding #{path}" do
@@ -45,7 +45,7 @@ action :create do
     # also expunge files so we don't eat up a bunch of disk space quietly
     # underneath our new mount
     command "( cd #{path} && tar -cpf - . | su -c 'cd /mnt#{backupname}/ && tar -xpf -' ) && find #{path}/ -type f -exec rm -f {} \\;"
-    only_if { ::Dir.exists?(path) and ::Dir.exists?("/mnt#{backupname}") }
+    only_if { ::Dir.exist?(path) and ::Dir.exist?("/mnt#{backupname}") }
     action :nothing
   end
 
@@ -71,7 +71,7 @@ action :create do
     end
 
     execute "/sbin/restorecon -R #{path}" do
-      only_if { ::File.exists?("/sbin/restorecon") }
+      only_if { ::File.exist?("/sbin/restorecon") }
       action :nothing
     end
 

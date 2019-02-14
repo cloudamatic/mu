@@ -28,7 +28,7 @@ default['ad']['homedir'] = "/home/%u"
 default['ad']['sites'] = []
 if !node['deployment']['vpcs'].empty?
   vpc = node['deployment']['vpcs'][node['deployment']['vpcs'].keys.first]
-  vpc['subnets'].each_pair { |name, data|
+  vpc['subnets'].each_pair { |_name, data|
     default['ad']['sites'] << {
         :name => data['name'],
         :ip_block => data['ip_block']
@@ -91,7 +91,7 @@ if node['ad']['dc_ips'].empty?
       begin
         default['ad']['dc_ips'] << resolver.getaddress(dc).to_s
       rescue Resolv::ResolvError => e
-        Chef::Log.warn ("Couldn't resolve domain controller #{dc}!")
+        Chef::Log.warn("Couldn't resolve domain controller #{dc}!")
       end
     end
   } rescue NoMethodError
