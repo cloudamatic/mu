@@ -1152,18 +1152,21 @@ module MU
       ok
     end
 
-# XXX this is some primitive nonsense and needs to be cloud-agnostic
     @@allregions = []
-    @@allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    @@allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+    MU::Cloud.supportedClouds.each { |cloud|
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      @@allregions.concat(cloudclass.listRegions())
+    }
 
     # Configuration chunk for choosing a provider region
     # @return [Hash]
     def self.region_primitive
       if !@@allregions or @@allregions.empty?
         @@allregions = []
-        @@allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-        @@allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+        MU::Cloud.supportedClouds.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          @@allregions.concat(cloudclass.listRegions())
+        }
       end
       {
         "type" => "string",

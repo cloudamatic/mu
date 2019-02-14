@@ -439,6 +439,13 @@ module MU
               end
             rescue JSON::ParserError => e
             end
+          elsif ENV['AWS_ACCESS_KEY'] and ENV['AWS_SECRET_ACCESS_KEY']
+            env_config = {
+              "region" => ENV['EC2_REGION'] || "us-east-1",
+              "access_key" => ENV['AWS_ACCESS_KEY'],
+              "access_secret" => ENV['AWS_SECRET_ACCESS_KEY']
+            }
+            return name_only ? "#default" : env_config
           end
 
           return nil

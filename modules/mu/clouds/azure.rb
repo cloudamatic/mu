@@ -71,15 +71,15 @@ module MU
       end
 
       def self.listRegions(credentials = nil)
-        "TODO"
+        []
       end
 
       def self.listAZs(region = nil)
-        "TODO"
+        []
       end
 
       def self.config_example
-        "TODO"
+        {}
       end
 
       def self.writeDeploySecret
