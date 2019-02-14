@@ -54,50 +54,6 @@ module MU
           nil
         end
 
-        def get_vpc_config(vpc_name, subnet_name, sg_name,region=@config['region'])
-          if !subnet_name.nil? and !sg_name.nil? and !vpc_name.nil?
-            ## get vpc_id
-            ## get sub_id and verify its in the same vpc 
-            ## get sg_id and verify its in the same vpc
-            ec2_client = MU::Cloud::AWS.ec2(region: region, credentials: @config['credentials'])
-            
-            vpc_filter = ec2_client.describe_vpcs({
-              filters: [{ name: 'tag-value', values: [vpc_name] }]
-            })
-            bok_vpc_id = vpc_filter.vpcs[0].vpc_id
-            
-            sub_filter = ec2_client.describe_subnets({
-              filters: [{ name: 'tag-value', values: [subnet_name] }]
-            })
-            
-            sub_id = nil 
-            sub_filter.subnets.each do |each|
-              if each.vpc_id == bok_vpc_id
-                sub_id = each.subnet_id
-                break
-              end
-            end
-            
-            sg_filter = ec2_client.describe_security_groups({
-              filters: [{ name: 'group-name', values: [sg_name] }]
-            })
-            
-
-            if sg_filter.security_groups[0].vpc_id.to_s != bok_vpc_id
-              MU.log "Security Group: #{sg_name} is not part of the VPC: #{vpc_name}", MU::ERR
-              raise MuError, "Please provide security group name that exists in the vpc"
-            end
-
-            #sub_id = sub_filter.subnets[0].subnet_id
-            sg_id = sg_filter.security_groups[0].group_id
-            return {subnet_ids: [sub_id], security_group_ids: [sg_id]}
-          else
-            MU.log "Function: #{@config['name']}, Missing either subnet_name or security_group_name or vpc_name in the vpc stanza!", MU::ERR
-            raise MuError, "Insufficient parameters for locating vpc resource ids ==> #{@config['name']}"
-          end
-        end
-
-
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
@@ -162,13 +118,19 @@ module MU
           end
 
           if @config.has_key?('vpc')
-             ### get vpc and subnet_name
-             ### find the subnet_id
-             sub_name = @config['vpc']['subnet_name']
-             vpc_name = @config['vpc']['vpc_name']
-             sg_name =  @config['vpc']['security_group_name']
-             vpc_conf = get_vpc_config(vpc_name,sub_name,sg_name)
-             lambda_properties[:vpc_config] = vpc_conf
+            MU.log @vpc.cloud_id, MU::NOTICE, details: @config['vpc']
+            sgs = []
+            if @config['add_firewall_rules']
+              @config['add_firewall_rules'].each { |sg|
+                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['rule_name'])
+                sgs << sg.cloud_id if sg and sg.cloud_id
+              }
+            end
+            lambda_properties[:vpc_config] = {
+              :subnet_ids => @config['vpc']['subnets'].map { |s| s["subnet_id"] },
+              :security_group_ids => sgs
+            }
+            pp lambda_properties[:vpc_config]
           end
 
           retries = 0
@@ -185,6 +147,7 @@ module MU
           end
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           desc = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).get_function(
             function_name: @mu_name
@@ -225,6 +188,7 @@ module MU
             }
           
           end 
+raise "feck off"
         end
 
 
@@ -356,7 +320,7 @@ module MU
             "iam_role" => {
               "type" => "string",
               "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with the AWSLambdaBasicExecutionRole policy attached. To grant other permissions for your function, create a Mu 'role' resource and use the 'import' and 'policies' parameters to add permissions. See also: https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html"
-            }
+            },
 # XXX add some canned permission sets here, asking people to get the AWS weirdness right and then translate it into Mu-speak is just too much. Think about auto-populating when a target log group is asked for, mappings for the AWS canned policies in the URL above, writes to arbitrary S3 buckets, etc
           }
           [toplevel_required, schema]
@@ -368,6 +332,34 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(function, configurator)
           ok = true
+
+          if function['vpc']
+            fwname = "lambda-#{function['name']}"
+            # default to allowing pings, if no ingress_rules were specified
+            function['ingress_rules'] ||= [ 
+              {
+                "proto" => "icmp",
+                "hosts" => ["0.0.0.0/0"]
+              }
+            ]
+            acl = {
+              "name" => fwname,
+              "rules" => function['ingress_rules'],
+              "region" => function['region'],
+              "credentials" => function['credentials'],
+              "optional_tags" => function['optional_tags']
+            }
+            acl["tags"] = function['tags'] if function['tags'] && !function['tags'].empty?
+            acl["vpc"] = function['vpc'].dup if function['vpc']
+            ok = false if !configurator.insertKitten(acl, "firewall_rules")
+            function["add_firewall_rules"] = [] if function["add_firewall_rules"].nil?
+            function["add_firewall_rules"] << {"rule_name" => fwname}
+            function['dependencies'] ||= []
+            function['dependencies'] << {
+              "name" => fwname,
+              "type" => "firewall_rule"
+            }
+          end
 
           if !function['iam_role']
             roledesc = {
