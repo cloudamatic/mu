@@ -1153,8 +1153,9 @@ module MU
     end
 
     @@allregions = []
+    MU::Cloud.supportedClouds.each { |cloud|
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      @@allregions.concat(cloudclass.listRegions)
+      @@allregions.concat(cloudclass.listRegions())
     }
 
     # Configuration chunk for choosing a provider region
@@ -1164,7 +1165,7 @@ module MU
         @@allregions = []
         MU::Cloud.supportedClouds.each { |cloud|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-          @@allregions.concat(cloudclass.listRegions)
+          @@allregions.concat(cloudclass.listRegions())
         }
       end
       {
