@@ -66,9 +66,9 @@ case node['platform']
     end
 
 # XXX this breaks Chef mid-run
-#	if Dir.exists?("C:\\chef")
+#	if Dir.exist?("C:\\chef")
 #		%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
-#			if File.exists?("C:\\chef\\#{file}")
+#			if File.exist?("C:\\chef\\#{file}")
 #				file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
 #					content IO.read("C:\\chef\\#{file}")
 #				end

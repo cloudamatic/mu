@@ -24,14 +24,14 @@ if node['deployment'].has_key?('storage_pools')
   case node['platform']
   when 'ubuntu'
     package "nfs-common"
-  when "rhel", "amazon", "centos"
+  when "rhel", "amazon", "centos" # ~FC024
     package %w{nfs-utils nfs4-acl-tools}
   end
 
   instance_identity = JSON.parse(Net::HTTP.get(URI("http://169.254.169.254/latest/dynamic/instance-identity/document")))
 
-  node['deployment']['storage_pools'].each { |name, pool|
-    pool['mount_targets'].each { |name, target|
+  node['deployment']['storage_pools'].each { |_name, pool|
+    pool['mount_targets'].each { |_name, target|
       if target['availability_zone'] == instance_identity["availabilityZone"]
       # Should also make it possible to choose a random endpoint if there isn't one for a specific AZ
 
@@ -48,7 +48,7 @@ if node['deployment'].has_key?('storage_pools')
           endpoint = target['ip_address']
         end
 
-        if node[:platform_family] == "rhel" and node[:platform_version].to_i < 6 and node['platform'] != "amazon"
+        if node['platform_family'] == "rhel" and node['platform_version'].to_i < 6 and node['platform'] != "amazon"
           service "portmap" do
             action [:enable, :start]
           end

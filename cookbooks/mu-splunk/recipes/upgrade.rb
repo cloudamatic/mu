@@ -29,7 +29,7 @@ service 'splunk_stop' do
   if node['platform_family'] != 'windows'
     service_name 'splunk'
     provider Chef::Provider::Service::Init
-    only_if { ::File.exists?("/etc/init.d/splunk") }
+    only_if { ::File.exist?("/etc/init.d/splunk") }
   else
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
@@ -40,7 +40,7 @@ service 'splunk_stop' do
     start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
     stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
     pattern "splunkd.exe"
-    only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
+    only_if { ::Dir.exist?("c:/Program Files/SplunkUniversalForwarder") }
     not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
   end
   supports :status => true
@@ -61,7 +61,7 @@ if node['platform_family'] == 'windows'
       }
     EOH
     not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
-    only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
+    only_if { ::Dir.exist?("c:/Program Files/SplunkUniversalForwarder") }
   end
 end
 
