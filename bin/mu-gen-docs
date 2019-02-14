@@ -30,9 +30,11 @@ require 'mu'
 begin
   MU.log "Using the system YARD"
   yard = `which yard`.chomp
+  pp yard
 rescue
   MU.log "Using the YARD gem"
   yard = File.dirname(Gem.ruby)+'/yard'
+  pp yard
 end
 pp yard
 MU::Config.emitSchemaAsRuby
