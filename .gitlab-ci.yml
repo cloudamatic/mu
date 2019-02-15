@@ -178,13 +178,14 @@ Gen Docs:
 GitHub Pages:
   stage: Deploy
   script:
+  - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
   - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
-  - cp -Rf public cloudamatic.github.io
+  - cp -Rf public/* cloudamatic.github.io
   - cd cloudamatic.github.io
   - git status
-  - git add .
+  - git add -a
   - git commit -m "$CI_COMMIT_MESSAGE"
-  - git push git@github.com:cloudamatic/cloudamatic.github.io.git
+  - git push origin master
   dependencies:
   - Gen Docs
   only:
