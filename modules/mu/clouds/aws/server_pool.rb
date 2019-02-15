@@ -357,6 +357,7 @@ module MU
                   newhash
                 end
                 policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
                   lb_path = nil
@@ -364,10 +365,18 @@ module MU
                   if @deploy.deployment["loadbalancers"].size > 1
                     MU.log "Multiple load balancers attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
                   end
-                  if lb["targetgroups"].size > 1
-                    MU.log "Multiple target groups attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
+                  lb_path = if lb["targetgroups"].size > 1
+                    if policy['target_tracking_configuration']["preferred_target_group"] and
+                       lb["targetgroups"][policy['target_tracking_configuration']["preferred_target_group"]]
+                      lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"][policy['target_tracking_configuration']["preferred_target_group"]].split(/:/)[5]
+                    else
+                      if policy['target_tracking_configuration']["preferred_target_group"]
+                        MU.log "preferred_target_group was set to '#{policy["preferred_target_group"]}' but I don't see a target group by that name", MU::WARN
+                      end
+                      MU.log "Multiple target groups attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN, details: lb["targetgroups"].keys
+                      lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"].values.first.split(/:/)[5]
+                    end
                   end
-                  lb_path = lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"].values.first.split(/:/)[5]
 
                   policy_params[:target_tracking_configuration][:predefined_metric_specification][:resource_label] = lb_path
                 end
@@ -653,6 +662,10 @@ module MU
                       "target_value" => {
                         "type" => "float",
                         "description" => "The target value for the metric."
+                      },
+                      "preferred_target_group" => {
+                        "type" => "string",
+                        "description" => "If our load balancer has multiple target groups, prefer the one with this name instead of choosing one arbitrarily"
                       },
                       "disable_scale_in" => {
                         "type" => "boolean",
