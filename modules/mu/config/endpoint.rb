@@ -15,15 +15,15 @@
 module MU
   class Config
     # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/api.rb
-    class Api
+    class Endpoint
 
-      # Base configuration schema for a API
+      # Base configuration schema for an Endpoint (e.g. AWS API Gateway)
       # @return [Hash]
       def self.schema
       {
         "type" => "object",
         "title" => "API Endpoint",
-        "description" => "Create a cloud API endpoint.",
+        "description" => "Create a cloud API endpoint, e.g. Amazon API Gateway",
         "required" => ["name", "cloud", "region"],
         "additionalProperties" => false,
         "properties" => {
@@ -46,11 +46,11 @@ module MU
       } 
       end
 
-      # Generic pre-processing of {MU::Config::BasketofKittens::functions}, bare and unvalidated.
-      # @param function [Hash]: The resource to process and validate
+      # Generic pre-processing of {MU::Config::BasketofKittens::endpoints}, bare and unvalidated.
+      # @param endpoint [Hash]: The resource to process and validate
       # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(function, configurator)
+      def self.validate(endpoint, configurator)
         ok = true
 
         ok

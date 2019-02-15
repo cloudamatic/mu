@@ -117,7 +117,7 @@ module MU
     class Role;
     end
     # Stub base class; real implementations generated at runtime
-    class Api;
+    class Endpoint;
     end
 
     # The types of cloud resources we can create, as class objects. Include
@@ -278,12 +278,12 @@ module MU
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
       },
-      :Api => {
+      :Endpoint => {
         :has_multiples => false,
         :can_live_in_vpc => true,
-        :cfg_name => "api",
-        :cfg_plural => "apis",
-        :interface => self.const_get("Api"),
+        :cfg_name => "endpoint",
+        :cfg_plural => "endpoints",
+        :interface => self.const_get("Endpoint"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,

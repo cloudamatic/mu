@@ -1,8 +1,8 @@
 module MU
   class Cloud
     class AWS
-      # An API as configured in {MU::Config::BasketofKittens::apis}
-      class Api < MU::Cloud::Api
+      # An API as configured in {MU::Config::BasketofKittens::endpoints}
+      class Endpoint < MU::Cloud::Endpoint
         @deploy = nil
         @config = nil
         attr_reader :mu_name
@@ -13,7 +13,7 @@ module MU
         attr_reader :cloudformation_data
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::apis}
+        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::endpoints}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
@@ -168,11 +168,22 @@ module MU
           [toplevel_required, schema]
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::apis}, bare and unvalidated.
-        # @param api [Hash]: The resource to process and validate
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
+        def arn
+          nil
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::endpoints}, bare and unvalidated.
+        # @param endpoint [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(api, configurator)
+        def self.validateConfig(endpoint, configurator)
           ok = true
 #          if something_bad
 #            ok = false
