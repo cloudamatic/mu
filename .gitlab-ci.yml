@@ -177,10 +177,11 @@ GitHub Pages:
   stage: Deploy
   image: alpine/git
   script:
-  - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
+  - echo "hello"
+  # - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
   - ls public
-  - cd cloudamatic.github.io
-  - git status
+  # - cd cloudamatic.github.io
+  # - git status
   dependencies:
   - Gen Docs
   only:
