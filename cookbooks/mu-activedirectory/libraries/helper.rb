@@ -17,7 +17,7 @@ module Activedirectory
       return cmd.stdout.match(/True/)
     end
 
-    def is_domain_controller?(hostname)
+    def domain_controller?(hostname)
       # cmd = powershell_out("(Get-ADDomainController).name -eq '#{new_resource.computer_name}'")
       cmd = powershell_out("(Get-ADDomainController).name -eq '#{hostname}'")
       return cmd.stdout.match(/True/)
@@ -73,7 +73,7 @@ module Activedirectory
       return cmd.stdout.match(/True/)
     end
 
-    def is_schemamaster?(domain_name, hostname)
+    def schemamaster?(domain_name, hostname)
       cmd = powershell_out("(Get-ADForest #{domain_name}).SchemaMaster -eq '#{hostname.downcase}.#{domain_name}'")
       return cmd.stdout.match(/True/)
     end

@@ -22,8 +22,6 @@ action :create do
       create_domain
       configure_network_interface
       configure_domain
-    when platform_family?('rhel')
-      # To do: Do Active Directory on Linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")
   end
@@ -33,8 +31,6 @@ action :delete do
   case node['platform']
     when "windows"
       delete_domain
-    when platform_family?('rhel')
-      # To do: Do Active Directory on Linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")
   end

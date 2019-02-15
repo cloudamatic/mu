@@ -37,7 +37,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
   end
 
   case node['platform']
-    when "rhel", "centos", "amazon"
+    when "rhel", "centos", "amazon" # ~FC024
       template "/etc/sysconfig/network" do
         source "etc_sysconfig_network.erb"
         notifies :run, "execute[set hostname]", :immediately if elversion != 7
@@ -47,7 +47,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
         )
       end
 
-      if elversion == 7 and File.exists?("/etc/cloud/cloud.cfg")
+      if elversion == 7 and File.exist?("/etc/cloud/cloud.cfg")
         execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
           not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
         end

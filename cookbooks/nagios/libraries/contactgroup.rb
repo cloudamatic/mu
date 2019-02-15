@@ -84,7 +84,7 @@ class Nagios
         end
       end
     end
-    # rubocop:enable MethodLength
+    
 
     def to_s
       contactgroup_name

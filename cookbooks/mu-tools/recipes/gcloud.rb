@@ -70,7 +70,7 @@ if platform_family?("rhel")
       EOH
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.sh]", :before
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz]", :before
-      not_if { ::File.exists?("/opt/google-cloud-sdk/bin/gcloud") }
+      not_if { ::File.exist?("/opt/google-cloud-sdk/bin/gcloud") }
     end
     link "/etc/bash_completion.d/gcloud" do
       to "/opt/google-cloud-sdk/completion.bash.inc"
@@ -91,7 +91,7 @@ elsif platform_family?("debian")
       curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
       sudo apt-get update
     EOH
-    not_if { ::File.exists?("/etc/apt/sources.list.d/google-cloud-sdk.list") }
+    not_if { ::File.exist?("/etc/apt/sources.list.d/google-cloud-sdk.list") }
   end
   package "google-cloud-sdk"
 else

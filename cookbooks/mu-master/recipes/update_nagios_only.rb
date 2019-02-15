@@ -102,7 +102,7 @@ nagios_policies.each { |policy|
 
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
 # URL at the moment, so copy it where it's actually looking.
-if File.exists?("/usr/lib/cgi-bin/nagios/statusjson.cgi")
+if File.exist?("/usr/lib/cgi-bin/nagios/statusjson.cgi")
   remote_file "/usr/lib/cgi-bin/statusjson.cgi" do
     source "file:///usr/lib/cgi-bin/nagios/statusjson.cgi"
     mode 0755
@@ -155,7 +155,7 @@ end
 ["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
   execute "/sbin/restorecon -R #{dir}" do
     not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
-    only_if { ::File.exists?(dir) }
+    only_if { ::File.exist?(dir) }
   end
 }
 

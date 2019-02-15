@@ -23,8 +23,6 @@ case node['platform']
     else
       Chef::Log.info "Requires Windows Server 2012 or 2012R2, current version is #{version})"
     end
-  when platform_family?('rhel')
-    # To do: Active Directory on Linux
   else
     Chef::Log.info("Unsupported platform #{node['platform']}")
 end

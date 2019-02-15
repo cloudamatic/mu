@@ -1,6 +1,6 @@
 resource_name :sshd_service
 
-property :name, String, name_property: true
+property :name, String, name_property: true # ~FC108
 property :username, String, required: true
 property :password, String, required: true
 property :service_username, String, required: true

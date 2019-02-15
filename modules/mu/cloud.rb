@@ -523,7 +523,7 @@ module MU
       begin
         require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
       rescue LoadError => e
-        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}"
+        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}, or implementation does not load correctly (#{e.message})"
       end
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin

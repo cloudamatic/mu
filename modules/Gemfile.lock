@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (2.0.0.pre.alpha3)
+    cloud-mu (2.0.0.pre.alpha7)
       addressable (~> 2.5)
       aws-sdk-core (< 3)
       bundler (~> 1.17)
@@ -23,6 +23,8 @@ PATH
       inifile (~> 3.0)
       json-schema (~> 2.8)
       net-ldap (~> 0.16)
+      net-ssh (~> 4.2)
+      net-ssh-multi (~> 1.2, >= 1.2.1)
       netaddr (~> 2.0)
       nokogiri (~> 1.8)
       optimist (~> 3.0)
@@ -380,7 +382,6 @@ DEPENDENCIES
   foodcritic (~> 14.1.0)
   knife-windows!
   mysql2
-  net-ssh (~> 4.2)
   pg (~> 0.18.4)
   rack
   ruby-wmi

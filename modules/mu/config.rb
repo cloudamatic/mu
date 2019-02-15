@@ -1152,19 +1152,25 @@ module MU
       ok
     end
 
-    allregions = []
-    allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+    @@allregions = []
+    MU::Cloud.supportedClouds.each { |cloud|
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      @@allregions.concat(cloudclass.listRegions())
+    }
 
     # Configuration chunk for choosing a provider region
     # @return [Hash]
     def self.region_primitive
-      allregions = []
-      allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+      if !@@allregions or @@allregions.empty?
+        @@allregions = []
+        MU::Cloud.supportedClouds.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          @@allregions.concat(cloudclass.listRegions())
+        }
+      end
       {
         "type" => "string",
-        "enum" => allregions
+        "enum" => @@allregions
       }
     end
 
@@ -1627,9 +1633,9 @@ module MU
           if MU::Cloud::Google.myRegion((kitten['credentials'])).nil?
             raise ValidationError, "Google '#{type}' resource '#{kitten['name']}' declared without a region, but no default Google region declared in mu.yaml under #{kitten['credentials'].nil? ? "default" : kitten['credentials']} credential set" 
           end
-          kitten['region'] ||= MU::Cloud::Google.myRegion(kitten['credentials'])
+          kitten['region'] ||= MU::Cloud::Google.myRegion
         end
-      elsif !resclass.isGlobal?
+      elsif kitten["cloud"] == "AWS" and !resclass.isGlobal?
         if MU::Cloud::AWS.myRegion.nil?
           raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end

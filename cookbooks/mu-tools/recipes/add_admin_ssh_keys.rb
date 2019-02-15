@@ -24,7 +24,7 @@ if node['deployment']['admins']
   end rescue NoMethodError
   ssh_user = 'root' if ssh_user.nil?
   ssh_dir = "#{Etc.getpwnam(ssh_user).dir}/.ssh"
-  node['deployment']['admins'].each_pair { |name, admin|
+  node['deployment']['admins'].each_pair { |_name, admin|
     if !admin['public-key'].nil?
       execute "Add #{admin.name}'s ssh key to #{ssh_dir}/authorized_keys" do
         not_if "grep '^#{admin['public-key']}$' #{ssh_dir}/authorized_keys"

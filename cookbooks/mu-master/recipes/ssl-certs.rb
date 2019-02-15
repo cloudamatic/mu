@@ -25,7 +25,7 @@
 include_recipe 'mu-master::firewall-holes'
 service_certs = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
 
-directory "#{$MU_CFG['datadir']}"
+directory $MU_CFG['datadir']
 directory "#{$MU_CFG['datadir']}/ssl"
 template "#{$MU_CFG['datadir']}/ssl/openssl.cnf" do
   source "openssl.cnf.erb"
@@ -41,7 +41,7 @@ end
 execute "generate SSL CA key" do
   command "openssl genrsa -out Mu_CA.key 4096"
   cwd "#{$MU_CFG['datadir']}/ssl"
-  not_if { ::File.exists?("#{$MU_CFG['datadir']}/ssl/Mu_CA.key") }
+  not_if { ::File.exist?("#{$MU_CFG['datadir']}/ssl/Mu_CA.key") }
   notifies :delete, "file[#{$MU_CFG['datadir']}/ssl/CA-command.txt]", :immediately
 end
 file "#{$MU_CFG['datadir']}/ssl/Mu_CA.key" do
