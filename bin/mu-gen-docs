@@ -37,14 +37,21 @@ end
 
 MU::Config.emitSchemaAsRuby
 
+mu_root = MU.myRoot
 
+$IN_GEM = false
+if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
+  $IN_GEM = true
+  require 'gem-path'
+  mu_root = `gem-path cloud-mu`.chomp
+end
 
 MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
 File.umask(0022)
 # exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} #{yard} doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; #{yard} stats --list-undoc modules"
 
-MU.log "My Mu root is #{MU.myRoot}"
+MU.log "My Mu gem is #{$IN_GEM}"
 
-pp `ls #{MU.myRoot}`
+pp `ls #{mu_root}`
 
-exec "cd #{MU.myRoot} #{yard} doc modules -m markdown -o /var/www/html/docs"
+exec "cd #{mu_root} #{yard} doc modules -m markdown -o /var/www/html/docs"
