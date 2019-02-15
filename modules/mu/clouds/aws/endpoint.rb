@@ -43,13 +43,31 @@ module MU
           )
           root_resource = resp.items.first.id
 
-          # TODO guard this crap
+          # TODO guard this crap so we don't touch it if there are no changes
           @config['methods'].each { |m|
+            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
+              rest_api_id: @cloud_id
+            )
+            ext_resource = nil
+            resp.items.each { |resource|
+              if resource.path_part == m['path']
+                ext_resource = resource.id
+              end
+            }
+
+            if ext_resource
+              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).delete_resource(
+                rest_api_id: @cloud_id,
+                resource_id: ext_resource
+              )
+            end
+
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_resource(
               rest_api_id: @cloud_id,
               parent_id: root_resource,
               path_part: m['path']
             )
+
             parent_id = resp.id
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method(
               rest_api_id: @cloud_id,
@@ -57,17 +75,19 @@ module MU
               authorization_type: m['auth'],
               http_method: m['type']
             )
+            
+            pp m
 
 # "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:616552976502:function:m3api/invocations",
 
-            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
-              rest_api_id: @cloud_id,
-              resource_id: parent_id,
-              type: "AWS",
-              http_method: m['type'],
-              integration_http_method: m['type'],
-              uri: ""
-            )
+#            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
+#              rest_api_id: @cloud_id,
+#              resource_id: parent_id,
+#              type: "AWS",
+#              http_method: m['type'],
+#              integration_http_method: m['type'],
+#              uri: ""
+#            )
           }
         end
 
@@ -75,21 +95,22 @@ module MU
         def groom
           generate_methods
 
-          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
-            rest_api_id: @cloud_id,
-            stage_name: @deploy.environment,
-#            cache_cluster_enabled: false,
-#            cache_cluster_size: 0.5,
-          )
-          deployment_id = resp.id
+#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
+#            rest_api_id: @cloud_id,
+#            stage_name: @deploy.environment,
+##            cache_cluster_enabled: false,
+##            cache_cluster_size: 0.5,
+#          )
+#          deployment_id = resp.id
+#
+#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_stage(
+#            rest_api_id: @cloud_id,
+#            stage_name: @deploy.environment,
+#            deployment_id: deployment_id,
+##            cache_cluster_enabled: false,
+##            cache_cluster_size: 0.5,
+#          )
 
-          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_stage(
-            rest_api_id: @cloud_id,
-            stage_name: @deploy.environment,
-            deployment_id: deployment_id,
-#            cache_cluster_enabled: false,
-#            cache_cluster_size: 0.5,
-          )
 # deployment => stage
 #          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_authorizer(
 #            rest_api_id: @cloud_id,
