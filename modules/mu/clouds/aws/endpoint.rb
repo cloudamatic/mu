@@ -23,7 +23,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          resp = MU::Cloud::AWS.apig(@config['region']).create_rest_api(
+          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_rest_api(
             name: @mu_name,
             description: @deploy.deploy_id
           )
@@ -34,26 +34,26 @@ module MU
         end
 
         def generate_methods
-          resp = MU::Cloud::AWS.apig(@config['region']).get_resources(
+          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
             rest_api_id: @cloud_id,
           )
           root_resource = resp.items.first.id
 
           # TODO guard this crap
           @config['methods'].each { |m|
-            resp = MU::Cloud::AWS.apig(@config['region']).create_resource(
+            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_resource(
               rest_api_id: @cloud_id,
               parent_id: root_resource,
               path_part: m['path']
             )
             parent_id = resp.id
-            resp = MU::Cloud::AWS.apig(@config['region']).put_method(
+            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method(
               rest_api_id: @cloud_id,
               resource_id: parent_id,
               authorization_type: m['auth'],
               http_method: m['type']
             )
-            resp = MU::Cloud::AWS.apig(@config['region']).put_integration(
+            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
               rest_api_id: @cloud_id,
               resource_id: parent_id,
               type: "HTTP",
@@ -66,7 +66,7 @@ module MU
         def groom
           generate_methods
 
-          resp = MU::Cloud::AWS.apig(@config['region']).create_deployment(
+          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
             rest_api_id: @cloud_id,
             stage_name: @deploy.environment,
 #            cache_cluster_enabled: false,
@@ -74,7 +74,7 @@ module MU
           )
           deployment_id = resp.id
 
-          resp = MU::Cloud::AWS.apig(@config['region']).create_stage(
+          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_stage(
             rest_api_id: @cloud_id,
             stage_name: @deploy.environment,
             deployment_id: deployment_id,
@@ -82,18 +82,18 @@ module MU
 #            cache_cluster_size: 0.5,
           )
 # deployment => stage
-#          resp = MU::Cloud::AWS.apig(@config['region']).create_authorizer(
+#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_authorizer(
 #            rest_api_id: @cloud_id,
 #          )
 
-#          resp = MU::Cloud::AWS.apig(@config['region']).create_vpc_link(
+#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_vpc_link(
 #          )
  
         end
 
         # @return [Struct]
         def cloud_desc
-          MU::Cloud::AWS.apig(@config['region']).get_rest_api(
+          MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_rest_api(
             rest_api_id: @cloud_id
           )
         end
@@ -111,15 +111,15 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          resp = MU::Cloud::AWS.apig(region).get_rest_apis
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          resp = MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_apis
           if resp and resp.items
             resp.items.each { |api|
               # The stupid things don't have tags
               if api.description == MU.deploy_id
                 MU.log "Deleting API Gateway #{api.name} (#{api.id})"
                 if !noop
-                  MU::Cloud::AWS.apig(region).delete_rest_api(
+                  MU::Cloud::AWS.apig(region: region, credentials: credentials).delete_rest_api(
                     rest_api_id: api.id
                   )
                 end
@@ -133,13 +133,13 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching API.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           if cloud_id
-            return MU::Cloud::AWS.apig(@config['region']).get_rest_api(
+            return MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_api(
               rest_api_id: cloud_id
             )
           end
-#          resp = MU::Cloud::AWS.apig(region).get_rest_apis
+#          resp = MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_apis
 #          if resp and resp.items
 #            resp.items.each { |api|
 #            }
