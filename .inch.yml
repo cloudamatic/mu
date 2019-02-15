@@ -1,0 +1,12 @@
+files:
+  # define files included in the analysis (defaults to ["{app,lib}/**/*.rb"])
+  included:
+    - modules/**/*.rb
+    - modules/mu/**/*.rb
+    - modules/mu/clouds/**/*.rb
+    - modules/mu/config/**/*.rb
+    - modules/mu/defaults/**/*.rb
+    - modules/mu/groomers/**/*.rb
+    - modules/mu/master/**/*.rb
+    - bin/*
+  # define files excluded from the analysis (defaults to [])
