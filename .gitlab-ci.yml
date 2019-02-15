@@ -158,7 +158,7 @@ Gen Docs:
   - Gem Build
   artifacts:
     paths:
-    - /var/www/html/docs
+    - /var/www/html/docs/*
 
 
 # Dockerbuild:
