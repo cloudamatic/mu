@@ -35,7 +35,7 @@ Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14 -t chef15
+    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15
 
 ChefSpec:
   stage: Test
@@ -52,6 +52,7 @@ Rspec:
     - gem install rspec
     - cd ../
     - rspec
+  allow_failure: true
 
 New_Berks:
   stage: Test
@@ -74,22 +75,15 @@ Berks:
     - berks verify
     - berks outdated
 
-.BrakeMan:
-  stage: Security Test
-  image: codeclimate/codeclimate-brakeman:latest
-  script:
-    - echo "BrakeMan!"
-
 Gem Build:
   stage: Build
   script:
     - gem build cloud-mu.gemspec
-    - gem install cloud-mu-*.gem
     - echo "Upload me places? Pehaps to rubygems?"
   only:
     - master
     - development
-    - cicd_updates
+    - gen_docs
   artifacts:
     paths:
     - cloud-mu-*.gem
@@ -100,16 +94,15 @@ Muby Build:
   script: 
     - yum -y groupinstall 'Development Tools'
     - yum -y install rpm-build
-    #- yum -y install zlib zlib-devel openssl #THESE SHOULD BE LISTED IN THE .spec FILE
-    - yum-builddep extras/ruby_rpm/muby.spec
+    - yum-builddep -y extras/ruby_rpm/muby.spec
     - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
     - echo "maybe do something cool and smart here?"
   only:
     - master
-    - cicd_updates
+    - development
   allow_failure: true
 
-Parser Test:
+Gem Parser Test:
   stage: Smoke Test
   script:
     - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
@@ -118,12 +111,9 @@ Parser Test:
     - mu-deploy -d modules/tests/super_complex_bok.yml
   dependencies:
   - Gem Build
-  # tags: 
-  #   - mu-master
   only:
     - master
     - development
-    - cicd_updates
   allow_failure: true
 
 Smoke Test:
@@ -138,15 +128,7 @@ Smoke Test:
     - development
   when: manual
 
-Merge/Tag:
-  stage: Merge/Tag
-  script:
-    - echo "Merge and tag here"
-  only:
-    - master
-    - development
-
-Dockerbuild:
+.Dockerbuild:
   stage: Dockerbuild
   image: docker:latest
   script:
@@ -155,18 +137,54 @@ Dockerbuild:
     - master
     - development
 
+Gen Docs:
+  stage: Merge/Tag
+  script:
+  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+  - gem install cloud-mu-*.gem
+  - ruby bin/mu-gen-docs
+  - mkdir public
+  - cp -Rf /var/www/html/docs/* public
+  - ls public
+  dependencies:
+  - Gem Build
+  only:
+  - master
+  - development
+  - gen_docs
+  artifacts:
+    paths:
+    - public/
+
+.GitHub Pages:
+  stage: Deploy
+  image: bitnami/git:latest
+  script:
+  - echo "Hello I am going to push to GitHub"
+  - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+  - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
+  - cp -Rf public/* cloudamatic.github.io
+  - cd cloudamatic.github.io
+  - git status
+  - git add -a
+  - git commit -m "$CI_COMMIT_MESSAGE"
+  - git push origin master
+  dependencies:
+  - Gen Docs
+  only:
+  - master
+  - gen_docs
+  allow_failure: true
+
 pages:
   stage: Deploy
   script:
-  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-  - mkdir public
-  - gem install cloud-mu-*.gem
-  - ruby bin/mu-gen-docs
+  - ls public
   dependencies:
-  - Gem Build
+  - Gen Docs
   artifacts:
     paths:
     - public
   only:
   - master
-  - cicd_updates
+  - gen_docs

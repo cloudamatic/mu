@@ -145,7 +145,7 @@ class Nagios
         end
       end
     end
-    # rubocop:enable MethodLength
+    
 
     def push_dependency(obj)
       case obj
@@ -201,7 +201,7 @@ class Nagios
         'notification_failure_criteria'    => 'notification_failure_criteria',
       }
     end
-    # rubocop:enable MethodLength
+    
 
     def merge_members(obj)
       obj.host_name.each { |m| push(m) }

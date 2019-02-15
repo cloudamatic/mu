@@ -146,9 +146,8 @@ module MU
       # decide what our default region is.
       def self.myRegion
         return @@myRegion_var if @@myRegion_var
-        return nil if credConfig.nil? and !hosted?
 
-        if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted?
+        if credConfig.nil? and !hosted? and !ENV['EC2_REGION']
           return nil
         end
 
@@ -439,6 +438,14 @@ module MU
               end
             rescue JSON::ParserError => e
             end
+          elsif ENV['AWS_ACCESS_KEY_ID'] and ENV['AWS_SECRET_ACCESS_KEY']
+            env_config = {
+              "region" => ENV['EC2_REGION'] || "us-east-1",
+              "access_key" => ENV['AWS_ACCESS_KEY_ID'],
+              "access_secret" => ENV['AWS_SECRET_ACCESS_KEY'],
+              "log_bucket_name" => "mu-placeholder-bucket-name"
+            }
+            return name_only ? "#default" : env_config
           end
 
           return nil

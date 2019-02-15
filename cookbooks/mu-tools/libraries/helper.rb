@@ -242,7 +242,7 @@ module Mutools
         http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
         response = http.request(req)
         if response.code != "200"
-          Chef::Log.error("Got #{response.code.to_s} back from #{uri} on #{action} => #{arg}")
+          Chef::Log.error("Got #{response.code} back from #{uri} on #{action} => #{arg}")
         end
       rescue EOFError => e
         # Sometimes deployment metadata is incomplete and missing a
