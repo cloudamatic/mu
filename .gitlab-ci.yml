@@ -186,6 +186,7 @@ GitHub Pages:
   only:
   - master
   - cicd_updates
+  allow_failure: true
 
 pages:
   stage: Deploy
