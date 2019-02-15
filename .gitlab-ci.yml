@@ -147,6 +147,15 @@ Gem Build:
 #     - master
 #     - development
 
+# Dockerbuild:
+#   stage: Dockerbuild
+#   image: docker:latest
+#   script:
+#     - echo "Build Mu Docker Container"
+#   only:
+#     - master
+#     - development
+
 Gen Docs:
   stage: Merge/Tag
   script:
@@ -158,28 +167,24 @@ Gen Docs:
   - ls public
   dependencies:
   - Gem Build
+  only:
+  - master
+  - development
+  - cicd_updates
   artifacts:
     paths:
     - public/
 
-
-# Dockerbuild:
-#   stage: Dockerbuild
-#   image: docker:latest
-#   script:
-#     - echo "Build Mu Docker Container"
-#   only:
-#     - master
-#     - development
-
 GitHub Pages:
   stage: Deploy
   script:
-  - echo "hello"
   - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
-  - ls public
+  - cp -Rf public cloudamatic.github.io
   - cd cloudamatic.github.io
   - git status
+  - git add .
+  - git commit -m "$CI_COMMIT_MESSAGE"
+  - git push git@github.com:cloudamatic/cloudamatic.github.io.git
   dependencies:
   - Gen Docs
   only:
