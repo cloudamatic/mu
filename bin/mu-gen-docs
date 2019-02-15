@@ -26,11 +26,17 @@ require 'optimist'
 require 'json-schema'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
-require 'yard'
 
-bindir = File.dirname(Gem.ruby)
+begin
+  MU.log "Using the system YARD"
+  yard = `which yard`.chomp
+rescue
+  MU.log "Using the YARD gem"
+  yard = File.dirname(Gem.ruby)+'/yard'
+end
 
 MU::Config.emitSchemaAsRuby
 MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
 File.umask(0022)
-exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} #{bindir}/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; #{bindir}/yard stats --list-undoc modules"
+exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} #{yard} doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; #{yard} stats --list-undoc modules"
+# exec "cd #{MU.myRoot} && #{yard} doc modules -m markdown -o /var/www/html/docs"
