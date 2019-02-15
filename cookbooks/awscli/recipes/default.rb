@@ -13,7 +13,7 @@ case node['platform']
 end
 r = execute "install awscli" do
   command cmd
-  not_if { ::File.exists?(file) }
+  not_if { ::File.exist?(file) }
   if node['awscli']['compile_time']
     action :nothing
   end
@@ -30,7 +30,7 @@ if node['awscli']['config_profiles']
     owner 'root'
     group 'root'
     mode 00700
-    not_if { ::File.exists?(::File.dirname(config_file)) }
+    not_if { ::File.exist?(::File.dirname(config_file)) }
     if node['awscli']['compile_time']
       action :nothing
     end
@@ -44,7 +44,7 @@ if node['awscli']['config_profiles']
     owner 'root'
     group 'root'
     source 'config.erb'
-    not_if { ::File.exists?(config_file) }
+    not_if { ::File.exist?(config_file) }
     if node['awscli']['compile_time']
       action :nothing
     end

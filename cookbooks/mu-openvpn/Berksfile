@@ -1,0 +1,11 @@
+source 'https://supermarket.chef.io'
+source chef_repo: ".."
+
+metadata
+
+# Mu Cookbooks
+cookbook 'mu-utility'
+cookbook 'mu-firewall'
+
+# Supermarket Cookbooks
+cookbook 'chef-vault', '~> 3.1.1'

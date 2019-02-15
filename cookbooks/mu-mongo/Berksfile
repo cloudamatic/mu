@@ -1,0 +1,10 @@
+source 'https://supermarket.chef.io'
+source chef_repo: ".."
+
+metadata
+
+# Mu Cookbooks
+
+# Supermarket Cookbooks
+cookbook 'mongodb', '~> 0.16.2'
+cookbook 'chef-vault', '~> 3.1.1'

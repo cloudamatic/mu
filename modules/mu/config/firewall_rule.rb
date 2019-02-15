@@ -37,11 +37,7 @@ module MU
             },
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::NO_SUBNETS, MU::Config::VPC::NO_NAT_OPTS),
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "self_referencing" => {
                 "type" => "boolean",
                 "default" => false

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 require 'syslog'
+require 'pp'
 # ANSI colors
 require 'colorize'
 # HTML colors
@@ -81,6 +82,8 @@ module MU
       caller_name.sub!(/^#{mod_root}/, "")
       caller_name.sub!(/^#{bin_root}/, "")
       caller_name.sub!(/\.r[ub]$/, "")
+      caller_name.sub!(/#{Regexp.quote(MU.myRoot)}\//, "")
+      caller_name.sub!(/^modules\//, "")
 
       time = Time.now.strftime("%b %d %H:%M:%S").to_s
 

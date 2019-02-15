@@ -74,7 +74,7 @@ module MU
             instance_type: "CLOUD_SQL_INSTANCE" # TODO: READ_REPLICA_INSTANCE
           )
           pp instance_desc
-          pp MU::Cloud::Google.sql.insert_instance(@config['project'], instance_desc)
+          pp MU::Cloud::Google.sql(credentials: @config['credentials']).insert_instance(@config['project'], instance_desc)
         end
 
         # Locate an existing Database or Databases and return an array containing matching GCP resource descriptors for those that match.
@@ -84,7 +84,8 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -103,19 +104,27 @@ module MU
         def allowHost(cidr)
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
-          instances = MU::Cloud::Google.sql.list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          skipsnapshots||= flags["skipsnapshots"]
+          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
           if instances and instances.items
             instances.items.each { |instance|
               MU.log "Deleting Cloud SQL instance #{instance.name}"
-              MU::Cloud::Google.sql.delete_instance(flags['project'], instance.name) if !noop
+              MU::Cloud::Google.sql(credentials: credentials).delete_instance(flags['project'], instance.name) if !noop
             }
           end
         end

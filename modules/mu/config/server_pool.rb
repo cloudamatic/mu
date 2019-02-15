@@ -41,11 +41,7 @@ module MU
             "min_size" => {"type" => "integer"},
             "max_size" => {"type" => "integer"},
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "desired_capacity" => {
                 "type" => "integer",
                 "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
@@ -184,7 +180,9 @@ module MU
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(pool)
 
-        pool['dependencies'] << configurator.adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
+        if !pool['scrub_mu_isms']
+          pool['dependencies'] << configurator.adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'], credentials: pool['credentials'])
+        end
 
         if !pool["vpc"].nil?
           if !pool["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(pool["vpc"]["subnet_name"])

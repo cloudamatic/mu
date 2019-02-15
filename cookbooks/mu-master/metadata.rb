@@ -7,7 +7,7 @@ long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
-version '0.9.0'
+version '0.9.2'
 
 %w( centos ).each do |os|
 	supports os
@@ -18,7 +18,7 @@ depends 'nrpe', '~> 2.0.3'
 depends 'mu-utility'
 depends 'mu-tools'
 depends 'mu-activedirectory'
-depends 's3fs', '~> 3.0.1'
+depends 's3fs'
 depends 'postfix', '~> 5.3.1'
 depends 'bind', '~> 2.2.0'
 depends 'bind9-ng', '~> 0.1.0'

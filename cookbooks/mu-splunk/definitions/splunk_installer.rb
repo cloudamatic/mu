@@ -75,7 +75,7 @@ define :splunk_installer, :url => nil do
   begin
     resources('package['+params[:name]+']')
   rescue Chef::Exceptions::ResourceNotFound
-    package params[:name] do
+    package params[:name] do # ~FC109
       source cached_package.gsub(/\.Z/, '')
       notifies :create, "remote_file[#{cached_package}]", :before
       notifies :delete, "file[#{cached_package} cleanup]", :immediately

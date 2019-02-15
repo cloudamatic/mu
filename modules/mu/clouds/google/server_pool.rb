@@ -76,7 +76,7 @@ module MU
 #            machine_type: "zones/"+az+"/machineTypes/"+size,
             machine_type: size,
             labels: labels,
-            disks: MU::Cloud::Google::Server.diskConfig(@config, false, false),
+            disks: MU::Cloud::Google::Server.diskConfig(@config, false, false, credentials: @config['credentials']),
             network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
             metadata: {
               :items => [
@@ -94,7 +94,7 @@ module MU
           )
 
           MU.log "Creating instance template #{@mu_name}", details: template_obj
-          template = MU::Cloud::Google.compute.insert_instance_template(
+          template = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance_template(
             @config['project'],
             template_obj
           )
@@ -116,7 +116,7 @@ module MU
           )
 
           MU.log "Creating region instance group manager #{@mu_name}", details: mgr_obj
-          mgr = MU::Cloud::Google.compute.insert_region_instance_group_manager(
+          mgr = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_instance_group_manager(
             @config['project'],
             @config['region'],
             mgr_obj
@@ -142,7 +142,7 @@ module MU
           )
 
           MU.log "Creating autoscaler policy #{@mu_name}", details: scaler_obj
-          MU::Cloud::Google.compute.insert_region_autoscaler(
+          MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_autoscaler(
             @config['project'],
             @config['region'],
             scaler_obj
@@ -165,7 +165,8 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           MU.log "XXX ServerPool.find not yet implemented", MU::WARN
           return {}
         end
@@ -226,7 +227,7 @@ module MU
 
             real_image = nil
             begin
-              real_image = MU::Cloud::Google::Server.fetchImage(launch['image_id'].to_s)
+              real_image = MU::Cloud::Google::Server.fetchImage(launch['image_id'].to_s, credentials: pool['credentials'])
             rescue ::Google::Apis::ClientError => e
               MU.log e.inspect, MU::WARN
             end
@@ -242,17 +243,24 @@ module MU
           ok
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
         # Remove all autoscale groups associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           if !flags["global"]
             ["region_autoscaler", "region_instance_group_manager"].each { |type|
-              MU::Cloud::Google.compute.delete(
+              MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["project"],
                 region,
@@ -260,7 +268,7 @@ module MU
               )
             }
           else
-            MU::Cloud::Google.compute.delete(
+            MU::Cloud::Google.compute(credentials: credentials).delete(
               "instance_template",
               flags["project"],
               noop

@@ -39,3 +39,15 @@ search_domains:
 databases:
 -
   <%= include("../mu/config/database.yml") %>
+
+container_clusters:
+-
+  <%= include("../mu/config/container_cluster.yml") %>
+
+cache_clusters:
+-
+  <%= include("../mu/config/cache_cluster.yml") %>
+
+notifiers:
+-
+  <%= include("../mu/config/notifier.yml") %>

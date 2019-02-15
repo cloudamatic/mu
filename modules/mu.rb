@@ -70,7 +70,7 @@ module MU
   if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
     ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
   else
-    ENV['MU_LIBDIR'] = "/opt/mu/lib"
+    ENV['MU_LIBDIR'] = File.realpath(File.expand_path(File.dirname(__FILE__))+"/../")
   end
   # Mu's installation directory.
   @@myRoot = File.expand_path(ENV['MU_LIBDIR'])
@@ -79,6 +79,7 @@ module MU
   def self.myRoot;
     @@myRoot
   end
+
 
   # The main (root) Mu user's data directory.
   @@mainDataDir = File.expand_path(@@myRoot+"/../var")
@@ -290,6 +291,7 @@ module MU
   # cleanup, etc.
   SUMMARY = 5.freeze
 
+
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
   autoload :MommaCat, 'mu/mommacat'
@@ -297,10 +299,49 @@ module MU
   require 'mu/cloud'
   require 'mu/groomer'
 
-  @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
-  @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
-  @@mu_public_addr = @@my_public_ip
-  @@mu_public_ip = @@my_public_ip
+  # Little hack to initialize library-only environments' config files
+  if !$MU_CFG
+    require "#{@@myRoot}/bin/mu-load-config.rb"
+
+    if !$MU_CFG['auto_detection_done'] and (!$MU_CFG['multiuser'] or !cfgExists?)
+      MU.log "Auto-detecting cloud providers"
+      new_cfg = $MU_CFG.dup
+      examples = {}
+      MU::Cloud.supportedClouds.each { |cloud|
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        begin
+          if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
+            cfg_blob = cloudclass.hosted_config
+            if cfg_blob
+              new_cfg[cloud.downcase] = cfg_blob
+              MU.log "Adding #{cloud} stanza to #{cfgPath}", MU::NOTICE
+            end
+          elsif !$MU_CFG[cloud.downcase] and !cloudclass.config_example.nil?
+            examples[cloud.downcase] = cloudclass.config_example
+          end
+        rescue NoMethodError => e
+          # missing .hosted? is normal for dummy layers like CloudFormation
+          MU.log e.message, MU::WARN
+        end
+      }
+      new_cfg['auto_detection_done'] = true
+      if new_cfg != $MU_CFG or !cfgExists?
+        MU.log "Generating #{cfgPath}"
+        saveMuConfig(new_cfg, examples) # XXX and reload it
+      end
+    end
+  end
+
+  @@my_private_ip = nil
+  @@my_public_ip = nil
+  @@mu_public_addr = nil
+  @@mu_public_ip = nil
+  if $MU_CFG['aws'] # XXX this should be abstracted to elsewhere
+    @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
+    @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
+    @@mu_public_addr = @@my_public_ip
+    @@mu_public_ip = @@my_public_ip
+  end
   if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
@@ -375,36 +416,6 @@ module MU
   end
 
 
-  rcfile = nil
-  home = Etc.getpwuid(Process.uid).dir
-  if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc") and File.size?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
-    rcfile = ENV['MU_INSTALLDIR']+"/etc/mu.rc"
-  elsif File.readable?("/opt/mu/etc/mu.rc") and File.size?("/opt/mu/etc/mu.rc")
-    rcfile = "/opt/mu/etc/mu.rc"
-  elsif File.readable?("#{home}/.murc") and File.size?("#{home}/.murc")
-    rcfile = "#{home}/.murc"
-  end
-  if rcfile
-    MU.log "MU::Config loading #{rcfile}", MU::DEBUG
-    File.readlines(rcfile).each { |line|
-      line.strip!
-      next if !line.match(/^export .*?=/)
-      name, value = line.split(/=/, 2)
-      name.sub!(/^export /, "")
-      if !value.nil? and !value.empty?
-        value.gsub!(/(^"|"$)/, "")
-        if !value.match(/\$/)
-          @mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
-        end
-      end
-    }
-  end
-
-  # Environment variables which command-line utilities might wish to inherit
-  def self.mu_env_vars;
-    @mu_env_vars;
-  end
-
   # XXX these guys to move into mu/groomer
   # List of known/supported grooming agents (configuration management tools)
   def self.supportedGroomers
@@ -427,10 +438,10 @@ module MU
   @@myRegion_var = nil
   # Find the cloud provider region where this master resides, if any
   def self.myRegion
-    if MU::Cloud::Google.hosted
+    if MU::Cloud::Google.hosted?
       zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
       @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
-    elsif MU::Cloud::AWS.hosted
+    elsif MU::Cloud::AWS.hosted?
       @@myRegion_var ||= MU::Cloud::AWS.myRegion
     else
       @@myRegion_var = nil
@@ -443,41 +454,25 @@ module MU
   # Figure out what cloud provider we're in, if any.
   # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.
   def self.myCloud
-    if MU::Cloud::Google.hosted
+    if MU::Cloud::Google.hosted?
       @@myInstanceId = MU::Cloud::Google.getGoogleMetaData("instance/name")
       return "Google"
-    elsif MU::Cloud::AWS.hosted
+    elsif MU::Cloud::AWS.hosted?
       @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
       return "AWS"
     end
     nil
   end
 
-  # Fetch the AWS account number where this Mu master resides. If it's not in 
-  # AWS at all, or otherwise cannot be determined, return nil.
-  # XXX migrate this to MU::AWS and leave a backwards-compatibility wrapper
-  # here.
-  # XXX account for Google and non-cloud situations
+  # Wrapper for {MU::Cloud::AWS.account_number}
   def self.account_number
     if !@@globals[Thread.current.object_id].nil? and
-        !@@globals[Thread.current.object_id]['account_number'].nil?
+       !@@globals[Thread.current.object_id]['account_number'].nil?
       return @@globals[Thread.current.object_id]['account_number']
     end
-    return nil if MU.myCloud != "AWS"
-		begin
-	    user_list = MU::Cloud::AWS.iam.list_users.users
-		rescue Aws::IAM::Errors::AccessDenied => e
-			MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN
-		end
-    if user_list.nil? or user_list.size == 0
-      mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
-      account_number = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
-      account_number.chomp!
-    else
-      account_number = MU::Cloud::AWS.iam.list_users.users.first.arn.split(/:/)[4]
-    end
-    MU.setVar("account_number", account_number)
-    account_number
+    @@globals[Thread.current.object_id] ||= {}
+    @@globals[Thread.current.object_id]['account_number'] = MU::Cloud::AWS.account_number
+    @@globals[Thread.current.object_id]['account_number']
   end
 
   # The cloud instance identifier of this Mu master
@@ -495,15 +490,15 @@ module MU
   @@myAZ_var = nil
   # Find the cloud provider availability zone where this master resides, if any
   def self.myAZ
-    if MU::Cloud::Google.hosted
+    if MU::Cloud::Google.hosted?
       zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
       @@myAZ_var = zone.gsub(/.*?\//, "")
-    elsif MU::Cloud::AWS.hosted
+    elsif MU::Cloud::AWS.hosted?
       return nil if MU.myCloudDescriptor.nil?
       begin
         @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
       rescue Aws::EC2::Errors::InternalError => e
-        MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+        MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(region: #{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
         sleep 10
       end
     end
@@ -511,16 +506,18 @@ module MU
   end
 
   @@myCloudDescriptor = nil
-  if MU::Cloud::Google.hosted
+  if MU::Cloud::Google.hosted?
     @@myCloudDescriptor = MU::Cloud::Google.compute.get_instance(
       MU::Cloud::Google.myProject,
       MU.myAZ,
       MU.myInstanceId
     )
-  elsif MU::Cloud::AWS.hosted
+  elsif MU::Cloud::AWS.hosted?
     begin
-      @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
+      @@myCloudDescriptor = MU::Cloud::AWS.ec2(region: MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
     rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+    rescue Aws::Errors::MissingCredentialsError => e
+      MU.log "I'm hosted in AWS, but I can't make API calls. Does this instance have an appropriate IAM profile?", MU::WARN
     end
   end
 
@@ -531,15 +528,15 @@ module MU
   def self.myVPC
     return nil if MU.myCloudDescriptor.nil?
     begin
-      if MU::Cloud::AWS.hosted
+      if MU::Cloud::AWS.hosted?
         @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
-      elsif MU::Cloud::Google.hosted
+      elsif MU::Cloud::Google.hosted?
         @@myVPC_var = MU.myCloudDescriptor.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1')
       else
         nil
       end
     rescue Aws::EC2::Errors::InternalError => e
-      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(region: #{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
       sleep 10
     end
     @@myVPC_var
@@ -549,7 +546,7 @@ module MU
   # The AWS Subnets associated with the VPC this MU Master is in
   # XXX account for Google and non-cloud situations
   def self.mySubnets
-    @@mySubnets_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(
+    @@mySubnets_var ||= MU::Cloud::AWS.ec2(region: MU.myRegion).describe_subnets(
       filters: [
         {
           name: "vpc-id", 
@@ -569,10 +566,10 @@ module MU
 
   # Mu's SSL certificate directory
   @@mySSLDir = MU.dataDir+"/ssl" if MU.dataDir
-  @@mySSLDir ||= "/opt/mu/var/ssl"
+  @@mySSLDir ||= File.realpath(File.expand_path(File.dirname(__FILE__))+"/../var/ssl")
   # Mu's SSL certificate directory
   # @return [String]
-  def self.mySSLDir;
+  def self.mySSLDir
     @@mySSLDir
   end
 
@@ -632,7 +629,14 @@ module MU
     rescue NameError
     end
 
-    if struct.is_a?(Struct) or google_struct or struct.is_a?(::Seahorse::Client::Response)
+    aws_struct = false
+    begin
+      aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
+    rescue NameError
+    end
+
+    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
+       google_struct or aws_struct
 
       hash = struct.to_h
       hash.each_pair { |key, value|
@@ -674,47 +678,25 @@ module MU
   end
 
 
-  # Return the name of the S3 Mu log and key bucket for this Mu server.
+  # Return the name of the Mu log and key bucket for this Mu server. Not
+  # necessarily in any specific cloud provider.
   # @return [String]
-  # XXX account for Google and non-cloud situations
-  def self.adminBucketName
-    bucketname = $MU_CFG['aws']['log_bucket_name']
-    if bucketname.nil? or bucketname.empty?
-      bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU::Cloud::AWS.getAWSMetaData("instance-id")
-    end
+  def self.adminBucketName(platform = nil, credentials: nil)
+    return nil if platform and !MU::Cloud.supportedClouds.include?(platform)
+
+    clouds = platform.nil? ? MU::Cloud.supportedClouds : [platform]
+    clouds.each { |cloud|
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      bucketname = cloudclass.adminBucketName(credentials)
+      begin
+        if platform or (cloudclass.hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
+          return bucketname
+        end
+      end
+    }
+
     return bucketname
   end
 
-  # Log bucket policy for enabling CloudTrail logging to our log bucket in S3.
-  CLOUDTRAIL_BUCKET_POLICY = '{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Sid": "AWSCloudTrailAclCheck20131101",
-				"Effect": "Allow",
-        "Principal": {
-          "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
-          "Service": "cloudtrail.amazonaws.com"
-        },
-				"Action": "s3:GetBucketAcl",
-				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':s3:::<%= $bucketname %>"
-			},
-			{
-				"Sid": "AWSCloudTrailWrite20131101",
-				"Effect": "Allow",
-        "Principal": {
-          "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
-          "Service": "cloudtrail.amazonaws.com"
-        },
-				"Action": "s3:PutObject",
-				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':s3:::<%= $bucketname %>/AWSLogs/<%= MU.account_number %>/*",
-				"Condition": {
-					"StringEquals": {
-						"s3:x-amz-acl": "bucket-owner-full-control"
-					}
-				}
-			}
-		]
-	}'
 
 end

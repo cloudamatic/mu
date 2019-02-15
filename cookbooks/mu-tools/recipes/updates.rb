@@ -34,7 +34,7 @@ if !node['application_attributes']['skip_recipes'].include?('updates')
         windows_zipfile dir do
           source "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip"
           action :unzip
-          not_if { File.exists?("#{dir}/PSWindowsUpdate") }
+          not_if { File.exist?("#{dir}/PSWindowsUpdate") }
         end
       }
   

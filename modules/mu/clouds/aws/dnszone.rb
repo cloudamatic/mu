@@ -64,7 +64,7 @@ module MU
               if @config['all_account_vpcs']
                 # If we've been told to make this domain available account-wide, do so
                 MU::Cloud::AWS.listRegions(@config['us_only']).each { |region|
-                  known_vpcs = MU::Cloud::AWS.ec2(region).describe_vpcs.vpcs
+                  known_vpcs = MU::Cloud::AWS.ec2(region: region).describe_vpcs.vpcs
 
                   MU.log "Enumerating VPCs in #{region}", MU::DEBUG, details: known_vpcs
 
@@ -330,11 +330,11 @@ module MU
         # @param vpc_id [String]: The cloud identifier of the VPC
         # @param region [String]: The cloud provider's region
         # @param remove [Boolean]: Whether to remove access (default: grant access)
-        def self.toggleVPCAccess(id: nil, vpc_id: nil, region: MU.curRegion, remove: false)
+        def self.toggleVPCAccess(id: nil, vpc_id: nil, region: MU.curRegion, remove: false, credentials: nil)
 
           if !remove
             MU.log "Granting VPC #{vpc_id} access to zone #{id}"
-            MU::Cloud::AWS.route53(region).associate_vpc_with_hosted_zone(
+            MU::Cloud::AWS.route53(credentials: credentials).associate_vpc_with_hosted_zone(
                 hosted_zone_id: id,
                 vpc: {
                     :vpc_id => vpc_id,
@@ -345,7 +345,7 @@ module MU
           else
             MU.log "Revoking VPC #{vpc_id} access to zone #{id}"
             begin
-              MU::Cloud::AWS.route53(region).disassociate_vpc_from_hosted_zone(
+              MU::Cloud::AWS.route53(credentials: credentials).disassociate_vpc_from_hosted_zone(
                   hosted_zone_id: id,
                   vpc: {
                       :vpc_id => vpc_id,
@@ -400,7 +400,7 @@ module MU
               target_zone = "/hostedzone/"+alias_zone if !alias_zone.match(/^\/hostedzone\//)
             else
               MU::Cloud::AWS.listRegions.each { |region|
-                MU::Cloud::AWS.elb(region).describe_load_balancers.load_balancer_descriptions.each { |elb|
+                MU::Cloud::AWS.elb(region: region).describe_load_balancers.load_balancer_descriptions.each { |elb|
                   elb_dns = elb.dns_name.downcase
                   elb_dns.chomp!(".")
                   if target_name == elb_dns
@@ -514,7 +514,7 @@ module MU
             sleep 10
             retry
           rescue Aws::Route53::Errors::InvalidChangeBatch, Aws::Route53::Errors::InvalidInput, Exception => e
-            return if e.message.match(/ but it already exists$/) and !delete
+            return if e.message.match(/ but it already exists/) and !delete
             MU.log "Failed to change DNS records, #{e.inspect}", MU::ERR, details: params
             raise e if !delete
             MU.log "Record #{name} (#{type}) in #{id} can't be deleted. Already removed? #{e.inspect}", MU::WARN, details: params if delete
@@ -657,14 +657,21 @@ module MU
           end
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          true
+        end
+
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           checks_to_clean = []
           threads = []
-          MU::Cloud::AWS.route53(region).list_health_checks.health_checks.each { |check|
+          MU::Cloud::AWS.route53(credentials: credentials).list_health_checks.health_checks.each { |check|
             begin
-              tags = MU::Cloud::AWS.route53(region).list_tags_for_resource(
+              tags = MU::Cloud::AWS.route53(credentials: credentials).list_tags_for_resource(
                   resource_type: "healthcheck",
                   resource_id: check.id
               ).resource_tag_set.tags
@@ -692,7 +699,7 @@ module MU
                   MU.log "Removing health check #{check.id}"
                   retries = 5
                   begin 
-                    MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
+                    MU::Cloud::AWS.route53(credentials: credentials).delete_health_check(health_check_id: check.id) if !noop
                   rescue Aws::Route53::Errors::NoSuchHealthCheck => e
                     MU.log "Health Check '#{check.id}' disappeared before I could remove it", MU::WARN, details: e.inspect
                   rescue Aws::Route53::Errors::InvalidInput => e
@@ -721,11 +728,11 @@ module MU
             if !noop
               begin
                 # Clean up resource records first
-                rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id)
+                rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: zone.id)
                 rrsets.resource_record_sets.each { |rrset|
                   next if zone.name == rrset.name and (rrset.type == "NS" or rrset.type == "SOA")
                   records = []
-                  MU::Cloud::AWS.route53(region).change_resource_record_sets(
+                  MU::Cloud::AWS.route53(credentials: credentials).change_resource_record_sets(
                       hosted_zone_id: zone.id,
                       change_batch: {
                           changes: [
@@ -738,7 +745,7 @@ module MU
                   )
                 }
 
-                MU::Cloud::AWS.route53(region).delete_hosted_zone(id: zone.id)
+                MU::Cloud::AWS.route53(credentials: credentials).delete_hosted_zone(id: zone.id)
               rescue Aws::Route53::Errors::PriorRequestNotComplete
                 MU.log "Still waiting for all records in DNS Zone '#{zone.name}' (#{zone.id}) to delete", MU::WARN
                 sleep 20
@@ -754,17 +761,17 @@ module MU
           }
 
           # Lets try cleaning MU DNS records in all zones.
-          MU::Cloud::AWS.route53(region).list_hosted_zones.hosted_zones.each { |zone|
+          MU::Cloud::AWS.route53(credentials: credentials).list_hosted_zones.hosted_zones.each { |zone|
             begin 
               zone_rrsets = []
-              rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id)
+              rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: zone.id)
               rrsets.resource_record_sets.each { |record|
                 zone_rrsets << record
               }
 
               # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
               while rrsets.next_record_name && rrsets.next_record_type
-                rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
                 rrsets.resource_record_sets.each { |record|
                   zone_rrsets << record
                 }
@@ -860,15 +867,21 @@ module MU
           ok
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          nil # no such animal in Route53
+        end
+
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
         # @param region [String]: The cloud provider region
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
-        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, credentials: nil, flags: {})
           matches = {}
 
-          resp = MU::Cloud::AWS.route53(region).list_hosted_zones(
+          resp = MU::Cloud::AWS.route53(credentials: credentials).list_hosted_zones(
               max_items: 100
           )
 
@@ -876,13 +889,13 @@ module MU
             if !cloud_id.nil? and !cloud_id.empty?
               if zone.id == cloud_id
                 begin 
-                  matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
                 rescue Aws::Route53::Errors::NoSuchHostedZone
                   MU.log "Hosted zone #{zone.id} doesn't exist"
                 end
               elsif zone.name == cloud_id or zone.name == cloud_id+"."
                 begin 
-                  matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
                 rescue Aws::Route53::Errors::NoSuchHostedZone
                   MU.log "Hosted zone #{zone.id} doesn't exist"
                 end
@@ -890,7 +903,7 @@ module MU
             end
             if !deploy_id.nil? and !deploy_id.empty? and zone.config.comment == deploy_id
               begin 
-                matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
               rescue Aws::Route53::Errors::NoSuchHostedZone
                 MU.log "Hosted zone #{zone.id} doesn't exist"
               end

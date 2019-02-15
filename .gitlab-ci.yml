@@ -1,9 +1,10 @@
-image: centos
+image: ruby:2.5
 
 stages:
   - Lint Test
   - Test
   - Security Test
+  - Build
   - Smoke Test
   - Merge/Tag
   - Dockerbuild
@@ -29,13 +30,12 @@ Foodcritic:
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
-  allow_failure: true
 
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14
+    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14 -t chef15
 
 ChefSpec:
   stage: Test
@@ -46,20 +46,22 @@ ChefSpec:
 
 Rspec:
   stage: Test
-  image: chef/chefdk:latest
   script:
-    - echo "rspec"
-  allow_failure: true
+    - cd modules
+    - bundle install
+    - gem install rspec
+    - cd ../
+    - rspec
 
-.New_Berks:
+New_Berks:
   stage: Test
   image: chef/chefdk:latest
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Installing $d" && cd "$d" && berks install); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Verifying $d" && cd "$d" && berks verify); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Analyzing $d" && cd "$d" && berks outdated); done
   
 Berks:
   stage: Test
@@ -72,19 +74,57 @@ Berks:
     - berks verify
     - berks outdated
 
-BrakeMan:
+.BrakeMan:
   stage: Security Test
   image: codeclimate/codeclimate-brakeman:latest
   script:
     - echo "BrakeMan!"
 
+Gem Build:
+  stage: Build
+  script:
+    - gem build cloud-mu.gemspec
+    - gem install cloud-mu-*.gem
+    - echo "Upload me places? Pehaps to rubygems?"
+  only:
+    - master
+    - development
+    - cicd_updates
+  artifacts:
+    paths:
+    - cloud-mu-*.gem
+
+Muby Build:
+  stage: Build
+  image: centos
+  script: 
+    - yum -y groupinstall 'Development Tools'
+    - yum -y install rpm-build
+    #- yum -y install zlib zlib-devel openssl #THESE SHOULD BE LISTED IN THE .spec FILE
+    - yum-builddep extras/ruby_rpm/muby.spec
+    - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
+    - echo "maybe do something cool and smart here?"
+  only:
+    - master
+    - cicd_updates
+  allow_failure: true
+
 Parser Test:
   stage: Smoke Test
   script:
+    - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+    - gem install cloud-mu-*.gem
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
-  tags: 
-    - mu-master
+  dependencies:
+  - Gem Build
+  # tags: 
+  #   - mu-master
+  only:
+    - master
+    - development
+    - cicd_updates
+  allow_failure: true
 
 Smoke Test:
   stage: Smoke Test
@@ -117,13 +157,16 @@ Dockerbuild:
 
 pages:
   stage: Deploy
-  image: ruby:2.3
   script:
+  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - mkdir public
-  - gem install yard
-  - yard doc modules -m markdown -o public
+  - gem install cloud-mu-*.gem
+  - ruby bin/mu-gen-docs
+  dependencies:
+  - Gem Build
   artifacts:
     paths:
     - public
   only:
   - master
+  - cicd_updates

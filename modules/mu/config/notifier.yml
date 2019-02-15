@@ -1,0 +1,9 @@
+<% if $complexity == 'complex' %>
+name: notifier
+<% else %>
+name: notifier
+subscriptions:
+- endpoint: admin@example.com
+  type: email-json
+- endpoint: 703-555-5555
+<% end %>

@@ -16,6 +16,15 @@ module MU
   class Cloud
     # Support for Docker as a provisioning layer.
     class Docker
+
+      # Any cloud-specific instance methods we require our resource
+      # implementations to have, above and beyond the ones specified by
+      # {MU::Cloud}
+      # @return [Array<Symbol>]
+      def self.required_instance_methods
+        []
+      end
+
     end
   end
 end

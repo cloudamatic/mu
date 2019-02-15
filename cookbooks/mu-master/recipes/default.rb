@@ -27,7 +27,7 @@ include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 include_recipe 'mu-tools::gcloud'
-include_recipe 'mu-master::eks-kubectl'
+#include_recipe 'mu-master::eks-kubectl'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -55,7 +55,7 @@ if !node['update_nagios_only']
 
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
-    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
+    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
       include_recipe 'mu-master::sssd'
     elsif $MU_CFG['ldap']['type'] == "Active Directory"
       node.normal['ad'] = {}

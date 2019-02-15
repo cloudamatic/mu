@@ -14,3 +14,4 @@ version '0.6.0'
 end
 
 depends 'windows', '~> 5.1.1'
+depends 'mu-firewall'

@@ -19,7 +19,7 @@ action :config do
     source "ntrights"
   end
 
-  if is_domain_controller?(new_resource.computer_name)
+  if domain_controller?(new_resource.computer_name)
     [new_resource.username, new_resource.ssh_user, new_resource.ec2config_user].each { |user|
       unless domain_user_exist?(user)
         pwd = 
@@ -69,7 +69,7 @@ action :config do
     # Using WinRM here doesn't work for multiple reasons so instead we're going to run it only on the schemamaster which is hopefully still the first domain controller.
     # Also need to chagne this to re-import the GPO even if the GPO exist. The SSH user that is running the service might change, and the GPO will have the old SID.
     gpo_name = "ec2config-ssh-privileges"
-    if is_schemamaster?(new_resource.domain_name, new_resource.computer_name)
+    if schemamaster?(new_resource.domain_name, new_resource.computer_name)
       unless gpo_exist?(gpo_name)
         ["Machine\\microsoft\\windows nt\\SecEdit", "Machine\\Scripts\\Shutdown", "Machine\\Scripts\\Startup", "User"].each { |dir|
           directory "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\#{dir}" do

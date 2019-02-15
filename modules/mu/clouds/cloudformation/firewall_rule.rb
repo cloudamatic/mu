@@ -116,12 +116,12 @@ module MU
 
           begin
             if egress
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
             else
-              MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
               )
@@ -300,6 +300,13 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
           MU::Cloud::AWS::FirewallRule.validateConfig(server, configurator)
+        end
+
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          MU::Cloud::AWS::FirewallRule.isGlobal?
         end
 
       end #class

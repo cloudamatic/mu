@@ -40,11 +40,7 @@ module MU
             "region" => MU::Config.region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "alarms" => MU::Config::Alarm.inline,
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => MU::Config::FirewallRule.reference,
@@ -183,11 +179,11 @@ module MU
             },
             "create_cluster" => {
               "type" => "boolean",
-                "description" => "Rather to create a database cluster. This only applies to aurora",
+                "description" => "Create a database cluster instead of a standalone database.",
                 "default_if" => [
                   {
                     "key_is" => "engine",
-                    "value_is" => "aurora",
+                    "value_is" => "aurora-mysql",
                     "set" => true
                   }
                 ]
@@ -345,20 +341,27 @@ module MU
         # Automatically manufacture another database object, which will serve
         # as a read replica of this one, if we've set create_read_replica.
         if db['create_read_replica']
-          replica = Marshal.load(Marshal.dump(db))
-          replica['name'] = db['name']+"-replica"
-          replica['create_read_replica'] = false
-          replica['read_replica_of'] = {
-            "db_name" => db['name'],
-            "cloud" => db['cloud'],
-            "region" => db['read_replica_region'] || db['region']
-          }
-          replica['dependencies'] << {
-            "type" => "database",
-            "name" => db["name"],
-            "phase" => "groom"
-          }
-          read_replicas << replica
+          if db['create_cluster']
+            db["create_read_replica"] = false
+            MU.log "Ignoring extraneous create_read_replica flag on database cluster #{db['name']}", MU::WARN
+          else
+            replica = Marshal.load(Marshal.dump(db))
+            replica['name'] = db['name']+"-replica"
+            replica["credentials"] = db["credentials"]
+            replica['create_read_replica'] = false
+            replica["create_cluster"] = false
+            replica['read_replica_of'] = {
+              "db_name" => db['name'],
+              "cloud" => db['cloud'],
+              "region" => db['read_replica_region'] || db['region']
+            }
+            replica['dependencies'] << {
+              "type" => "database",
+              "name" => db["name"],
+              "phase" => "groom"
+            }
+            read_replicas << replica
+          end
         end
 
         # Do database cluster nodes the same way we do read replicas, by
@@ -368,7 +371,9 @@ module MU
           (1..db["cluster_node_count"]).each{ |num|
             node = Marshal.load(Marshal.dump(db))
             node["name"] = "#{db['name']}-#{num}"
+            node["credentials"] = db["credentials"]
             node["create_cluster"] = false
+            node["create_read_replica"] = false
             node["creation_style"] = "new"
             node["add_cluster_node"] = true
             node["member_of_cluster"] = {

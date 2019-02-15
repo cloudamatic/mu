@@ -58,7 +58,7 @@ case node['platform']
       end
 
       execute "mdadm --detail --scan >> /etc/mdadm.conf" do
-        not_if { File.exists?("/etc/mdadm.conf") }
+        not_if { File.exist?("/etc/mdadm.conf") }
       end
 
       execute "mkfs -t xfs -i size=512 #{node['glusterfs']['server']['raid_dev']}" do
@@ -131,7 +131,7 @@ case node['platform']
 
     if i_am_master
       ips = []
-      node['deployment']['servers'][$nodeclass].each_pair do |name, data|
+      node['deployment']['servers'][$nodeclass].each_pair do |_name, data|
         next if data['private_ip_address'].nil? or data['private_ip_address'].empty?
         execute "gluster peer probe #{data['private_ip_address']}" do
           not_if { data['private_ip_address'] == node['ipaddress'] }
@@ -188,7 +188,7 @@ case node['platform']
         # end
       end
     else
-      node['deployment']['servers'][$nodeclass].each_pair do |name, data|
+      node['deployment']['servers'][$nodeclass].each_pair do |_name, data|
         execute "gluster peer probe #{data['private_ip_address']}" do
           not_if { data['private_ip_address'] == node['ipaddress'] }
         end

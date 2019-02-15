@@ -91,7 +91,7 @@ module MU
         }
       end
 
-      @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+      @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
       # The canonical path to invoke Chef's *knife* utility with a clean environment.
       # @return [String]
       def self.knife;
@@ -109,7 +109,7 @@ module MU
 
       attr_reader :vault_opts
 
-      @chefclient = "env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin chef-client"
+      @chefclient = "env -i HOME=#{Etc.getpwuid(Process.uid).dir} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin chef-client"
       # The canonical path to invoke Chef's *chef-client* utility with a clean environment.
       # @return [String]
       def self.chefclient;
@@ -253,18 +253,17 @@ module MU
       # @param max_retries [Integer]: The maximum number of attempts at a successful run to make before giving up.
       # @param output [Boolean]: Display Chef's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
-      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false)
+      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
         self.class.loadChefLib
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
-        timeout = @server.windows? ? 1800 : 600
         pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
           MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
-          chef_node.normal.application_attributes = @config['application_attributes']
+          chef_node.normal['application_attributes'] = @config['application_attributes']
           chef_node.save
         end
         if @server.deploy.original_config.has_key?('parameters')
