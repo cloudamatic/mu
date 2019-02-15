@@ -153,7 +153,6 @@ Gen Docs:
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - gem install cloud-mu-*.gem
   - ruby bin/mu-gen-docs
-  - ls /var/www/html/docs
   - mkdir public
   - cp -Rf /var/www/html/docs/* public
   - ls public
@@ -175,13 +174,12 @@ Gen Docs:
 
 GitHub Pages:
   stage: Deploy
-  image: alpine/git
   script:
   - echo "hello"
-  # - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
+  - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
   - ls public
-  # - cd cloudamatic.github.io
-  # - git status
+  - cd cloudamatic.github.io
+  - git status
   dependencies:
   - Gen Docs
   only:
