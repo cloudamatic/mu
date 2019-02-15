@@ -84,7 +84,6 @@ Gem Build:
     - master
     - development
     - gen_docs
-    - cicd_updates
   artifacts:
     paths:
     - cloud-mu-*.gem
@@ -153,12 +152,11 @@ Gen Docs:
   - master
   - development
   - gen_docs
-  - cicd_updates
   artifacts:
     paths:
     - public/
 
-GitHub Pages:
+.GitHub Pages:
   stage: Deploy
   image: bitnami/git:latest
   script:
@@ -176,7 +174,6 @@ GitHub Pages:
   only:
   - master
   - gen_docs
-  - cicd_updates
   allow_failure: true
 
 pages:
@@ -191,4 +188,3 @@ pages:
   only:
   - master
   - gen_docs
-  - cicd_updates
