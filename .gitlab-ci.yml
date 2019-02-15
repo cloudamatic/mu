@@ -85,7 +85,6 @@ Gem Build:
   stage: Build
   script:
     - gem build cloud-mu.gemspec
-    - gem install cloud-mu-*.gem
     - echo "Upload me places? Pehaps to rubygems?"
   only:
     - master
@@ -179,6 +178,7 @@ GitHub Pages:
   stage: Deploy
   image: bitnami/git:latest
   script:
+  - echo "Hello I am going to push to GitHub"
   - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
   - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
   - cp -Rf public/* cloudamatic.github.io
