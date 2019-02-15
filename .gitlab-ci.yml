@@ -169,6 +169,20 @@ Gen Docs:
 #     - master
 #     - development
 
+GitHub Pages:
+  stage: Deploy
+  image: alpine/git
+  script:
+  - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
+  - cd mu
+  - cp -Rf /var/www/html/docs ./
+  - git status
+  dependencies:
+  - Gen Docs
+  only:
+  - master
+  - cicd_updates
+
 pages:
   stage: Deploy
   script:
