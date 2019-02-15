@@ -35,6 +35,7 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
+        # Tag this Lambda function
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
@@ -170,6 +171,7 @@ module MU
         end
 
 
+        # Look up an ARN for a given trigger type and resource name
         def assume_trigger_arns(svc, name)
           supported_triggers = %w(apigateway sns events event cloudwatch_event)
           if supported_triggers.include?(svc.downcase)
@@ -191,7 +193,7 @@ module MU
           return arn
         end
         
-        
+        # XXX placeholder, really; this is going end up being done from Endpoint and Notification resources, I think
         def adjust_trigger(trig_type, trig_arn, func_arn, func_id=nil, protocol='lambda',region=@config['region'])
           
           case trig_type
@@ -303,11 +305,9 @@ module MU
               "type" => "array",
               "description" => "if `iam_role` is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
               "items" => {
-                "policy" => {
-                  "type" => "string",
-                  "description" => "A permission to add to our Lambda function's default role, corresponding to standard AWS policies (see https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html)",
-                  "enum" => ["basic", "kinesis", "dynamo", "sqs", "network", "xray"]
-                }
+                "type" => "string",
+                "description" => "A permission to add to our Lambda function's default role, corresponding to standard AWS policies (see https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html)",
+                "enum" => ["basic", "kinesis", "dynamo", "sqs", "network", "xray"]
               }
             },
 # XXX add some canned permission sets here, asking people to get the AWS weirdness right and then translate it into Mu-speak is just too much. Think about auto-populating when a target log group is asked for, mappings for the AWS canned policies in the URL above, writes to arbitrary S3 buckets, etc

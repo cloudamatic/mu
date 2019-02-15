@@ -25,7 +25,10 @@ module MU
         def create
           resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_rest_api(
             name: @mu_name,
-            description: @deploy.deploy_id
+            description: @deploy.deploy_id,
+            endpoint_configuration: {
+              types: ["PRIVATE"]
+            }
           )
           @cloud_id = resp.id
           generate_methods
@@ -33,6 +36,7 @@ module MU
 
         end
 
+        # Create/update all of the methods declared for this endpoint
         def generate_methods
           resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
             rest_api_id: @cloud_id,
@@ -53,11 +57,16 @@ module MU
               authorization_type: m['auth'],
               http_method: m['type']
             )
+
+# "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:616552976502:function:m3api/invocations",
+
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
               rest_api_id: @cloud_id,
               resource_id: parent_id,
-              type: "HTTP",
-              http_method: m['type']
+              type: "AWS",
+              http_method: m['type'],
+              integration_http_method: m['type'],
+              uri: ""
             )
           }
         end
@@ -155,7 +164,40 @@ module MU
           schema = {
             "methods" => {
               "items" => {
+                "required" => ["integrate_with"],
                 "properties" => {
+                  "integrate_with" => {
+                    "type" => "object",
+                    "description" => "Specify what application backend to invoke under this path/method combination",
+                    "properties" => {
+                      "proxy" => {
+                        "type" => "boolean",
+                        "default" => false,
+                        "description" => "For HTTP or AWS integrations, specify whether the target is a proxy (((docs unclear, is that actually what this means?)))" # XXX is that actually what this means?
+                      },
+                      "url" => {
+                        "type" => "string",
+                        "description" => "For HTTP or HTTP_PROXY integrations, this should be a fully-qualified URL"
+                      },
+                      "arn" => {
+                        "type" => "string",
+                        "description" => "For AWS or AWS_PROXY integrations with a compatible Amazon resource outside of Mu, a full-qualified ARN such as `arn:aws:apigateway:us-west-2:s3:action/GetObject&Bucket=`bucket&Key=key`"
+                      },
+                      "name" => {
+                        "type" => "string",
+                        "description" => "A Mu resource name, for integrations with a sibling resource (e.g. a Function)"
+                      },
+                      "type" => {
+                        "type" => "string",
+                        "description" => "A Mu resource type, for integrations with a sibling resource (e.g. a Function)",
+                        "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
+                      },
+                      "deploy_id" => {
+                        "type" => "string",
+                        "description" => "A Mu deploy id (e.g. DEMO-DEV-2014111400-NG), for integrations with a sibling resource (e.g. a Function)"
+                      }
+                    }
+                  },
                   "auth" => {
                     "type" => "string",
                     "enum" => ["NONE", "CUSTOM", "AWS_IAM", "COGNITO_USER_POOLS"],
@@ -175,6 +217,8 @@ module MU
           false
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
         def arn
           nil
         end

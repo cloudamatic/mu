@@ -31,15 +31,25 @@ module MU
           "name" => {"type" => "string"},
           "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
+          "vpc" => MU::Config::VPC.reference(MU::Config::VPC::NO_SUBNETS, MU::Config::VPC::NO_NAT_OPTS),
           "methods" => {
             "type" => "array",
             "items" => {
               "type" => "object",
               "description" => "Method, as in HTTP method",
               "required" => ["path", "type"],
-              "path" => {
-                "type" => "string"
-              },
+              "properties" => {
+                "path" => {
+                  "type" => "string",
+                  "description" => "The path underneath our endpoint at this invocation will be triggered",
+                  "default" => "/"
+                },
+                "type" => {
+                  "type" => "string",
+                  "enum" => ["GET", "POST", "PUT", "HEAD", "DELETE", "CONNECT", "OPTIONS", "TRACE"],
+                  "default" => "GET"
+                }
+              }
             }
           }
         }
