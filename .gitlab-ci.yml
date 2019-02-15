@@ -154,11 +154,14 @@ Gen Docs:
   - gem install cloud-mu-*.gem
   - ruby bin/mu-gen-docs
   - ls /var/www/html/docs
+  - mkdir public
+  - cp -Rf /var/www/html/docs/* public
+  - ls public
   dependencies:
   - Gem Build
   artifacts:
     paths:
-    - /var/www/html/docs/
+    - public/
 
 
 # Dockerbuild:
@@ -175,8 +178,8 @@ GitHub Pages:
   image: alpine/git
   script:
   - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
-  - cd mu
-  - cp -Rf /var/www/html/docs ./
+  - ls public
+  - cd cloudamatic.github.io
   - git status
   dependencies:
   - Gen Docs
@@ -187,8 +190,7 @@ GitHub Pages:
 pages:
   stage: Deploy
   script:
-  - mkdir public
-  - cp -R /var/www/html/docs public
+  - ls public
   dependencies:
   - Gen Docs
   artifacts:
