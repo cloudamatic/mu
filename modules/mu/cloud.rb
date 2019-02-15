@@ -102,7 +102,7 @@ module MU
     class MsgQueue;
     end
     # Stub base class; real implementations generated at runtime
-    class Project;
+    class Habitat;
     end
     # Stub base class; real implementations generated at runtime
     class Folder;
@@ -308,12 +308,12 @@ module MU
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
       },
-      :Project => {
+      :Habitat => {
         :has_multiples => false,
         :can_live_in_vpc => false,
-        :cfg_name => "project",
-        :cfg_plural => "projects",
-        :interface => self.const_get("Project"),
+        :cfg_name => "habitat",
+        :cfg_plural => "habitats",
+        :interface => self.const_get("Habitat"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
@@ -523,7 +523,7 @@ module MU
       begin
         require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
       rescue LoadError => e
-        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}"
+        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}, or implementation does not load correctly (#{e.message})"
       end
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin

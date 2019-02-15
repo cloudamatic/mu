@@ -1,7 +1,9 @@
 mu -- Cloudamatic Automation Tooling
 ===
 [![pipeline status](https://gitlab.com/cloudamatic/mu/badges/master/pipeline.svg)](https://gitlab.com/cloudamatic/mu/commits/master)
+[![Gem Version](https://badge.fury.io/rb/cloud-mu.svg)](https://badge.fury.io/rb/cloud-mu)
 [![Maintainability](https://api.codeclimate.com/v1/badges/dd4e5d867890336accd1/maintainability)](https://codeclimate.com/github/cloudamatic/mu/maintainability)
+[![Inline docs](http://inch-ci.org/github/cloudamatic/mu.svg?branch=master)](http://inch-ci.org/github/cloudamatic/mu)
 [![coverage report](https://gitlab.com/cloudamatic/mu/badges/master/coverage.svg)](https://gitlab.com/cloudamatic/mu/commits/master)
 
 # About mu

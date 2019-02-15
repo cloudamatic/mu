@@ -242,6 +242,10 @@ module MU
       # cloud.
       # @return [Boolean]
       def self.hosted?
+        if $MU_CFG.has_key?("google_is_hosted")
+          @@is_in_aws = $MU_CFG["google_is_hosted"]
+          return $MU_CFG["google_is_hosted"]
+        end
         if !@@is_in_gcp.nil?
           return @@is_in_gcp
         end
@@ -411,11 +415,28 @@ module MU
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
+      # @param credentials [String]
+      # @return [String]
       def self.defaultProject(credentials = nil)
         cfg = credConfig(credentials)
         return myProject if !cfg or !cfg['project']
         loadCredentials(credentials) if !@@authorizers[credentials]
         cfg['project']
+      end
+
+      # We want a default place to put new projects for the Habitat resource,
+      # so if we have a root folder, we can go ahead and use that.
+      # @param credentials [String]
+      # @return [String]
+      def self.defaultFolder(credentials = nil)
+        project = defaultProject(credentials)
+        resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_project_ancestry(project)
+        resp.ancestor.each { |a|
+          if a.resource_id.type == "folder"
+            return a.resource_id.id
+          end
+        }
+        nil
       end
 
       # List all Google Cloud Platform projects available to our credentials
@@ -551,9 +572,9 @@ module MU
     
         if subclass.nil?
           begin
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: $MU_CFG['google']['masquerade_as'], credentials: credentials)
+            @@admin_directory_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
           rescue Signet::AuthorizationError => e
-            MU.log "Cannot masquerade as #{$MU_CFG['google']['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
+            MU.log "Cannot masquerade as #{MU::Cloud::Google.credConfig(credentials)['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
             raise e
           end
           return @@admin_directory_api[credentials]
@@ -572,6 +593,19 @@ module MU
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
+        end
+      end
+
+      # Google's Cloud Resource Manager API V2, which apparently has all the folder bits
+      # @param subclass [<Google::Apis::CloudresourcemanagerV2beta1>]: If specified, will return the class ::Google::Apis::CloudresourcemanagerV2beta1::subclass instead of an API client instance
+      def self.folder(subclass = nil, credentials: nil)
+        require 'google/apis/cloudresourcemanager_v2beta1'
+
+        if subclass.nil?
+          @@resource2_api[credentials] ||= MU::Cloud::Google::Endpoint.new(api: "CloudresourcemanagerV2beta1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          return @@resource2_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2beta1").const_get(subclass)
         end
       end
 
@@ -652,7 +686,8 @@ module MU
           @issuer = @api.authorization.issuer
         end
 
-        # Generic wrapper for deleting Compute resources
+        # Generic wrapper for deleting Compute resources, which are consistent
+        # enough that we can get away with this.
         # @param type [String]: The type of resource, typically the string you'll find in all of the API calls referring to it
         # @param project [String]: The project in which we should look for the resources
         # @param region [String]: The region in which to loop for the resources
@@ -667,6 +702,7 @@ module MU
             else
               resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter)
             end
+
           rescue ::Google::Apis::ClientError => e
             return if e.message.match(/^notFound: /)
           end
@@ -907,6 +943,7 @@ module MU
       @@iam_api = {}
       @@logging_api = {}
       @@resource_api = {}
+      @@resource2_api = {}
       @@service_api = {}
       @@admin_directory_api = {}
     end

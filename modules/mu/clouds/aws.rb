@@ -63,6 +63,7 @@ module MU
           end
         elsif cred_cfg['credentials_file'] and
               !cred_cfg['credentials_file'].empty?
+
           # pull access key and secret from an awscli-style credentials file
           begin
             File.read(cred_cfg["credentials_file"]) # make sure it's there
@@ -74,7 +75,7 @@ module MU
             data = credfile.has_section?("default") ? credfile["default"] : credfile[credfile.sections.first]
             if data["aws_access_key_id"] and data["aws_secret_access_key"]
               cred_obj = Aws::Credentials.new(
-                cred_cfg['aws_access_key_id'], cred_cfg['aws_secret_access_key']
+                data['aws_access_key_id'], data['aws_secret_access_key']
               )
               if name.nil?
 #                Aws.config = {
@@ -145,18 +146,29 @@ module MU
       # decide what our default region is.
       def self.myRegion
         return @@myRegion_var if @@myRegion_var
-        return nil if credConfig.nil? and !hosted?
 
-        if $MU_CFG and (!$MU_CFG['aws'] or !account_number) and !hosted?
+        if credConfig.nil? and !hosted? and !ENV['EC2_REGION']
           return nil
         end
 
-        if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
-          @@myRegion_var ||= MU::Cloud::AWS.ec2(region: $MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
-        elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
-          @@myRegion_var ||= MU::Cloud::AWS.ec2(region: ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+        def self.validate_region(r)
+          MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+        end
+
+        if $MU_CFG and $MU_CFG['aws']
+          $MU_CFG['aws'].each_pair { |credset, cfg|
+            next if !cfg['region']
+            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'])
+              @@myRegion_var = cfg['region']
+              break if cfg['default']
+            end
+          }
+        elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty? and
+              validate_region(ENV['EC2_REGION'])
+          # Make sure this string is valid by way of the API
+          @@myRegion_var = ENV['EC2_REGION']
         else
-          # hacky, but useful in a pinch
+          # hacky, but useful in a pinch (and if we're hosted in AWS)
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
           @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
         end
@@ -267,6 +279,42 @@ module MU
         end
       end
 
+  # Log bucket policy for enabling CloudTrail logging to our log bucket in S3.
+      def self.cloudtrailBucketPolicy(credentials = nil)
+        cfg = credConfig(credentials)
+        policy_json = '{
+      		"Version": "2012-10-17",
+      		"Statement": [
+      			{
+      				"Sid": "AWSCloudTrailAclCheck20131101",
+      				"Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
+                "Service": "cloudtrail.amazonaws.com"
+              },
+      				"Action": "s3:GetBucketAcl",
+      				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'"
+      			},
+      			{
+      				"Sid": "AWSCloudTrailWrite20131101",
+      				"Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':iam::'+credToAcct(credentials)+':root",
+                "Service": "cloudtrail.amazonaws.com"
+              },
+      				"Action": "s3:PutObject",
+      				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(cfg['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/AWSLogs/'+credToAcct(credentials)+'/*",
+      				"Condition": {
+      					"StringEquals": {
+      						"s3:x-amz-acl": "bucket-owner-full-control"
+      					}
+      				}
+      			}
+      		]
+      	}'
+        ERB.new(policy_json).result
+      end
+
       @@is_in_aws = nil
 
       # Alias for #{MU::Cloud::AWS.hosted?}
@@ -278,6 +326,11 @@ module MU
       # cloud.
       # @return [Boolean]
       def self.hosted?
+        if $MU_CFG.has_key?("aws_is_hosted")
+          @@is_in_aws = $MU_CFG["aws_is_hosted"]
+          return $MU_CFG["aws_is_hosted"]
+        end
+
         require 'open-uri'
 
         if !@@is_in_aws.nil?
@@ -385,6 +438,14 @@ module MU
               end
             rescue JSON::ParserError => e
             end
+          elsif ENV['AWS_ACCESS_KEY_ID'] and ENV['AWS_SECRET_ACCESS_KEY']
+            env_config = {
+              "region" => ENV['EC2_REGION'] || "us-east-1",
+              "access_key" => ENV['AWS_ACCESS_KEY_ID'],
+              "access_secret" => ENV['AWS_SECRET_ACCESS_KEY'],
+              "log_bucket_name" => "mu-placeholder-bucket-name"
+            }
+            return name_only ? "#default" : env_config
           end
 
           return nil
@@ -450,7 +511,10 @@ module MU
 #          MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
 #        end
 #        if user_list.nil? or user_list.size == 0
-          mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
+          resp = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/")
+          return nil if !resp
+
+          mac = resp.split(/\n/)[0]
           acct_num = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
           acct_num.chomp!
 #        else
@@ -893,6 +957,14 @@ module MU
         @@kms_api[credentials][region]
       end
 
+      # Amazon's Organizations API
+      def self.orgs(credentials: nil)
+        @@organizations_api ||= {}
+# XXX org api doesn't seem to work in many regions
+        @@organizations_api[credentials] ||= MU::Cloud::AWS::Endpoint.new(api: "Organizations", credentials: credentials, region: "us-east-1")
+        @@organizations_api[credentials]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -1190,6 +1262,7 @@ module MU
       @@cognito_ident_api ={}
       @@cognito_user_api ={}
       @@kms_api ={}
+      @@organizataion_api ={}
     end
   end
 end

@@ -102,8 +102,8 @@ module MU
                     "description" => "One or more other VPCs with which to attempt to create a peering connection.",
                     "properties" => {
                         "account" => {
-                            "type" => "string",
-                            "description" => "The AWS account which owns the target VPC."
+                          "type" => "string",
+                          "description" => "The AWS account which owns the target VPC."
                         },
                         "vpc" => reference(MANY_SUBNETS, NO_NAT_OPTS, "all")
                         #             "route_tables" => {
