@@ -114,7 +114,7 @@ module MU
           end
 
           retries = 0
-          begin
+          resp = begin
             MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
           rescue Aws::Lambda::Errors::InvalidParameterValueException => e
             # Freshly-made IAM roles sometimes aren't really ready
@@ -125,6 +125,9 @@ module MU
             end
             raise e
           end
+
+
+          @cloud_id = resp.function_name
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -193,7 +196,7 @@ module MU
           return arn
         end
         
-        # XXX placeholder, really; this is going end up being done from Endpoint and Notification resources, I think
+        # XXX placeholder, really; this is going end up being done from Endpoint, Log and Notification resources, I think
         def adjust_trigger(trig_type, trig_arn, func_arn, func_id=nil, protocol='lambda',region=@config['region'])
           
           case trig_type
@@ -226,8 +229,8 @@ module MU
         # Return the metadata for this Function rule
         # @return [Hash]
         def notify
-          deploy_struct = {
-          }
+          deploy_struct = MU.structToHash(MU::Cloud::AWS::Function.find(cloud_id: @cloud_id, credentials: @config['credentials'], region: @config['region']).values.first)
+          deploy_struct['mu_name'] = @mu_name
           return deploy_struct
         end
 
@@ -271,21 +274,20 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
-        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, credentials: nil, flags: {})
-          func = nil
-          if !func_name.nil?
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+          matches = {}
+
+          if !cloud_id.nil?
             all_functions = MU::Cloud::AWS.lambda(region: region, credentials: credentials).list_functions
-            if all_functions.include?(func_name)
-              all_functions.functions.each do |x|
-                if x.function_name == func_name
-                  func = x
-                  break
-                end
+            all_functions.functions.each do |x|
+              if x.function_name == cloud_id
+                matches[x.function_name] = x
+                break
               end
             end
           end
 
-          return func
+          return matches
         end
 
 
