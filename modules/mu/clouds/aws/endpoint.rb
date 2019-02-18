@@ -56,6 +56,7 @@ module MU
             }
 
             if ext_resource
+MU.log "existing resource id is #{ext_resource}"
               MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).delete_resource(
                 rest_api_id: @cloud_id,
                 resource_id: ext_resource
@@ -67,27 +68,39 @@ module MU
               parent_id: root_resource,
               path_part: m['path']
             )
+puts @cloud_id
+puts root_resource
+puts m['path']
 
             parent_id = resp.id
+MU.log "My parent resource id is now #{parent_id}", MU::NOTICE
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method(
               rest_api_id: @cloud_id,
               resource_id: parent_id,
               authorization_type: m['auth'],
               http_method: m['type']
             )
-            
-            pp m
+
+            if m['integrate_with']
+                puts "INTEGRATE WITH #{m['integrate_with']['type']} #{m['integrate_with']['name']}"
+              if m['integrate_with']['type'] == "function"
+                function = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
+                puts function.cloudobj.arn
+                puts "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations"
+                resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
+                  rest_api_id: @cloud_id,
+                  resource_id: parent_id,
+                  type: "AWS",
+                  http_method: m['type'],
+                  integration_http_method: m['type'],
+                  uri: "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations"
+                )
+                pp resp
+              end
+            end
 
 # "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:616552976502:function:m3api/invocations",
 
-#            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
-#              rest_api_id: @cloud_id,
-#              resource_id: parent_id,
-#              type: "AWS",
-#              http_method: m['type'],
-#              integration_http_method: m['type'],
-#              uri: ""
-#            )
           }
         end
 
@@ -250,6 +263,16 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(endpoint, configurator)
           ok = true
+
+          endpoint['methods'].each { |m|
+            if m['integrate_with'] and m['integrate_with']['name']
+              endpoint['dependencies'] ||= []
+              endpoint['dependencies'] << {
+                "type" => m['integrate_with']['type'],
+                "name" => m['integrate_with']['name']
+              }
+            end
+          }
 #          if something_bad
 #            ok = false
 #          end
