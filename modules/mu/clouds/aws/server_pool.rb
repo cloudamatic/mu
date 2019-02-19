@@ -213,10 +213,11 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['notifications'] and @config['notifications']['topic']
+# XXX expand to a full reference block for a Notification resource
             arn = if @config['notifications']['topic'].match(/^arn:/)
               @config['notifications']['topic']
             else
-              "arn:#{MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws"}:sns:#{@config['region']}:#{MU.account_number}:#{@config['notifications']['topic']}"
+              "arn:#{MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws"}:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@config['notifications']['topic']}"
             end
             eventmap = {
               "launch" => "autoscaling:EC2_INSTANCE_LAUNCH",
@@ -225,7 +226,7 @@ module MU
               "failed_terminate" => "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
             }
             MU.log "Sending simple notifications (#{@config['notifications']['events'].join(", ")}) to #{arn}"
-            MU::Cloud::AWS.autoscale(@config['region']).put_notification_configuration(
+            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_notification_configuration(
               auto_scaling_group_name: @mu_name,
               topic_arn: arn,
               notification_types: @config['notifications']['events'].map { |e|
