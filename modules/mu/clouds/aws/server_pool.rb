@@ -212,6 +212,28 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          if @config['notifications'] and @config['notifications']['topic']
+            arn = if @config['notifications']['topic'].match(/^arn:/)
+              @config['notifications']['topic']
+            else
+              "arn:#{MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws"}:sns:#{@config['region']}:#{MU.account_number}:#{@config['notifications']['topic']}"
+            end
+            eventmap = {
+              "launch" => "autoscaling:EC2_INSTANCE_LAUNCH",
+              "failed_launch" => "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+              "terminate" => "autoscaling:EC2_INSTANCE_TERMINATE",
+              "failed_terminate" => "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+            }
+            MU.log "Sending simple notifications (#{@config['notifications']['events'].join(", ")}) to #{arn}"
+            MU::Cloud::AWS.autoscale(@config['region']).put_notification_configuration(
+              auto_scaling_group_name: @mu_name,
+              topic_arn: arn,
+              notification_types: @config['notifications']['events'].map { |e|
+                eventmap[e]
+              }
+            )
+          end
+
           if @config['schedule']
             ext_actions = MU::Cloud::AWS.autoscale(@config['region']).describe_scheduled_actions(
               auto_scaling_group_name: @mu_name
@@ -495,6 +517,26 @@ module MU
           toplevel_required = []
           
           schema = {
+            "notifications" => {
+              "type" => "object",
+              "description" => "Send notifications to an SNS topic for basic AutoScaling events",
+              "properties" => {
+                "topic" => {
+                  "type" => "string",
+                  "description" => "The short name or ARN of an SNS topic which should receive notifications for basic Autoscaling events"
+                },
+               "events" => {
+                  "type" => "array",
+                  "description" => "The AutoScaling events which should generate a notification",
+                  "items" => {
+                    "type" => "string",
+                    "description" => "The AutoScaling events which should generate a notification",
+                    "enum" => ["launch", "failed_launch", "terminate", "failed_terminate"]
+                  },
+                  "default" => ["launch", "failed_launch", "terminate", "failed_terminate"]
+                }
+              }
+            },
             "generate_iam_role" => {
               "type" => "boolean",
               "default" => true,
