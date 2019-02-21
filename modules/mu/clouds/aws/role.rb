@@ -93,7 +93,7 @@ module MU
             end
 
             if @config['import']
-              MU.log "Attaching canned #{@config['import'].size > 1 ? "policies" : "policy"} #{@config['import'].join(", ")} to role #{@mu_name}", MU::NOTICE, details: @config['credentials']
+              MU.log "Attaching canned #{@config['import'].size > 1 ? "policies" : "policy"} #{@config['import'].join(", ")} to role #{@mu_name}", MU::NOTICE
               configured_policies.concat(@config['import'].map { |p| p.gsub(/.*?\/([^:\/]+)$/, '\1') })
             end
 

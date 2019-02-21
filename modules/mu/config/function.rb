@@ -46,6 +46,12 @@ module MU
           },
           "tags" => MU::Config.tags_primitive,
           "optional_tags" => MU::Config.optional_tags_primitive,
+          "add_firewall_rules" => MU::Config::FirewallRule.reference,
+          "ingress_rules" => {
+            "type" => "array",
+            "description" => "Firewall rules to apply to our function. Ignored if not applicable to target environment.",
+            "items" => MU::Config::FirewallRule.ruleschema
+          },
           "memory" => {
             "type" => "integer",
             "default" => 128,

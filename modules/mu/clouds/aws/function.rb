@@ -35,69 +35,7 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
-        # Given an IAM role name, resolve to ARN. Will attempt to identify any
-        # sibling Mu role resources by this name first, and failing that, will
-        # do a plain get_role() to the IAM API for the provided name.
-        # @param name [String]
-        def get_role_arn(name)
-          sib_role = @deploy.findLitterMate(name: name, type: "roles")
-          return sib_role.cloudobj.arn if sib_role
-
-          begin
-            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
-              role_name: name.to_s
-            })
-            return role['role']['arn']
-          rescue Exception => e
-            MU.log "#{e}", MU::ERR
-          end
-          nil
-        end
-
-        def get_vpc_config(vpc_name, subnet_name, sg_name,region=@config['region'])
-          if !subnet_name.nil? and !sg_name.nil? and !vpc_name.nil?
-            ## get vpc_id
-            ## get sub_id and verify its in the same vpc 
-            ## get sg_id and verify its in the same vpc
-            ec2_client = MU::Cloud::AWS.ec2(region: region, credentials: @config['credentials'])
-            
-            vpc_filter = ec2_client.describe_vpcs({
-              filters: [{ name: 'tag-value', values: [vpc_name] }]
-            })
-            bok_vpc_id = vpc_filter.vpcs[0].vpc_id
-            
-            sub_filter = ec2_client.describe_subnets({
-              filters: [{ name: 'tag-value', values: [subnet_name] }]
-            })
-            
-            sub_id = nil 
-            sub_filter.subnets.each do |each|
-              if each.vpc_id == bok_vpc_id
-                sub_id = each.subnet_id
-                break
-              end
-            end
-            
-            sg_filter = ec2_client.describe_security_groups({
-              filters: [{ name: 'group-name', values: [sg_name] }]
-            })
-            
-
-            if sg_filter.security_groups[0].vpc_id.to_s != bok_vpc_id
-              MU.log "Security Group: #{sg_name} is not part of the VPC: #{vpc_name}", MU::ERR
-              raise MuError, "Please provide security group name that exists in the vpc"
-            end
-
-            #sub_id = sub_filter.subnets[0].subnet_id
-            sg_id = sg_filter.security_groups[0].group_id
-            return {subnet_ids: [sub_id], security_group_ids: [sg_id]}
-          else
-            MU.log "Function: #{@config['name']}, Missing either subnet_name or security_group_name or vpc_name in the vpc stanza!", MU::ERR
-            raise MuError, "Insufficient parameters for locating vpc resource ids ==> #{@config['name']}"
-          end
-        end
-
-
+        # Tag this Lambda function
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
@@ -162,17 +100,21 @@ module MU
           end
 
           if @config.has_key?('vpc')
-             ### get vpc and subnet_name
-             ### find the subnet_id
-             sub_name = @config['vpc']['subnet_name']
-             vpc_name = @config['vpc']['vpc_name']
-             sg_name =  @config['vpc']['security_group_name']
-             vpc_conf = get_vpc_config(vpc_name,sub_name,sg_name)
-             lambda_properties[:vpc_config] = vpc_conf
+            sgs = []
+            if @config['add_firewall_rules']
+              @config['add_firewall_rules'].each { |sg|
+                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['rule_name'])
+                sgs << sg.cloud_id if sg and sg.cloud_id
+              }
+            end
+            lambda_properties[:vpc_config] = {
+              :subnet_ids => @config['vpc']['subnets'].map { |s| s["subnet_id"] },
+              :security_group_ids => sgs
+            }
           end
 
           retries = 0
-          begin
+          resp = begin
             MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
           rescue Aws::Lambda::Errors::InvalidParameterValueException => e
             # Freshly-made IAM roles sometimes aren't really ready
@@ -183,8 +125,12 @@ module MU
             end
             raise e
           end
+
+
+          @cloud_id = resp.function_name
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           desc = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).get_function(
             function_name: @mu_name
@@ -228,6 +174,7 @@ module MU
         end
 
 
+        # Look up an ARN for a given trigger type and resource name
         def assume_trigger_arns(svc, name)
           supported_triggers = %w(apigateway sns events event cloudwatch_event)
           if supported_triggers.include?(svc.downcase)
@@ -249,7 +196,7 @@ module MU
           return arn
         end
         
-        
+        # XXX placeholder, really; this is going end up being done from Endpoint, Log and Notification resources, I think
         def adjust_trigger(trig_type, trig_arn, func_arn, func_id=nil, protocol='lambda',region=@config['region'])
           
           case trig_type
@@ -282,8 +229,8 @@ module MU
         # Return the metadata for this Function rule
         # @return [Hash]
         def notify
-          deploy_struct = {
-          }
+          deploy_struct = MU.structToHash(MU::Cloud::AWS::Function.find(cloud_id: @cloud_id, credentials: @config['credentials'], region: @config['region']).values.first)
+          deploy_struct['mu_name'] = @mu_name
           return deploy_struct
         end
 
@@ -327,21 +274,20 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
-        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, credentials: nil, flags: {})
-          func = nil
-          if !func_name.nil?
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+          matches = {}
+
+          if !cloud_id.nil?
             all_functions = MU::Cloud::AWS.lambda(region: region, credentials: credentials).list_functions
-            if all_functions.include?(func_name)
-              all_functions.functions.each do |x|
-                if x.function_name == func_name
-                  func = x
-                  break
-                end
+            all_functions.functions.each do |x|
+              if x.function_name == cloud_id
+                matches[x.function_name] = x
+                break
               end
             end
           end
 
-          return func
+          return matches
         end
 
 
@@ -355,8 +301,17 @@ module MU
           schema = {
             "iam_role" => {
               "type" => "string",
-              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with the AWSLambdaBasicExecutionRole policy attached. To grant other permissions for your function, create a Mu 'role' resource and use the 'import' and 'policies' parameters to add permissions. See also: https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html"
-            }
+              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."
+            },
+            "permissions" => {
+              "type" => "array",
+              "description" => "if `iam_role` is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
+              "items" => {
+                "type" => "string",
+                "description" => "A permission to add to our Lambda function's default role, corresponding to standard AWS policies (see https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html)",
+                "enum" => ["basic", "kinesis", "dynamo", "sqs", "network", "xray"]
+              }
+            },
 # XXX add some canned permission sets here, asking people to get the AWS weirdness right and then translate it into Mu-speak is just too much. Think about auto-populating when a target log group is asked for, mappings for the AWS canned policies in the URL above, writes to arbitrary S3 buckets, etc
           }
           [toplevel_required, schema]
@@ -369,7 +324,52 @@ module MU
         def self.validateConfig(function, configurator)
           ok = true
 
+          if function['vpc']
+            fwname = "lambda-#{function['name']}"
+            # default to allowing pings, if no ingress_rules were specified
+            function['ingress_rules'] ||= [ 
+              {
+                "proto" => "icmp",
+                "hosts" => ["0.0.0.0/0"]
+              }
+            ]
+            acl = {
+              "name" => fwname,
+              "rules" => function['ingress_rules'],
+              "region" => function['region'],
+              "credentials" => function['credentials'],
+              "optional_tags" => function['optional_tags']
+            }
+            acl["tags"] = function['tags'] if function['tags'] && !function['tags'].empty?
+            acl["vpc"] = function['vpc'].dup if function['vpc']
+            ok = false if !configurator.insertKitten(acl, "firewall_rules")
+            function["add_firewall_rules"] = [] if function["add_firewall_rules"].nil?
+            function["add_firewall_rules"] << {"rule_name" => fwname}
+            function["permissions"] ||= []
+            function["permissions"] << "network"
+            function['dependencies'] ||= []
+            function['dependencies'] << {
+              "name" => fwname,
+              "type" => "firewall_rule"
+            }
+          end
+
           if !function['iam_role']
+            policy_map = {
+              "basic" => "AWSLambdaBasicExecutionRole",
+              "kinesis" => "AWSLambdaKinesisExecutionRole",
+              "dynamo" => "AWSLambdaDynamoDBExecutionRole",
+              "sqs" => "AWSLambdaSQSQueueExecutionRole ",
+              "network" => "AWSLambdaVPCAccessExecutionRole",
+              "xray" => "AWSXrayWriteOnlyAccess"
+            }
+            policies = if function['permissions']
+              function['permissions'].map { |p|
+                policy_map[p]
+              }
+            else
+              ["AWSLambdaBasicExecutionRole"]
+            end
             roledesc = {
               "name" => function['name']+"execrole",
               "credentials" => function['credentials'],
@@ -379,9 +379,7 @@ module MU
                   "entity_type" => "service"
                 }
               ],
-              "import" => [
-                "AWSLambdaBasicExecutionRole"
-              ]
+              "import" => policies
             }
             configurator.insertKitten(roledesc, "roles")
 
@@ -395,6 +393,27 @@ module MU
           end
 
           ok
+        end
+
+        private
+
+        # Given an IAM role name, resolve to ARN. Will attempt to identify any
+        # sibling Mu role resources by this name first, and failing that, will
+        # do a plain get_role() to the IAM API for the provided name.
+        # @param name [String]
+        def get_role_arn(name)
+          sib_role = @deploy.findLitterMate(name: name, type: "roles")
+          return sib_role.cloudobj.arn if sib_role
+
+          begin
+            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
+              role_name: name.to_s
+            })
+            return role['role']['arn']
+          rescue Exception => e
+            MU.log "#{e}", MU::ERR
+          end
+          nil
         end
 
       end
