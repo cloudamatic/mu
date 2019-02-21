@@ -259,7 +259,7 @@ module MU
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
                   MU::Cloud::AWS::Server.removeIAMProfile(@mu_name)
-                  MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
+                  MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true, region: @config['region'])
                 }
               end
             end

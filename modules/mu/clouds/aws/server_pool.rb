@@ -79,67 +79,6 @@ module MU
 
           @cloud_id = @mu_name
 
-          if @config["scaling_policies"] and @config["scaling_policies"].size > 0
-            @config["scaling_policies"].each { |policy|
-              policy_params = {
-                :auto_scaling_group_name => @mu_name,
-                :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
-                :adjustment_type => policy['type'],
-                :policy_type => policy['policy_type']
-              }
-
-              if policy["policy_type"] == "SimpleScaling"
-                policy_params[:cooldown] = policy['cooldown']
-                policy_params[:scaling_adjustment] = policy['adjustment']
-              elsif policy["policy_type"] == "StepScaling"
-                step_adjustments = []
-                policy['step_adjustments'].each{|step|
-                  step_adjustments << {:metric_interval_lower_bound => step["lower_bound"], :metric_interval_upper_bound => step["upper_bound"], :scaling_adjustment => step["adjustment"]}
-                }
-                policy_params[:metric_aggregation_type] = policy['metric_aggregation_type']
-                policy_params[:step_adjustments] = step_adjustments
-                policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
-              end
-
-              policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
-              resp = MU::Cloud::AWS.autoscale(@config['region']).put_scaling_policy(policy_params)
-
-              # If we are creating alarms for scaling policies we need to have the autoscaling policy ARN
-              # To make life easier we're creating the alarms here
-              if policy.has_key?("alarms") && !policy["alarms"].empty?
-                policy["alarms"].each { |alarm|
-                  alarm["alarm_actions"] = [] if !alarm.has_key?("alarm_actions")
-                  alarm["ok_actions"] = [] if !alarm.has_key?("ok_actions")
-                  alarm["alarm_actions"] << resp.policy_arn
-                  alarm["dimensions"] = [{name: "AutoScalingGroupName", value: asg_options[:auto_scaling_group_name]}]
-
-                  if alarm["enable_notifications"]
-                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                    MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
-                    alarm["alarm_actions"] << topic_arn
-                    alarm["ok_actions"] << topic_arn
-                  end
-
-                  MU::Cloud::AWS::Alarm.setAlarm(
-                    name: "#{MU.deploy_id}-#{alarm["name"]}".upcase,
-                    ok_actions: alarm["ok_actions"],
-                    alarm_actions: alarm["alarm_actions"],
-                    insufficient_data_actions: alarm["no_data_actions"],
-                    metric_name: alarm["metric_name"],
-                    namespace: alarm["namespace"],
-                    statistic: alarm["statistic"],
-                    dimensions: alarm["dimensions"],
-                    period: alarm["period"],
-                    unit: alarm["unit"],
-                    evaluation_periods: alarm["evaluation_periods"],
-                    threshold: alarm["threshold"],
-                    comparison_operator: alarm["comparison_operator"],
-                    region: @config["region"]
-                  )
-                }
-              end
-            }
-          end
 
           # Wait and see if we successfully bring up some instances
           attempts = 0
@@ -203,9 +142,58 @@ module MU
               max_size: @config['max_size']
             )
           end
+
+          if @config['scale_in_protection']
+            need_instances = @config['scale_in_protection'].match(/^\d+$/) ? @config['scale_in_protection'].to_i : @config['min_size']
+            setScaleInProtection(need_instances)
+          end
+
           MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
 
           return asg
+        end
+
+        # Make sure we have a set of instances with scale-in protection set which jives with our config
+        # @param need_instances [Integer]: The number of instanceswhich must have scale-in protection set
+        def setScaleInProtection(need_instances = @config['min_size'])
+          live_instances = []
+          begin
+            desc = MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
+
+            live_instances = desc.instances.map { |i| i.instance_id }
+            already_set = 0
+            desc.instances.each { |i|
+              already_set += 1 if i.protected_from_scale_in
+            }
+            if live_instances.size < need_instances
+              sleep 5
+            elsif already_set > need_instances
+              unset_me = live_instances.sample(already_set - need_instances)
+              MU.log "Disabling scale-in protection for #{unset_me.size.to_s} instances in #{@mu_name}", MU::NOTICE, details: unset_me
+              MU::Cloud::AWS.autoscale(@config['region']).set_instance_protection(
+                auto_scaling_group_name: @mu_name,
+                instance_ids: unset_me,
+                protected_from_scale_in: false
+              )
+            elsif already_set < need_instances
+              live_instances = live_instances.sample(need_instances)
+              MU.log "Enabling scale-in protection for #{@config['scale_in_protection']} instances in #{@mu_name}", details: live_instances
+              begin
+                MU::Cloud::AWS.autoscale(@config['region']).set_instance_protection(
+                  auto_scaling_group_name: @mu_name,
+                  instance_ids: live_instances,
+                  protected_from_scale_in: true
+                )
+              rescue Aws::AutoScaling::Errors::ValidationError => e
+                if e.message.match(/not in InService/i)
+                  sleep 5
+                  retry
+                else
+                  raise e
+                end
+              end
+            end
+          end while live_instances.size < need_instances
         end
 
         # List out the nodes that are members of this pool
@@ -224,19 +212,34 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          if @config['schedule']
-            resp = MU::Cloud::AWS.autoscale(@config['region']).describe_scheduled_actions(
-              auto_scaling_group_name: @mu_name
-            )
-            if resp and resp.scheduled_update_group_actions
-              resp.scheduled_update_group_actions.each { |s|
-                MU.log "Removing scheduled action #{s.scheduled_action_name} from AutoScale group #{@mu_name}"
-                MU::Cloud::AWS.autoscale(@config['region']).delete_scheduled_action(
-                  auto_scaling_group_name: @mu_name,
-                  scheduled_action_name: s.scheduled_action_name
-                )
-              }
+          if @config['notifications'] and @config['notifications']['topic']
+            arn = if @config['notifications']['topic'].match(/^arn:/)
+              @config['notifications']['topic']
+            else
+              "arn:#{MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws"}:sns:#{@config['region']}:#{MU.account_number}:#{@config['notifications']['topic']}"
             end
+            eventmap = {
+              "launch" => "autoscaling:EC2_INSTANCE_LAUNCH",
+              "failed_launch" => "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+              "terminate" => "autoscaling:EC2_INSTANCE_TERMINATE",
+              "failed_terminate" => "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+            }
+            MU.log "Sending simple notifications (#{@config['notifications']['events'].join(", ")}) to #{arn}"
+            MU::Cloud::AWS.autoscale(@config['region']).put_notification_configuration(
+              auto_scaling_group_name: @mu_name,
+              topic_arn: arn,
+              notification_types: @config['notifications']['events'].map { |e|
+                eventmap[e]
+              }
+            )
+          end
+
+          if @config['schedule']
+            ext_actions = MU::Cloud::AWS.autoscale(@config['region']).describe_scheduled_actions(
+              auto_scaling_group_name: @mu_name
+            ).scheduled_update_group_actions
+
+
             @config['schedule'].each { |s|
               sched_config = {
                 :auto_scaling_group_name => @mu_name,
@@ -248,10 +251,27 @@ module MU
               ['start_time', 'end_time'].each { |flag|
                 sched_config[flag.to_sym] = Time.parse(s[flag]) if s[flag]
               }
-              MU.log "Adding scheduled action to AutoScale group #{@mu_name}", MU::NOTICE, details: sched_config
-              MU::Cloud::AWS.autoscale(@config['region']).put_scheduled_update_group_action(
-                sched_config
-              )
+              action_already_correct = false
+              ext_actions.each { |ext|
+                if s['action_name'] == ext.scheduled_action_name
+                  if !MU.hashCmp(MU.structToHash(ext), sched_config, missing_is_default: true)
+                    MU.log "Removing scheduled action #{s['action_name']} from AutoScale group #{@mu_name}"
+                    MU::Cloud::AWS.autoscale(@config['region']).delete_scheduled_action(
+                      auto_scaling_group_name: @mu_name,
+                      scheduled_action_name: s['action_name']
+                    )
+                  else
+                    action_already_correct = true
+                  end
+                  break
+                end
+              }
+              if !action_already_correct
+                MU.log "Adding scheduled action to AutoScale group #{@mu_name}", MU::NOTICE, details: sched_config
+                MU::Cloud::AWS.autoscale(@config['region']).put_scheduled_update_group_action(
+                  sched_config
+                )
+              end
             }
           end
 
@@ -290,15 +310,168 @@ module MU
           asg_options.delete(:tags)
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
-					if asg_options[:target_group_arns]
+          asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
+          tg_arns = []
+          if asg_options[:target_group_arns]
             MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
               target_group_arns: asg_options[:target_group_arns]
             )
+            tg_arns = asg_options[:target_group_arns].dup
             asg_options.delete(:target_group_arns)
-  				end
+          end
 
           MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(asg_options)
+
+          if @config['scale_in_protection']
+            if @config['scale_in_protection'] == "all"
+              setScaleInProtection(listNodes.size)
+            elsif @config['scale_in_protection'] == "initial"
+              setScaleInProtection(@config['min_size'])
+            elsif @config['scale_in_protection'].match(/^\d+$/)
+              setScaleInProtection(@config['scale_in_protection'].to_i)
+            end
+          else
+            setScaleInProtection(0)
+          end
+
+          ext_pols = MU::Cloud::AWS.autoscale(@config['region']).describe_policies(
+            auto_scaling_group_name: @mu_name
+          ).scaling_policies
+          if @config["scaling_policies"] and @config["scaling_policies"].size > 0
+            legit_policies = []
+            @config["scaling_policies"].each { |policy|
+              legit_policies << @deploy.getResourceName("#{@config['name']}-#{policy['name']}")
+            }
+            # Delete any scaling policies we're not configured for
+            ext_pols.each { |ext|
+              if !legit_policies.include?(ext.policy_name)
+                MU.log "Scaling policy #{ext.policy_name} is not named in scaling_policies, removing from #{@mu_name}", MU::NOTICE, details: ext
+                MU::Cloud::AWS.autoscale(@config['region']).delete_policy(
+                  auto_scaling_group_name: @mu_name,
+                  policy_name: ext.policy_name
+                )
+              end
+            }
+
+            @config["scaling_policies"].each { |policy|
+              policy_name = @deploy.getResourceName("#{@config['name']}-#{policy['name']}")
+              policy_params = {
+                :auto_scaling_group_name => @mu_name,
+                :policy_name => policy_name,
+                :policy_type => policy['policy_type']
+              }
+
+              if policy["policy_type"] == "SimpleScaling"
+                policy_params[:cooldown] = policy['cooldown']
+                policy_params[:scaling_adjustment] = policy['adjustment']
+                policy_params[:adjustment_type] = policy['type']
+              elsif policy["policy_type"] == "TargetTrackingScaling"
+                def strToSym(hash)
+                  newhash = {}
+                  hash.each_pair { |k, v|
+                    if v.is_a?(Hash)
+                      newhash[k.to_sym] = strToSym(v)
+                    else
+                      newhash[k.to_sym] = v
+                    end
+                  }
+                  newhash
+                end
+                policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                policy_params[:target_tracking_configuration].delete(:preferred_target_group)
+                if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
+                   policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
+                  lb_path = nil
+                  lb = @deploy.deployment["loadbalancers"].values.first
+                  if @deploy.deployment["loadbalancers"].size > 1
+                    MU.log "Multiple load balancers attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
+                  end
+                  lb_path = if lb["targetgroups"].size > 1
+                    if policy['target_tracking_configuration']["preferred_target_group"] and
+                       lb["targetgroups"][policy['target_tracking_configuration']["preferred_target_group"]]
+                      lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"][policy['target_tracking_configuration']["preferred_target_group"]].split(/:/)[5]
+                    else
+                      if policy['target_tracking_configuration']["preferred_target_group"]
+                        MU.log "preferred_target_group was set to '#{policy["preferred_target_group"]}' but I don't see a target group by that name", MU::WARN
+                      end
+                      MU.log "Multiple target groups attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN, details: lb["targetgroups"].keys
+                      lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"].values.first.split(/:/)[5]
+                    end
+                  end
+
+                  policy_params[:target_tracking_configuration][:predefined_metric_specification][:resource_label] = lb_path
+                end
+                policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
+              elsif policy["policy_type"] == "StepScaling"
+                step_adjustments = []
+                policy['step_adjustments'].each{|step|
+                  step_adjustments << {:metric_interval_lower_bound => step["lower_bound"], :metric_interval_upper_bound => step["upper_bound"], :scaling_adjustment => step["adjustment"]}
+                }
+                policy_params[:metric_aggregation_type] = policy['metric_aggregation_type']
+                policy_params[:step_adjustments] = step_adjustments
+                policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
+                policy_params[:adjustment_type] = policy['type']
+              end
+
+              policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
+
+              policy_already_correct = false
+              ext_pols.each { |ext|
+                if ext.policy_name == policy_name
+                  if !MU.hashCmp(MU.structToHash(ext), policy_params, missing_is_default: true)
+                    MU::Cloud::AWS.autoscale(@config['region']).delete_policy(
+                      auto_scaling_group_name: @mu_name,
+                      policy_name: policy_name
+                    )
+                  else
+                    policy_already_correct = true
+                  end
+                  break
+                end
+              }
+              if !policy_already_correct
+                MU.log "Putting scaling policy #{policy_name} for #{@mu_name}", MU::NOTICE, details: policy_params
+                resp = MU::Cloud::AWS.autoscale(@config['region']).put_scaling_policy(policy_params)
+              end
+
+
+              # If we are creating alarms for scaling policies we need to have the autoscaling policy ARN
+              # To make life easier we're creating the alarms here
+              if policy.has_key?("alarms") && !policy["alarms"].empty?
+                policy["alarms"].each { |alarm|
+                  alarm["alarm_actions"] = [] if !alarm.has_key?("alarm_actions")
+                  alarm["ok_actions"] = [] if !alarm.has_key?("ok_actions")
+                  alarm["alarm_actions"] << resp.policy_arn
+                  alarm["dimensions"] = [{name: "AutoScalingGroupName", value: asg_options[:auto_scaling_group_name]}]
+
+                  if alarm["enable_notifications"]
+                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                    MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                    alarm["alarm_actions"] << topic_arn
+                    alarm["ok_actions"] << topic_arn
+                  end
+
+                  MU::Cloud::AWS::Alarm.setAlarm(
+                    name: "#{MU.deploy_id}-#{alarm["name"]}".upcase,
+                    ok_actions: alarm["ok_actions"],
+                    alarm_actions: alarm["alarm_actions"],
+                    insufficient_data_actions: alarm["no_data_actions"],
+                    metric_name: alarm["metric_name"],
+                    namespace: alarm["namespace"],
+                    statistic: alarm["statistic"],
+                    dimensions: alarm["dimensions"],
+                    period: alarm["period"],
+                    unit: alarm["unit"],
+                    evaluation_periods: alarm["evaluation_periods"],
+                    threshold: alarm["threshold"],
+                    comparison_operator: alarm["comparison_operator"],
+                    region: @config["region"]
+                  )
+                }
+              end
+            }
+          end
 
         end
 
@@ -342,7 +515,28 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          
           schema = {
+            "notifications" => {
+              "type" => "object",
+              "description" => "Send notifications to an SNS topic for basic AutoScaling events",
+              "properties" => {
+                "topic" => {
+                  "type" => "string",
+                  "description" => "The short name or ARN of an SNS topic which should receive notifications for basic Autoscaling events"
+                },
+               "events" => {
+                  "type" => "array",
+                  "description" => "The AutoScaling events which should generate a notification",
+                  "items" => {
+                    "type" => "string",
+                    "description" => "The AutoScaling events which should generate a notification",
+                    "enum" => ["launch", "failed_launch", "terminate", "failed_terminate"]
+                  },
+                  "default" => ["launch", "failed_launch", "terminate", "failed_terminate"]
+                }
+              }
+            },
             "generate_iam_role" => {
               "type" => "boolean",
               "default" => true,
@@ -399,6 +593,181 @@ module MU
                 }
               }
             },
+            "scale_in_protection" => {
+              "type" => "string",
+              "description" => "Protect instances from scale-in termination. Can be 'all', 'initial' (essentially 'min_size'), or an number; note the number needs to be a string, so put it in quotes",
+              "pattern" => "^(all|initial|\\d+)$"
+            },
+            "scale_with_alb_traffic" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ALBRequestCountPerTarget with some reasonable defaults"
+            },
+            "scale_with_cpu" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ASGAverageCPUUtilization with some reasonable defaults"
+            },
+            "scale_with_network_in" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ASGAverageNetworkIn with some reasonable defaults"
+            },
+            "scale_with_network_out" => {
+              "type" => "float",
+              "description" => "Shorthand for creating a target_tracking_configuration to scale on ASGAverageNetworkOut with some reasonable defaults"
+            },
+            "termination_policies" => {
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "type" => "String",
+                "default" => "Default",
+                "enum" => MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types
+              }
+            },
+            "scaling_policies" => {
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "type" => "object",
+                "required" => ["name"],
+                "additionalProperties" => false,
+                "description" => "A custom AWS Autoscale scaling policy for this pool.",
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "alarms" => MU::Config::Alarm.inline,
+                  "type" => {
+                    "type" => "string",
+                    "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
+                    "description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current capacity for SimpleScaling and StepScaling. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
+                  },
+                  "adjustment" => {
+                    "type" => "integer",
+                    "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity. Used only when policy_type is set to 'SimpleScaling'"
+                  },
+                  "cooldown" => {
+                    "type" => "integer",
+                    "default" => 1,
+                    "description" => "The amount of time, in seconds, after a scaling activity completes and before the next scaling activity can start."
+                  },
+                  "min_adjustment_magnitude" => {
+                    "type" => "integer",
+                    "description" => "Used when 'type' is set to 'PercentChangeInCapacity', the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
+                  },
+                  "policy_type" => {
+                    "type" => "string",
+                    "enum" => ["SimpleScaling", "StepScaling", "TargetTrackingScaling"],
+                    "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value provided. Defaults to 'SimpleScaling'.",
+                    "default" => "SimpleScaling"
+                  },
+                  "metric_aggregation_type" => {
+                    "type" => "string",
+                    "enum" => ["Minimum", "Maximum", "Average"],
+                    "description" => "Defaults to 'Average' if not specified. Required when policy_type is set to 'StepScaling'",
+                    "default" => "Average"
+                  },
+                  "step_adjustments" => {
+                    "type" => "array",
+                    "minItems" => 1,
+                    "items" => {
+                      "type" => "object",
+                      "title" => "admin",
+                      "description" => "Requires policy_type 'StepScaling'",
+                      "required" => ["adjustment"],
+                      "additionalProperties" => false,
+                      "properties" => {
+                        "adjustment" => {
+                          "type" => "integer",
+                          "description" => "The number of instances by which to scale at this specific step. Postive value when adding capacity, negative value when removing capacity"
+                        },
+                        "lower_bound" => {
+                          "type" => "integer",
+                          "description" => "The lower bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being added this value will most likely be 0"
+                        },
+                        "upper_bound" => {
+                          "type" => "integer",
+                          "description" => "The upper bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being removed this value will most likely be 0"
+                        }
+                      }
+                    }
+                  },
+                  "estimated_instance_warmup" => {
+                    "type" => "integer",
+                    "description" => "Required when policy_type is set to 'StepScaling'"
+                  },
+                  "target_tracking_configuration" => {
+                    "type" => "object",
+                    "description" => "Required when policy_type is set to 'TargetTrackingScaling' https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/TargetTrackingConfiguration.html",
+                    "required" => ["target_value"],
+                    "additionalProperties" => false,
+                    "properties" => {
+                      "target_value" => {
+                        "type" => "float",
+                        "description" => "The target value for the metric."
+                      },
+                      "preferred_target_group" => {
+                        "type" => "string",
+                        "description" => "If our load balancer has multiple target groups, prefer the one with this name instead of choosing one arbitrarily"
+                      },
+                      "disable_scale_in" => {
+                        "type" => "boolean",
+                        "description" => "If set to true, new instances created by this policy will not be subject to termination by scaling in.",
+                        "default" => false
+                      },
+                      "predefined_metric_specification" => {
+                        "description" => "A predefined metric. You can specify either a predefined metric or a customized metric. https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/PredefinedMetricSpecification.html",
+                        "type" => "string",
+                        "enum" => ["ASGAverageCPUUtilization", "ASGAverageNetworkIn", "ASGAverageNetworkOut", "ALBRequestCountPerTarget"],
+                        "default" => "ASGAverageCPUUtilization"
+                      },
+                      "customized_metric_specification" => {
+                        "type" => "object",
+                        "description" => "A customized metric. You can specify either a predefined metric or a customized metric. https://docs.aws.amazon.com/sdkforruby/api/Aws/AutoScaling/Types/TargetTrackingConfiguration.html#customized_metric_specification-instance_method",
+                        "additionalProperties" => false,
+                        "required" => ["metric_name", "namespace", "statistic"],
+                        "properties" => {
+                          "metric_name" => {
+                            "type" => "string",
+                            "description" => "The name of the attribute to monitor eg. CPUUtilization."
+                          },
+                          "namespace" => {
+                            "type" => "string",
+                            "description" => "The name of container 'metric_name' belongs to eg. 'AWS/ApplicationELB'"
+                          },
+                          "statistic" => {
+                            "type" => "string",
+                            "enum" => ["Average", "Minimum", "Maximum", "SampleCount", "Sum"]
+                          },
+                          "unit" => {
+                            "type" => "string",
+                            "description" => "Associated with the 'metric', usually something like Megabits or Seconds"
+                          },
+                          "dimensions" => {
+                            "type" => "array",
+                            "description" => "What resource to monitor with the alarm we are implicitly declaring",
+                            "items" => {
+                              "type" => "object",
+                              "additionalProperties" => false,
+                              "required" => ["name", "value"],
+                              "properties" => {
+                                "name" => {
+                                  "type" => "string",
+                                  "description" => "The type of resource we're monitoring, e.g. InstanceId or AutoScalingGroupName"
+                                },
+                                "value" => {
+                                  "type" => "string",
+                                  "description" => "The name or cloud identifier of the resource we're monitoring"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -430,6 +799,13 @@ module MU
         def self.validateConfig(pool, configurator)
           ok = true
 
+          if pool["termination_policy"]
+            valid_policies = MU::Cloud::AWS.autoscale(pool['region']).describe_termination_policy_types.termination_policy_types
+            if !valid_policies.include?(pool["termination_policy"])
+              ok = false
+              MU.log "Termination policy #{pool["termination_policy"]} is not valid in region #{pool['region']}", MU::ERR, details: valid_policies
+            end
+          end
 
           if !pool["schedule"].nil?
             pool["schedule"].each { |s|
@@ -456,6 +832,29 @@ module MU
               end
             }
           end
+
+          scale_aliases = {
+            "scale_with_alb_traffic" => "ALBRequestCountPerTarget",
+            "scale_with_cpu" => "ASGAverageCPUUtilization",
+            "scale_with_network_in" => "ASGAverageNetworkIn",
+            "scale_with_network_out" => "ASGAverageNetworkOut"
+          }
+
+          scale_aliases.keys.each { |sp|
+            if pool[sp]
+              pool['scaling_policies'] ||= []
+              pool['scaling_policies'] << {
+                'name' => scale_aliases[sp],
+                'adjustment' => 1,
+                'policy_type' => "TargetTrackingScaling",
+                'estimated_instance_warmup' => 60,
+                'target_tracking_configuration' => {
+                  'target_value' => pool[sp],
+                  'predefined_metric_specification' => scale_aliases[sp]
+                }
+              }
+            end
+          }
 
           if !pool["basis"]["launch_config"].nil?
             launch = pool["basis"]["launch_config"]
@@ -507,9 +906,33 @@ module MU
                   MU.log "You must specify 'cooldown' and 'adjustment' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
                   ok = false
                 end
+                unless policy['type']
+                  MU.log "You must specify a 'type' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
+                  ok = false
+                end
+              elsif policy["policy_type"] == "TargetTrackingScaling"
+                unless policy["target_tracking_configuration"]
+                  MU.log "You must specify 'target_tracking_configuration' when 'policy_type' is set to 'TargetTrackingScaling'", MU::ERR
+                  ok = false
+                end
+                unless policy["target_tracking_configuration"]["customized_metric_specification"] or
+                       policy["target_tracking_configuration"]["predefined_metric_specification"]
+                  MU.log "Your target_tracking_configuration must specify one of customized_metric_specification or predefined_metric_specification when 'policy_type' is set to 'TargetTrackingScaling'", MU::ERR
+                  ok = false
+                end
+                # we gloss over an annoying layer of indirection in the API here
+                if policy["target_tracking_configuration"]["predefined_metric_specification"]
+                  policy["target_tracking_configuration"]["predefined_metric_specification"] = {
+                    "predefined_metric_type" => policy["target_tracking_configuration"]["predefined_metric_specification"]
+                  }
+                end
               elsif policy["policy_type"] == "StepScaling"
                 if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
                   MU.log "You must specify 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+                unless policy['type']
+                  MU.log "You must specify a 'type' when 'policy_type' is set to 'StepScaling'", MU::ERR
                   ok = false
                 end
   
@@ -803,11 +1226,15 @@ module MU
             MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
           end
 
+          lc_attempts = 0
           begin
             MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
-            MU.log e.message, MU::WARN
-            sleep 10
+            if lc_attempts > 3
+              MU.log "Got error while creating #{@mu_name} Launch Config: #{e.message}, retrying in 10s", MU::WARN
+            end
+            sleep 5
+            lc_attempts += 1
             retry
           end
 
