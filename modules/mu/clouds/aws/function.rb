@@ -135,6 +135,9 @@ module MU
           desc = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).get_function(
             function_name: @mu_name
           )
+          puts "*********************"
+          pp desc
+          puts "*********************"
           func_arn = desc.configuration.function_arn if !desc.empty?
 
 #          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
@@ -221,6 +224,7 @@ module MU
               ]
             })
           when 'apigateway'
+            
             MU.log "Creation of API Gateway integrations not yet implemented, you'll have to do this manually", MU::WARN, details: "(because we'll basically have to implement all of APIG for this)"
           end 
         end

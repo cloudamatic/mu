@@ -27,7 +27,7 @@ module MU
             name: @mu_name,
             description: @deploy.deploy_id,
             endpoint_configuration: {
-              types: ["PRIVATE"]
+              types: ["REGIONAL"] # XXX expose in BoK ["REGIONAL", "EDGE", "PRIVATE"]
             }
           )
           @cloud_id = resp.id
@@ -95,6 +95,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               )
             end
 
+MU.log "CONFIGURED SHIT #{m['path']}", MU::NOTICE, details: resp if m['path'] == "lambda"
+
             # XXX effectively a placeholder default
             begin
               MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method_response(
@@ -108,7 +110,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
             end
 
             if m['integrate_with']
-                puts "INTEGRATE WITH #{m['integrate_with']['type']} #{m['integrate_with']['name']}"
               role_arn = if m['iam_role']
                 if m['iam_role'].match(/^arn:/)
                   m['iam_role']
@@ -120,9 +121,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               end
 
               if m['integrate_with']['type'] == "aws_generic"
-                puts m['integrate_with']['aws_generic_action']
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
-                puts "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}"
                 resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
                   rest_api_id: @cloud_id,
                   resource_id: parent_id,
@@ -147,13 +146,20 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
                   rest_api_id: @cloud_id,
                   resource_id: parent_id,
-                  type: "AWS_PROXY", # just Lambda and Firehose
+                  type: "AWS", # just Lambda and Firehose can do AWS_PROXY
                   http_method: m['type'],
-                  integration_http_method: m['type'],
+                  integration_http_method: "POST",
                   uri: "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations",
 #                  credentials: role_arn
                 )
-                pp resp
+
+                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
+                  rest_api_id: @cloud_id,
+                  resource_id: parent_id,
+                  http_method: m['type'],
+                  status_code: "200",
+                  selection_pattern: ""
+                )
               end
             end
 
@@ -340,8 +346,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 }
               end
 
-              if !m['iam_role'] and m['integrate_with']['type'] == "aws_generic"
-                m['uri'] ||= "*"
+              if !m['iam_role']
+                m['uri'] ||= "*" if m['integrate_with']['type'] == "aws_generic"
+
                 roledesc = {
                   "name" => endpoint['name']+"-"+m['integrate_with']['name'],
                   "credentials" => endpoint['credentials'],
@@ -351,15 +358,18 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                       "entity_type" => "service"
                     }
                   ],
-                  "policies" => [
+                }
+                if m['integrate_with']['type'] == "aws_generic"
+                  roledesc["policies"] = [
                     {
                       "name" => m['integrate_with']['aws_generic_action'].gsub(/[^a-z]/i, ""),
                       "permissions" => [m['integrate_with']['aws_generic_action']],
                       "targets" => [{ "identifier" => m['uri'] }]
                     }
-                  ],
-#                  "import" => ["AWSLambdaBasicExecutionRole"] # XXX what should this policy *actually* have in it?
-                }
+                  ]
+                elsif m['integrate_with']['type'] == "function"
+                  roledesc["import"] = ["AWSLambdaBasicExecutionRole"]
+                end
                 configurator.insertKitten(roledesc, "roles")
 
                 endpoint['dependencies'] ||= []
