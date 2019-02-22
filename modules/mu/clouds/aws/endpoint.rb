@@ -55,45 +55,103 @@ module MU
               end
             }
 
-            if ext_resource
-MU.log "existing resource id is #{ext_resource}"
-              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).delete_resource(
+            resp = if ext_resource
+MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resource(
+  rest_api_id: @cloud_id,
+  resource_id: ext_resource,
+)
+#              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).update_resource(
+#                rest_api_id: @cloud_id,
+#                resource_id: ext_resource,
+#                patch_operations: [
+#                  {
+#                    op: "replace",
+#                    path: "XXX ??",
+#                    value: m["path"]
+#                  }
+#                ]
+#              )
+            else
+              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_resource(
                 rest_api_id: @cloud_id,
-                resource_id: ext_resource
+                parent_id: root_resource,
+                path_part: m['path']
               )
             end
 
-            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_resource(
-              rest_api_id: @cloud_id,
-              parent_id: root_resource,
-              path_part: m['path']
-            )
-puts @cloud_id
-puts root_resource
-puts m['path']
-
             parent_id = resp.id
-MU.log "My parent resource id is now #{parent_id}", MU::NOTICE
-            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method(
-              rest_api_id: @cloud_id,
-              resource_id: parent_id,
-              authorization_type: m['auth'],
-              http_method: m['type']
-            )
+            resp = begin
+              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_method(
+                rest_api_id: @cloud_id,
+                resource_id: parent_id,
+                http_method: m['type']
+              )
+            rescue Aws::APIGateway::Errors::NotFoundException
+              resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method(
+                rest_api_id: @cloud_id,
+                resource_id: parent_id,
+                authorization_type: m['auth'],
+                http_method: m['type']
+              )
+            end
+
+            # XXX effectively a placeholder default
+            begin
+              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method_response(
+                rest_api_id: @cloud_id,
+                resource_id: parent_id,
+                http_method: m['type'],
+                status_code: "200"
+              )
+            rescue Aws::APIGateway::Errors::ConflictException
+              # fine to ignore
+            end
 
             if m['integrate_with']
                 puts "INTEGRATE WITH #{m['integrate_with']['type']} #{m['integrate_with']['name']}"
-              if m['integrate_with']['type'] == "function"
-                function = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
-                puts function.cloudobj.arn
-                puts "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations"
+              role_arn = if m['iam_role']
+                if m['iam_role'].match(/^arn:/)
+                  m['iam_role']
+                else
+                  sib_role = @deploy.findLitterMate(name: m['iam_role'], type: "roles")
+                  sib_role.cloudobj.arn
+# XXX make this more like get_role_arn in Function, or just use Role.find?
+                end
+              end
+
+              if m['integrate_with']['type'] == "aws_generic"
+                puts m['integrate_with']['aws_generic_action']
+                svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
+                puts "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}"
                 resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
                   rest_api_id: @cloud_id,
                   resource_id: parent_id,
                   type: "AWS",
                   http_method: m['type'],
                   integration_http_method: m['type'],
-                  uri: "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations"
+#acm:ListCertificates
+                  uri: "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",
+                  credentials: role_arn
+                )
+                MU.log ".put_integration_response(rest_api_id: #{@cloud_id}, resource_id: #{parent_id}, http_method: #{m['type']}, status_code: '200')"
+                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
+                  rest_api_id: @cloud_id,
+                  resource_id: parent_id,
+                  http_method: m['type'],
+                  status_code: "200",
+                  selection_pattern: ""
+                )
+              elsif m['integrate_with']['type'] == "function"
+                function = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
+
+                resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
+                  rest_api_id: @cloud_id,
+                  resource_id: parent_id,
+                  type: "AWS_PROXY", # just Lambda and Firehose
+                  http_method: m['type'],
+                  integration_http_method: m['type'],
+                  uri: "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations",
+#                  credentials: role_arn
                 )
                 pp resp
               end
@@ -223,12 +281,20 @@ MU.log "My parent resource id is now #{parent_id}", MU::NOTICE
                       },
                       "type" => {
                         "type" => "string",
-                        "description" => "A Mu resource type, for integrations with a sibling resource (e.g. a Function)",
-                        "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
+                        "description" => "A Mu resource type, for integrations with a sibling resource (e.g. a function), or the string +aws_generic+, which we can use in combination with +aws_generic_action+ to integrate with arbitrary AWS services.",
+                        "enum" => ["aws_generic"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort)
+                      },
+                      "aws_generic_action" => {
+                        "type" => "string",
+                        "description" => "For use when +type+ is set to +aws_generic+, this should specify the action to be performed in the style of an IAM policy action, e.g. +acm:ListCertificates+ for this integration to return a list of Certificate Manager SSL certificates." 
                       },
                       "deploy_id" => {
                         "type" => "string",
                         "description" => "A Mu deploy id (e.g. DEMO-DEV-2014111400-NG), for integrations with a sibling resource (e.g. a Function)"
+                      },
+                      "iam_role" => {
+                        "type" => "string",
+                        "description" => "The name of an IAM role used to grant usage of other AWS artifacts for this integration. If not specified, we will automatically generate an appropriate role."
                       }
                     }
                   },
@@ -266,11 +332,44 @@ MU.log "My parent resource id is now #{parent_id}", MU::NOTICE
 
           endpoint['methods'].each { |m|
             if m['integrate_with'] and m['integrate_with']['name']
-              endpoint['dependencies'] ||= []
-              endpoint['dependencies'] << {
-                "type" => m['integrate_with']['type'],
-                "name" => m['integrate_with']['name']
-              }
+              if m['integrate_with']['type'] != "aws_generic"
+                endpoint['dependencies'] ||= []
+                endpoint['dependencies'] << {
+                  "type" => m['integrate_with']['type'],
+                  "name" => m['integrate_with']['name']
+                }
+              end
+
+              if !m['iam_role'] and m['integrate_with']['type'] == "aws_generic"
+                m['uri'] ||= "*"
+                roledesc = {
+                  "name" => endpoint['name']+"-"+m['integrate_with']['name'],
+                  "credentials" => endpoint['credentials'],
+                  "can_assume" => [
+                    {
+                      "entity_id" => "apigateway.amazonaws.com",
+                      "entity_type" => "service"
+                    }
+                  ],
+                  "policies" => [
+                    {
+                      "name" => m['integrate_with']['aws_generic_action'].gsub(/[^a-z]/i, ""),
+                      "permissions" => [m['integrate_with']['aws_generic_action']],
+                      "targets" => [{ "identifier" => m['uri'] }]
+                    }
+                  ],
+#                  "import" => ["AWSLambdaBasicExecutionRole"] # XXX what should this policy *actually* have in it?
+                }
+                configurator.insertKitten(roledesc, "roles")
+
+                endpoint['dependencies'] ||= []
+                m['iam_role'] = endpoint['name']+"-"+m['integrate_with']['name']
+
+                endpoint['dependencies'] << {
+                  "type" => "role",
+                  "name" => endpoint['name']+"-"+m['integrate_with']['name']
+                }
+              end
             end
           }
 #          if something_bad
