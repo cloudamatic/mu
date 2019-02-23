@@ -45,6 +45,8 @@ module MU
 
           # TODO guard this crap so we don't touch it if there are no changes
           @config['methods'].each { |m|
+            method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
+
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
               rest_api_id: @cloud_id
             )
@@ -80,6 +82,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
             end
 
             parent_id = resp.id
+
             resp = begin
               MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_method(
                 rest_api_id: @cloud_id,
@@ -94,8 +97,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 http_method: m['type']
               )
             end
-
-MU.log "CONFIGURED SHIT #{m['path']}", MU::NOTICE, details: resp if m['path'] == "lambda"
 
             # XXX effectively a placeholder default
             begin
@@ -128,6 +129,7 @@ MU.log "CONFIGURED SHIT #{m['path']}", MU::NOTICE, details: resp if m['path'] ==
                   type: "AWS",
                   http_method: m['type'],
                   integration_http_method: m['type'],
+                  content_handling: "CONVERT_TO_TEXT", # XXX expose in BoK
 #acm:ListCertificates
                   uri: "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",
                   credentials: role_arn
@@ -149,9 +151,12 @@ MU.log "CONFIGURED SHIT #{m['path']}", MU::NOTICE, details: resp if m['path'] ==
                   type: "AWS", # just Lambda and Firehose can do AWS_PROXY
                   http_method: m['type'],
                   integration_http_method: "POST",
+                  content_handling: "CONVERT_TO_TEXT", # XXX expose in BoK
                   uri: "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations",
 #                  credentials: role_arn
                 )
+
+                function.cloudobj.addTrigger(method_arn, "apigateway", @config['name'])
 
                 MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
                   rest_api_id: @cloud_id,
@@ -160,10 +165,9 @@ MU.log "CONFIGURED SHIT #{m['path']}", MU::NOTICE, details: resp if m['path'] ==
                   status_code: "200",
                   selection_pattern: ""
                 )
+
               end
             end
-
-# "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:616552976502:function:m3api/invocations",
 
           }
         end
