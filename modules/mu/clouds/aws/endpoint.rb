@@ -80,7 +80,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 path_part: m['path']
               )
             end
-
             parent_id = resp.id
 
             resp = begin
@@ -100,12 +99,24 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
 
             # XXX effectively a placeholder default
             begin
-              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method_response(
-                rest_api_id: @cloud_id,
-                resource_id: parent_id,
-                http_method: m['type'],
-                status_code: "200"
-              )
+              m['responses'].each { |r|
+                params = {
+                  :rest_api_id => @cloud_id,
+                  :resource_id => parent_id,
+                  :http_method => m['type'],
+                  :status_code => r['code'].to_s
+                }
+                if r['headers']
+                  params[:response_parameters] = r['headers'].map { |h| ["method.response.header."+h, true] }.to_h
+                end
+
+                if r['body']
+# XXX I'm guessing we can also have arbirary user-defined models somehow, so is_error is probably stupid
+                  params[:response_models] = r['body'].map { |b| [b['content_type'], b['is_error'] ? "Error" : "Empty"] }.to_h
+                end
+
+                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_method_response(params)
+              }
             rescue Aws::APIGateway::Errors::ConflictException
               # fine to ignore
             end
@@ -123,44 +134,32 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
 
               function_obj = nil
 
-              uri = if m['integrate_with']['type'] == "aws_generic"
+              uri, type = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
-                "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}"
+                ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", "AWS"]
               elsif m['integrate_with']['type'] == "function"
                 function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions").cloudobj
-                "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.arn+"/invocations"
+                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.arn+"/invocations", "AWS"]
+              elsif m['integrate_with']['type'] == "mock"
+                [nil, "MOCK"]
               end
-
-#                resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
-#                  rest_api_id: @cloud_id,
-#                  resource_id: parent_id,
-#                  type: "AWS",
-#                  http_method: m['type'],
-#                  integration_http_method: m['type'],
-#                  content_handling: "CONVERT_TO_TEXT", # XXX expose in BoK
-##acm:ListCertificates
-#                  uri: "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",
-#                  credentials: role_arn
-#                )
-#                MU.log ".put_integration_response(rest_api_id: #{@cloud_id}, resource_id: #{parent_id}, http_method: #{m['type']}, status_code: '200')"
-#                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
-#                  rest_api_id: @cloud_id,
-#                  resource_id: parent_id,
-#                  http_method: m['type'],
-#                  status_code: "200",
-#                  selection_pattern: ""
-#                )
 
               params = {
                 :rest_api_id => @cloud_id,
                 :resource_id => parent_id,
-                :type => "AWS", # XXX Lambda and Firehose can do AWS_PROXY
-                :http_method => m['type'],
-                :integration_http_method => "POST", # XXX expose in BoK
+                :type => type, # XXX Lambda and Firehose can do AWS_PROXY
                 :content_handling => "CONVERT_TO_TEXT", # XXX expose in BoK
-                :uri => uri
+                :http_method => m['type']
 #                  credentials: role_arn
               }
+              params[:uri] = uri if uri
+
+              if m['integrate_with']['type'] != "mock"
+                params[:integration_http_method] = m['integrate_with']['backend_http_method']
+              else
+                params[:integration_http_method] = nil
+              end
+
               if m['integrate_with']['passthrough_behavior']
                 params[:passthrough_behavior] = m['integrate_with']['passthrough_behavior']
               end
@@ -170,6 +169,11 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                   params[:request_templates][rt['content_type']] = rt['template']
                 }
               end
+#MU.log "INTEGRATION #{m['type']} #{m['path']}", MU::WARN, details: MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_integration(
+#  rest_api_id: @cloud_id,
+#  resource_id: parent_id,
+#  http_method: m['type']
+#)
 
 pp params
               resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(params)
@@ -296,9 +300,54 @@ pp params
                         "default" => false,
                         "description" => "For HTTP or AWS integrations, specify whether the target is a proxy (((docs unclear, is that actually what this means?)))" # XXX is that actually what this means?
                       },
+                      "backend_http_method" => {
+                        "type" => "string",
+                        "description" => "The HTTP method to use when contacting our integrated backend. If not specified, this will be set to match our front end.",
+                        "enum" => ["GET", "POST", "PUT", "HEAD", "DELETE", "CONNECT", "OPTIONS", "TRACE"],
+                      },
                       "url" => {
                         "type" => "string",
                         "description" => "For HTTP or HTTP_PROXY integrations, this should be a fully-qualified URL"
+                      },
+                      "responses"=> {
+                        "type" => "array",
+                        "description" => "Customize the response to the client for this method, by adding headers or transforming through a template. If not specified, we will default to returning an un-transformed HTTP 200 for this method.",
+                        "items" => {
+                          "type" => "object",
+                          "properties" => {
+                            "code" => {
+                              "type" => "integer",
+                              "description" => "The HTTP status code to return",
+                              "default" => 200
+                            },
+                            "headers" => {
+                              "type" => "array",
+                              "description" => "A header to include in our response",
+                              "items" => {
+                                "type" => "string",
+                                "description" => "The name of a header to return, such as +Access-Control-Allow-Headers+"
+                              }
+                            },
+                            "body" => {
+                              "type" => "array",
+                              "description" => "A header to include in our response",
+                              "items" => {
+                                "type" => "object",
+                                "properties" => {
+                                  "content_type" => {
+                                    "type" => "string",
+                                    "description" => "An HTTP content type to match to a response, such as +application/json+."
+                                  },
+                                  "is_error" => {
+                                    "type" => "boolean",
+                                    "description" => "Whether this response should be considered an error",
+                                    "default" => false
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
                       },
                       "arn" => {
                         "type" => "string",
@@ -307,6 +356,11 @@ pp params
                       "name" => {
                         "type" => "string",
                         "description" => "A Mu resource name, for integrations with a sibling resource (e.g. a Function)"
+                      },
+                      "cors" => {
+                        "type" => "boolean",
+                        "description" => "When enabled, this will create an +OPTIONS+ method under this path with request and response header mappings that implement Cross-Origin Resource Sharing",
+                        "default" => true
                       },
                       "type" => {
                         "type" => "string",
@@ -384,6 +438,7 @@ pp params
         def self.validateConfig(endpoint, configurator)
           ok = true
 
+          append = []
           endpoint['methods'].each { |m|
             if m['integrate_with'] and m['integrate_with']['name']
               if m['integrate_with']['type'] != "aws_generic"
@@ -391,6 +446,52 @@ pp params
                 endpoint['dependencies'] << {
                   "type" => m['integrate_with']['type'],
                   "name" => m['integrate_with']['name']
+                }
+              end
+
+              m['integrate_with']['backend_http_method'] ||= m['type']
+
+              m['responses'] ||= [
+                "code" => 200
+              ]
+
+              if m['cors']
+                m['responses'].each { |r|
+                  r['headers'] ||= []
+                  r['headers'] << "Access-Control-Allow-Origin"
+                  r['headers'].uniq!
+                }
+
+                append << {
+                  "type" => "OPTIONS",
+                  "path" => m['path'],
+                  "auth" => "NONE",
+                  "responses" => [
+                    {
+                      "code" => 200,
+                      "headers" => [
+                        "Access-Control-Allow-Headers",
+                        "Access-Control-Allow-Methods",
+                        "Access-Control-Allow-Origin"
+                      ],
+                      "body" => [
+                        {
+                          "content_type" => "application/json"
+                        }
+                      ]
+                    }
+                  ],
+                  "integrate_with" => {
+                    "type" => "mock",
+                    "passthrough_behavior" => "WHEN_NO_MATCH",
+                    "backend_http_method" => "OPTIONS",
+                    "request_templates" => [
+                      {
+                        "content_type" => "application/json",
+                        "template" => '{"statusCode": 200}'
+                      }
+                    ]
+                  }
                 }
               end
 
@@ -430,6 +531,7 @@ pp params
               end
             end
           }
+          endpoint['methods'].concat(append) if endpoint['methods']
 #          if something_bad
 #            ok = false
 #          end
