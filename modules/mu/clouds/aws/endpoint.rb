@@ -121,52 +121,71 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 end
               end
 
-              if m['integrate_with']['type'] == "aws_generic"
+              function_obj = nil
+
+              uri = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
-                resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
-                  rest_api_id: @cloud_id,
-                  resource_id: parent_id,
-                  type: "AWS",
-                  http_method: m['type'],
-                  integration_http_method: m['type'],
-                  content_handling: "CONVERT_TO_TEXT", # XXX expose in BoK
-#acm:ListCertificates
-                  uri: "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",
-                  credentials: role_arn
-                )
-                MU.log ".put_integration_response(rest_api_id: #{@cloud_id}, resource_id: #{parent_id}, http_method: #{m['type']}, status_code: '200')"
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
-                  rest_api_id: @cloud_id,
-                  resource_id: parent_id,
-                  http_method: m['type'],
-                  status_code: "200",
-                  selection_pattern: ""
-                )
+                "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}"
               elsif m['integrate_with']['type'] == "function"
-                function = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
-
-                resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
-                  rest_api_id: @cloud_id,
-                  resource_id: parent_id,
-                  type: "AWS", # just Lambda and Firehose can do AWS_PROXY
-                  http_method: m['type'],
-                  integration_http_method: "POST",
-                  content_handling: "CONVERT_TO_TEXT", # XXX expose in BoK
-                  uri: "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function.cloudobj.arn+"/invocations",
-#                  credentials: role_arn
-                )
-
-                function.cloudobj.addTrigger(method_arn, "apigateway", @config['name'])
-
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
-                  rest_api_id: @cloud_id,
-                  resource_id: parent_id,
-                  http_method: m['type'],
-                  status_code: "200",
-                  selection_pattern: ""
-                )
-
+                function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions").cloudobj
+                "arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.arn+"/invocations"
               end
+
+#                resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(
+#                  rest_api_id: @cloud_id,
+#                  resource_id: parent_id,
+#                  type: "AWS",
+#                  http_method: m['type'],
+#                  integration_http_method: m['type'],
+#                  content_handling: "CONVERT_TO_TEXT", # XXX expose in BoK
+##acm:ListCertificates
+#                  uri: "arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",
+#                  credentials: role_arn
+#                )
+#                MU.log ".put_integration_response(rest_api_id: #{@cloud_id}, resource_id: #{parent_id}, http_method: #{m['type']}, status_code: '200')"
+#                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
+#                  rest_api_id: @cloud_id,
+#                  resource_id: parent_id,
+#                  http_method: m['type'],
+#                  status_code: "200",
+#                  selection_pattern: ""
+#                )
+
+              params = {
+                :rest_api_id => @cloud_id,
+                :resource_id => parent_id,
+                :type => "AWS", # XXX Lambda and Firehose can do AWS_PROXY
+                :http_method => m['type'],
+                :integration_http_method => "POST", # XXX expose in BoK
+                :content_handling => "CONVERT_TO_TEXT", # XXX expose in BoK
+                :uri => uri
+#                  credentials: role_arn
+              }
+              if m['integrate_with']['passthrough_behavior']
+                params[:passthrough_behavior] = m['integrate_with']['passthrough_behavior']
+              end
+              if m['integrate_with']['request_templates']
+                params[:request_templates] = {}
+                m['integrate_with']['request_templates'].each { |rt|
+                  params[:request_templates][rt['content_type']] = rt['template']
+                }
+              end
+
+pp params
+              resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(params)
+
+              if m['integrate_with']['type'] == "function"
+                function_obj.addTrigger(method_arn, "apigateway", @config['name'])
+              end
+
+              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
+                rest_api_id: @cloud_id,
+                resource_id: parent_id,
+                http_method: m['type'],
+                status_code: "200",
+                selection_pattern: ""
+              )
+
             end
 
           }
@@ -305,6 +324,31 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                       "iam_role" => {
                         "type" => "string",
                         "description" => "The name of an IAM role used to grant usage of other AWS artifacts for this integration. If not specified, we will automatically generate an appropriate role."
+                      },
+                      "passthrough_behavior" => {
+                        "type" => "string",
+                        "description" => "Specifies the pass-through behavior for incoming requests based on the +Content-Type+ header in the request, and the available mapping templates specified in +request_templates+. +WHEN_NO_MATCH+ passes the request body for unmapped content types through to the integration back end without transformation. +WHEN_NO_TEMPLATES+ allows pass-through when the integration has NO content types mapped to templates. +NEVER+ rejects unmapped content types with an HTTP +415+.",
+                        "enum" => ["WHEN_NO_MATCH", "WHEN_NO_TEMPLATES", "NEVER"],
+                        "default" => "WHEN_NO_MATCH"
+                      },
+                      "request_templates" => {
+                        "type" => "array",
+                        "description" => "A JSON-encoded string which represents a map of Velocity templates that are applied on the request payload based on the value of the +Content-Type+ header sent by the client. The content type value is the key in this map, and the template (as a String) is the value.",
+                        "items" => {
+                          "type" => "object",
+                          "description" => "A JSON-encoded string which represents a map of Velocity templates that are applied on the request payload based on the value of the +Content-Type+ header sent by the client. The content type value is the key in this map, and the template (as a String) is the value.",
+                          "require" => ["content_type", "template"],
+                          "properties" => {
+                            "content_type" => {
+                              "type" => "string",
+                              "description" => "An HTTP content type to match with a template, such as +application/json+."
+                            },
+                            "template" => {
+                              "type" => "string",
+                              "description" => "A Velocity template to apply to our reques payload, encoded as a one-line string, like: "+'<tt>"#set($allParams = $input.params())\\n{\\n\\"url_data_json_encoded\\":\\"$input.params(\'url\')\\"\\n}"</tt>'
+                            }
+                          }
+                        }
                       }
                     }
                   },
