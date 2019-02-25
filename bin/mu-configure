@@ -105,31 +105,6 @@ $CONFIGURABLES = {
     "desc" => "If set to true, Mu will be allowed to modify routing and peering behavior of VPCs which it did not create, but for which it has permissions.",
     "boolean" => true
   },
-  "jenkins" => {
-    "title" => "Jenkins Continuous Integration",
-    "rootonly" => true,
-    "subtree" => {
-      "enable" => {
-        "title" => "Enable Jenkins",
-        "desc" => "Enable Jenkins, with UI web-accessible at /jenkins.",
-        "default" => false,
-        "boolean" => true,
-        "changes" => ["chefrun"]
-      },
-      "admin_email" => {
-        "title" => "Jenkins Admin Email",
-        "desc" => "Administative contact email for Jenkins",
-        "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
-        "changes" => ["chefrun"]
-      },
-      "admin_user" => {
-        "title" => "Jenkins admin username",
-        "desc" => "The name of a Mu user who will serve as the Jenkins admin.",
-        "default" => "jenkins",
-        "changes" => ["chefrun"]
-      }
-    }
-  },
   "aws" => {
     "title" => "Amazon Web Services",
     "named_subentries" => true,
@@ -589,9 +564,6 @@ def setDefaults
   $CONFIGURABLES["public_address"]["default"] = ips.first
   $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
   $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
-  if $CONFIGURABLES["mu_admin_email"]["value"]
-    $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = $CONFIGURABLES["mu_admin_email"]["value"]
-  end
   if $IN_AWS
 # XXX move this crap to a callback hook for puttering around in the AWS submenu
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
@@ -977,8 +949,6 @@ def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_name
 #        $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = newval
       elsif map[answer]['title'] == "Public Address"
         $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
-      elsif map[answer]['title'] == "Mu Admin Email"
-        $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = newval
       end
       changed = true
       puts ""
@@ -1293,37 +1263,11 @@ if $MU_CFG['ldap']['type'] == "389 Directory Services"
   end
 end
 
-if $MU_CFG['jenkins'] and $MU_CFG['jenkins']['enable']
-  MU::Groomer::Chef.loadChefLib
-  chef_node = ::Chef::Node.load("MU-MASTER")
-  begin
-    data = MU::Groomer::Chef.getSecret(vault: "jenkins", item: "admin")
-    MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "jenkins", "admin")
-  rescue MU::Groomer::Chef::MuNoSuchSecret
-    MU.log "Saving keys for Jenkins admin user '#{$MU_CFG['jenkins']['admin_user']}' into Vault jenkins:admin", MU::NOTICE
-    if !File.exists?("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub") and !File.exists?("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub")
-      system("/usr/bin/ssh-keygen -N '' -f #{HOMEDIR}/.ssh/mu-jenkins-admin")
-    end
-    public_key = File.read("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub").chomp
-    private_key = File.read("#{HOMEDIR}/.ssh/mu-jenkins-admin").chomp
-    MU::Groomer::Chef.saveSecret(
-      vault: "jenkins",
-      item: "admin",
-      data: {
-        "username": $MU_CFG['jenkins']['admin_user'],
-        "private_key": private_key,
-        "public_key": public_key
-      }
-    )
-  end
-end
-
 # Figure out if our run list is dumb
 MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
 MU::Groomer::Chef.loadChefLib
 chef_node = ::Chef::Node.load("MU-MASTER")
 run_list = ["role[mu-master]"]
-run_list << "role[mu-master-jenkins]" if $MU_CFG['jenkins'] and $MU_CFG['jenkins']['enable']
 run_list.concat($MU_CFG['master_runlist_extras']) if $MU_CFG['master_runlist_extras'].is_a?(Array)
 set_runlist = false
 run_list.each { |rl|
