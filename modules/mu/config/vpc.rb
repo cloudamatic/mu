@@ -785,7 +785,6 @@ module MU
 
           vpc_block.delete('deploy_id')
           vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
-          vpc_block.delete('deploy_id')
           vpc_block.delete('tag')
           MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
         end

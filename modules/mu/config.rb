@@ -198,7 +198,7 @@ module MU
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
-              docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
+              docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+(cfg["description"].match(/^#/) ? "" : "# ")+cfg["description"]
               MU.log "Munging #{cloud}-specific #{classname.to_s} schema into BasketofKittens => #{attrs[:cfg_plural]} => #{key}", MU::DEBUG, details: docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
             else
               if only_children[attrs[:cfg_plural]][key]

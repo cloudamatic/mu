@@ -436,7 +436,7 @@ module MU
           if @server.config['ssh_user'] == "root"
             remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
           else
-            remove_cmd = "sudo yum -y erase chef ; sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
+            remove_cmd = "sudo yum -y erase chef ; sudo rpm -e chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
           end
           guardfile = "/opt/mu_installed_chef"
 

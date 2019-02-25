@@ -61,7 +61,7 @@ module MU
       end
 
 
-      types_in_order = ["Collection", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "DNSZone", "Collection", "Habitat"]
+      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "DNSZone", "Collection", "Habitat"]
 
       # Load up our deployment metadata
       if !mommacat.nil?

@@ -212,6 +212,29 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          if @config['notifications'] and @config['notifications']['topic']
+# XXX expand to a full reference block for a Notification resource
+            arn = if @config['notifications']['topic'].match(/^arn:/)
+              @config['notifications']['topic']
+            else
+              "arn:#{MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws"}:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@config['notifications']['topic']}"
+            end
+            eventmap = {
+              "launch" => "autoscaling:EC2_INSTANCE_LAUNCH",
+              "failed_launch" => "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+              "terminate" => "autoscaling:EC2_INSTANCE_TERMINATE",
+              "failed_terminate" => "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+            }
+            MU.log "Sending simple notifications (#{@config['notifications']['events'].join(", ")}) to #{arn}"
+            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_notification_configuration(
+              auto_scaling_group_name: @mu_name,
+              topic_arn: arn,
+              notification_types: @config['notifications']['events'].map { |e|
+                eventmap[e]
+              }
+            )
+          end
+
           if @config['schedule']
             ext_actions = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_scheduled_actions(
               auto_scaling_group_name: @mu_name
@@ -357,6 +380,7 @@ module MU
                   newhash
                 end
                 policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
                   lb_path = nil
@@ -364,10 +388,18 @@ module MU
                   if @deploy.deployment["loadbalancers"].size > 1
                     MU.log "Multiple load balancers attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
                   end
-                  if lb["targetgroups"].size > 1
-                    MU.log "Multiple target groups attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
+                  lb_path = if lb["targetgroups"].size > 1
+                    if policy['target_tracking_configuration']["preferred_target_group"] and
+                       lb["targetgroups"][policy['target_tracking_configuration']["preferred_target_group"]]
+                      lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"][policy['target_tracking_configuration']["preferred_target_group"]].split(/:/)[5]
+                    else
+                      if policy['target_tracking_configuration']["preferred_target_group"]
+                        MU.log "preferred_target_group was set to '#{policy["preferred_target_group"]}' but I don't see a target group by that name", MU::WARN
+                      end
+                      MU.log "Multiple target groups attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN, details: lb["targetgroups"].keys
+                      lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"].values.first.split(/:/)[5]
+                    end
                   end
-                  lb_path = lb["arn"].split(/:/)[5].sub(/^loadbalancer\//, "")+"/"+lb["targetgroups"].values.first.split(/:/)[5]
 
                   policy_params[:target_tracking_configuration][:predefined_metric_specification][:resource_label] = lb_path
                 end
@@ -457,6 +489,26 @@ module MU
           toplevel_required = []
           
           schema = {
+            "notifications" => {
+              "type" => "object",
+              "description" => "Send notifications to an SNS topic for basic AutoScaling events",
+              "properties" => {
+                "topic" => {
+                  "type" => "string",
+                  "description" => "The short name or ARN of an SNS topic which should receive notifications for basic Autoscaling events"
+                },
+               "events" => {
+                  "type" => "array",
+                  "description" => "The AutoScaling events which should generate a notification",
+                  "items" => {
+                    "type" => "string",
+                    "description" => "The AutoScaling events which should generate a notification",
+                    "enum" => ["launch", "failed_launch", "terminate", "failed_terminate"]
+                  },
+                  "default" => ["launch", "failed_launch", "terminate", "failed_terminate"]
+                }
+              }
+            },
             "generate_iam_role" => {
               "type" => "boolean",
               "default" => true,
@@ -625,6 +677,10 @@ module MU
                         "type" => "float",
                         "description" => "The target value for the metric."
                       },
+                      "preferred_target_group" => {
+                        "type" => "string",
+                        "description" => "If our load balancer has multiple target groups, prefer the one with this name instead of choosing one arbitrarily"
+                      },
                       "disable_scale_in" => {
                         "type" => "boolean",
                         "description" => "If set to true, new instances created by this policy will not be subject to termination by scaling in.",
@@ -665,6 +721,7 @@ module MU
                               "type" => "object",
                               "additionalProperties" => false,
                               "required" => ["name", "value"],
+                              "description" => "What resource to monitor with the alarm we are implicitly declaring",
                               "properties" => {
                                 "name" => {
                                   "type" => "string",

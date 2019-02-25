@@ -110,7 +110,6 @@ module MU
 
 
       # Fetch an Azure instance metadata parameter (example: public-ipv4).
-      # @param param [String]: The parameter name to fetch
       # @return [String, nil]
       def self.get_metadata()
         base_url = "http://169.254.169.254/metadata/instance"
