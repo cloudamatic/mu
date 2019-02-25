@@ -1294,7 +1294,7 @@ end
 
 
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-system("chef-client -o '#{run_list.join(",")}'")
+system("chef-client -o '#{run_list.join(",")}' > /tmp/mu-configure-chef-run.log 2>&1")
 
 
 if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
