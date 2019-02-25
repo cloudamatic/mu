@@ -28,12 +28,20 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 require 'mu'
 
 begin
-  MU.log "Using the system YARD"
+  MU.log "Looking up the system YARD"
   yard = `which yard`.chomp
+
+  if yard.include? "no yard in"
+    MU.log "No system YARD found. Trying YARD gem"
+    yard = File.dirname(Gem.ruby)+'/yard'
+  end
+
 rescue
   MU.log "Using the YARD gem"
   yard = File.dirname(Gem.ruby)+'/yard'
 end
+
+
 
 MU::Config.emitSchemaAsRuby
 MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
