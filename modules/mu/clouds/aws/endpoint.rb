@@ -107,11 +107,13 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                   :status_code => r['code'].to_s
                 }
                 if r['headers']
-                  params[:response_parameters] = r['headers'].map { |h| ["method.response.header."+h, true] }.to_h
+                  params[:response_parameters] = r['headers'].map { |h|
+                    ["method.response.header."+h['header'], h['required']]
+                  }.to_h
                 end
 
                 if r['body']
-# XXX I'm guessing we can also have arbirary user-defined models somehow, so is_error is probably stupid
+# XXX I'm guessing we can also have arbirary user-defined models somehow, so is_error is probably inadequate to the demand of the times
                   params[:response_models] = r['body'].map { |b| [b['content_type'], b['is_error'] ? "Error" : "Empty"] }.to_h
                 end
 
@@ -182,13 +184,23 @@ pp params
                 function_obj.addTrigger(method_arn, "apigateway", @config['name'])
               end
 
-              MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(
-                rest_api_id: @cloud_id,
-                resource_id: parent_id,
-                http_method: m['type'],
-                status_code: "200",
-                selection_pattern: ""
-              )
+              m['responses'].each { |r|
+                params = {
+                  :rest_api_id => @cloud_id,
+                  :resource_id => parent_id,
+                  :http_method => m['type'],
+                  :status_code => r['code'].to_s,
+                  :selection_pattern => ""
+                }
+                if r['headers']
+                  params[:response_parameters] = r['headers'].map { |h|
+                    ["method.response.header."+h['header'], "'"+h['value']+"'"]
+                  }.to_h
+                end
+pp params
+                MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(params)
+
+              }
 
             end
 
@@ -322,10 +334,24 @@ pp params
                             },
                             "headers" => {
                               "type" => "array",
-                              "description" => "A header to include in our response",
+                              "description" => "One or more headers, used by the API Gateway integration response and filtered through the method response before returning to the client",
                               "items" => {
-                                "type" => "string",
-                                "description" => "The name of a header to return, such as +Access-Control-Allow-Headers+"
+                                "type" => "object",
+                                "properties" => {
+                                  "header" => {
+                                    "type" => "string",
+                                    "description" => "The name of a header to return, such as +Access-Control-Allow-Methods+"
+                                  },
+                                  "value" => {
+                                    "type" => "string",
+                                    "description" => "The string to map to this header (ex +GET,OPTIONS+)"
+                                  },
+                                  "required" => {
+                                    "type" => "boolean",
+                                    "description" => "Indicate whether this header is required in order to return a response",
+                                    "default" => true
+                                  }
+                                }
                               }
                             },
                             "body" => {
@@ -431,6 +457,7 @@ pp params
           nil
         end
 
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::endpoints}, bare and unvalidated.
         # @param endpoint [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -458,41 +485,15 @@ pp params
               if m['cors']
                 m['responses'].each { |r|
                   r['headers'] ||= []
-                  r['headers'] << "Access-Control-Allow-Origin"
+                  r['headers'] << {
+                    "header" => "Access-Control-Allow-Origin",
+                    "value" => "*",
+                    "required" => true
+                  }
                   r['headers'].uniq!
                 }
 
-                append << {
-                  "type" => "OPTIONS",
-                  "path" => m['path'],
-                  "auth" => "NONE",
-                  "responses" => [
-                    {
-                      "code" => 200,
-                      "headers" => [
-                        "Access-Control-Allow-Headers",
-                        "Access-Control-Allow-Methods",
-                        "Access-Control-Allow-Origin"
-                      ],
-                      "body" => [
-                        {
-                          "content_type" => "application/json"
-                        }
-                      ]
-                    }
-                  ],
-                  "integrate_with" => {
-                    "type" => "mock",
-                    "passthrough_behavior" => "WHEN_NO_MATCH",
-                    "backend_http_method" => "OPTIONS",
-                    "request_templates" => [
-                      {
-                        "content_type" => "application/json",
-                        "template" => '{"statusCode": 200}'
-                      }
-                    ]
-                  }
-                }
+                append << cors_option_integrations(m['path'])
               end
 
               if !m['iam_role']
@@ -531,12 +532,60 @@ pp params
               end
             end
           }
-          endpoint['methods'].concat(append) if endpoint['methods']
+          endpoint['methods'].concat(append.uniq) if endpoint['methods']
 #          if something_bad
 #            ok = false
 #          end
 
           ok
+        end
+
+        private
+
+        def self.cors_option_integrations(path)
+          {
+            "type" => "OPTIONS",
+            "path" => path,
+            "auth" => "NONE",
+            "responses" => [
+              {
+                "code" => 200,
+                "headers" => [
+                  {
+                    "header" => "Access-Control-Allow-Headers",
+                    "value" => "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "required" => true
+                  },
+                  {
+                    "header" => "Access-Control-Allow-Methods",
+                    "value" => "GET,OPTIONS",
+                    "required" => true
+                  },
+                  {
+                    "header" => "Access-Control-Allow-Origin",
+                    "value" => "*",
+                    "required" => true
+                  }
+                ],
+                "body" => [
+                  {
+                    "content_type" => "application/json"
+                  }
+                ]
+              }
+            ],
+            "integrate_with" => {
+              "type" => "mock",
+              "passthrough_behavior" => "WHEN_NO_MATCH",
+              "backend_http_method" => "OPTIONS",
+              "request_templates" => [
+                {
+                  "content_type" => "application/json",
+                  "template" => '{"statusCode": 200}'
+                }
+              ]
+            }
+          }
         end
 
       end
