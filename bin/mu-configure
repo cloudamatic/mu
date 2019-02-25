@@ -1326,7 +1326,7 @@ MU.log "Regenerating documentation in /var/www/html/docs"
 
 if $INITIALIZE
   MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
-  puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
+  puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu -n "Mu Master"}
   MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
   puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
 end

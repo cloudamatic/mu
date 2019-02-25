@@ -245,6 +245,10 @@ else
     exit 1 if bail
   end
 
+  if !$cur_users[$username]['realname'] or $cur_users[$username]['realname'].empty?
+    $cur_users[$username]['realname'] = $username
+  end
+
   if !MU::Master.manageUser(
       $username,
       chef_username: $cur_users[$username]['chef_user'],
