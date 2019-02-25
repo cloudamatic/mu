@@ -976,8 +976,8 @@ else
 end
 
 if AMROOT
-  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
   newcfg = cloneHash($MU_CFG)
+  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
   newcfg['multiuser'] = true
   saveMuConfig(newcfg)
   $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
@@ -1294,7 +1294,7 @@ end
 
 
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-system("chef-client -o '#{run_list.join(",")}' > /tmp/mu-configure-chef-run.log 2>&1")
+system("chef-client -o '#{run_list.join(",")}'")
 
 
 if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")

@@ -189,8 +189,7 @@ end
 # @param comment [Hash]: A configuration blob that will be appended as a commented block
 def saveMuConfig(cfg, comment = nil)
   exit 1 if !validateClouds(cfg)
-  puts "**** Saving master config to #{cfgPath} #{cfg['mu_admin_email']} *****"
-  pp caller
+  puts "**** Saving master config to #{cfgPath} *****"
   File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts cfg.to_yaml
     if comment and comment.size > 0
