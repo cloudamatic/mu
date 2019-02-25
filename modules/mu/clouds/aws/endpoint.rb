@@ -171,13 +171,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                   params[:request_templates][rt['content_type']] = rt['template']
                 }
               end
-#MU.log "INTEGRATION #{m['type']} #{m['path']}", MU::WARN, details: MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_integration(
-#  rest_api_id: @cloud_id,
-#  resource_id: parent_id,
-#  http_method: m['type']
-#)
 
-pp params
               resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(params)
 
               if m['integrate_with']['type'] == "function"
@@ -197,7 +191,7 @@ pp params
                     ["method.response.header."+h['header'], "'"+h['value']+"'"]
                   }.to_h
                 end
-pp params
+
                 MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration_response(params)
 
               }
@@ -211,23 +205,20 @@ pp params
         def groom
           generate_methods
 
-#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
-#            rest_api_id: @cloud_id,
-#            stage_name: @deploy.environment,
-##            cache_cluster_enabled: false,
-##            cache_cluster_size: 0.5,
-#          )
-#          deployment_id = resp.id
-#
-#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_stage(
-#            rest_api_id: @cloud_id,
-#            stage_name: @deploy.environment,
-#            deployment_id: deployment_id,
-##            cache_cluster_enabled: false,
-##            cache_cluster_size: 0.5,
-#          )
+          MU.log "Deploying API Gateway #{@config['name']} to #{@config['deploy_to']}"
+          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
+            rest_api_id: @cloud_id,
+            stage_name: @config['deploy_to']
+#            cache_cluster_enabled: false,
+#            cache_cluster_size: 0.5,
+          )
+          deployment_id = resp.id
+          # this automatically creates a stage with the same name, so we don't
+          # have to deal with that
 
-# deployment => stage
+          my_url = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com/"+@config['deploy_to']
+          MU.log "API Endpoint #{@config['name']}: "+my_url, MU::SUMMARY
+
 #          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_authorizer(
 #            rest_api_id: @cloud_id,
 #          )
@@ -299,6 +290,10 @@ pp params
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "deploy_to" => {
+              "type" => "string",
+              "description" => "The name of an environment under which to deploy our API. If not specified, will deploy to the name of the global Mu environment for this deployment."
+            },
             "methods" => {
               "items" => {
                 "required" => ["integrate_with"],
@@ -454,7 +449,7 @@ pp params
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          nil
+          "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@cloud_id}"
         end
 
 
@@ -466,6 +461,7 @@ pp params
           ok = true
 
           append = []
+          endpoint['deploy_to'] ||= MU.environment || $environment || "dev"
           endpoint['methods'].each { |m|
             if m['integrate_with'] and m['integrate_with']['name']
               if m['integrate_with']['type'] != "aws_generic"

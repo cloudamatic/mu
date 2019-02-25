@@ -182,10 +182,20 @@ module MU
           }
 
           begin
-# XXX check for existence first
+            # XXX There doesn't seem to be an API call to list or view existing
+            # permissions, wtaf. This means we can't intelligently guard this.
             add_trigger = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger)
           rescue Aws::Lambda::Errors::ResourceConflictException => e
-            MU.log "Got #{e.message} trying to add trigger to Lambda #{@mu_name}", MU::ERR, details: trigger
+            if e.message.match(/already exists/)
+              MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).remove_permission(
+                function_name: @mu_name,
+                statement_id: "#{calling_service}-#{calling_name}"
+              )
+              retry
+            else
+              MU.log "Error trying to add trigger to Lambda #{@mu_name}: #{e.message}", MU::ERR, details: trigger
+              raise e
+            end
           end
         end
 
