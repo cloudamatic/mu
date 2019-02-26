@@ -254,7 +254,7 @@ if !node['update_nagios_only']
    <a href='https://#{MU.mu_public_addr}/jenkins/'>Jenkins interface GUI</a>
   </p>
   <p>
-   <a href='http://#{MU.mu_public_addr}/docs/frames.html'>Mu API documentation</a>
+   <a href='#{(mubranch.nil? or mubranch == "master" or mubranch.match(/detached from/)) ? "https://cloudamatic.gitlab.io/mu/" : "http://"+MU.mu_public_addr+"/docs"}'>Mu API documentation</a>
   </p>
   "
   end
@@ -422,6 +422,7 @@ if !node['update_nagios_only']
       end
     }
 
+    mubranch=`cd /opt/mu/lib && git rev-parse --abbrev-ref HEAD`
     file "/etc/motd" do
       content "
 *******************************************************************************
@@ -430,9 +431,7 @@ if !node['update_nagios_only']
 
  Nagios monitoring GUI: https://#{MU.mu_public_addr}/nagios/
 
- Jenkins interface GUI: https://#{MU.mu_public_addr}/jenkins/
-
- Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
+ Mu API documentation: #{(mubranch.nil? or mubranch == "master" or mubranch.match(/detached from/)) ? "https://cloudamatic.gitlab.io/mu/" : "http://"+MU.mu_public_addr+"/docs"}
 
  Mu metadata are stored in #{MU.mainDataDir}
 
