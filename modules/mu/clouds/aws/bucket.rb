@@ -52,6 +52,7 @@ module MU
           tagBucket if !@config['scrub_mu_isms']
         end
 
+        # Apply tags to this bucket object
         def tagBucket
           tagset = []
 

@@ -39,6 +39,9 @@ search_domains:
 databases:
 -
   <%= include("../mu/config/database.yml") %>
+buckets:
+-
+  <%= include("../mu/config/bucket.yml") %>
 
 container_clusters:
 -
