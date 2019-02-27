@@ -296,6 +296,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
             },
             "methods" => {
               "items" => {
+                "type" => "object",
+                "description" => "Other cloud resources to integrate as a back end to this API Gateway",
                 "required" => ["integrate_with"],
                 "properties" => {
                   "integrate_with" => {
@@ -318,9 +320,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                       },
                       "responses"=> {
                         "type" => "array",
-                        "description" => "Customize the response to the client for this method, by adding headers or transforming through a template. If not specified, we will default to returning an un-transformed HTTP 200 for this method.",
                         "items" => {
                           "type" => "object",
+                          "description" => "Customize the response to the client for this method, by adding headers or transforming through a template. If not specified, we will default to returning an un-transformed HTTP 200 for this method.",
                           "properties" => {
                             "code" => {
                               "type" => "integer",
@@ -329,8 +331,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                             },
                             "headers" => {
                               "type" => "array",
-                              "description" => "One or more headers, used by the API Gateway integration response and filtered through the method response before returning to the client",
                               "items" => {
+                                "description" => "One or more headers, used by the API Gateway integration response and filtered through the method response before returning to the client",
                                 "type" => "object",
                                 "properties" => {
                                   "header" => {
@@ -351,9 +353,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                             },
                             "body" => {
                               "type" => "array",
-                              "description" => "A header to include in our response",
                               "items" => {
                                 "type" => "object",
+                                "description" => "Model for the body of our backend integration's response",
                                 "properties" => {
                                   "content_type" => {
                                     "type" => "string",

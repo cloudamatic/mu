@@ -188,7 +188,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          nil
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":s3:::"+@cloud_id
         end
 
         # Return the metadata for this user cofiguration
