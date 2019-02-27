@@ -76,6 +76,37 @@ module MU
             end
           }
 
+          if @config['secondary_indexes']
+            @config['secondary_indexes'].each { |idx|
+              idx_cfg = {
+                :index_name => idx['index_name'],
+                :projection => {
+                  :projection_type => idx['projection']['type'],
+                  :non_key_attributes => idx['projection']['non_key_attributes']
+                },
+                :key_schema => []
+              }
+              idx['key_schema'].each { |attr|
+                idx_cfg[:key_schema] << {
+                  :attribute_name => attr['attribute'],
+                  :key_type => attr['type']
+                }
+              }
+              if idx['type'] == "global"
+
+                idx_cfg[:provisioned_throughput] = {
+                  :read_capacity_units => idx['read_capacity'],
+                  :write_capacity_units => idx['write_capacity']
+                }
+                params[:global_secondary_indexes] ||= []
+                params[:global_secondary_indexes] << idx_cfg
+              else
+                params[:local_secondary_indexes] ||= []
+                params[:local_secondary_indexes] << idx_cfg
+              end
+            }
+          end
+pp params
           MU.log "Creating DynamoDB table #{@mu_name}", details: params
 
           resp = MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).create_table(params)
@@ -189,12 +220,15 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = ["attributes"]
+
+
           schema = {
             "attributes" => {
               "type" => "array",
               "minItems" => 1,
               "items" => {
                 "type" => "object",
+                "description" => "Fields for data we'll be storing in this database, somewhat akin to SQL columns. Note that all attributes declared here must be a +primary_partition+, +primary_sort+, or named in a +secondary_index+.",
                 "properties" => {
                   "name" => {
                     "type" => "string",
@@ -231,6 +265,74 @@ module MU
               "description" => "If specified, enables a streaming log of changes to this DynamoDB table. See also https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Streams.html",
               "enum" => ["NEW_IMAGE", "OLD_IMAGE", "NEW_AND_OLD_IMAGES", "KEYS_ONLY"]
             },
+            "secondary_indexes" => {
+              "type" => "array",
+              "description" => "Define a global and/or a local secondary index.",
+              "items" => {
+                "type" => "object",
+                "description" => "An index with a partition key and a sort key that can be different from those on the base table; queries on the index can span all of the data in the base table, across all partitions",
+                "required" => ["index_name", "key_schema", "projection"],
+                "properties" => {
+                  "index_name" => {
+                    "type" => "string",
+                    "description" => "A name for this index"
+                  },
+                  "type" => {
+                    "type" => "string",
+                    "description" => "Whether to create a global or local secondary index. See also: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/SecondaryIndexes.html",
+                    "enum" => ["global", "local"],
+                    "default" => "global"
+                  },
+                  "projection" => {
+                    "type" => "object",
+                    "description" => "The set of attributes to return for queries against this index.",
+                    "properties" => {
+                      "type" => {
+                        "type" => "string",
+                        "enum" => ["ALL", "KEYS_ONLY", "INCLUDE"],
+                        "default" => "ALL"
+                      },
+                      "non_key_attributes" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "string",
+                          "description" => "The name of an extra attribute to include in results for queries against this index"
+                        }
+                      }
+                    },
+                    "default" => { "type" => "ALL" }
+                  },
+                  "read_capacity" => {
+                    "type" => "integer",
+                    "description" => "Provisioned read throughput. Only valid for global secondary indexes. Defaults to the read capacity of the whole table.",
+                  },
+                  "write_capacity" => {
+                    "type" => "integer",
+                    "description" => "Provisioned write throughput. Only valid for global secondary indexes. Defaults to the read capacity of the whole table.",
+                  },
+                  "key_schema" => {
+                    "type" => "array",
+                    "minItems" => 1,
+                    "items" => {
+                      "type" => "object",
+                      "description" => "Define the key for this index, which most be composed of one or more declared +attributes+ for this table. See also: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/SecondaryIndexes.html",
+                      "properties" => {
+                        "type" => {
+                          "type" => "string",
+                          "enum" => ["HASH", "RANGE"]
+                        },
+                        "attribute" => {
+                          "description" => "This must refer to a declared +attribute+ by name",
+                          "type" => "string",
+                        }
+
+                      }
+                    }
+                  }
+                }
+
+              }
+            }
           }
           [toplevel_required, schema]
         end
@@ -264,6 +366,15 @@ module MU
               ok = false
             end
           }
+
+          if db['secondary_indexes']
+             db['secondary_indexes'].each { |idx|
+               if idx['type'] == "global"
+                 idx['read_capacity'] ||= db['read_capacity']
+                 idx['write_capacity'] ||= db['write_capacity']
+               end
+             }
+          end
 
           ok
         end
