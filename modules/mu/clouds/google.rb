@@ -658,7 +658,7 @@ module MU
 
       # Google's Firestore (NoSQL) Service API
       # @param subclass [<Google::Apis::FirestoreV1>]: If specified, will return the class ::Google::Apis::FirestoreV1::subclass instead of an API client instance
-      def self.sql(subclass = nil, credentials: nil)
+      def self.firestore(subclass = nil, credentials: nil)
         require 'google/apis/firestore_v1'
 
         if subclass.nil?

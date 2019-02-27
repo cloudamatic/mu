@@ -497,6 +497,18 @@ pp config
           }
           cluster_config_struct[:port] = @config["port"] if @config["port"]
 
+          if @config['cluster_mode']
+            cluster_config_struct[:engine_mode] = @config['cluster_mode']
+            if @config['cluster_mode'] == "serverless"
+              cluster_config_struct[:scaling_configuration] = {
+                :auto_pause => @config['serverless_scaling']['auto_pause'],
+                :min_capacity => @config['serverless_scaling']['min_capacity'],
+                :max_capacity => @config['serverless_scaling']['max_capacity'],
+                :seconds_until_auto_pause => @config['serverless_scaling']['seconds_until_auto_pause']
+              }
+            end
+          end
+
           if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
             cluster_config_struct[:snapshot_identifier] = @config["snapshot_id"]
             cluster_config_struct[:engine] = @config["engine"]
@@ -1414,6 +1426,45 @@ pp config
           schema = {
             "db_parameter_group_parameters" => rds_parameters_primitive,
             "cluster_parameter_group_parameters" => rds_parameters_primitive,
+            "cluster_mode" => {
+              "type" => "string",
+              "description" => "The DB engine mode of the DB cluster",
+              "enum" => ["provisioned", "serverless", "parallelquery", "global"],
+              "default" => "provisioned"
+            },
+            "serverless_scaling" => {
+              "type" => "object",
+              "descriptions" => "Scaling configuration for a +serverless+ Aurora cluster",
+              "default" => {
+                "auto_pause" => false,
+                "min_capacity" => 1,
+                "max_capacity" => 1
+              },
+              "properties" => {
+                "auto_pause" => {
+                  "type" => "boolean",
+                  "description" => "A value that specifies whether to allow or disallow automatic pause for an Aurora DB cluster in serverless DB engine mode",
+                  "default" => false
+                },
+                "min_capacity" => {
+                  "type" => "integer",
+                  "description" => "The minimum capacity for an Aurora DB cluster in serverless DB engine mode.",
+                  "default" => 1,
+                  "enum" => [1, 2, 4, 8, 16, 32, 64, 128, 256]
+                },
+                "max_capacity" => {
+                  "type" => "integer",
+                  "description" => "The maximum capacity for an Aurora DB cluster in serverless DB engine mode.",
+                  "default" => 1,
+                  "enum" => [1, 2, 4, 8, 16, 32, 64, 128, 256]
+                },
+                "seconds_until_auto_pause" => {
+                  "type" => "integer",
+                  "description" => "A DB cluster can be paused only when it's idle (it has no connections). If a DB cluster is paused for more than seven days, the DB cluster might be backed up with a snapshot. In this case, the DB cluster is restored when there is a request to connect to it.",
+                  "default" => 86400
+                }
+              }
+            },
             "license_model" => {
               "type" => "string",
               "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"]
@@ -1671,14 +1722,14 @@ pp config
           end
 
           # Cleanup the database vault
-          grommer = 
+          groomer = 
             if database_obj
               database_obj.config.has_key?("groomer") ? database_obj.config["groomer"] : MU::Config.defaultGroomer
             else
               MU::Config.defaultGroomer
             end
 
-          groomclass = MU::Groomer.loadGroomer(grommer)
+          groomclass = MU::Groomer.loadGroomer(groomer)
           groomclass.deleteSecret(vault: db_id.upcase) if !noop
           MU.log "#{db_id} has been terminated"
         end
@@ -1761,14 +1812,14 @@ pp config
           end
 
           # Cleanup the cluster vault
-          grommer = 
+          groomer = 
             if cluster_obj
               cluster_obj.config.has_key?("groomer") ? cluster_obj.config["groomer"] : MU::Config.defaultGroomer
             else
               MU::Config.defaultGroomer
             end
 
-          groomclass = MU::Groomer.loadGroomer(grommer)
+          groomclass = MU::Groomer.loadGroomer(groomer)
           groomclass.deleteSecret(vault: cluster_id.upcase) if !noop
 
           MU.log "#{cluster_id} has been terminated"

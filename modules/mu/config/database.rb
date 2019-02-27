@@ -367,7 +367,7 @@ module MU
         # Do database cluster nodes the same way we do read replicas, by
         # duplicating the declaration of the master as a new first-class
         # resource and tweaking it.
-        if db["create_cluster"]
+        if db["create_cluster"] and db['cluster_mode'] != "serverless"
           (1..db["cluster_node_count"]).each{ |num|
             node = Marshal.load(Marshal.dump(db))
             node["name"] = "#{db['name']}-#{num}"
