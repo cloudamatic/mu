@@ -422,7 +422,7 @@ if !node['update_nagios_only']
       end
     }
 
-    mubranch=`cd /opt/mu/lib && git rev-parse --abbrev-ref HEAD`
+    mubranch = shell_out("cd /opt/mu/lib && git rev-parse --abbrev-ref HEAD")
     file "/etc/motd" do
       content "
 *******************************************************************************
