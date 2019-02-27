@@ -58,7 +58,13 @@ module MU
       end
 
       def self.hosted_config
-        "TODO"
+        return nil if !hosted?
+        region = get_metadata()['compute']['location']
+        subscription = get_metadata()['compute']['subscriptionId']
+        {
+          "region" => region,
+          "subscriptionId" => subscription
+        }
       end
 
       # Any cloud-specific instance methods we require our resource implementations to have, above and beyond the ones specified by {MU::Cloud}
@@ -72,15 +78,23 @@ module MU
       end
 
       def self.listRegions(credentials = nil)
-        ["TODO"]
+        []
       end
 
       def self.listAZs(region = nil)
-        ["TODO"]
+        []
       end
 
       def self.config_example
-        {"TODO":"TODO"}
+        sample = hosted_config
+        sample ||= {
+          "region" => "eastus",
+          "subscriptionId" => "b8f6ed82-98b5-4249-8d2f-681f636cd787",
+        }
+
+        sample["credentials_file"] = "~/.azure/credentials"
+        sample["log_bucket_name"]  = "my-mu-s3-bucket"
+        sample
       end
 
       def self.writeDeploySecret
