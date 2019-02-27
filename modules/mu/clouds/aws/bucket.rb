@@ -20,6 +20,9 @@ module MU
         @deploy = nil
         @config = nil
 
+        @@region_cache = {}
+        @@region_cache_semaphore = Mutex.new
+
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
@@ -41,6 +44,10 @@ module MU
             bucket: bucket_name
           )
           @cloud_id = bucket_name
+
+          @@region_cache_semaphore.synchronize {
+            @@region_cache[@cloud_id] ||= @config['region']
+          }
 
           tagBucket if !@config['scrub_mu_isms']
         end
@@ -76,6 +83,9 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           tagBucket if !@config['scrub_mu_isms']
+          @@region_cache_semaphore.synchronize {
+            @@region_cache[@cloud_id] ||= @config['region']
+          }
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -91,10 +101,29 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-return if region != "us-east-1"
+
           resp = MU::Cloud::AWS.s3(credentials: credentials, region: region).list_buckets
           if resp and resp.buckets
             resp.buckets.each { |bucket|
+              @@region_cache_semaphore.synchronize {
+                if @@region_cache[bucket.name]
+                  next if @@region_cache[bucket.name] != region
+                else
+                  location = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_location(bucket: bucket.name).location_constraint
+
+                  if location.nil? or location.empty?
+                    @@region_cache[bucket.name] = region
+                  else
+                    @@region_cache[bucket.name] = location
+                  end
+                end
+              }
+
+              if @@region_cache[bucket.name] != region
+                MU.log "#{bucket.name} is in #{@@region_cache[bucket.name]} but I'm checking from #{region}, skipping", MU::DEBUG
+                next
+              end
+
               begin
                 tags = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_tagging(bucket: bucket.name).tag_set
                 tags.each { |tag|
@@ -176,6 +205,8 @@ return if region != "us-east-1"
         # instead we run the million little individual API calls to construct
         # an approximation for our uses
         def self.describe_bucket(bucket, minimal: false, credentials: nil, region: nil)
+          @@region_cache = {}
+          @@region_cache_semaphore = Mutex.new
           calls = if minimal
             %w{encryption lifecycle lifecycle_configuration location logging policy replication tagging versioning website}
           else
@@ -188,9 +219,16 @@ return if region != "us-east-1"
             method_sym = ("get_bucket_"+method).to_sym
             # "The horrors of this place claw at your mind"
             begin
-            puts method
               desc[method] = MU::Cloud::AWS.s3(credentials: credentials, region: region).method_missing(method_sym, {:bucket => bucket})
-              MU.log method_sym.to_s, MU::WARN, details: desc[method]
+              if method == "location"
+                @@region_cache_semaphore.synchronize {
+                  if desc[method].location_constraint.nil? or desc[method].location_constraint.empty?
+                    @@region_cache[bucket] = region
+                  else
+                    @@region_cache[bucket] = desc[method].location_constraint
+                  end
+                }
+              end
 
             rescue Aws::S3::Errors::NoSuchCORSConfiguration, Aws::S3::Errors::ServerSideEncryptionConfigurationNotFoundError, Aws::S3::Errors::NoSuchLifecycleConfiguration, Aws::S3::Errors::NoSuchBucketPolicy, Aws::S3::Errors::ReplicationConfigurationNotFoundError, Aws::S3::Errors::NoSuchTagSet, Aws::S3::Errors::NoSuchWebsiteConfiguration => e
               desc[method] = nil
