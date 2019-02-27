@@ -3,7 +3,7 @@ require 'mu/clouds/azure'
 
 describe MU::Cloud::Azure do
 
-	# @azure = nil
+	@@is_azure = MU::Cloud::Azure.hosted?
 
 	# 	before(:all) do
 	# 		@azure = MU::Cloud::Azure.new
@@ -11,8 +11,8 @@ describe MU::Cloud::Azure do
 
 	describe ".hosted?" do
 		
-		it "responds with true or false" do
-			expect(MU::Cloud::Azure.hosted?).to be(true).or be(false)
+		it "responds with #{@@is_azure}" do
+			expect(MU::Cloud::Azure.hosted?).to be(@@is_azure)
 		end
 
 	end
@@ -34,13 +34,13 @@ describe MU::Cloud::Azure do
 
 	describe ".listRegions" do
 		it "responds with false" do
-			expect(MU::Cloud::Azure.listRegions).to eql("TODO")
+			expect(MU::Cloud::Azure.listRegions).to eql(["TODO"])
 		end
 	end
 
 	describe ".listAZs" do
 		it "responds with false" do
-			expect(MU::Cloud::Azure.listAZs).to eql("TODO")
+			expect(MU::Cloud::Azure.listAZs).to eql(["TODO"])
 		end
 	end
 
@@ -52,7 +52,7 @@ describe MU::Cloud::Azure do
 
 	describe ".config_example" do
 		it "responds with false" do
-			expect(MU::Cloud::Azure.config_example).to eql("TODO")
+			expect(MU::Cloud::Azure.config_example).to eql({"TODO":"TODO"})
 		end
 	end
 
