@@ -47,6 +47,10 @@ container_clusters:
 -
   <%= include("../mu/config/container_cluster.yml") %>
 
+nosqldbs:
+-
+  <%= include("../mu/config/nosqldb.yml") %>
+
 cache_clusters:
 -
   <%= include("../mu/config/cache_cluster.yml") %>
