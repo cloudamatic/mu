@@ -30,6 +30,21 @@ module MU
             },
             "region" => MU::Config.region_primitive,
             "credentials" => MU::Config.credentials_primitive,
+            "web_enabled" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable web service on this bucket."
+            },
+            "web_error_object" => {
+              "type" => "string",
+              "default" => "error.html",
+              "description" => "If +web_enabled+, return this object for error conditions (such as a +404+) supported by the cloud provider."
+            },
+            "web_index_object" => {
+              "type" => "string",
+              "default" => "index.html",
+              "description" => "If +web_enabled+, return this object when \"diretory\" (a path not ending in a key/object) is invoked."
+            }
           }
         }
       end

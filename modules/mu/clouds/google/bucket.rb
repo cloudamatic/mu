@@ -35,25 +35,14 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          labels = {}
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            if !value.nil?
-              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
-            end
-          }
-          labels["name"] = @mu_name.downcase
-
-          bucket_obj = MU::Cloud::Google.storage(:Bucket).new(
-            name: @mu_name.downcase,
-            labels: labels,
-            storage_class: @config['storage_class']
-          )
-          MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@config['project'], bucket_obj)
+          MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@config['project'], bucket_descriptor)
           @cloud_id = @mu_name.downcase
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          # TODO compare description to config, guard this, and notify if we're changing things
+          MU::Cloud::Google.storage(credentials: credentials).patch_bucket(@cloud_id, bucket_descriptor)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -127,6 +116,35 @@ module MU
           ok = true
 
           ok
+        end
+
+        private
+
+        # create and return the Google::Apis::StorageV1::Bucket object used by
+        # both +insert_bucket+ and +patch_bucket+
+        def bucket_descriptor
+          labels = {}
+          MU::MommaCat.listStandardTags.each_pair { |name, value|
+            if !value.nil?
+              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
+            end
+          }
+          labels["name"] = @mu_name.downcase
+
+          params = {
+            :name => @mu_name.downcase,
+            :labels => labels,
+            :storage_class => @config['storage_class'],
+          }
+
+          if @config['web_enabled']
+            params[:website] = MU::Cloud::Google.storage(:Bucket)::Website.new(
+              main_page_suffix: @config['web_index_object'],
+              not_found_page: @config['web_error_object']
+            )
+          end
+
+          MU::Cloud::Google.storage(:Bucket).new(params)
         end
 
       end

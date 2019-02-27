@@ -82,10 +82,29 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          tagBucket if !@config['scrub_mu_isms']
           @@region_cache_semaphore.synchronize {
             @@region_cache[@cloud_id] ||= @config['region']
           }
+          tagBucket if !@config['scrub_mu_isms']
+
+          if @config['web_enabled']
+            MU.log "Enabling web service on S3 bucket #{@cloud_id}"
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_website(
+              bucket: @cloud_id,
+              website_configuration: {
+                error_document: {
+                  key: @config['web_error_object']
+                },
+                index_document: {
+                  suffix: @config['web_index_object']
+                }
+              }
+            )
+          else
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).delete_bucket_website(
+              bucket: @cloud_id
+            )
+          end
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
