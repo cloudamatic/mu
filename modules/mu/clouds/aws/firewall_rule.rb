@@ -248,6 +248,10 @@ module MU
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
           end
 
+          # Some services create sneaky rogue ENIs which then block removal of
+          # associated security groups. Find them and fry them.
+          MU::Cloud::AWS::VPC.purge_interfaces(noop, tagfilters, region: region, credentials: credentials)
+
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_security_groups(
               filters: tagfilters
           )

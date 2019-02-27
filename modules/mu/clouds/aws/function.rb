@@ -158,14 +158,11 @@ module MU
                 source_arn: trigger_arn, 
                 statement_id: "#{@mu_name}-ID-1",
               }
-              p trigger_arn
-              p trigger_properties           
 
               MU.log trigger_properties, MU::DEBUG
               begin
                 add_trigger = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
-# XXX check properly for existence
               end
               adjust_trigger(tr['service'], trigger_arn, func_arn, @mu_name) 
             }
@@ -173,6 +170,34 @@ module MU
           end 
         end
 
+        # Intended to be called by other Mu resources, such as Endpoints (API
+        # Gateways) to add themselves as triggers for this Lambda function.
+        def addTrigger(calling_arn, calling_service, calling_name)
+          trigger = {
+            action: "lambda:InvokeFunction", 
+            function_name: @mu_name, 
+            principal: "#{calling_service}.amazonaws.com", 
+            source_arn: calling_arn, 
+            statement_id: "#{calling_service}-#{calling_name}",
+          }
+
+          begin
+            # XXX There doesn't seem to be an API call to list or view existing
+            # permissions, wtaf. This means we can't intelligently guard this.
+            add_trigger = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger)
+          rescue Aws::Lambda::Errors::ResourceConflictException => e
+            if e.message.match(/already exists/)
+              MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).remove_permission(
+                function_name: @mu_name,
+                statement_id: "#{calling_service}-#{calling_name}"
+              )
+              retry
+            else
+              MU.log "Error trying to add trigger to Lambda #{@mu_name}: #{e.message}", MU::ERR, details: trigger
+              raise e
+            end
+          end
+        end
 
         # Look up an ARN for a given trigger type and resource name
         def assume_trigger_arns(svc, name)
@@ -221,7 +246,8 @@ module MU
               ]
             })
           when 'apigateway'
-            MU.log "Creation of API Gateway integrations not yet implemented, you'll have to do this manually", MU::WARN, details: "(because we'll basically have to implement all of APIG for this)"
+# XXX this is actually happening in ::Endpoint... maybe...            
+#            MU.log "Creation of API Gateway integrations not yet implemented, you'll have to do this manually", MU::WARN, details: "(because we'll basically have to implement all of APIG for this)"
           end 
         end
 
