@@ -656,6 +656,19 @@ module MU
         end
       end
 
+      # Google's Firestore (NoSQL) Service API
+      # @param subclass [<Google::Apis::FirestoreV1>]: If specified, will return the class ::Google::Apis::FirestoreV1::subclass instead of an API client instance
+      def self.sql(subclass = nil, credentials: nil)
+        require 'google/apis/firestore_v1'
+
+        if subclass.nil?
+          @@firestore_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "FirestoreV1::FirestoreService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          return @@firestore_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("FirestoreV1").const_get(subclass)
+        end
+      end
+
       # Google's StackDriver Logging Service API
       # @param subclass [<Google::Apis::LoggingV2>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
       def self.logging(subclass = nil, credentials: nil)
@@ -953,6 +966,7 @@ module MU
       @@resource_api = {}
       @@resource2_api = {}
       @@service_api = {}
+      @@firestore_api = {}
       @@admin_directory_api = {}
     end
   end

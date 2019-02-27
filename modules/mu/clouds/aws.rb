@@ -920,6 +920,14 @@ module MU
         @@eks_api[credentials][region]
       end
 
+      # Amazon's DynamoDB API
+      def self.dynamo(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@dynamo_api[credentials] ||= {}
+        @@dynamo_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "DynamoDB", region: region, credentials: credentials)
+        @@dynamo_api[credentials][region]
+      end
+
       # Amazon's Pricing API
       def self.pricing(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1273,7 +1281,8 @@ module MU
       @@cognito_ident_api ={}
       @@cognito_user_api ={}
       @@kms_api ={}
-      @@organizataion_api ={}
+      @@organization_api ={}
+      @@dynamo_api ={}
     end
   end
 end
