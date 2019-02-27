@@ -30,7 +30,12 @@ module MU
             },
             "region" => MU::Config.region_primitive,
             "credentials" => MU::Config.credentials_primitive,
-            "web_enabled" => {
+            "versioning" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable object versioning on this bucket."
+            },
+            "web" => {
               "type" => "boolean",
               "default" => false,
               "description" => "Enable web service on this bucket."

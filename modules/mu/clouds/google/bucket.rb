@@ -41,8 +41,28 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          # TODO compare description to config, guard this, and notify if we're changing things
-          MU::Cloud::Google.storage(credentials: credentials).patch_bucket(@cloud_id, bucket_descriptor)
+          current = cloud_desc
+          changed = false
+
+          if !current.versioning.enabled and @config['versioning']
+            MU.log "Enabling versioning on Cloud Storage bucket #{@cloud_id}", MU::NOTICE
+            changed = true
+          elsif current.versioning.enabled and !@config['versioning']
+            MU.log "Disabling versioning on Cloud Storage bucket #{@cloud_id}", MU::NOTICE
+            changed = true
+          end
+
+          if current.website.nil? and @config['web']
+            MU.log "Enabling website service on Cloud Storage bucket #{@cloud_id}", MU::NOTICE
+            changed = true
+          elsif !current.website.nil? and !@config['web']
+            MU.log "Disabling website service on Cloud Storage bucket #{@cloud_id}", MU::NOTICE
+            changed = true
+          end
+
+          if changed
+            MU::Cloud::Google.storage(credentials: credentials).patch_bucket(@cloud_id, bucket_descriptor)
+          end
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -137,11 +157,17 @@ module MU
             :storage_class => @config['storage_class'],
           }
 
-          if @config['web_enabled']
+          if @config['web']
             params[:website] = MU::Cloud::Google.storage(:Bucket)::Website.new(
               main_page_suffix: @config['web_index_object'],
               not_found_page: @config['web_error_object']
             )
+          end
+
+          if @config['versioning']
+            params[:versioning] = MU::Cloud::Google.storage(:Bucket)::Versioning.new(enabled: true)
+          else
+            params[:versioning] = MU::Cloud::Google.storage(:Bucket)::Versioning.new(enabled: false)
           end
 
           MU::Cloud::Google.storage(:Bucket).new(params)

@@ -87,8 +87,10 @@ module MU
           }
           tagBucket if !@config['scrub_mu_isms']
 
-          if @config['web_enabled']
-            MU.log "Enabling web service on S3 bucket #{@cloud_id}"
+          current = cloud_desc
+
+          if @config['web'] and current["website"].nil?
+            MU.log "Enabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
             MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_website(
               bucket: @cloud_id,
               website_configuration: {
@@ -100,9 +102,30 @@ module MU
                 }
               }
             )
-          else
+          elsif !@config['web'] and !current["website"].nil?
+            MU.log "Disabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
             MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).delete_bucket_website(
               bucket: @cloud_id
+            )
+          end
+
+          if @config['versioning'] and current["versioning"].status != "Enabled"
+            MU.log "Enabling versioning on S3 bucket #{@cloud_id}", MU::NOTICE
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_versioning(
+              bucket: @cloud_id,
+              versioning_configuration: {
+                mfa_delete: "Disabled",
+                status: "Enabled"
+              }
+            )
+          elsif !@config['versioning'] and current["versioning"].status == "Enabled"
+            MU.log "Suspending versioning on S3 bucket #{@cloud_id}", MU::NOTICE
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_versioning(
+              bucket: @cloud_id,
+              versioning_configuration: {
+                mfa_delete: "Disabled",
+                status: "Suspended"
+              }
             )
           end
         end
