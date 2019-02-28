@@ -239,7 +239,7 @@ if !node['update_nagios_only']
   node.normal['postfix']['main']['inet_interfaces'] = "all"
   node.save
 
-  mubranch = shell_out("cd /opt/mu/lib && git rev-parse --abbrev-ref HEAD")
+  mubranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD` # ~FC048
 
   file "/var/www/html/index.html" do
     owner "apache"
