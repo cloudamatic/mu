@@ -364,18 +364,16 @@ module MU
               end
             elsif @config["creation_style"] == "new"
               MU.log "Creating pristine database instance #{@config['identifier']} (#{@config['name']}) in #{@config['region']}"
-puts @config['credentials']
-pp config
               resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(config)
             end
           rescue Aws::RDS::Errors::InvalidParameterValue => e
             if attempts < 5
-              MU.log "Got #{e.inspect} creating #{@config['identifier']}, will retry a few times in case of transient errors.", MU::WARN
+              MU.log "Got #{e.inspect} creating #{@config['identifier']}, will retry a few times in case of transient errors.", MU::WARN, details: config
               attempts += 1
               sleep 10
               retry
             else
-              raise MuError, "Exhausted retries trying to create database instance #{@config['identifier']}: e.inspect"
+              raise MuError, "Exhausted retries trying to create database instance #{@config['identifier']}: #{e.inspect}"
             end
           end
 
@@ -549,12 +547,13 @@ pp config
               end
           rescue Aws::RDS::Errors::InvalidParameterValue => e
             if attempts < 5
-              MU.log "Got #{e.inspect} while creating database cluster #{@config['identifier']}, will retry a few times in case of transient errors.", MU::WARN
+              MU.log "Got #{e.inspect} while creating database cluster #{@config['identifier']}, will retry a few times in case of transient errors.", MU::WARN, details: cluster_config_struct
               attempts += 1
               sleep 10
               retry
             else
-              raise MuError, "Exhausted retries trying to create database cluster #{@config['identifier']}", MU::ERR, details: e.inspect
+              MU.log "Exhausted retries trying to create database cluster #{@config['identifier']}", MU::ERR, details: e.inspect
+              raise MuError, "Exhausted retries trying to create database cluster #{@config['identifier']}"
             end
           end
 
@@ -1437,8 +1436,8 @@ pp config
               "descriptions" => "Scaling configuration for a +serverless+ Aurora cluster",
               "default" => {
                 "auto_pause" => false,
-                "min_capacity" => 1,
-                "max_capacity" => 1
+                "min_capacity" => 2,
+                "max_capacity" => 2
               },
               "properties" => {
                 "auto_pause" => {
@@ -1449,14 +1448,14 @@ pp config
                 "min_capacity" => {
                   "type" => "integer",
                   "description" => "The minimum capacity for an Aurora DB cluster in serverless DB engine mode.",
-                  "default" => 1,
-                  "enum" => [1, 2, 4, 8, 16, 32, 64, 128, 256]
+                  "default" => 2,
+                  "enum" => [2, 4, 8, 16, 32, 64, 128, 256]
                 },
                 "max_capacity" => {
                   "type" => "integer",
                   "description" => "The maximum capacity for an Aurora DB cluster in serverless DB engine mode.",
-                  "default" => 1,
-                  "enum" => [1, 2, 4, 8, 16, 32, 64, 128, 256]
+                  "default" => 2,
+                  "enum" => [2, 4, 8, 16, 32, 64, 128, 256]
                 },
                 "seconds_until_auto_pause" => {
                   "type" => "integer",
@@ -1503,7 +1502,11 @@ pp config
           if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
-              db["engine"] = "aurora-mysql"
+              if db["engine_version"] == "5.6" or db["cluster_mode"] == "serverless"
+                db["engine"] = "aurora"
+              else
+                db["engine"] = "aurora-mysql"
+              end
             when "postgres", "postgresql", "postgresql-mysql"
               db["engine"] = "aurora-postgresql"
             else
