@@ -1367,7 +1367,7 @@ module MU
           MU.log "AMI of #{name} in region #{region}: #{ami}"
           if make_public
             MU::Cloud::AWS::Server.waitForAMI(ami, region: region, credentials: credentials)
-            MU::Cloud::AWS.ec2(region: region).modify_image_attribute(
+            MU::Cloud::AWS.ec2(region: region, credentials: credentials).modify_image_attribute(
                 image_id: ami,
                 launch_permission: {add: [{group: "all"}]},
                 attribute: "launchPermission"
@@ -1381,7 +1381,7 @@ module MU
               next if r == region
               copythreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                copy = MU::Cloud::AWS.ec2(region: r).copy_image(
+                copy = MU::Cloud::AWS.ec2(region: r, credentials: credentials).copy_image(
                     source_region: region,
                     source_image_id: ami,
                     name: name,
@@ -1389,7 +1389,7 @@ module MU
                 )
                 MU.log "Initiated copy of #{ami} from #{region} to #{r}: #{copy.image_id}"
 
-                MU::MommaCat.createStandardTags(copy.image_id, region: r)
+                MU::MommaCat.createStandardTags(copy.image_id, region: r, credentials: credentials)
                 MU::MommaCat.createTag(copy.image_id, "Name", name, region: r, credentials: credentials)
                 if !tags.nil?
                   tags.each { |tag|
@@ -1398,7 +1398,7 @@ module MU
                 end
                 MU::Cloud::AWS::Server.waitForAMI(copy.image_id, region: r, credentials: credentials)
                 if make_public
-                  MU::Cloud::AWS.ec2(region: r).modify_image_attribute(
+                  MU::Cloud::AWS.ec2(region: r, credentials: credentials).modify_image_attribute(
                       image_id: copy.image_id,
                       launch_permission: {add: [{group: "all"}]},
                       attribute: "launchPermission"
