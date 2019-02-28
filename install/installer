@@ -4,7 +4,7 @@ BOLD=`tput bold`
 NORM=`tput sgr0`
 CHEF_CLIENT_VERSION="14.4.56"
 if [ "$MU_BRANCH" == "" ];then
-  MU_BRANCH="Azure_you_want_azure" # GIT HOOK EDITABLE DO NOT TOUCH
+  MU_BRANCH="master"
   mydir="`dirname $0`"
   cd $mydir
   if git rev-parse --abbrev-ref HEAD > /dev/null 2>&1;then

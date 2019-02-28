@@ -129,7 +129,7 @@ module MU
             return name_only ? name : @@acct_to_profile_map[name.to_s]
           end
 # XXX whatever process might lead us to populate @@acct_to_profile_map with some mappings, like projectname -> account profile, goes here
-          raise MuError, "Google credential set #{name} was requested, but I see no such working credentials in mu.yaml"
+          return nil
         end
       end
 
