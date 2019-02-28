@@ -1356,7 +1356,7 @@ module MU
           MU.log "Creating AMI from #{name}", details: ami_descriptor
           resp = nil
           begin
-            resp = MU::Cloud::AWS.ec2(region: region).create_image(ami_descriptor)
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_image(ami_descriptor)
           rescue Aws::EC2::Errors::InvalidAMINameDuplicate => e
             MU.log "AMI #{name} already exists, skipping", MU::WARN
             return nil
