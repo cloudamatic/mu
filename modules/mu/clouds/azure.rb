@@ -12,10 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require "net/http"
-require 'net/https'
-require 'multi_json'
-require 'stringio'
+require 'open-uri'
+require 'json'
 
 module MU
   class Cloud
@@ -128,15 +126,15 @@ module MU
       # @return [String, nil]
       def self.get_metadata()
         base_url = "http://169.254.169.254/metadata/instance"
-        api_version = '2017-12-01'
+        api_version = '2017-08-01'
         begin
           response = nil
           Timeout.timeout(1) do
-            response = open("#{base_url}/?api-version=#{ api_version }", "Metadata" => "true").read
-            JSONresponse = MultiJson.load(response)
+            response = open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read
+            #JSONresponse = MultiJson.load(response)
           end
 
-          JSONresponse
+          response
         rescue
           pp response
         end
@@ -147,3 +145,9 @@ end
 
 
 
+require 'open-uri'
+require 'json'
+
+url_metadata="http://169.254.169.254/metadata/instance?api-version=2017-04-02"
+
+puts open(url_metadata,"Metadata"=>"true").read
