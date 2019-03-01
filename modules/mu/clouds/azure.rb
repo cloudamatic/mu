@@ -129,9 +129,8 @@ module MU
         api_version = '2017-08-01'
         # begin
           response = nil
-          Timeout.timeout(1) do
-            response = JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
-          end
+          
+          response = JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
 
           response
         # rescue
