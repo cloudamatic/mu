@@ -127,16 +127,16 @@ module MU
       def self.get_metadata()
         base_url = "http://169.254.169.254/metadata/instance"
         api_version = '2017-08-01'
-        begin
+        # begin
           response = nil
           Timeout.timeout(1) do
             response = JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
           end
 
           response
-        rescue
-          MU.log "Failed to get Azure MetaData."
-        end
+        # rescue
+        #   MU.log "Failed to get Azure MetaData."
+        # end
       end
     end
   end
