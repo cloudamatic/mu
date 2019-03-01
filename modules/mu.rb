@@ -214,7 +214,10 @@ module MU
     if MU.mu_user.nil? or MU.mu_user.empty? or MU.mu_user == "mu" or MU.mu_user == "root"
       return @myDataDir
     else
-      return Etc.getpwnam(MU.mu_user).dir+"/.mu/var"
+      basepath = Etc.getpwnam(MU.mu_user).dir+"/.mu"
+      Dir.mkdir(basepath, 0755) if !Dir.exists?(basepath)
+      Dir.mkdir(basepath+"/var", 0755) if !Dir.exists?(basepath+"/var")
+      return basepath+"/var"
     end
   end
 

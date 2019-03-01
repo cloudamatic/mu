@@ -929,7 +929,6 @@ module MU
                   }
                 end
               else
-MU.log "in dependencies() and findLitterMate gave me "+sib_by_name.to_s+" on behalf of "+self.to_s, MU::NOTICE, details: @config['vpc']
                 @vpc = sib_by_name
               end
             end

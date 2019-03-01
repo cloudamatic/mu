@@ -584,6 +584,20 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             end
           end
 
+          # If create_standard_subnets is off, and no route_tables were
+          # declared at all, let's assume we want purely self-contained
+          # private VPCs
+          vpc['route_tables'] ||= [
+            {
+              "name" => "private",
+              "routes" => [
+                {
+                  "destination_network" => "0.0.0.0/0"
+                }
+              ]
+            }
+          ]
+
           # Google VPCs can't have routes that are anything other than global
           # (they can be tied to individual instances by tags, but w/e). So we
           # decompose our VPCs into littler VPCs, one for each declared route
@@ -778,19 +792,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               tags: tags,
               network: network
             )
-          else
-            routeobj = ::Google::Apis::ComputeBeta::Route.new(
-              name: routename,
-              dest_range: route['destination_network'],
-              network: network,
-              priority: route["priority"],
-              description: @deploy.deploy_id,
-              tags: tags,
-              next_hop_network: network
-            )
           end
 
-          if route['gateway'] != "#DENY"
+          if route['gateway'] != "#DENY" and routeobj
             begin
               MU::Cloud::Google.compute(credentials: @config['credentials']).get_route(@config['project'], routename)
             rescue ::Google::Apis::ClientError, MU::MuError => e
