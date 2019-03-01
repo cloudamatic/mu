@@ -17,10 +17,6 @@ require 'fileutils'
 require 'json'
 require 'stringio'
 require 'securerandom'
-gem "chef"
-autoload :Chef, 'chef'
-gem "chef-vault"
-autoload :ChefVault, 'chef-vault'
 require 'timeout'
 
 module MU

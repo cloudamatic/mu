@@ -332,6 +332,7 @@ module MU
             "permissions" => {
               "type" => "array",
               "description" => "if `iam_role` is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
+              "default" => ["basic"],
               "items" => {
                 "type" => "string",
                 "description" => "A permission to add to our Lambda function's default role, corresponding to standard AWS policies (see https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html)",
