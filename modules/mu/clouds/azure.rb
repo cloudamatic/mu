@@ -132,15 +132,13 @@ module MU
         begin
           response = nil
           Timeout.timeout(1) do
-            response = MultiJson.load(open("#{base_url}/?api-version=#{ api_version }", "Metadata" => "true").read)
+            response = open("#{base_url}/?api-version=#{ api_version }", "Metadata" => "true").read
+            JSONresponse = MultiJson.load(response)
           end
 
-          response
-        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
-          # This is normal on machines checking to see if they're AWS-hosted
-          logger = MU::Logger.new
-          logger.log "Failed metadata request #{base_url}/: #{e.inspect}", MU::DEBUG
-          return nil
+          JSONresponse
+        rescue
+          pp response
         end
       end
     end
