@@ -14,6 +14,7 @@
 
 require 'open-uri'
 require 'json'
+require 'azure_sdk'
 
 module MU
   class Cloud

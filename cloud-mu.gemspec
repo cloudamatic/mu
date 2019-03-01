@@ -61,5 +61,5 @@ EOF
   s.add_runtime_dependency 'rubocop', '~> 0.58'
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
-  s.add_runtime_dependency 'azure', "~> 0.7.10"
+  s.add_runtime_dependency 'azure_sdk', "~> 0.7.10"
 end
