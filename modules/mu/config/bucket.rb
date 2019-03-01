@@ -49,6 +49,10 @@ module MU
               "type" => "string",
               "default" => "index.html",
               "description" => "If +web_enabled+, return this object when \"diretory\" (a path not ending in a key/object) is invoked."
+            },
+            "policies" => {
+              "type" => "array",
+              "items" => MU::Config::Role.policy_primitive
             }
           }
         }

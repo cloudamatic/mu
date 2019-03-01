@@ -39,47 +39,54 @@ module MU
             },
             "policies" => {
               "type" => "array",
+              "items" => self.policy_primitive
+            }
+          }
+        }
+      end
+
+      # A generic, cloud-neutral descriptor for a policy that grants or denies
+      # permissions to some entity over some other entity.
+      # @return [Hash]
+      def self.policy_primitive
+        {
+          "type" => "object",
+          "description" => "Policies which grant or deny permissions.",
+          "required" => ["name", "permissions", "targets"],
+          "additionalProperties" => false,
+          "properties" => {
+            "name" => {
+              "type" => "string",
+              "description" => "A unique name for this policy"
+            },
+            "flag" => {
+              "type" => "string",
+              "enum" => ["allow", "deny"],
+              "default" => "allow"
+            },
+            "permissions" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
+              }
+            },
+            "targets" => {
+              "type" => "array",
               "items" => {
                 "type" => "object",
-                "description" => "Policies which grant or deny permissions.",
-                "required" => ["name", "permissions", "targets"],
+                "description" => "Entities to which this policy will grant or deny access.",
+                "required" => ["identifier"],
                 "additionalProperties" => false,
                 "properties" => {
-                  "name" => {
+                  "type" => {
                     "type" => "string",
-                    "description" => "A unique name for this policy"
+                    "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
+                    "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
                   },
-                  "flag" => {
+                  "identifier" => {
                     "type" => "string",
-                    "enum" => ["allow", "deny"],
-                    "default" => "allow"
-                  },
-                  "permissions" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "string",
-                      "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
-                    }
-                  },
-                  "targets" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "object",
-                      "description" => "Entities to which this policy will grant or deny access.",
-                      "required" => ["identifier"],
-                      "additionalProperties" => false,
-                      "properties" => {
-                        "type" => {
-                          "type" => "string",
-                          "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
-                          "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
-                        },
-                        "identifier" => {
-                          "type" => "string",
-                          "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
-                        }
-                      }
-                    }
+                    "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
                   }
                 }
               }
