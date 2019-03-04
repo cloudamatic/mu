@@ -85,13 +85,23 @@ module MU
                   entity = "user-"+entity if entity.match(/@/)
                 end
 
-                acl_obj = MU::Cloud::Google.storage(:BucketAccessControl).new(
+                bucket_acl_obj = MU::Cloud::Google.storage(:BucketAccessControl).new(
                   bucket: @cloud_id,
                   role: pol['permissions'].first,
                   entity: entity
                 )
-                MU.log "Adding Cloud Storage policy to bucket #{@cloud_id}", MU::NOTICE, details: acl_obj
+                MU.log "Adding Cloud Storage policy to bucket #{@cloud_id}", MU::NOTICE, details: bucket_acl_obj
                 MU::Cloud::Google.storage(credentials: credentials).insert_bucket_access_control(
+                  @cloud_id,
+                  bucket_acl_obj
+                )
+
+                acl_obj = MU::Cloud::Google.storage(:ObjectAccessControl).new(
+                  bucket: @cloud_id,
+                  role: pol['permissions'].first,
+                  entity: entity
+                )
+                MU::Cloud::Google.storage(credentials: credentials).insert_default_object_access_control(
                   @cloud_id,
                   acl_obj
                 )
