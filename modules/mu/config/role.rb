@@ -50,11 +50,11 @@ module MU
       # @param subobjects [Boolean]: Whether the returned schema should include a +path+ parameter
       # @param grant_to [Boolean]: Whether the returned schema should include an explicit +grant_to+ parameter
       # @return [Hash]
-      def self.policy_primitive(subobjects: false, grant_to: false)
+      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false)
         cfg = {
           "type" => "object",
           "description" => "Policies which grant or deny permissions.",
-          "required" => ["name", "permissions", "targets"],
+          "required" => ["name", "targets"],
 #          "additionalProperties" => false,
           "properties" => {
             "name" => {
@@ -96,6 +96,8 @@ module MU
           }
         }
 
+        cfg["required"] << "permissions" if !permissions_optional
+
         if grant_to
           cfg["properties"]["grant_to"] = {
             "type" => "array",
@@ -113,7 +115,7 @@ module MU
                 },
                 "identifier" => {
                   "type" => "string",
-                  "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services. Wildcards (+*+) are valid if supported by the cloud provider."
+                  "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an Amazon ARN or email-address-formatted Google Cloud username. Wildcards (+*+) are valid if supported by the cloud provider."
                 }
               }
             }

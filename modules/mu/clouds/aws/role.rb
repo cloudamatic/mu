@@ -692,7 +692,7 @@ module MU
                       id = sibling.cloudobj.arn
                       doc["Statement"].first["Principal"] << id
                     else
-                      raise MuError, "Couldn't find a #{grantee["entity_type"]} named #{grantee["identifier"]} when generating IAM policy"
+                      raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating IAM policy"
                     end
                   else
                     doc["Statement"].first["Principal"] << grantee["identifier"]

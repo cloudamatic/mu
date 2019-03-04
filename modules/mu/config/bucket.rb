@@ -52,7 +52,7 @@ module MU
             },
             "policies" => {
               "type" => "array",
-              "items" => MU::Config::Role.policy_primitive(subobjects: true, grant_to: true)
+              "items" => MU::Config::Role.policy_primitive(subobjects: true, grant_to: true, permissions_optional: true)
             }
           }
         }

@@ -254,6 +254,14 @@ module MU
         def self.validateConfig(bucket, configurator)
           ok = true
 
+          if bucket['policies']
+            bucket['policies'].each { |pol|
+              if !pol['permissions'] or pol['permissions'].empty?
+                pol['permissions'] = ["s3:GetObject"]
+              end
+            }
+          end
+
           ok
         end
 

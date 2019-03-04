@@ -63,6 +63,42 @@ module MU
           if changed
             MU::Cloud::Google.storage(credentials: credentials).patch_bucket(@cloud_id, bucket_descriptor)
           end
+
+          if @config['policies']
+            @config['policies'].each { |pol|
+              pol['grant_to'].each { |grantee|
+                entity = if grantee["type"]
+                  sibling = deploy_obj.findLitterMate(
+                    name: grantee["identifier"],
+                    type: grantee["type"]
+                  )
+                  if sibling
+                    sibling.cloudobj.cloud_id
+                  else
+                    raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating Cloud Storage access policy"
+                  end
+                else
+                  pol['grant_to'].first['identifier']
+                end
+
+                if entity.match(/@/) and !entity.match(/^(group|user)\-/)
+                  entity = "user-"+entity if entity.match(/@/)
+                end
+
+                acl_obj = MU::Cloud::Google.storage(:BucketAccessControl).new(
+                  bucket: @cloud_id,
+                  role: pol['permissions'].first,
+                  entity: entity
+                )
+                MU.log "Adding Cloud Storage policy to bucket #{@cloud_id}", MU::NOTICE, details: acl_obj
+                MU::Cloud::Google.storage(credentials: credentials).insert_bucket_access_control(
+                  @cloud_id,
+                  acl_obj
+                )
+              }
+            }
+
+          end
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -134,6 +170,15 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(bucket, configurator)
           ok = true
+
+          if bucket['policies']
+            bucket['policies'].each { |pol|
+              if !pol['permissions'] or pol['permissions'].empty?
+                pol['permissions'] = ["READER"]
+              end
+            }
+# XXX validate READER OWNER EDITOR w/e
+          end
 
           ok
         end
