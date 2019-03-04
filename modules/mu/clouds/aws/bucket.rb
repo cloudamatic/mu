@@ -39,6 +39,8 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           bucket_name = @deploy.getResourceName(@config["name"], max_length: 63).downcase
+
+          MU.log "Creating S3 bucket #{bucket_name}"
           MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
             acl: @config['acl'],
             bucket: bucket_name
@@ -83,12 +85,24 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+
           @@region_cache_semaphore.synchronize {
             @@region_cache[@cloud_id] ||= @config['region']
           }
           tagBucket if !@config['scrub_mu_isms']
 
           current = cloud_desc
+
+          if @config['policies']
+            policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy)
+            policy_docs.each { |doc|
+              MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: doc.values.first
+              MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
+                bucket: @cloud_id,
+                policy: JSON.generate(doc.values.first)
+              )
+            }
+          end
 
           if @config['web'] and current["website"].nil?
             MU.log "Enabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
@@ -217,6 +231,7 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "policies" => MU::Cloud::AWS::Role.condition_schema,
             "acl" => {
               "type" => "string",
               "enum" => ["private", "public-read", "public-read-write", "authenticated-read"],

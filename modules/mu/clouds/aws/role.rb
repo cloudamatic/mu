@@ -485,6 +485,42 @@ module MU
           resp.instance_profile.arn
         end
 
+        # Schema fragment for IAM policy conditions, which some other resource
+        # types may need to import.
+        def self.condition_schema
+          {
+            "items" => {
+              "properties" => {
+                "conditions" => {
+                  "type" => "array",
+                  "items" => {
+                    "type" => "object",
+                    "description" => "One or more conditions under which to apply this policy. See also: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition.html",
+                    "required" => ["comparison", "variable", "values"],
+                    "properties" => {
+                      "comparison" => {
+                        "type" => "string",
+                        "description" => "A comparison to make, like +DateGreaterThan+ or +IpAddress+."
+                      },
+                      "variable" => {
+                        "type" => "string",
+                        "description" => "The variable which we will compare, like +aws:CurrentTime+ or +aws:SourceIp+."
+                      },
+                      "values" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "string",
+                          "description" => "Value(s) to which we will compare our variable, like +2013-08-16T15:00:00Z+ or +192.0.2.0/24+."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -499,9 +535,11 @@ module MU
             end
           }.map { |t| MU::Cloud.resource_types[t][:cfg_name] }.sort
 
+
           schema = {
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
+            "policies" => self.condition_schema,
             "import" => {
               "items" => {
                 "description" => "Can be a shorthand reference to a canned IAM policy like +AdministratorAccess+, or a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+"
@@ -611,14 +649,15 @@ module MU
           ok
         end
 
-        private
-
-        # Convert entries from the cloud-neutral @config['policies'] list into
-        # AWS syntax.
-        def convert_policies_to_iam
+        # Convert our generic internal representation of access policies into
+        # structures suitable for AWS IAM policy documents.
+        # @param policies [Array<Hash>]: One or more policy chunks
+        # @param deploy_obj [MU::MommaCat]: Deployment object to use when looking up sibling Mu resources
+        # @return [Array<Hash>]
+        def self.genPolicyDocument(policies, deploy_obj: nil)
           iam_policies = []
-          if @config['policies']
-            @config['policies'].each { |policy|
+          if policies
+            policies.each { |policy|
               doc = {
                 "Version" => "2012-10-17",
                 "Statement" => [
@@ -633,19 +672,52 @@ module MU
               policy["permissions"].each { |perm|
                 doc["Statement"].first["Action"] << perm
               }
+              if policy["conditions"]
+                doc["Statement"].first["Condition"] ||= {}
+                policy["conditions"].each { |cond|
+                  doc["Statement"].first["Condition"][cond['comparison']] = {
+                    cond["variable"] => cond["values"]
+                  }
+                }
+              end
+              if policy["grant_to"] # XXX factor this with target, they're too similar
+                doc["Statement"].first["Principal"] ||= []
+                policy["grant_to"].each { |grantee|
+                  if grantee["type"] and deploy_obj
+                    sibling = deploy_obj.findLitterMate(
+                      name: grantee["identifier"],
+                      type: grantee["type"]
+                    )
+                    if sibling
+                      id = sibling.cloudobj.arn
+                      doc["Statement"].first["Principal"] << id
+                    else
+                      raise MuError, "Couldn't find a #{grantee["entity_type"]} named #{grantee["identifier"]} when generating IAM policy"
+                    end
+                  else
+                    doc["Statement"].first["Principal"] << grantee["identifier"]
+                  end
+                }
+                if policy["grant_to"].size == 1
+                  doc["Statement"].first["Principal"] = doc["Statement"].first["Principal"].first
+                end
+              end
               if policy["targets"]
                 policy["targets"].each { |target|
-                  if target["type"]
-                    sibling = @deploy.findLitterMate(
+                  if target["type"] and deploy_obj
+                    sibling = deploy_obj.findLitterMate(
                       name: target["identifier"],
                       type: target["type"]
                     )
                     if sibling
-                      doc["Statement"].first["Resource"] << sibling.cloudobj.arn
+                      id = sibling.cloudobj.arn
+                      id += target["path"] if target["path"]
+                      doc["Statement"].first["Resource"] << id
                     else
-                      raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy in role #{@mu_name}"
+                      raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy"
                     end
                   else
+                    target["identifier"] += target["path"] if target["path"]
                     doc["Statement"].first["Resource"] << target["identifier"]
                   end
                 }
@@ -655,6 +727,14 @@ module MU
           end
 
           iam_policies
+        end
+
+        private
+
+        # Convert entries from the cloud-neutral @config['policies'] list into
+        # AWS syntax.
+        def convert_policies_to_iam
+          MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy)
         end
 
         def get_tag_params(strip_std = false)
