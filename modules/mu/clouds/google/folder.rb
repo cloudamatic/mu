@@ -30,18 +30,35 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+
+          if !mu_name.nil?
+            @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
+          else
+            @mu_name = @deploy.getResourceName(@config['name'])
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
 
-          name_string = @deploy.getResourceName(@config["name"], max_length: 30).downcase
+          name_string = if @config['scrub_mu_isms']
+            @config["name"]
+          else
+            @deploy.getResourceName(@config["name"], max_length: 30).downcase
+          end
 
-          folder_obj = MU::Cloud::Google.folder(:Folder).new(
-            name: name_string,
+          params = {
             display_name: name_string
-          )
+          }
+
+          if @config['parent'] and @config['parent']['id']
+            params[:parent] = "folders/"+@config['parent']['id']
+          end
+
+
+          folder_obj = MU::Cloud::Google.folder(:Folder).new(params)
 pp folder_obj
           MU.log "Creating folder #{@mu_name}", details: folder_obj
           resp = MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj)

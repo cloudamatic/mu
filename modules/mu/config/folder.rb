@@ -26,6 +26,7 @@ module MU
           "description" => "Set up a cloud provider folder/OU for containing other account-level resources",
           "properties" => {
             "name" => { "type" => "string" },
+            "parent" => MU::Config::Folder.reference
           }
         }
       end

@@ -26,7 +26,7 @@ module MU
           "description" => "Generate a cloud habitat (AWS account, Google Cloud project, Azure Directory, etc)",
           "properties" => {
             "name" => { "type" => "string" },
-            "folder" => MU::Config::Folder.reference
+            "parent" => MU::Config::Folder.reference
           }
         }
       end

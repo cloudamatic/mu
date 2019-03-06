@@ -611,15 +611,15 @@ module MU
       end
 
       # Google's Cloud Resource Manager API V2, which apparently has all the folder bits
-      # @param subclass [<Google::Apis::CloudresourcemanagerV2beta1>]: If specified, will return the class ::Google::Apis::CloudresourcemanagerV2beta1::subclass instead of an API client instance
+      # @param subclass [<Google::Apis::CloudresourcemanagerV2>]: If specified, will return the class ::Google::Apis::CloudresourcemanagerV2::subclass instead of an API client instance
       def self.folder(subclass = nil, credentials: nil)
-        require 'google/apis/cloudresourcemanager_v2beta1'
+        require 'google/apis/cloudresourcemanager_v2'
 
         if subclass.nil?
-          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2beta1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], credentials: credentials)
           return @@resource2_api[credentials]
         elsif subclass.is_a?(Symbol)
-          return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2beta1").const_get(subclass)
+          return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2").const_get(subclass)
         end
       end
 
@@ -811,10 +811,11 @@ module MU
               elsif e.message.match(/^forbidden:/)
                 MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
-              @@enable_semaphores[project] ||= Mutex.new
+              @@enable_semaphores ||= {}
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
                 project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
+                @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project
                 )

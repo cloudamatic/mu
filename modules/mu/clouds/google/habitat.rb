@@ -30,35 +30,52 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+
+          if !mu_name.nil?
+            @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
+          else
+            @mu_name = @deploy.getResourceName(@config['name'])
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
           labels = {}
 
-          name_string = @deploy.getResourceName(@config["name"], max_length: 30).downcase
+          name_string = if @config['scrub_mu_isms']
+            @config["name"]
+          else
+            @deploy.getResourceName(@config["name"], max_length: 30).downcase
+          end
+
+          params = {
+            name: name_string,
+            project_id: name_string,
+          }
 
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             if !value.nil?
               labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
             end
           }
+          
+          if !@config['scrub_mu_isms']
+            params[:labels] = labels
+          end
 
-          desc = {
-            name: name_string,
-            project_id: name_string,
-            labels: labels
-          }
+# XXX sibling lookup of folders
+# XXX default to root of org
           if @config['folder'] and @config['folder']['id']
-            desc[:parent] = MU::Cloud::Google.resource_manager(:ResourceId).new(
+            params[:parent] = MU::Cloud::Google.resource_manager(:ResourceId).new(
               id: @config['folder']['id'],
               type: "folder"
             )
           end
-pp desc
-          project_obj = MU::Cloud::Google.resource_manager(:Project).new(desc)
-pp project_obj
+
+          project_obj = MU::Cloud::Google.resource_manager(:Project).new(params)
+
           MU.log "Creating project #{@mu_name}", details: project_obj
           resp = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
 
