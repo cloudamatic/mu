@@ -28,6 +28,7 @@ module MU
       @@my_hosted_cfg = nil
       @@authorizers = {}
       @@acct_to_profile_map = {}
+      @@enable_semaphores = {}
 
       # Any cloud-specific instance methods we require our resource
       # implementations to have, above and beyond the ones specified by
@@ -323,6 +324,10 @@ module MU
 
         cfg = credConfig(credentials)
 
+        if cfg['project']
+          @@enable_semaphores[cfg['project']] ||= Mutex.new
+        end
+
         if cfg
           data = nil
           @@authorizers[credentials] ||= {}
@@ -597,7 +602,8 @@ module MU
         require 'google/apis/cloudresourcemanager_v1'
 
         if subclass.nil?
-          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+#          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], credentials: credentials)
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -805,6 +811,7 @@ module MU
               elsif e.message.match(/^forbidden:/)
                 MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
+              @@enable_semaphores[project] ||= Mutex.new
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
                 project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
@@ -816,10 +823,12 @@ module MU
                 svc_name = Regexp.last_match[1]
                 save_verbosity = MU.verbosity
                 if svc_name != "servicemanagement.googleapis.com"
-                  MU.setLogging(MU::Logger::NORMAL)
-                  MU.log "Attempting to enable #{svc_name} in project #{project}, then waiting for 30s", MU::WARN
-                  MU.setLogging(save_verbosity)
-                  MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
+                  @@enable_semaphores.synchronize {
+                    MU.setLogging(MU::Logger::NORMAL)
+                    MU.log "Attempting to enable #{svc_name} in project #{project}, then waiting for 30s", MU::WARN
+                    MU.setLogging(save_verbosity)
+                    MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
+                  }
                   sleep 30
                   retries += 1
                   retry

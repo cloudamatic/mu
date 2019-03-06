@@ -51,9 +51,12 @@ module MU
             labels: labels
           }
           if @config['folder'] and @config['folder']['id']
-            desc["parent"] = @config['folder']['id']
+            desc[:parent] = MU::Cloud::Google.resource_manager(:ResourceId).new(
+              id: @config['folder']['id'],
+              type: "folder"
+            )
           end
-
+pp desc
           project_obj = MU::Cloud::Google.resource_manager(:Project).new(desc)
 pp project_obj
           MU.log "Creating project #{@mu_name}", details: project_obj
@@ -70,12 +73,7 @@ pp project_obj
         # Return the metadata for this project's configuration
         # @return [Hash]
         def notify
-          desc = MU.structToHash(MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
-              filter: "name:#{cloud_id}"
-            ).projects.first)
-          desc["mu_name"] = @mu_name
-          desc["cloud_id"] = @cloud_id
-          desc
+          MU.structToHash(MU::Cloud::Google.resource_manager(credentials: @config['credentials']).get_project(@cloud_id))
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -91,6 +89,17 @@ pp project_obj
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+          if resp and resp.projects
+            resp.projects.each { |p|
+              if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase
+                MU.log "Deleting project #{p.name}", details: p
+                if !noop
+                  MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.name)
+                end
+              end
+            }
+          end
         end
 
         # Locate an existing project
