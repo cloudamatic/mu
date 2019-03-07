@@ -44,7 +44,7 @@ ChefSpec:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
 
-Rspec:
+.Rspec:
   stage: Test
   script:
     - cd modules
@@ -88,7 +88,7 @@ Gem Build:
     paths:
     - cloud-mu-*.gem
 
-Muby Build:
+.Muby Build:
   stage: Build
   image: centos
   script: 
