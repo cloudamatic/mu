@@ -557,46 +557,46 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 }
               ]
             end
-
-            # Generate a set of subnets per route, if none are declared
-            if !vpc['subnets'] or vpc['subnets'].empty?
-              if vpc['regions'].nil? or vpc['regions'].empty?
-                vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
-              end
-              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size, 29)
-              ok = false if blocks.nil?
-
-              vpc["subnets"] = []
-              vpc['route_tables'].each { |t|
-                count = 0
-                vpc['regions'].each { |r|
-                  block = blocks.shift
-                  vpc["subnets"] << {
-                    "availability_zone" => r,
-                    "route_table" => t["name"],
-                    "ip_block" => block.to_s,
-                    "name" => "Subnet"+count.to_s+t["name"].capitalize,
-                    "map_public_ips" => true
+          else
+            # If create_standard_subnets is off, and no route_tables were
+            # declared at all, let's assume we want purely self-contained
+            # private VPC, and create a dummy route accordingly.
+            vpc['route_tables'] ||= [
+              {
+                "name" => "private",
+                "routes" => [
+                  {
+                    "destination_network" => "0.0.0.0/0"
                   }
-                  count = count + 1
-                }
+                ]
               }
-            end
+            ]
           end
 
-          # If create_standard_subnets is off, and no route_tables were
-          # declared at all, let's assume we want purely self-contained
-          # private VPCs
-          vpc['route_tables'] ||= [
-            {
-              "name" => "private",
-              "routes" => [
-                {
-                  "destination_network" => "0.0.0.0/0"
+          # Generate a set of subnets per route, if none are declared
+          if !vpc['subnets'] or vpc['subnets'].empty?
+            if vpc['regions'].nil? or vpc['regions'].empty?
+              vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
+            end
+            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size, 29)
+            ok = false if blocks.nil?
+
+            vpc["subnets"] = []
+            vpc['route_tables'].each { |t|
+              count = 0
+              vpc['regions'].each { |r|
+                block = blocks.shift
+                vpc["subnets"] << {
+                  "availability_zone" => r,
+                  "route_table" => t["name"],
+                  "ip_block" => block.to_s,
+                  "name" => "Subnet"+count.to_s+t["name"].capitalize,
+                  "map_public_ips" => true
                 }
-              ]
+                count = count + 1
+              }
             }
-          ]
+          end
 
           # Google VPCs can't have routes that are anything other than global
           # (they can be tied to individual instances by tags, but w/e). So we

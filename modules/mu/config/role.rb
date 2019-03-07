@@ -39,53 +39,97 @@ module MU
             },
             "policies" => {
               "type" => "array",
+              "items" => self.policy_primitive
+            }
+          }
+        }
+      end
+
+      # A generic, cloud-neutral descriptor for a policy that grants or denies
+      # permissions to some entity over some other entity.
+      # @param subobjects [Boolean]: Whether the returned schema should include a +path+ parameter
+      # @param grant_to [Boolean]: Whether the returned schema should include an explicit +grant_to+ parameter
+      # @return [Hash]
+      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false)
+        cfg = {
+          "type" => "object",
+          "description" => "Policies which grant or deny permissions.",
+          "required" => ["name", "targets"],
+#          "additionalProperties" => false,
+          "properties" => {
+            "name" => {
+              "type" => "string",
+              "description" => "A unique name for this policy"
+            },
+            "flag" => {
+              "type" => "string",
+              "enum" => ["allow", "deny"],
+              "default" => "allow"
+            },
+            "permissions" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
+              }
+            },
+            "targets" => {
+              "type" => "array",
               "items" => {
                 "type" => "object",
-                "description" => "Policies which grant or deny permissions.",
-                "required" => ["name", "permissions", "targets"],
+                "description" => "Entities to which this policy will grant or deny access.",
+                "required" => ["identifier"],
                 "additionalProperties" => false,
                 "properties" => {
-                  "name" => {
+                  "type" => {
                     "type" => "string",
-                    "description" => "A unique name for this policy"
+                    "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
+                    "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
                   },
-                  "flag" => {
+                  "identifier" => {
                     "type" => "string",
-                    "enum" => ["allow", "deny"],
-                    "default" => "allow"
-                  },
-                  "permissions" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "string",
-                      "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
-                    }
-                  },
-                  "targets" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "object",
-                      "description" => "Entities to which this policy will grant or deny access.",
-                      "required" => ["identifier"],
-                      "additionalProperties" => false,
-                      "properties" => {
-                        "type" => {
-                          "type" => "string",
-                          "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
-                          "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
-                        },
-                        "identifier" => {
-                          "type" => "string",
-                          "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
-                        }
-                      }
-                    }
+                    "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
                   }
                 }
               }
             }
           }
         }
+
+        cfg["required"] << "permissions" if !permissions_optional
+
+        if grant_to
+          cfg["properties"]["grant_to"] = {
+            "type" => "array",
+            "default" => [ { "identifier" => "*" } ],
+            "items" => {
+              "type" => "object",
+              "description" => "Entities to which this policy will grant or deny access.",
+              "required" => ["identifier"],
+              "additionalProperties" => false,
+              "properties" => {
+                "type" => {
+                  "type" => "string",
+                  "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
+                  "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
+                },
+                "identifier" => {
+                  "type" => "string",
+                  "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an Amazon ARN or email-address-formatted Google Cloud username. Wildcards (+*+) are valid if supported by the cloud provider."
+                }
+              }
+            }
+          }
+        end
+
+        if subobjects
+          cfg["properties"]["targets"]["items"]["properties"]["path"] = {
+            "type" => "string",
+            "description" => "Target this policy to a path or child resource of the object to which we are granting or denying permissions, such as a key or wildcard in an S3 or Cloud Storage bucket."
+          }
+        end
+
+        cfg
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::role}, bare and unvalidated.

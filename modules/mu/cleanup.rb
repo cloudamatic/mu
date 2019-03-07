@@ -61,7 +61,7 @@ module MU
       end
 
 
-      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection", "Habitat"]
+      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection", "Habitat", "Folder"]
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -160,6 +160,17 @@ module MU
                       end
 
                       if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
+                        if @mommacat
+                          found = @mommacat.findLitterMate(type: t, return_all: true, credentials: credset)
+                          flags['known'] ||= []
+                          if found.is_a?(Array)
+                            found.each { |k|
+                              flags['known'] << k.cloud_id
+                            }
+                          elsif found
+                            flags['known'] << found.cloud_id                            
+                          end
+                        end
                         begin
                           resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
                           resclass.cleanup(
