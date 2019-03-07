@@ -134,7 +134,8 @@ module MU
           resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
           if resp and resp.projects
             resp.projects.each { |p|
-              if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase
+              if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase and
+                 p.lifecycle_state == "ACTIVE"
                 MU.log "Deleting project #{p.name}", details: p
                 if !noop
                   MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.name)

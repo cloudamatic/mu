@@ -94,7 +94,6 @@ module MU
             return my_org.name
           end
 
-MU.log "RESOLVING PARENT", MU::NOTICE, details: parentblock
           if parentblock['name']
             sib_folder = MU::MommaCat.findStray(
               "Google",
@@ -148,9 +147,36 @@ MU.log "RESOLVING PARENT", MU::NOTICE, details: parentblock
         # Remove all Google projects associated with the currently loaded deployment. Try to, anyway.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {}, region: MU.myRegion)
+          # We can't label GCP folders, and their names are too short to encode
+          # Mu deploy IDs, so all we can do is rely on flags['known'] passed in
+          # from cleanup, which relies on our metadata to know what's ours.
+
+          if flags and flags['known']
+            flags['known'].each { |cloud_id|
+              found = self.find(cloud_id: cloud_id, credentials: credentials)
+              if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
+                MU.log "Deleting folder #{found.values.first.display_name}"
+                if !noop
+                  retries = 10
+                  begin
+                    MU::Cloud::Google.folder(credentials: credentials).delete_folder(
+                      "folders/"+found.keys.first   
+                    )
+                  rescue Google::Apis::ClientError => e
+                    if e.message.match(/failedPrecondition/) and retries < 10
+                      sleep 5
+                      retries += 1
+                      retry
+                    else
+                      raise e
+                    end
+                  end
+                end
+              end
+            }
+          end
         end
 
         # Locate an existing project
@@ -158,7 +184,7 @@ MU.log "RESOLVING PARENT", MU::NOTICE, details: parentblock
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, credentials: nil, flags: {})
           found = {}
 
           # Recursively search a GCP folder hierarchy for a folder matching our
