@@ -219,6 +219,11 @@ MU.log "RESOLVING PARENT", MU::NOTICE, details: parentblock
         def self.validateConfig(folder, configurator)
           ok = true
 
+          if !MU::Cloud::Google.getOrg(folder['credentials'])
+            MU.log "Cannot manage Google Cloud projects in environments without an organization. See also: https://cloud.google.com/resource-manager/docs/creating-managing-organization", MU::ERR
+            ok = false
+          end
+
           if folder['parent'] and folder['parent']['name'] and !folder['parent']['deploy_id'] and configurator.haveLitterMate?(folder['parent']['name'], "folders")
             folder["dependencies"] ||= []
             folder["dependencies"] << {

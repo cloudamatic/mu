@@ -183,6 +183,11 @@ module MU
         def self.validateConfig(habitat, configurator)
           ok = true
 
+          if !MU::Cloud::Google.getOrg(habitat['credentials'])
+            MU.log "Cannot manage Google Cloud projects in environments without an organization. See also: https://cloud.google.com/resource-manager/docs/creating-managing-organization", MU::ERR
+            ok = false
+          end
+
           if habitat['parent'] and habitat['parent']['name'] and !habitat['parent']['deploy_id'] and configurator.haveLitterMate?(habitat['parent']['name'], "folders")
             habitat["dependencies"] ||= []
             habitat["dependencies"] << {
