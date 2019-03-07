@@ -65,19 +65,44 @@ module MU
             params[:labels] = labels
           end
 
-# XXX sibling lookup of folders
-# XXX default to root of org
-          if @config['folder'] and @config['folder']['id']
-            params[:parent] = MU::Cloud::Google.resource_manager(:ResourceId).new(
-              id: @config['folder']['id'],
-              type: "folder"
-            )
+          parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
+          if !parent
+            MU.log "Unable to resolve parent resource of Google Project #{@config['name']}", MU::ERR, details: @config['parent']
+            raise "Unable to resolve parent resource of Google Project #{@config['name']}"
           end
+
+          type, parent_id = parent.split(/\//)
+          params[:parent] = MU::Cloud::Google.resource_manager(:ResourceId).new(
+            id: parent_id,
+            type: type.sub(/s$/, "") # I wish these engineering teams would talk to each other
+          )
 
           project_obj = MU::Cloud::Google.resource_manager(:Project).new(params)
 
-          MU.log "Creating project #{@mu_name}", details: project_obj
-          resp = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+          MU.log "Creating project #{@mu_name} under #{parent}", details: project_obj
+          pp params[:parent]
+          pp project_obj
+          MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+
+          found = false
+          retries = 0
+          begin
+            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+            if resp and resp.projects
+              resp.projects.each { |p|
+                if p.name == name_string.downcase
+                  found = true
+                end
+              }
+            end
+            if !found
+              if retries > 0 and (retries % 3) == 0
+                MU.log "Waiting for Google Cloud project #{name_string} to appear in list_projects results...", MU::NOTICE
+              end
+              retries += 1
+              sleep 15
+            end
+          end while !found
 
           @cloud_id = name_string.downcase
         end
@@ -158,11 +183,11 @@ module MU
         def self.validateConfig(habitat, configurator)
           ok = true
 
-          if habitat['folder'] and habitat['folder']['name'] and !habitat['folder']['deploy_id']
+          if habitat['parent'] and habitat['parent']['name'] and !habitat['parent']['deploy_id'] and configurator.haveLitterMate?(habitat['parent']['name'], "folders")
             habitat["dependencies"] ||= []
             habitat["dependencies"] << {
               "type" => "folder",
-              "name" => habitat['folder']['name']
+              "name" => habitat['parent']['name']
             }
           end
 

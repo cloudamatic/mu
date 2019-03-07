@@ -19,6 +19,7 @@ module MU
       class Folder < MU::Cloud::Folder
         @deploy = nil
         @config = nil
+        @parent = nil
 
         attr_reader :mu_name
         attr_reader :config
@@ -53,17 +54,73 @@ module MU
             display_name: name_string
           }
 
-          if @config['parent'] and @config['parent']['id']
-            params[:parent] = "folders/"+@config['parent']['id']
-          end
-
+          parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
 
           folder_obj = MU::Cloud::Google.folder(:Folder).new(params)
-pp folder_obj
-          MU.log "Creating folder #{@mu_name}", details: folder_obj
-          resp = MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj)
 
-          @cloud_id = name_string.downcase
+          MU.log "Creating folder #{name_string} under #{parent}", details: folder_obj
+          resp = MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj, parent: parent)
+
+          # Wait for list_folders output to be consistent (for the folder we
+          # just created to show up)
+          retries = 0
+          begin
+            found = MU::Cloud::Google::Folder.find(credentials: credentials, flags: { 'display_name' => name_string, 'parent_id' => parent })
+            if found.size > 0
+              @cloud_id = found.keys.first
+              @parent = found.values.first.parent
+              MU.log "Folder #{name_string} has identifier #{@cloud_id}"
+            else
+              if retries > 0 and (retries % 3) == 0
+                MU.log "Waiting for Google Cloud folder #{name_string} to appear in list_folder results...", MU::NOTICE
+              end
+              retries += 1
+              sleep 15
+            end
+          end while found.size == 0
+
+        end
+
+        # Given a {MU::Config::Folder.reference} configuration block, resolve
+        # to a GCP resource id and type suitable for use in API calls to manage
+        # projects and folders.
+        # @param parentblock [Hash]
+        # @return [String]
+        def self.resolveParent(parentblock, credentials: nil)
+          my_org = MU::Cloud::Google.getOrg(credentials)
+          if !parentblock or parentblock['id'] == my_org.name or
+             parentblock['name'] == my_org.display_name or (parentblock['id'] and
+             "organizations/"+parentblock['id'] == my_org.name)
+            return my_org.name
+          end
+
+MU.log "RESOLVING PARENT", MU::NOTICE, details: parentblock
+          if parentblock['name']
+            sib_folder = MU::MommaCat.findStray(
+              "Google",
+              "folders",
+              deploy_id: parentblock['deploy_id'],
+              credentials: credentials,
+              name: parentblock['name']
+            ).first
+            if sib_folder
+              return "folders/"+sib_folder.cloudobj.cloud_id
+            end
+          end
+
+          begin
+          found = MU::Cloud::Google::Folder.find(cloud_id: parentblock['id'], credentials: credentials, flags: { 'display_name' => parentblock['name'] })
+          rescue ::Google::Apis::ClientError => e
+            if !e.message.match(/Invalid request status_code: 404/)
+              raise e
+            end
+          end
+
+          if found and found.size > 0
+            return found.values.first.name
+          end
+
+          nil
         end
 
         # Return the cloud descriptor for the Folder
@@ -74,8 +131,9 @@ pp folder_obj
         # Return the metadata for this project's configuration
         # @return [Hash]
         def notify
-          desc = MU.structToHash(MU::Cloud::Google.folder(credentials: credentials).get_folder(@cloud_id))
+          desc = MU.structToHash(MU::Cloud::Google.folder(credentials: @config['credentials']).get_folder("folders/"+@cloud_id))
           desc["mu_name"] = @mu_name
+          desc["parent"] = @parent
           desc["cloud_id"] = @cloud_id
           desc
         end
@@ -102,9 +160,43 @@ pp folder_obj
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
         def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           found = {}
+
+          # Recursively search a GCP folder hierarchy for a folder matching our
+          # supplied name or identifier.
+          def self.find_matching_folder(parent, name: nil, id: nil, credentials: nil)
+            resp = MU::Cloud::Google.folder(credentials: credentials).list_folders(parent: parent)
+            if resp and resp.folders
+              resp.folders.each { |f|
+                if name and name.downcase == f.display_name.downcase
+                  return f
+                elsif id and "folders/"+id== f.name
+                  return f
+                else
+                  found = self.find_matching_folder(f.name, name: name, id: id, credentials: credentials)
+                  return found if found
+                end
+              }
+            end
+            nil
+          end
+
           if cloud_id
-            found[cloud_id] = MU::Cloud::Google.folder(credentials: credentials).get_folder(cloud_id)
-          else
+            cloud_id.sub!(/^folders\//, "")
+            found[cloud_id] = MU::Cloud::Google.folder(credentials: credentials).get_folder("folders/"+cloud_id)
+          elsif flags['display_name']
+            parent = if flags['parent_id']
+              flags['parent_id']
+            else
+              my_org = MU::Cloud::Google.getOrg(credentials)
+              my_org.name
+            end
+
+            if parent
+              resp = self.find_matching_folder(parent, name: flags['display_name'], credentials: credentials)
+              if resp
+                found[resp.name.sub(/^folders\//, "")] = resp
+              end
+            end
           end
           
           found
@@ -127,6 +219,13 @@ pp folder_obj
         def self.validateConfig(folder, configurator)
           ok = true
 
+          if folder['parent'] and folder['parent']['name'] and !folder['parent']['deploy_id'] and configurator.haveLitterMate?(folder['parent']['name'], "folders")
+            folder["dependencies"] ||= []
+            folder["dependencies"] << {
+              "type" => "folder",
+              "name" => folder['parent']['name']
+            }
+          end
 
           ok
         end

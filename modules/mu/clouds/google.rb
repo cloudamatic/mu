@@ -616,7 +616,7 @@ module MU
         require 'google/apis/cloudresourcemanager_v2'
 
         if subclass.nil?
-          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], credentials: credentials)
+          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials)
           return @@resource2_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2").const_get(subclass)
@@ -688,6 +688,18 @@ module MU
         end
       end
 
+
+      # Retrieve the organization, if any, to which these credentials belong.
+      # @param credentials [String]
+      # @return [Array<OpenStruct>],nil]
+      def self.getOrg(credentials = nil)
+        resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
+        if resp and resp.organizations
+          # XXX no idea if it's possible to be a member of multiple orgs
+          return resp.organizations.first
+        end
+        nil
+      end
 
       private
 
