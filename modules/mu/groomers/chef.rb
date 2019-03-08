@@ -613,7 +613,7 @@ module MU
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
           ::Chef::Node.load(@server.mu_name)
-        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail => e
+        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail, Net::SSH::Exception, Net::SSH::ConnectionTimeout => e
           if retries < max_retries
             retries += 1
             # Bad Chef installs are possible culprits of bootstrap failures, so
