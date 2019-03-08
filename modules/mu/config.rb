@@ -156,6 +156,8 @@ module MU
           end
           res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
           required, res_schema = res_class.schema(self)
+          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] ||= ""
+          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+res_class.quality
           res_schema.each { |key, cfg|
             if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               only_children[attrs[:cfg_plural]] ||= {}

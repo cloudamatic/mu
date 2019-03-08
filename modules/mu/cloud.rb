@@ -126,6 +126,18 @@ module MU
     class NoSQLDB;
     end
 
+    # Denotes a resource implementation which is missing significant
+    # functionality or is largely untested.
+    ALPHA = "This implementation is **ALPHA** quality. It is experimental, may be missing significant functionality, and has not been widely tested."
+
+    # Denotes a resource implementation which supports most or all key API
+    # functionality and has seen at least some non-trivial testing.
+    BETA = "This implementation is **BETA** quality. It is substantially complete, but may be missing some functionality or have some features which are untested."
+
+    # Denotes a resource implementation which supports all key API functionality
+    # and has been substantially tested on real-world applications.
+    RELEASE = "This implementation is considered **RELEASE** quality. It covers all major API features and has been tested with real-world applications."
+
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
     # considered valid.
@@ -1026,6 +1038,12 @@ module MU
           end
 
           return [@dependencies, @vpc, @loadbalancers]
+        end
+
+        # Defaults any resources that don't declare their release-readiness to
+        # ALPHA. That'll learn 'em.
+        def self.quality
+          MU::Cloud::ALPHA
         end
 
         def self.find(*flags)

@@ -111,6 +111,12 @@ module MU
           false
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::ALPHA
+        end
+
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
         # @param noop [Boolean]: If true, will only print what would be done

@@ -1129,6 +1129,12 @@ module MU
           false
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
+        end
+
         # Remove all VPC resources associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server

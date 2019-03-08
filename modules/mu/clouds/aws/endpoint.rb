@@ -448,6 +448,12 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           false
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::BETA
+        end
+
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn

@@ -150,6 +150,12 @@ module MU
           end
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
+        end
+
         # Locate an existing alarm.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.

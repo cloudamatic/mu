@@ -144,6 +144,12 @@ module MU
           true
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::BETA
+        end
+
         # Remove all Google projects associated with the currently loaded deployment. Try to, anyway.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -181,7 +187,6 @@ module MU
 
         # Locate an existing project
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
         def self.find(cloud_id: nil, credentials: nil, flags: {})
