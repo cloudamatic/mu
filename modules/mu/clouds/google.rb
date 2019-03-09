@@ -212,7 +212,7 @@ module MU
 
           [name, "log_vol_ebs_key"].each { |obj|
             MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{adminBucketName(credentials)}"
-            pp aclobj
+
             MU::Cloud::Google.storage(credentials: credentials).insert_object_access_control(
               adminBucketName(credentials),
               obj,
@@ -780,7 +780,7 @@ module MU
                     end
 # TODO validate that the resource actually went away, because it seems not to do so very reliably
                   rescue ::Google::Apis::ClientError => e
-                    raise e if !e.message.match(/^notFound: /)
+                    raise e if !e.message.match(/(^notFound: |operation in progress)/)
                   end while failed and retries < 6
                 end
               }
@@ -816,7 +816,7 @@ module MU
               else
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym}"
               end
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
@@ -853,7 +853,8 @@ module MU
                 end
               elsif retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or
-                 (e.message.match(/^resourceInUseByAnotherResource:/) and method_sym.to_s.match(/^delete_/))
+                 (e.message.match(/^resourceInUseByAnotherResource:/) and method_sym.to_s.match(/^delete_/)) or
+                 e.message.match(/SSL_connect/)
                 if retries > 0 and retries % 3 == 0
                   MU.log "Will retry #{method_sym} after #{e.message} (retry #{retries})", MU::NOTICE, details: arguments
                 else

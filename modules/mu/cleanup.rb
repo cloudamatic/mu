@@ -167,6 +167,8 @@ module MU
                             found.each { |k|
                               flags['known'] << k.cloud_id
                             }
+                          elsif found and found.is_a?(Hash)
+                            flags['known'] << found['cloud_id']
                           elsif found
                             flags['known'] << found.cloud_id                            
                           end

@@ -169,21 +169,6 @@ end
             @config['peers'].each { |peer|
               if peer['vpc']['vpc_name']
                 peer_obj = @deploy.findLitterMate(name: peer['vpc']['vpc_name'], type: "vpcs")
-                if peer_obj
-                  if peer_obj.config['peers']
-                    skipme = false
-                    peer_obj.config['peers'].each { |peerpeer|
-                      if peerpeer['vpc']['vpc_name'] == @config['name'] and
-                         (peer['vpc']['vpc_name'] <=> @config['name']) == -1
-                        skipme = true
-                        MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
-# XXX and if deploy_id matches or is unset
-                      end
-                    }
-                    next if skipme
-                  end
-                end
-
               else
                 tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
                 if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
@@ -219,13 +204,20 @@ end
                 peer_network: url
               )
 
-              MU.log "Peering #{@url} with #{url}, connection name is #{cnxn_name}", details: peerreq
-
-              MU::Cloud::Google.compute(credentials: @config['credentials']).add_network_peering(
-                @config['project'],
-                @cloud_id,
-                peerreq
-              )
+              begin
+                MU.log "Peering #{@cloud_id} with #{peer_obj.cloudobj.cloud_id}, connection name is #{cnxn_name}", details: peerreq
+                MU::Cloud::Google.compute(credentials: @config['credentials']).add_network_peering(
+                  @config['project'],
+                  @cloud_id,
+                  peerreq
+                )
+              rescue ::Google::Apis::ClientError => e
+                if e.message.match(/operation in progress on the local or peer network/)
+                  MU.log e.message, MU::DEBUG, details: peerreq
+                  sleep 10
+                  retry
+                end
+              end
               count += 1
             }
           end
@@ -623,7 +615,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 "ip_block" => blocks.shift,
                 "route_tables" => [tbl],
                 "parent_block" => vpc['ip_block'],
-                "subnets" => []
+                "subnets" => [],
+                "peers" => vpc['peers']
               }
               MU.log "Splitting VPC #{newvpc['name']} off from #{vpc['name']}", MU::NOTICE
 
@@ -632,11 +625,16 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 newvpc[key] = val
               }
               newvpc['peers'] ||= []
+# Add the peer connections we're generating, in addition 
               peernames.each { |peer|
-                if peer != vpc['name']+"-"+tbl['name']
+                if peer != newvpc['name']
                   newvpc['peers'] << { "vpc" => { "vpc_name" => peer } }
                 end
               }
+              newvpc['peers'].reject! { |p|
+                p.values.first['vpc_name'] == newvpc['name'] or p.values.first['vpc_name'] == vpc['name']
+              }
+
               vpc["subnets"].each { |subnet|
                 newvpc["subnets"] << subnet if subnet["route_table"] == tbl["name"]
               }
