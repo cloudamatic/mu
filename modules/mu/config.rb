@@ -890,6 +890,16 @@ module MU
         end
       end
 
+      if descriptor['project']
+        if haveLitterMate?(descriptor['project'], "habitats")
+          descriptor['dependencies'] ||= []
+          descriptor['dependencies'] << {
+            "type" => "habitat",
+            "name" => descriptor['project']
+          }
+        end
+      end
+
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']

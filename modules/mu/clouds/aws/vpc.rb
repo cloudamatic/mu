@@ -1446,9 +1446,27 @@ module MU
           ok
         end
 
+        # Remove all network interfaces associated with the currently loaded deployment.
+        # @param noop [Boolean]: If true, will only print what would be done
+        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param region [String]: The cloud provider region
+        # @return [void]
+        def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
+          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
+              filters: tagfilters
+          )
+          ifaces = resp.data.network_interfaces
+
+          return if ifaces.nil? or ifaces.size == 0
+
+          ifaces.each { |iface|
+            MU.log "Deleting Network Interface #{iface.network_interface_id}"
+            MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_network_interface(network_interface_id: iface.network_interface_id)
+          }
+        end
+
 
         private
-
 
         # List the route tables for each subnet in the given VPC
         def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion, credentials: nil)

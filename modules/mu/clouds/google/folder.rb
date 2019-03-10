@@ -189,7 +189,7 @@ module MU
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
           found = {}
 
           # Recursively search a GCP folder hierarchy for a folder matching our
@@ -212,8 +212,7 @@ module MU
           end
 
           if cloud_id
-            cloud_id.sub!(/^folders\//, "")
-            found[cloud_id] = MU::Cloud::Google.folder(credentials: credentials).get_folder("folders/"+cloud_id)
+            found[cloud_id.sub(/^folders\//, "")] = MU::Cloud::Google.folder(credentials: credentials).get_folder("folders/"+cloud_id.sub(/^folders\//, ""))
           elsif flags['display_name']
             parent = if flags['parent_id']
               flags['parent_id']

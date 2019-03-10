@@ -19,6 +19,7 @@ module MU
       class ServerPool < MU::Cloud::ServerPool
 
         @deploy = nil
+        @project_id = nil
         @config = nil
         attr_reader :mu_name
         attr_reader :cloud_id
@@ -32,6 +33,11 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
           else
@@ -41,6 +47,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
           port_objs = []
 
           @config['named_ports'].each { |port_cfg|
@@ -95,7 +102,7 @@ module MU
 
           MU.log "Creating instance template #{@mu_name}", details: template_obj
           template = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance_template(
-            @config['project'],
+            @project_id,
             template_obj
           )
 
@@ -117,7 +124,7 @@ module MU
 
           MU.log "Creating region instance group manager #{@mu_name}", details: mgr_obj
           mgr = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_instance_group_manager(
-            @config['project'],
+            @project_id,
             @config['region'],
             mgr_obj
           )
@@ -143,7 +150,7 @@ module MU
 
           MU.log "Creating autoscaler policy #{@mu_name}", details: scaler_obj
           MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_autoscaler(
-            @config['project'],
+            @project_id,
             @config['region'],
             scaler_obj
           )

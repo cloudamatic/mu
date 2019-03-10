@@ -18,6 +18,7 @@ module MU
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
         @deploy = nil
+        @project_id = nil
         @config = nil
         attr_reader :mu_name
         attr_reader :cloud_id
@@ -36,6 +37,11 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           else
             @mu_name ||=
               if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
@@ -51,6 +57,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
         def create
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
           labels = {}
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             if !value.nil?
@@ -74,7 +81,7 @@ module MU
             instance_type: "CLOUD_SQL_INSTANCE" # TODO: READ_REPLICA_INSTANCE
           )
           pp instance_desc
-          pp MU::Cloud::Google.sql(credentials: @config['credentials']).insert_instance(@config['project'], instance_desc)
+          pp MU::Cloud::Google.sql(credentials: @config['credentials']).insert_instance(@project_id, instance_desc)
         end
 
         # Locate an existing Database or Databases and return an array containing matching GCP resource descriptors for those that match.
@@ -90,6 +97,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
         end
 
         # Register a description of this database instance with this deployment's metadata.

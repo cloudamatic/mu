@@ -79,10 +79,9 @@ module MU
 
           project_obj = MU::Cloud::Google.resource_manager(:Project).new(params)
 
-          MU.log "Creating project #{@mu_name} under #{parent}", details: project_obj
-          pp params[:parent]
-          pp project_obj
+          MU.log "Creating project #{name_string} under #{parent}", details: project_obj
           MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+
 
           found = false
           retries = 0
@@ -104,7 +103,35 @@ module MU
             end
           end while !found
 
+
           @cloud_id = name_string.downcase
+          setProjectBilling
+        end
+
+        def groom
+          setProjectBilling
+        end
+
+        def setProjectBilling
+          cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
+
+          if !cur_billing or
+             cur_billing.billing_account_name != "billingAccounts/"+@config['billing_acct'] or
+             !cur_billing.billing_enabled
+
+            billing_obj = MU::Cloud::Google.billing(:ProjectBillingInfo).new(
+              billing_account_name: "billingAccounts/"+@config['billing_acct'],
+              billing_enabled: true,
+              name: "projects/"+@cloud_id+"/billingInfo",
+              project_id: @cloud_id
+            )
+            MU.log "Associating project #{@cloud_id} with billing account #{@config['billing_acct']}"
+            MU::Cloud::Google.billing(credentials: credentials).update_project_billing_info(
+              "projects/"+@cloud_id,
+              billing_obj
+            )
+
+          end
         end
 
         # Return the cloud descriptor for the Habitat
@@ -156,13 +183,13 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
           found = {}
           if cloud_id
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
               filter: "name:#{cloud_id}"
-            ).projects.first
-            found[resp.name] = resp
+            )
+            found[resp.name] = resp.projects.first if resp and resp.projects
           else
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects().projects
             resp.each { |p|
@@ -179,6 +206,10 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "billing_acct" => {
+              "type" => "string",
+              "description" => "Billing account ID to associate with a newly-created Google Project. If not specified, will attempt to locate a billing account associated with the default project for our credentials."
+            }
           }
           [toplevel_required, schema]
         end
@@ -193,6 +224,15 @@ module MU
           if !MU::Cloud::Google.getOrg(habitat['credentials'])
             MU.log "Cannot manage Google Cloud projects in environments without an organization. See also: https://cloud.google.com/resource-manager/docs/creating-managing-organization", MU::ERR
             ok = false
+          end
+
+          if !habitat['billing_acct']
+            default_billing = MU::Cloud::Google.billing(credentials: habitat['credentials']).get_project_billing_info("projects/"+MU::Cloud::Google.defaultProject(habitat['credentials']))
+            if !default_billing or !default_billing.billing_account_name
+              MU.log "Google project #{habitat['name']} does not specify 'billing_acct' and I'm unable to locate a default", MU::ERR
+              ok = false
+            end
+            habitat['billing_acct'] = default_billing.billing_account_name.sub(/^billingAccounts\//, "")
           end
 
           if habitat['parent'] and habitat['parent']['name'] and !habitat['parent']['deploy_id'] and configurator.haveLitterMate?(habitat['parent']['name'], "folders")

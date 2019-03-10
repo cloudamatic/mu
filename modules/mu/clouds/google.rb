@@ -72,6 +72,36 @@ module MU
         $MU_CFG['google'].keys
       end
 
+      # A shortcut for {MU::MommaCat.findStray} to resolve a shorthand project
+      # name into a cloud object, whether it refers to a sibling by internal
+      # name or by cloud identifier.
+      # @param name [String]
+      # @param deploy [String]
+      # @param raise_on_fail [Boolean]
+      # @param sibling_only [Boolean]
+      # @return [MU::Cloud::Habitat,nil]
+      def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
+        project_obj = deploy.findLitterMate(type: "habitats", name: name)
+
+        if !project_obj and !sibling_only
+          resp = MU::MommaCat.findStray(
+            "Google",
+            "habitats",
+            deploy_id: deploy.deploy_id,
+            cloud_id: name,
+            name: name,
+            dummy_ok: true
+          )
+          project_obj = resp.first if resp
+        end
+
+        if (!project_obj or !project_obj.cloud_id) and raise_on_fail
+          raise MuError, "Failed to find project '#{name}' in deploy #{deploy.deploy_id}"
+        end
+
+        project_obj
+      end
+
       # Resolve the administrative Cloud Storage bucket for a given credential
       # set, or return a default.
       # @param credentials [String]
@@ -688,6 +718,19 @@ module MU
         end
       end
 
+      # Google's Cloud Billing Service API
+      # @param subclass [<Google::Apis::LoggingV2>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
+      def self.billing(subclass = nil, credentials: nil)
+        require 'google/apis/cloudbilling_v1'
+
+        if subclass.nil?
+          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          return @@billing_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("CloudbillingV1").const_get(subclass)
+        end
+      end
+
 
       # Retrieve the organization, if any, to which these credentials belong.
       # @param credentials [String]
@@ -824,7 +867,9 @@ module MU
                 MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
               @@enable_semaphores ||= {}
-              if retries <= 1 and e.message.match(/^accessNotConfigured/)
+              max_retries = 3
+              wait_time = 90
+              if retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
                 project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
                 @@enable_semaphores[project] ||= Mutex.new
@@ -832,18 +877,20 @@ module MU
                   consumer_id: "project:"+project
                 )
                 # XXX dumbass way to get this string
-                e.message.match(/Enable it by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
+                e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
+
                 svc_name = Regexp.last_match[1]
                 save_verbosity = MU.verbosity
                 if svc_name != "servicemanagement.googleapis.com"
-                  @@enable_semaphores.synchronize {
+                  retries += 1
+                  @@enable_semaphores[project].synchronize {
                     MU.setLogging(MU::Logger::NORMAL)
-                    MU.log "Attempting to enable #{svc_name} in project #{project}, then waiting for 30s", MU::WARN
+                    MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{wait_time.to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
                     MU.setLogging(save_verbosity)
                     MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
                   }
-                  sleep 30
-                  retries += 1
+                  sleep wait_time
+                  wait_time = wait_time/3
                   retry
                 else
                   MU.setLogging(MU::Logger::NORMAL)
@@ -991,6 +1038,7 @@ module MU
       @@service_api = {}
       @@firestore_api = {}
       @@admin_directory_api = {}
+      @@billing_api = {}
     end
   end
 end

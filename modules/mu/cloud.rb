@@ -142,6 +142,28 @@ module MU
     # methods a class implementing this resource type must support to be
     # considered valid.
     @@resource_types = {
+      :Folder => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "folder",
+        :cfg_plural => "folders",
+        :interface => self.const_get("Folder"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Habitat => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "habitat",
+        :cfg_plural => "habitats",
+        :interface => self.const_get("Habitat"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
       :Collection => {
         :has_multiples => false,
         :can_live_in_vpc => false,
@@ -339,28 +361,6 @@ module MU
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
-      },
-      :Habitat => {
-        :has_multiples => false,
-        :can_live_in_vpc => false,
-        :cfg_name => "habitat",
-        :cfg_plural => "habitats",
-        :interface => self.const_get("Habitat"),
-        :deps_wait_on_my_creation => true,
-        :waits_on_parent_completion => true,
-        :class => generic_class_methods,
-        :instance => generic_instance_methods
-      },
-      :Folder => {
-        :has_multiples => false,
-        :can_live_in_vpc => false,
-        :cfg_name => "folder",
-        :cfg_plural => "folders",
-        :interface => self.const_get("Folder"),
-        :deps_wait_on_my_creation => true,
-        :waits_on_parent_completion => true,
-        :class => generic_class_methods,
-        :instance => generic_instance_methods
       },
       :User => {
         :has_multiples => false,

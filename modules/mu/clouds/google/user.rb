@@ -148,7 +148,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           found = nil
           resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(

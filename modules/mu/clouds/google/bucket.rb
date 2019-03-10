@@ -19,6 +19,7 @@ module MU
       class Bucket < MU::Cloud::Bucket
         @deploy = nil
         @config = nil
+        @project_id = nil
 
         attr_reader :mu_name
         attr_reader :config
@@ -30,17 +31,28 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+          if mu_name
+            @mu_name = mu_name
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
+          end
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@config['project'], bucket_descriptor)
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@project_id, bucket_descriptor)
           @cloud_id = @mu_name.downcase
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+
           current = cloud_desc
           changed = false
 
@@ -148,7 +160,9 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          MU.structToHash(cloud_desc)
+          desc = MU.structToHash(cloud_desc)
+          desc["project_id"] = @project_id
+          desc
         end
 
         # Locate an existing bucket.
@@ -156,7 +170,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
           found = {}
           if cloud_id
             found[cloud_id] = MU::Cloud::Google.storage(credentials: credentials).get_bucket(cloud_id)
