@@ -23,7 +23,7 @@ module MU
 
     # List of known/supported grooming agents (configuration management tools)
     def self.supportedGroomers
-      ["Chef"]
+      ["Chef", "Ansible"]
     end
 
     # Instance methods that any Groomer plugin must implement
@@ -36,9 +36,12 @@ module MU
       [:getSecret, :cleanup, :saveSecret, :deleteSecret]
     end
 
+    class Ansible;
+    end
 
     class Chef;
     end
+
     # @param groomer [String]: The grooming agent to load.
     # @return [Class]: The class object implementing this groomer agent
     def self.loadGroomer(groomer)
