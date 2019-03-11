@@ -108,10 +108,14 @@ module MU
           setProjectBilling
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           setProjectBilling
         end
 
+        # Associate a billing account with this project. If none is specified in
+        # our configuration, use the billing account tied the the default
+        # project of our credential set.
         def setProjectBilling
           cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
 
