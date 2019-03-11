@@ -132,9 +132,9 @@ module MU
               "description" => "Bootstrap asynchronously via the Momma Cat daemon instead of during the main deployment process"
           },
           "groomer" => {
-              "type" => "string",
-              "default" => MU::Config.defaultGroomer,
-              "enum" => MU.supportedGroomers
+            "type" => "string",
+            "default" => MU::Config.defaultGroomer,
+            "enum" => MU.supportedGroomers
           },
           "groom" => {
               "type" => "boolean",
