@@ -163,22 +163,38 @@ module MU
             flags['known'].each { |cloud_id|
               found = self.find(cloud_id: cloud_id, credentials: credentials)
               if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
-                MU.log "Deleting folder #{found.values.first.display_name}"
+                MU.log "Deleting folder #{found.values.first.display_name} (#{found.keys.first})"
                 if !noop
-                  retries = 10
+                  max_retries = 10
+                  retries = 0
+                  success = false
                   begin
                     MU::Cloud::Google.folder(credentials: credentials).delete_folder(
                       "folders/"+found.keys.first   
                     )
-                  rescue Google::Apis::ClientError => e
-                    if e.message.match(/failedPrecondition/) and retries < 10
-                      sleep 5
+                    found = self.find(cloud_id: cloud_id, credentials: credentials)
+                    if found and found.size > 0 and found.values.first.lifecycle_state != "DELETE_REQUESTED"
+                      if retries < max_retries
+                        sleep 30
+                        retries += 1
+                        puts retries
+                      else
+                        MU.log "Folder #{cloud_id} still exists after #{max_retries.to_s} attempts to delete", MU::ERR
+                        break
+                      end
+                    else
+                      success = true
+                    end
+
+                  rescue ::Google::Apis::ClientError => e
+                    if e.message.match(/failedPrecondition/) and retries < max_retries
+                      sleep 30
                       retries += 1
                       retry
                     else
                       raise e
                     end
-                  end
+                  end while !success
                 end
               end
             }

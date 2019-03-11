@@ -171,7 +171,15 @@ module MU
                  p.lifecycle_state == "ACTIVE"
                 MU.log "Deleting project #{p.name}", details: p
                 if !noop
-                  MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.name)
+                  begin
+                    MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.name)
+                  rescue ::Google::Apis::ClientError => e
+                    if e.message.match(/Cannot delete an inactive project/)
+                      # this is fine
+                    else
+                      raise e
+                    end
+                  end
                 end
               end
             }

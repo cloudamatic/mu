@@ -885,12 +885,11 @@ module MU
                   retries += 1
                   @@enable_semaphores[project].synchronize {
                     MU.setLogging(MU::Logger::NORMAL)
-                    MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{wait_time.to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                    MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
                     MU.setLogging(save_verbosity)
                     MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
                   }
-                  sleep wait_time
-                  wait_time = wait_time/3
+                  sleep wait_time/retries
                   retry
                 else
                   MU.setLogging(MU::Logger::NORMAL)
