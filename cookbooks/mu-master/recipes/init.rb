@@ -308,7 +308,7 @@ rpms.each_pair { |pkg, src|
     end
   end
 }
-package "jq" do
+package ["jq", "ansible"] do
   ignore_failure true # sometimes we can't see EPEL immediately
 end
 package removepackages do
