@@ -20,12 +20,16 @@ BuildRequires: zlib-devel
 BuildRequires: tcl-devel
 BuildRequires: gdbm-devel
 BuildRequires: openssl-devel
+BuildRequires: sqlite-devel
+BuildRequires: tk-devel
 Requires: zlib
 Requires: gdbm
 Requires: tcl
 Requires: openssl
 Requires: glibc
 Requires: ncurses-libs
+Requires: sqlite
+Requires: tk
 
 %description
 I was sober when I wrote this spec file
@@ -42,14 +46,13 @@ ln -s %{prefix}/Python-%{version} $RPM_BUILD_ROOT%{prefix}/Python-%{version}
     
 %build
 cd $RPM_BUILD_DIR/Python-%{version}
-./configure --prefix=%{prefix}/Python-%{version} --enable-shared
-make
+mkdir -p %{prefix}/Python-%{version}
+env -i PATH="/bin:/usr/bin" ./configure --prefix=%{prefix}/Python-%{version} --exec-prefix=%{prefix}/Python-%{version} --enable-shared LDFLAGS=-Wl,-rpath=%{prefix}/Python-%{version}/lib
+env -i PATH="/bin:/usr/bin" make
 
 %install
 cd $RPM_BUILD_DIR/Python-%{version}
-PATH="/usr/local/python-current/bin:${PATH}"
-make install
-mkdir -p %{prefix}
+env -i PATH="/bin:/usr/bin" make install
 %{prefix}/Python-%{version}/bin/python $RPM_SOURCE_DIR/get-pip.py --prefix %{prefix}/Python-%{version}/
 mkdir -p $RPM_BUILD_ROOT%{prefix}
 mv %{prefix}/Python-%{version} $RPM_BUILD_ROOT%{prefix}/
