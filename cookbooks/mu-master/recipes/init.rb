@@ -188,7 +188,7 @@ if platform_family?("rhel")
   elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel", "cryptsetup"])
     rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
-    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
+    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el7.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
