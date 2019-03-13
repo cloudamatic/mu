@@ -180,6 +180,7 @@ if platform_family?("rhel")
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
     rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
+    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el6.x86_64.rpm"
     
     removepackages = ["nagios"]
 
@@ -187,6 +188,7 @@ if platform_family?("rhel")
   elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel", "cryptsetup"])
     rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
+#    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
@@ -370,6 +372,12 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
+bash "install modules for our built-in Python" do
+  code <<-EOH
+    /usr/local/python-current/bin/pip install -r #{MU_BASE}/lib/requirements.txt
+  EOH
+end
+
 ["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
   gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").last
@@ -529,11 +537,10 @@ end
 
 file "#{MU_BASE}/etc/mu.rc" do
   content %Q{export MU_INSTALLDIR="#{MU_BASE}"
-  export MU_DATADIR="#{MU_BASE}/var"
-  export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+export MU_DATADIR="#{MU_BASE}/var"
+export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:/usr/local/python-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
-  action :create_if_missing
 end
 
 # Community cookbooks keep touching gems, and none of them are smart about our
