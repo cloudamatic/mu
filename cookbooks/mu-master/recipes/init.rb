@@ -133,7 +133,9 @@ execute "reconfigure Chef server" do
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
@@ -144,7 +146,9 @@ execute "upgrade Chef server" do
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 service "chef-server" do
@@ -156,7 +160,9 @@ service "chef-server" do
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
 #  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :stop, "service[iptables]", :before
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 
@@ -449,7 +455,9 @@ execute "initial Chef artifact upload" do
   action :nothing
   notifies :stop, "service[iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do
