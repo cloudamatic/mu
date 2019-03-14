@@ -65,8 +65,8 @@ else
     notifies :restart, "service[sshd]", :immediately
   end
   SSH_USER="root"
-  execute "/sbin/service sshd start" do # restart sometimes faceplants on RHEL7
-    ignore_failure true
+  execute "/sbin/service sshd start" do # ~FC004
+    ignore_failure true # the service restart often fails to leave sshd alive
   end
 end
 RUNNING_STANDALONE=node['application_attributes'].nil?
