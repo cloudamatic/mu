@@ -17,7 +17,7 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '2.0.0-beta3'
+  s.version     = '2.0.0'
   s.date        = '2019-03-01'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
