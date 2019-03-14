@@ -65,6 +65,9 @@ else
     notifies :restart, "service[sshd]", :immediately
   end
   SSH_USER="root"
+  execute "/sbin/service sshd start" do # restart sometimes faceplants on RHEL7
+    ignore_failure true
+  end
 end
 RUNNING_STANDALONE=node['application_attributes'].nil?
 
@@ -299,16 +302,19 @@ rpms.each_pair { |pkg, src|
     if pkg == "ruby25" 
       options '--prefix=/opt/rubies/'
     end
-    if pkg == "chef-server-core" and File.size?("/etc/opscode/chef-server.rb")
-      # On a normal install this will execute when we set up chef-server.rb,
-      # but on a reinstall or an install on an image where that file already
-      # exists, we need to invoke this some other way.
-      notifies :run, "execute[reconfigure Chef server]", :immediately
-      only_if { RUNNING_STANDALONE }
+    if pkg == "chef-server-core"
+      notifies :stop, "service[iptables]", :before
+      if File.size?("/etc/opscode/chef-server.rb")
+        # On a normal install this will execute when we set up chef-server.rb,
+        # but on a reinstall or an install on an image where that file already
+        # exists, we need to invoke this some other way.
+        notifies :run, "execute[reconfigure Chef server]", :immediately
+        only_if { RUNNING_STANDALONE }
+      end
     end
   end
 }
-package "jq" do
+package ["jq"] do
   ignore_failure true # sometimes we can't see EPEL immediately
 end
 package removepackages do
@@ -529,11 +535,10 @@ end
 
 file "#{MU_BASE}/etc/mu.rc" do
   content %Q{export MU_INSTALLDIR="#{MU_BASE}"
-  export MU_DATADIR="#{MU_BASE}/var"
-  export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+export MU_DATADIR="#{MU_BASE}/var"
+export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
-  action :create_if_missing
 end
 
 # Community cookbooks keep touching gems, and none of them are smart about our
