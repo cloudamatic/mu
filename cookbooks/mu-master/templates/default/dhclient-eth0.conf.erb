@@ -3,7 +3,7 @@ interface "eth0" {
 <% if @search_domains.size > 0 %>
   supersede domain-search <%= @search_domains.map{|dom| dom = '"'+dom+'"' }.join(", ") %>;
 <% end %>
-<% if node[:ad][:dc_ips].size > 0 %>
-  prepend domain-name-servers <%= node[:ad][:dc_ips].join(", ") %>;
+<% if node['ad']['dc_ips'].size > 0 %>
+  prepend domain-name-servers <%= node['ad']['dc_ips'].join(", ") %>;
 <% end rescue NoMethodError %>
 }

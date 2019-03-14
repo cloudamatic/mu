@@ -37,7 +37,7 @@
 #
 # Maintained by: robert.patt-corner@eglobaltech.com
 #
-case node[:platform]
+case node['platform']
 
   when "centos"
     # Install sqlplus and the oracle development sdk, then set the oracle environment up
@@ -76,6 +76,6 @@ case node[:platform]
     end
 
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 
 end

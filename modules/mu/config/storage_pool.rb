@@ -31,11 +31,7 @@ module MU
             "name" => {"type" => "string"},
             "region" => MU::Config.region_primitive,
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-              "type" => "boolean",
-              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-              "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "dependencies" => MU::Config.dependencies_primitive,
             "storage_type" => {
               "type" => "string",
@@ -100,6 +96,7 @@ module MU
                                         "storagepool '#{pool['name']}'",
                                         configurator,
                                         dflt_region: pool['region'],
+                                        credentials: pool['credentials'],
                                         is_sibling: true,
                                         sibling_vpcs: [siblingvpc])
                   ok = false
@@ -109,7 +106,8 @@ module MU
                                         "storage_pools",
                                         "storagepool #{pool['name']}",
                                         configurator,
-                                        dflt_region: pool['region'])
+                                        dflt_region: pool['region'],
+                                        credentials: pool['credentials'])
                   ok = false
                 end
               end

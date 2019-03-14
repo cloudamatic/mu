@@ -26,14 +26,21 @@ require 'etc'
 require 'open-uri'
 require 'socket'
 
+# If we're invoked with a stripped-down environment, many of our guards and
+# execs will fail. Append the stuff that's typically missing. Note that even
+# if we hardcode all of our own paths to commands things still break, due to
+# things that spawn commands of their own with the environment they inherit
+# from us.
+ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
+
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.17.15-1"
-CHEF_CLIENT_VERSION="12.21.31-1"
+CHEF_CLIENT_VERSION="14.11.21"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
-MU_BRANCH="eeks_the_cat" # GIT HOOK EDITABLE DO NOT TOUCH
-realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
+realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD` # ~FC048
 
 if ENV.key?('MU_BRANCH')
   MU_BRANCH = ENV['MU_BRANCH']
@@ -58,17 +65,13 @@ else
     notifies :restart, "service[sshd]", :immediately
   end
   SSH_USER="root"
+  execute "/sbin/service sshd start" do # ~FC004
+    ignore_failure true # the service restart often fails to leave sshd alive
+  end
 end
-RUNNING_STANDALONE=node[:application_attributes].nil?
+RUNNING_STANDALONE=node['application_attributes'].nil?
 
-execute "stop iptables" do
-  command "/sbin/service iptables stop"
-  ignore_failure true
-  action :nothing
-  only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
-end
-execute "start iptables" do
-  command "/sbin/service iptables start"
+service "iptables" do
   ignore_failure true
   action :nothing
   only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
@@ -87,16 +90,16 @@ end
 #  owner "opscode-pgsql"
 #  group "opscode-pgsql"
 #  action :nothing
-#  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
-#  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+#  only_if { !::File.exist?("/tmp/.s.PGSQL.5432") }
+#  only_if { ::File.exist?("/var/run/postgresql/.s.PGSQL.5432") }
 #end
 link "/var/run/postgresql/.s.PGSQL.5432" do
   to "/tmp/.s.PGSQL.5432"
 #  owner "opscode-pgsql"
 #  group "opscode-pgsql"
   notifies :create, "directory[/var/run/postgresql]", :before
-  only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
-#  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
+  only_if { !::File.exist?("/var/run/postgresql/.s.PGSQL.5432") }
+#  only_if { ::File.exist?("/tmp/.s.PGSQL.5432") }
 end
 execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute
@@ -120,28 +123,32 @@ file "use a clean /etc/hosts during install" do
 "
   notifies :create, "remote_file[back up /etc/hosts]", :before
   only_if { RUNNING_STANDALONE }
-  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+  not_if { ::Dir.exist?("#{MU_BASE}/lib/.git") }
 end
 
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
-  notifies :run, "execute[start iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
   command "/opt/opscode/bin/chef-server-ctl upgrade"
   action :nothing
   timeout 1200 # this can take a while
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 service "chef-server" do
@@ -152,8 +159,10 @@ service "chef-server" do
   action :nothing
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
 #  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :run, "execute[stop iptables]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :stop, "service[iptables]", :before
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 
@@ -162,7 +171,7 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node[:platform_version].to_i > 2000 ? 6 : node[:platform_version].to_i
+elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
 if platform_family?("rhel")
   basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
@@ -174,22 +183,23 @@ if platform_family?("rhel")
 
 
   if elversion < 6 or elversion >= 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion.to_s})"
+    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
 
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
-    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el6.x86_64.rpm"
+    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
+    
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif elversion < 8
-    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
-    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel", "cryptsetup"])
+    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
-  if node[:platform_version].to_i > 2000
+  if node['platform_version'].to_i > 2000
     basepackages.concat(["compat-libffi5"])
     rpms.delete("epel-release")
   end
@@ -218,7 +228,7 @@ git "#{MU_BASE}/lib" do
   revision MU_BRANCH
   checkout_branch MU_BRANCH
   enable_checkout false
-  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+  not_if { ::Dir.exist?("#{MU_BASE}/lib/.git") }
   notifies :run, "bash[set git default branch to #{MU_BRANCH}]", :immediately
 end
 
@@ -233,17 +243,11 @@ file  "#{MU_BASE}/lib/.git/hooks/pre-commit" do
   action :delete
 end
 
-directory MU_BASE+"/var" do
-  recursive true
-  mode 0755
-end
-directory MU_BASE+"/install" do
-  recursive true
-  mode 0755
-end
-directory MU_BASE+"/deprecated-bash-library.sh" do
-  recursive true
-  mode 0755
+[MU_BASE+"/var", MU_BASE+"/var/ssl"].each do |dir|
+  directory dir do
+    recursive true
+    mode 0755
+  end
 end
 
 # Stub files so standalone Ruby programs like mu-configure can know what
@@ -276,27 +280,54 @@ rpm_package "Chef Server upgrade package" do
   notifies :restart, "service[chef-server]", :immediately
   only_if { RUNNING_STANDALONE }
 end
+
+# REMOVE OLD RUBYs
+execute "clean up old Ruby 2.1.6" do
+  command "rm -rf /opt/rubies/ruby-2.1.6"
+  only_if { ::Dir.exist?("/opt/rubies/ruby-2.1.6") }
+end
+
+yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
+  action :purge
+end
+
+execute "Kill ruby-2.3.1" do
+  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y"
+  only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
+end
+
+execute "clean up old ruby-2.3.1" do
+  command "rm -rf /opt/rubies/ruby-2.3.1"
+  only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
+end
+
 # Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
-    if pkg == "chef-server-core" and File.size?("/etc/opscode/chef-server.rb")
-      # On a normal install this will execute when we set up chef-server.rb,
-      # but on a reinstall or an install on an image where that file already
-      # exists, we need to invoke this some other way.
-      notifies :run, "execute[reconfigure Chef server]", :immediately
-      only_if { RUNNING_STANDALONE }
+    if pkg == "ruby25" 
+      options '--prefix=/opt/rubies/'
+    end
+    if pkg == "chef-server-core"
+      notifies :stop, "service[iptables]", :before
+      if File.size?("/etc/opscode/chef-server.rb")
+        # On a normal install this will execute when we set up chef-server.rb,
+        # but on a reinstall or an install on an image where that file already
+        # exists, we need to invoke this some other way.
+        notifies :run, "execute[reconfigure Chef server]", :immediately
+        only_if { RUNNING_STANDALONE }
+      end
     end
   end
 }
-package "jq"
+package ["jq"] do
+  ignore_failure true # sometimes we can't see EPEL immediately
+end
 package removepackages do
   action :remove
 end
-execute "clean up old Ruby 2.1.6" do
-  command "rm -rf /opt/rubies/ruby-2.1.6"
-  only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
-end
+
+
 
 file "initial chef-server.rb" do
   path "/etc/opscode/chef-server.rb"
@@ -326,6 +357,7 @@ file "#{MU_BASE}/var/users/mu/email" do
     content "#{$MU_CFG['mu_admin_email']}\n"
   else
     content "root@example.com\n"
+    action :create_if_missing
   end
 end
 file "#{MU_BASE}/var/users/mu/realname" do
@@ -333,6 +365,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
     content "#{$MU_CFG['mu_admin_name']}\n"
   else
     content "Mu Administrator\n"
+    action :create_if_missing
   end
 end
 
@@ -385,8 +418,8 @@ end
         package_name "knife-windows"
         version Regexp.last_match[1]
         action :remove
-        only_if { ::Dir.exists?(dir) }
-        only_if { ::Dir.exists?(gemdir) }
+        only_if { ::Dir.exist?(dir) }
+        only_if { ::Dir.exist?(gemdir) }
       end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
@@ -405,7 +438,7 @@ end
 #      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
 #      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
 #      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      only_if { ::Dir.exists?(gemdir) }
+#      only_if { ::Dir.exist?(gemdir) }
       # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
 #    end
   end
@@ -420,15 +453,18 @@ end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do
   compile_time true
 end
 require "simple-password-gen"
+
 # XXX this would make an awesome library
 execute "create mu Chef user" do
   command "/opt/opscode/bin/chef-server-ctl user-create mu Mu Master root@example.com #{Password.pronounceable} -f #{MU_BASE}/var/users/mu/mu.user.key"
@@ -482,7 +518,7 @@ bash "add localhost ssh to authorized_keys and config" do
 end
 execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
   umask 0177
-  not_if { ::File.exists?("#{ROOT_SSH_DIR}/id_rsa") }
+  not_if { ::File.exist?("#{ROOT_SSH_DIR}/id_rsa") }
   notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
 end
 file "/etc/chef/client.pem" do
@@ -507,11 +543,10 @@ end
 
 file "#{MU_BASE}/etc/mu.rc" do
   content %Q{export MU_INSTALLDIR="#{MU_BASE}"
-  export MU_DATADIR="#{MU_BASE}/var"
-  export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+export MU_DATADIR="#{MU_BASE}/var"
+export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
-  action :create_if_missing
 end
 
 # Community cookbooks keep touching gems, and none of them are smart about our

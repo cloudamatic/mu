@@ -1,0 +1,44 @@
+<% if $complexity == 'complex' %>
+name: complex
+stream: NEW_IMAGE
+read_capacity: 50
+write_capacity: 50
+attributes:
+- name: name
+  type: S
+  primary_partition: true
+- name: date
+  type: S
+  primary_sort: true
+- name: things
+  type: N
+- name: blob
+  type: B
+secondary_indexes:
+- index_name: nausea
+  type: global
+  read_capacity: 51
+  key_schema:
+  - attribute: things
+    type: HASH
+  - attribute: name
+    type: RANGE
+  projection:
+    type: INCLUDE
+    non_key_attributes:
+    - blob
+    - date
+- index_name: hurp
+  type: local
+  key_schema:
+  - attribute: name
+    type: HASH
+  - attribute: blob
+    type: RANGE
+<% else %>
+name: simple
+attributes:
+- name: name
+  type: S
+  primary_partition: true
+<% end %>

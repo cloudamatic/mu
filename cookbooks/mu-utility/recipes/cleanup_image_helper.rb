@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
+case node['platform']
   when "windows"
     execute "del c:\\Mu-Bootstrap*"
     %w{c:\\mu-installer-ran-update c:\\mu-configure-initial-ssh-user}.each { |file|
@@ -66,9 +66,9 @@ case node[:platform]
     end
 
 # XXX this breaks Chef mid-run
-#	if Dir.exists?("C:\\chef")
+#	if Dir.exist?("C:\\chef")
 #		%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
-#			if File.exists?("C:\\chef\\#{file}")
+#			if File.exist?("C:\\chef\\#{file}")
 #				file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
 #					content IO.read("C:\\chef\\#{file}")
 #				end
@@ -79,8 +79,8 @@ case node[:platform]
 #			end
 #		}
 #	end
-  when "centos", "redhat"
-    if node[:platform_version].to_i == 7
+  when platform_family?('rhel')
+    if node['platform_version'].to_i == 7
       execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
         only_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
       end

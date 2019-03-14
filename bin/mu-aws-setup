@@ -28,12 +28,12 @@ require 'rubygems'
 require 'bundler/setup'
 require 'json'
 require 'erb'
-require 'trollop'
+require 'optimist'
 require 'json-schema'
 require 'mu'
 Dir.chdir(MU.installDir)
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-i] [-s] [-l] [-u] [-d]
@@ -46,6 +46,20 @@ Usage:
   opt :ephemeral, "Make sure all of our instance store (ephemeral) block devices are mapped and available.", :require => false, :default => false, :type => :boolean
 end
 
+if MU::Cloud::AWS.hosted? and !$MU_CFG['aws']
+  new_cfg = $MU_CFG.dup
+  cfg_blob = MU::Cloud::AWS.hosted_config
+  if cfg_blob
+    cfg_blob['log_bucket_name'] ||= $MU_CFG['hostname']
+    new_cfg["aws"] = { "default" => cfg_blob }
+    MU.log "Adding auto-detected AWS stanza to #{cfgPath}", MU::NOTICE
+    if new_cfg != $MU_CFG or !cfgExists?
+      MU.log "Generating #{cfgPath}"
+      saveMuConfig(new_cfg)
+      $MU_CFG = new_cfg
+    end
+  end
+end
 
 my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 
@@ -169,137 +183,146 @@ end
 $bucketname = MU.adminBucketName
 
 if $opts[:logs]
-  exists = false
+  MU::Cloud::AWS.listCredentials.each { |credset|
+    bucketname = MU::Cloud::AWS.adminBucketName(credset)
 
-  MU.log "Configuring log and secret Amazon S3 bucket '#{$bucketname}'"
+    exists = false
 
-  resp = MU::Cloud::AWS.s3.list_buckets
-  resp.buckets.each { |bucket|
-    exists = true if bucket['name'] == $bucketname
-  }
-  if !exists
-    MU.log "Creating #{$bucketname} bucket"
-    begin
-      resp = MU::Cloud::AWS.s3.create_bucket(bucket: $bucketname, acl: "private")
-    rescue Aws::S3::Errors::BucketAlreadyExists => e
-      MU.log "#{e.inspect}", MU::NOTICE
+    MU.log "Configuring log and secret Amazon S3 bucket '#{bucketname}' for credential set #{credset}"
+
+    resp = MU::Cloud::AWS.s3(credentials: credset).list_buckets
+    resp.buckets.each { |bucket|
+      exists = true if bucket['name'] == bucketname
+    }
+    if !exists
+      MU.log "Creating #{bucketname} bucket"
+      begin
+        resp = MU::Cloud::AWS.s3(credentials: credset).create_bucket(bucket: bucketname, acl: "private")
+      rescue Aws::S3::Errors::BucketAlreadyExists => e
+        MU.log "#{e.inspect}", MU::NOTICE
+      end
     end
-  end
 
-  resp = MU::Cloud::AWS.s3.list_objects(
-    bucket: $bucketname,
-    prefix: "log_vol_ebs_key"
-  )
-  found = false
-  resp.contents.each { |object|
-    found = true if object.key == "log_vol_ebs_key"
-  }
-  if !found
-    MU.log "Creating new key for encrypted EBS log volume"
-    key = SecureRandom.random_bytes(32)
-    MU::Cloud::AWS.s3.put_object(
-      bucket: $bucketname,
-      key: "log_vol_ebs_key",
-      body: "#{key}"
+    resp = MU::Cloud::AWS.s3(credentials: credset).list_objects(
+      bucket: bucketname,
+      prefix: "log_vol_ebs_key"
     )
-  end
-  if File.exists?("#{MU.mySSLDir}/Mu_CA.pem")
-    MU.log "Putting the Mu Master's public SSL certificate into #{$bucketname}/Mu_CA.pem"
-    MU::Cloud::AWS.s3.put_object(
-      bucket: $bucketname,
-      key: "Mu_CA.pem",
-      body: File.read("#{MU.mySSLDir}/Mu_CA.pem"),
-  		acl: "public-read",
-    )
-  end
+    found = false
+    resp.contents.each { |object|
+      found = true if object.key == "log_vol_ebs_key"
+    }
+    if !found
+      MU.log "Creating new key for encrypted EBS log volume"
+      key = SecureRandom.random_bytes(32)
+      MU::Cloud::AWS.s3(credentials: credset).put_object(
+        bucket: bucketname,
+        key: "log_vol_ebs_key",
+        body: "#{key}"
+      )
+    end
+    if File.exists?("#{MU.mySSLDir}/Mu_CA.pem")
+      MU.log "Putting the Mu Master's public SSL certificate into #{bucketname}/Mu_CA.pem"
+      MU::Cloud::AWS.s3(credentials: credset).put_object(
+        bucket: bucketname,
+        key: "Mu_CA.pem",
+        body: File.read("#{MU.mySSLDir}/Mu_CA.pem"),
+    		acl: "public-read",
+      )
+    end
 
-  MU::Master.disk("/dev/xvdl", "/Mu_Logs", 50, "log_vol_ebs_key", "ram7")
+    MU::Master.disk("/dev/xvdl", "/Mu_Logs", 50, "log_vol_ebs_key", "ram7")
 
-#	MU.log "Uploading Mu_CA.pem to #{$bucketname}"
+#	MU.log "Uploading Mu_CA.pem to #{bucketname}"
 #	MU::Cloud::AWS.s3.put_object(
-#		bucket: $bucketname,
+#		bucket: bucketname,
 #		acl: "public-read",
 #		key: "Mu_CA.pem",
 #		body: File.read("#{ENV['MU_DATADIR']}/ssl/Mu_CA.pem")
 #	)
 
-  resp = MU::Cloud::AWS.s3.list_objects(
-    bucket: $bucketname,
-    prefix: "log_vol_ebs_key"
-  )
-  owner = MU.structToHash(resp.contents.first.owner)
+    resp = MU::Cloud::AWS.s3(credentials: credset).list_objects(
+      bucket: bucketname,
+      prefix: "log_vol_ebs_key"
+    )
+    owner = MU.structToHash(resp.contents.first.owner)
 
-  MU::Cloud::AWS.s3.put_bucket_acl(
-      bucket: $bucketname,
-      acl: "log-delivery-write"
-  )
+    MU::Cloud::AWS.s3(credentials: credset).put_bucket_acl(
+        bucket: bucketname,
+        acl: "log-delivery-write"
+    )
 
-  MU::Cloud::AWS.s3.put_bucket_versioning(
-      bucket: $bucketname,
-      versioning_configuration: {
-          status: "Enabled"
-      }
-  )
+    MU::Cloud::AWS.s3(credentials: credset).put_bucket_versioning(
+        bucket: bucketname,
+        versioning_configuration: {
+            status: "Enabled"
+        }
+    )
 
-  MU::Cloud::AWS.s3.put_bucket_lifecycle(
-      bucket: $bucketname,
-      lifecycle_configuration: {
-          rules: [
-              {
-                  expiration: {
-                      days: 180
-                  },
-                  prefix: "master.log/",
-                  status: "Enabled"
-              },
-              {
-                  expiration: {
-                      days: 180
-                  },
-                  prefix: "nodes.log/",
-                  status: "Enabled"
-              },
-              {
-                  expiration: {
-                      days: 180
-                  },
-                  prefix: "AWSLogs/",
-                  status: "Enabled"
-              }
-          ]
-      }
-  )
-
-  MU::Cloud::AWS.s3.put_bucket_policy(
-      bucket: $bucketname,
-      policy: ERB.new(MU::CLOUDTRAIL_BUCKET_POLICY).result
-  )
-
-
-  begin
-    resp = MU::Cloud::AWS.cloudtrail.describe_trails.trail_list
-  rescue Aws::CloudTrail::Errors::AccessDeniedException => e
-    MU.log e.inspect, MU::WARN
-  end
-  if resp.empty?
-    MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
+    MU::Cloud::AWS.s3(credentials: credset).put_bucket_lifecycle(
+        bucket: bucketname,
+        lifecycle_configuration: {
+            rules: [
+                {
+                    expiration: {
+                        days: 180
+                    },
+                    prefix: "master.log/",
+                    status: "Enabled"
+                },
+                {
+                    expiration: {
+                        days: 180
+                    },
+                    prefix: "nodes.log/",
+                    status: "Enabled"
+                },
+                {
+                    expiration: {
+                        days: 180
+                    },
+                    prefix: "AWSLogs/",
+                    status: "Enabled"
+                }
+            ]
+        }
+    )
 
     begin
-      MU::Cloud::AWS.cloudtrail.create_trail(
-          name: "cloudtrail",
-          s3_bucket_name: $bucketname,
-          include_global_service_events: true
+      MU::Cloud::AWS.s3(credentials: credset).put_bucket_policy(
+        bucket: bucketname,
+        policy: MU::Cloud::AWS.cloudtrailBucketPolicy(credset)
       )
-    rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException, Aws::CloudTrail::Errors::AccessDeniedException => e
-      MU.log e.inspect, MU::WARN
+    rescue Aws::S3::Errors::MalformedPolicy => e
+      MU.log e.message, MU::ERR, details: MU::Cloud::AWS.cloudtrailBucketPolicy(credset)
+      next
     end
 
-  # Make sure we actually enable cloudtrail logging
-  MU::Cloud::AWS.cloudtrail.start_logging(
-    name: "cloudtrail"
-  )
-  end
 
+    begin
+      resp = MU::Cloud::AWS.cloudtrail(credentials: credset).describe_trails.trail_list
+    rescue Aws::CloudTrail::Errors::AccessDeniedException => e
+      MU.log e.inspect, MU::WARN
+    end
+    if resp.empty?
+      MU.log "Enabling Cloud Trails, logged to bucket #{bucketname}"
+
+      begin
+        MU::Cloud::AWS.cloudtrail(credentials: credset).create_trail(
+            name: "cloudtrail",
+            s3_bucket_name: bucketname,
+            include_global_service_events: true
+        )
+      rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException, Aws::CloudTrail::Errors::AccessDeniedException => e
+        MU.log e.inspect, MU::WARN
+      end
+
+    # Make sure we actually enable cloudtrail logging
+    MU::Cloud::AWS.cloudtrail(credentials: credset).start_logging(
+      name: "cloudtrail"
+    )
+    end
+
+  }
   # Now that we've got S3 logging, let's also create an Mu_Logs stack in
   # CloudWatch logs.
   # For instances to log to this, they need to invoke the Chef recipe

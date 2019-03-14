@@ -21,8 +21,9 @@
 # Requires an initial python and pip installation
 # For now, linux only.  Remove case statement if windows turns out to need it
 
-case node[:platform]
+case node['platform']
   when "windows"
+    Chef::Log.info 'Unsupported platform Windows'
   else
     bash "update-pip" do
       code <<-EOF

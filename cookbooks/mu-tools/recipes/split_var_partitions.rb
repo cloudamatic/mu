@@ -22,9 +22,10 @@
 # recommended you only use this when building new baseline images, rather than
 # make it part of your regular build process.
 
-if !node[:application_attributes][:skip_recipes].include?('split_var_partitions')
-  case node[:platform]
-    when "centos", "redhat"
+if !node['application_attributes']['skip_recipes'].include?('split_var_partitions')
+  log "*************** "+node['platform']
+  case node['platform']
+    when "redhat", "rhel", "centos", "amazon"
 
       include_recipe "mu-tools::aws_api"
       include_recipe "mu-tools::google_api"
@@ -57,9 +58,9 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
         action :nothing
       end
       ["var_log_audit", "var_log", "var"].each { |volume|
-        mu_tools_disk node[:application_attributes][volume][:mount_directory] do
-          device node[:application_attributes][volume][:mount_device]
-          size node[:application_attributes][volume][:volume_size_gb]
+        mu_tools_disk node['application_attributes'][volume]['mount_directory'] do
+          device node['application_attributes'][volume]['mount_device']
+          size node['application_attributes'][volume]['volume_size_gb']
           preserve_data true
           reboot_after_create true
           services.each { |svc|
@@ -70,9 +71,9 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
       }
       ["var", "var_log", "var_log_audit"].each { |volume|
         mu_tools_disk "properly mount #{volume}" do
-          mountpoint node[:application_attributes][volume][:mount_directory]
-          device node[:application_attributes][volume][:mount_device]
-          not_if "awk '{print $2}' < /etc/mtab | grep '^#{node[:application_attributes][volume][:mount_directory]}$'"
+          mountpoint node['application_attributes'][volume]['mount_directory']
+          device node['application_attributes'][volume]['mount_device']
+          not_if "awk '{print $2}' < /etc/mtab | grep '^#{node['application_attributes'][volume]['mount_directory']}$'"
         end
       }
       execute "restorecon -Rv /var" do
@@ -80,6 +81,6 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
       end
   
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end

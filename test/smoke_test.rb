@@ -1,9 +1,9 @@
 #!/usr/local/ruby-current/bin/ruby
 
 require 'thread'
-require 'trollop'
+require 'optimist'
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-s <skipaz>] [-n <nocleanup>]

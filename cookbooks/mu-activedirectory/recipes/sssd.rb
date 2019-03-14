@@ -25,7 +25,7 @@ case node['platform_family']
       rescue Chef::Exceptions::ResourceNotFound
         service svc do
           action [:enable, :start]
-          only_if { ::File.exists?("/etc/init.d/#{svc}") }
+          only_if { ::File.exist?("/etc/init.d/#{svc}") }
         end
       end
     }
@@ -34,7 +34,7 @@ case node['platform_family']
       resources('service[network]')
     rescue Chef::Exceptions::ResourceNotFound
       service "network" do
-        only_if { ::File.exists?("/etc/init.d/network") }
+        only_if { ::File.exist?("/etc/init.d/network") }
       end
     end
 
@@ -84,16 +84,25 @@ case node['platform_family']
       end
       package %w(git automake libtool openldap-devel libxslt-devel)
 
-      execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
-        cwd "/root"
-        not_if { ::Dir.exists?("/root/adcli") }
+      git 'Clone ADCLI' do
+        repository 'git clone git://anongit.freedesktop.org/realmd/adcli'
+        revision 'master'
+        destination '/root'
+        action :sync
       end
+      
+      # execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
+      #   cwd "/root"
+      #   not_if { ::Dir.exist?("/root/adcli") }
+      # end
 
-      execute "git fetch && git pull" do
-        cwd "/root/adcli"
+      # execute "git fetch && git pull" do
+      #   cwd "/root/adcli"
+      # end
+
+      build_essential 'name' do
+        compile_time  True
       end
-
-      include_recipe "build-essential"
 
       # This is our workaround until the RPM makes it way back into a repo
       # somewhere. It was removed from EPEL after it became part of mainstream
@@ -101,7 +110,7 @@ case node['platform_family']
       execute "compile adcli" do
         cwd "/root/adcli"
         command "./autogen.sh --disable-doc --prefix=/usr && make && make install"
-        not_if { ::File.exists?("/usr/sbin/adcli") }
+        not_if { ::File.exist?("/usr/sbin/adcli") }
       end
     when 7
       # Seems to work on CentOS7
@@ -122,7 +131,7 @@ case node['platform_family']
     service "sssd" do
       action :nothing
       notifies :restart, "service[sshd]", :immediately
-      only_if { ::File.exists?("/etc/krb5.keytab") }
+      only_if { ::File.exist?("/etc/krb5.keytab") }
     end
     directory "/etc/sssd"
     template "/etc/sssd/sssd.conf" do
@@ -147,14 +156,14 @@ case node['platform_family']
         :domain => node['ad']['domain_name'],
         'dc_ips' => node['ad']['dc_ips']
       )
-      notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+      notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 7
     end
 
     # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
     # to your DCs. It seems to dumbly trust any reverse mapping it sees,
     # whether or not the name matches the actual Kerberos tickets you et.
     execute "Run ADCLI" do
-      not_if { ::File.exists?("/etc/krb5.keytab") }
+      not_if { ::File.exist?("/etc/krb5.keytab") }
       command "echo -n '#{domain_creds[node['ad']['join_auth']['password_field']]}' | /usr/sbin/adcli join #{node['ad']['domain_name']} --domain-realm=#{node['ad']['domain_name'].upcase} -U #{domain_creds[node['ad']['join_auth']['username_field']]} --stdin-password"
       notifies :restart, "service[sssd]", :immediately
 #      sensitive true

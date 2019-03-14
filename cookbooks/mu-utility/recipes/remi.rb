@@ -18,7 +18,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
+case node['platform']
   when "centos"
     if node['platform_version'].to_i < 6
       raise "Centos #{node['platform_version']} not supported"
@@ -26,10 +26,10 @@ case node[:platform]
 
     remirepo=yum_repository "remi" do
       description "Les RPM de Remi"
-      mirrorlist "http://rpms.famillecollet.com/enterprise/#{node['platform_version'].to_i.to_s}/remi/mirror"
+      mirrorlist "http://rpms.famillecollet.com/enterprise/#{node['platform_version'].to_i}/remi/mirror"
       enabled false
       gpgkey "http://rpms.famillecollet.com/RPM-GPG-KEY-remi"
-      if node[:cap_global_compile_run] then
+      if node[['cap_global_compile_run']] then
         action :nothing
       else
         action :create
@@ -38,7 +38,7 @@ case node[:platform]
 
     # Doing this with run_action causes us to be invoked early, at
     # compile time instead of converge time.
-    remirepo.run_action(:create) if node[:cap_global_compile_run]
+    remirepo.run_action(:create) if node['cap_global_compile_run']
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end

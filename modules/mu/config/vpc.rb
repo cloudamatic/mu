@@ -35,11 +35,7 @@ module MU
               "default" => "10.0.0.0/16"
             },
             "tags" => MU::Config.tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "create_standard_subnets" => {
               "type" => "boolean",
               "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
@@ -106,8 +102,8 @@ module MU
                     "description" => "One or more other VPCs with which to attempt to create a peering connection.",
                     "properties" => {
                         "account" => {
-                            "type" => "string",
-                            "description" => "The AWS account which owns the target VPC."
+                          "type" => "string",
+                          "description" => "The AWS account which owns the target VPC."
                         },
                         "vpc" => reference(MANY_SUBNETS, NO_NAT_OPTS, "all")
                         #             "route_tables" => {
@@ -237,6 +233,7 @@ module MU
               "type" => "string",
               "description" => "Discover this VPC by looking for this cloud provider identifier."
             },
+            "credentials" => MU::Config.credentials_primitive,
             "vpc_name" => {
               "type" => "string",
               "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
@@ -404,16 +401,39 @@ module MU
       def self.resolvePeers(vpc, configurator)
         ok = true
         if !vpc["peers"].nil?
+          append = []
+          delete = []
           vpc["peers"].each { |peer|
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+            # We check for multiple siblings because some implementations
+            # (Google) can split declared VPCs into parts to get the mimic the
+            # routing behaviors we expect.
+            siblings = configurator.haveLitterMate?(peer['vpc']["vpc_name"], "vpcs", has_multiple: true)
+
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and
-               configurator.haveLitterMate?(peer['vpc']["vpc_name"], "vpcs") and
+            if !peer['vpc']["vpc_name"].nil? and siblings.size > 0 and
                peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+
               peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
-              vpc["dependencies"] << {
-                "type" => "vpc",
-                "name" => peer['vpc']["vpc_name"]
+              siblings.each { |sib|
+                if sib['name'] != peer['vpc']["vpc_name"]
+                  if sib['name'] != vpc['name']
+                    append_me = { "vpc" => peer["vpc"].dup }
+                    append_me['vpc']['vpc_name'] = sib['name']
+                    append << append_me
+                    vpc["dependencies"] << {
+                      "type" => "vpc",
+                      "name" => sib['name']
+                    }
+                  end
+                  delete << peer
+                else
+                  vpc["dependencies"] << {
+                    "type" => "vpc",
+                    "name" => peer['vpc']["vpc_name"]
+                  }
+                end
+                delete << peer if sib['name'] == vpc['name']
               }
               # If we're using a VPC from somewhere else, make sure the flippin'
               # thing exists, and also fetch its id now so later search routines
@@ -430,6 +450,13 @@ module MU
               end
             end
           }
+          append.each { |append_me|
+            vpc["peers"] << append_me
+          }
+          delete.each { |delete_me|
+            vpc["peers"].delete(delete_me)
+          }
+          vpc["peers"].uniq!
         end
         ok
       end
@@ -443,7 +470,7 @@ module MU
       # @param is_sibling [Boolean]:
       # @param sibling_vpcs [Array]:
       # @param dflt_region [String]:
-      def self.processReference(vpc_block, parent_type, parent_name, configurator, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
+      def self.processReference(vpc_block, parent_type, parent_name, configurator, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion, credentials: nil)
         puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
         if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
           return true
@@ -452,6 +479,19 @@ module MU
 
         if vpc_block['region'].nil? and dflt_region and !dflt_region.empty?
           vpc_block['region'] = dflt_region.to_s
+        end
+
+        vpc_block['credentials'] ||= credentials if credentials
+
+        # Sometimes people set subnet_pref to "private" or "public" when they
+        # mean "all_private" or "all_public." Help them out.
+        if parent_type and 
+           MU::Config.schema["properties"][parent_type] and
+           MU::Config.schema["properties"][parent_type]["items"]["properties"]["vpc"] and
+           MU::Config.schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?("subnets") and
+           !MU::Config.schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?("subnet_id")
+           vpc_block["subnet_pref"] = "all_public" if vpc_block["subnet_pref"] == "public"
+           vpc_block["subnet_pref"] = "all_private" if vpc_block["subnet_pref"] == "private"
         end
 
         flags = {}
@@ -468,6 +508,7 @@ module MU
                 deploy_id: vpc_block["deploy_id"],
                 cloud_id: vpc_block["vpc_id"],
                 name: vpc_block["vpc_name"],
+                credentials: vpc_block["credentials"],
                 tag_key: tag_key,
                 tag_value: tag_value,
                 region: vpc_block["region"],
@@ -476,6 +517,24 @@ module MU
               )
 
               ext_vpc = found.first if found.size == 1
+
+              # Make sure we don't have a weird mismatch between requested
+              # credential sets and the VPC we actually found
+              if ext_vpc and ext_vpc.cloudobj and ext_vpc.cloudobj.config and
+                 ext_vpc.cloudobj.config["credentials"]
+                if vpc_block['credentials'] and # probably can't happen
+                   vpc_block['credentials'] != ext_vpc.cloudobj.config["credentials"]
+                  ok = false
+                  MU.log "#{parent_type} #{parent_name} requested a VPC on credentials '#{vpc_block['credentials']}' but matched VPC is under credentials '#{ext_vpc.cloudobj.config["credentials"]}'", MU::ERR, details: vpc_block
+                end
+                if credentials and
+                   credentials != ext_vpc.cloudobj.config["credentials"]
+                  ok = false
+                  MU.log "#{parent_type} #{parent_name} is using credentials '#{credentials}' but matched VPC is under credentials '#{ext_vpc.cloudobj.config["credentials"]}'", MU::ERR, details: vpc_block
+                end
+                vpc_block['credentials'] ||= ext_vpc.cloudobj.config["credentials"]
+              end
+
             end
           rescue Exception => e
             raise MuError, e.inspect, e.backtrace
@@ -727,7 +786,6 @@ module MU
 
           vpc_block.delete('deploy_id')
           vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
-          vpc_block.delete('deploy_id')
           vpc_block.delete('tag')
           MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
         end

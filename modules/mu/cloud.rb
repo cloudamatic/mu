@@ -39,8 +39,12 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
-    generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
+    # Methods which a cloud resource implementation, e.g. Server, must implement
+    generic_class_methods = [:find, :cleanup, :validateConfig, :schema, :isGlobal?]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
+
+    # Class methods which the base of a cloud implementation must implement
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -80,7 +84,7 @@ module MU
     class Alarm;
     end
     # Stub base class; real implementations generated at runtime
-    class Notification;
+    class Notifier;
     end
     # Stub base class; real implementations generated at runtime
     class Log;
@@ -97,11 +101,69 @@ module MU
     # Stub base class; real implementations generated at runtime
     class MsgQueue;
     end
+    # Stub base class; real implementations generated at runtime
+    class Habitat;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Folder;
+    end
+    # Stub base class; real implementations generated at runtime
+    class User;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Group;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Role;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Endpoint;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Bucket;
+    end
+    # Stub base class; real implementations generated at runtime
+    class NoSQLDB;
+    end
+
+    # Denotes a resource implementation which is missing significant
+    # functionality or is largely untested.
+    ALPHA = "This implementation is **ALPHA** quality. It is experimental, may be missing significant functionality, and has not been widely tested."
+
+    # Denotes a resource implementation which supports most or all key API
+    # functionality and has seen at least some non-trivial testing.
+    BETA = "This implementation is **BETA** quality. It is substantially complete, but may be missing some functionality or have some features which are untested."
+
+    # Denotes a resource implementation which supports all key API functionality
+    # and has been substantially tested on real-world applications.
+    RELEASE = "This implementation is considered **RELEASE** quality. It covers all major API features and has been tested with real-world applications."
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
     # considered valid.
     @@resource_types = {
+      :Folder => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "folder",
+        :cfg_plural => "folders",
+        :interface => self.const_get("Folder"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Habitat => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "habitat",
+        :cfg_plural => "habitats",
+        :interface => self.const_get("Habitat"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
       :Collection => {
         :has_multiples => false,
         :can_live_in_vpc => false,
@@ -212,12 +274,12 @@ module MU
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
       },
-      :Notification => {
+      :Notifier => {
         :has_multiples => false,
         :can_live_in_vpc => false,
-        :cfg_name => "notification",
-        :cfg_plural => "notifications",
-        :interface => self.const_get("Notification"),
+        :cfg_name => "notifier",
+        :cfg_plural => "notifiers",
+        :interface => self.const_get("Notifier"),
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
@@ -254,7 +316,18 @@ module MU
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Endpoint => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "endpoint",
+        :cfg_plural => "endpoints",
+        :interface => self.const_get("Endpoint"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
       },
       :ContainerCluster => {
         :has_multiples => false,
@@ -284,6 +357,61 @@ module MU
         :cfg_name => "msg_queue",
         :cfg_plural => "msg_queues",
         :interface => self.const_get("MsgQueue"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :User => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "user",
+        :cfg_plural => "users",
+        :interface => self.const_get("User"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Group => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "group",
+        :cfg_plural => "groups",
+        :interface => self.const_get("Group"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Role => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "role",
+        :cfg_plural => "roles",
+        :interface => self.const_get("Role"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Bucket => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "bucket",
+        :cfg_plural => "buckets",
+        :interface => self.const_get("Bucket"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :NoSQLDB => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "nosqldb",
+        :cfg_plural => "nosqldbs",
+        :interface => self.const_get("NoSQLDB"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
@@ -329,16 +457,30 @@ module MU
       }
     end
 
+    # List of known/supported Cloud providers. This may be modified at runtime
+    # if an implemention is defective or missing required methods.
+    @@supportedCloudList = ['AWS', 'CloudFormation', 'Google', 'Azure']
+
     # List of known/supported Cloud providers
     def self.supportedClouds
-      ["AWS", "CloudFormation", "Google"]
+      @@supportedCloudList
     end
 
     # Load the container class for each cloud we know about, and inject autoload
     # code for each of its supported resource type classes.
+    failed = []
     MU::Cloud.supportedClouds.each { |cloud|
       require "mu/clouds/#{cloud.downcase}"
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      generic_class_methods_toplevel.each { |method|
+        if !cloudclass.respond_to?(method)
+          MU.log "MU::Cloud::#{cloud} has not implemented required class method #{method}, disabling", MU::ERR
+          failed << cloud
+        end
+      }
     }
+    failed.uniq!
+    @@supportedCloudList = @@supportedCloudList - failed
 
     # @return [Mutex]
     def self.userdata_mutex
@@ -435,10 +577,11 @@ module MU
       begin
         require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
       rescue LoadError => e
-        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}"
+        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}, or implementation does not load correctly (#{e.message})"
       end
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
         @@resource_types[type.to_sym][:class].each { |class_method|
           if !myclass.respond_to?(class_method) or myclass.method(class_method).owner.to_s != "#<Class:#{myclass}>"
@@ -450,6 +593,12 @@ module MU
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
+        cloudclass.required_instance_methods.each { |instance_method|
+          if !myclass.public_instance_methods.include?(instance_method)
+            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+          end
+        }
+
         @cloud_class_cache[cloud][type] = myclass
         return myclass
       rescue NameError => e
@@ -482,6 +631,7 @@ module MU
         attr_reader :deploy_id
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :credentials
         attr_reader :url
         attr_reader :config
         attr_reader :deploydata
@@ -546,6 +696,7 @@ module MU
         def initialize(mommacat: nil,
                        mu_name: nil,
                        cloud_id: nil,
+                       credentials: nil,
                        kitten_cfg: nil,
                        delayed_save: false)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
@@ -554,7 +705,9 @@ module MU
           @config = kitten_cfg
           @delayed_save = delayed_save
           @cloud_id = cloud_id
-          
+          @credentials = credentials
+          @credentials ||= kitten_cfg['credentials']
+
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
             MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
@@ -643,21 +796,23 @@ module MU
             end
           end
         end
-
-        def cloud_desc
+        
+        def cloud_desc()
           describe
           if !@cloudobj.nil?
-            @cloud_desc = @cloudobj.cloud_desc
+            @cloud_desc_cache ||= @cloudobj.cloud_desc
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
-          elsif !@config.nil? and !@cloud_id.nil?
+          end
+          if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
+
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc = matches[@cloud_id]
+                @cloud_desc_cache = matches[@cloud_id]
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}/#{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
@@ -665,7 +820,7 @@ module MU
             end
           end
 
-          return @cloud_desc
+          return @cloud_desc_cache
         end
 
         # Retrieve all of the known metadata for this resource.
@@ -678,6 +833,7 @@ module MU
           end
           res_type = self.class.cfg_plural
           res_name = @config['name'] if !@config.nil?
+          @credentials ||= @config['credentials'] if !@config.nil?
           deploydata = nil
           if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
               !@deploy.deployment.nil? and
@@ -759,11 +915,41 @@ module MU
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
             MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
-            if !@config['vpc']["vpc_name"].nil? and
+            if !@config['vpc']["vpc_name"].nil? and @deploy
+              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs", return_all: true)
+              if sib_by_name.is_a?(Array)
+                if sib_by_name.size == 1
+                  @vpc = matches.first
+                else
+# XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
+                  # we got multiple matches, try to pick one by preferred subnet
+                  # behavior
+                  sib_by_name.each { |sibling|
+                    all_private = sibling.subnets.map { |s| s.private? }.all?(true)
+                    all_public = sibling.subnets.map { |s| s.private? }.all?(false)
+                    if all_private and ["private", "all_private"].include?(@config['vpc']['subnet_pref'])
+                      @vpc = sibling
+                      break
+                    elsif all_public and ["public", "all_public"].include?(@config['vpc']['subnet_pref'])
+                      @vpc = sibling
+                      break
+                    else
+                      MU.log "Got multiple matching VPCs for #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}"
+                      @vpc = sibling
+                      break
+                    end
+                  }
+                end
+              else
+                @vpc = sib_by_name
+              end
+            end
+
+            if !@vpc and !@config['vpc']["vpc_name"].nil? and
                 @dependencies.has_key?("vpc") and
                 @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
               @vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
-            else
+            elsif !@vpc
               tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
               if !@config['vpc'].has_key?("vpc_id") and
                   !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
@@ -806,12 +992,14 @@ module MU
                     nat_cloud_id: @config['vpc']['nat_host_id'],
                     nat_filter_key: "vpc-id",
                     region: @config['vpc']["region"],
-                    nat_filter_value: @vpc.cloud_id
+                    nat_filter_value: @vpc.cloud_id,
+                    credentials: @config['credentials']
                   )
                 else
                   @nat = @vpc.findNat(
                     nat_cloud_id: @config['vpc']['nat_host_id'],
-                    region: @config['vpc']["region"]
+                    region: @config['vpc']["region"],
+                    credentials: @config['credentials']
                   )
                 end
               end
@@ -852,6 +1040,12 @@ module MU
           return [@dependencies, @vpc, @loadbalancers]
         end
 
+        # Defaults any resources that don't declare their release-readiness to
+        # ALPHA. That'll learn 'em.
+        def self.quality
+          MU::Cloud::ALPHA
+        end
+
         def self.find(*flags)
           allfound = {}
 
@@ -862,9 +1056,13 @@ module MU
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
               if args[:region] and cloudbase.respond_to?(:listRegions)
-                next if !cloudbase.listRegions.include?(args[:region])
+                next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
               end
-              cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
+              begin
+                cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
+              rescue MU::MuError => e
+                next
+              end
 
               found = cloudclass.find(args)
               if !found.nil?
@@ -1226,7 +1424,7 @@ module MU
                     :config => false,
                     :keys_only => true,
                     :keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
-                    :paranoid => false,
+                    :verify_host_key => false,
                     #           :verbose => :info,
                     :port => 22,
                     :auth_methods => ['publickey'],
@@ -1240,7 +1438,7 @@ module MU
                     :config => false,
                     :keys_only => true,
                     :keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
-                    :paranoid => false,
+                    :verify_host_key => false,
                     #           :verbose => :info,
                     :port => 22,
                     :auth_methods => ['publickey']
@@ -1341,7 +1539,8 @@ module MU
                (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
               if deploydata.nil? or !deploydata.is_a?(Hash)
-                raise MuError, "#{self}'s notify method did not return a Hash of deployment data"
+                MU.log "#{self} notify method did not return a Hash of deployment data", MU::WARN
+                deploydata = MU.structToHash(@cloudobj.cloud_desc)
               end
               deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?

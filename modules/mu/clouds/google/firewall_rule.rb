@@ -21,6 +21,7 @@ module MU
 
         @deploy = nil
         @config = nil
+        @project_id = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
 
@@ -38,11 +39,16 @@ module MU
             @mu_name = mu_name
             # This is really a placeholder, since we "own" multiple rule sets
             @cloud_id ||= MU::Cloud::Google.nameStr(@mu_name+"-ingress-allow")
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           else
             if !@vpc.nil?
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true, max_length: 61)
             else
-              @mu_name = @deploy.getResourceName(@config['name'])
+              @mu_name = @deploy.getResourceName(@config['name'], max_length: 61)
             end
           end
 
@@ -52,6 +58,8 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
 
@@ -77,7 +85,7 @@ module MU
 
             ["ingress", "egress"].each { |dir|
               if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
-                setname = MU::Cloud::Google.nameStr(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"))
+                setname = @deploy.getResourceName(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"), max_length: 61).downcase
                 @cloud_id ||= setname
                 allrules[setname] ||= {
                   :name => setname,
@@ -109,8 +117,8 @@ module MU
           allrules.each_value { |fwdesc|
             threads << Thread.new { 
               fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
-              MU.log "Creating firewall #{fwdesc[:name]} in project #{@config['project']}", details: fwobj
-              resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
+              MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
+              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
             }
@@ -123,6 +131,7 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def groom
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
         end
 
         # Log metadata about this ruleset to the currently running deployment
@@ -132,6 +141,7 @@ module MU
           )
           sg_data ||= {}
           sg_data["group_id"] = @cloud_id
+          sg_data["project_id"] = @project_id
           sg_data["cloud_id"] = @cloud_id
 
           return sg_data
@@ -155,11 +165,11 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           found = {}
-          resp = MU::Cloud::Google.compute.list_firewalls(flags["project"])
+          resp = MU::Cloud::Google.compute(credentials: credentials).list_firewalls(flags["project"])
           if resp and resp.items
             resp.items.each { |fw|
               next if !cloud_id.nil? and fw.name != cloud_id
@@ -169,15 +179,27 @@ module MU
           found
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          true
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
+        end
+
         # Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
-
-          MU::Cloud::Google.compute.delete(
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          MU::Cloud::Google.compute(credentials: credentials).delete(
             "firewall",
             flags["project"],
             nil,
@@ -246,20 +268,6 @@ module MU
         end
 
         private
-
-        ########################################################################
-        # Manufacture an EC2 security group. The second parameter, rules, is an
-        # "ingress_rules" structure parsed and validated by MU::Config.
-        ########################################################################
-        def setRules(rules, add_to_self: false, ingress: true, egress: false)
-        end
-
-        ########################################################################
-        # Convert our config languages description of firewall rules into
-        # Amazon's.  This rule structure is as defined in MU::Config.
-        ########################################################################
-        def convertToEc2(rules)
-        end
 
       end #class
     end #class

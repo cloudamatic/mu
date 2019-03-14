@@ -17,19 +17,19 @@
 # limitations under the License.
 
 if platform_family?("rhel")
-  if node[:platform_version].to_i >= 7
+  if node['platform_version'].to_i >= 7
     yum_repository "google-cloud-sdk" do
       description 'Google Cloud SDK'
-      url "https://packages.cloud.google.com/yum/repos/cloud-sdk-el#{node[:platform_version].to_i}-x86_64#{node[:platform_version].to_i == 6 ? "-unstable": ""}"
+      url "https://packages.cloud.google.com/yum/repos/cloud-sdk-el#{node['platform_version'].to_i}-x86_64#{node['platform_version'].to_i == 6 ? "-unstable": ""}"
       enabled true
       gpgcheck true
       repo_gpgcheck true
       gpgkey ["https://packages.cloud.google.com/yum/doc/yum-key.gpg", "https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg"]
     end
     package "google-cloud-sdk"
-  elsif node[:platform_version].to_i == 6
+  elsif node['platform_version'].to_i == 6
     rpm_package "IUS" do
-      source "https://#{node[:platform]}#{node[:platform_version].to_i}.iuscommunity.org/ius-release.rpm"
+      source "https://#{node['platform']}#{node['platform_version'].to_i}.iuscommunity.org/ius-release.rpm"
     end
     package ["python27", "python27-libs"]
     remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.sh" do
@@ -70,7 +70,7 @@ if platform_family?("rhel")
       EOH
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.sh]", :before
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz]", :before
-      not_if { ::File.exists?("/opt/google-cloud-sdk/bin/gcloud") }
+      not_if { ::File.exist?("/opt/google-cloud-sdk/bin/gcloud") }
     end
     link "/etc/bash_completion.d/gcloud" do
       to "/opt/google-cloud-sdk/completion.bash.inc"
@@ -91,7 +91,7 @@ elsif platform_family?("debian")
       curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
       sudo apt-get update
     EOH
-    not_if { ::File.exists?("/etc/apt/sources.list.d/google-cloud-sdk.list") }
+    not_if { ::File.exist?("/etc/apt/sources.list.d/google-cloud-sdk.list") }
   end
   package "google-cloud-sdk"
 else

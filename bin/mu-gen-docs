@@ -22,13 +22,40 @@ require 'rubygems'
 require 'bundler/setup'
 require 'json'
 require 'erb'
-require 'trollop'
+require 'optimist'
 require 'json-schema'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
-require 'yard'
+
+ENV['PATH'] += ":"+File.dirname(Gem.ruby)
+
+begin
+  MU.log "Looking up the system YARD"
+  yard = `which yard 2>&1`.chomp
+
+  if yard.include? "no yard in"
+    MU.log "No system YARD found. Trying YARD gem"
+    yard = File.dirname(Gem.ruby)+'/yard'
+  end
+
+rescue
+  MU.log "Using the YARD gem"
+  yard = File.dirname(Gem.ruby)+'/yard'
+end
+
+
 
 MU::Config.emitSchemaAsRuby
-MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{ENV['CHEF_PUBLIC_IP']}/docs/frames.html)"
-File.umask(0022)
-exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; /usr/local/ruby-current/bin/yard stats --list-undoc modules"
+MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
+
+File.umask 0022
+
+Dir.chdir(MU.myRoot) do
+  #exec "env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} #{yard} doc modules -m markdown -o /var/www/html/docs" THIS DOESNT WORK IN CICD
+
+  system(%Q{#{yard} doc modules -m markdown -o /var/www/html/docs})
+
+  system(%Q{chcon -R -h -t httpd_sys_script_exec_t /var/www/html/})
+
+  system(%Q{#{yard} stats --list-undoc modules})
+end

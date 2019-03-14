@@ -23,22 +23,22 @@ include_recipe 'mu-master::firewall-holes'
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
   bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
-  node.normal[:nagios][:server_auth_method] = "ldap"
-  node.normal[:nagios][:ldap_bind_dn] = bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]
-  node.normal[:nagios][:ldap_bind_password] = bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]
+  node.normal['nagios']['server_auth_method'] = "ldap"
+  node.normal['nagios']['ldap_bind_dn'] = bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]
+  node.normal['nagios']['ldap_bind_password'] = bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]
   if $MU_CFG['ldap']['type'] == "Active Directory"
-    node.normal[:nagios][:ldap_url] = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
+    node.normal['nagios']['ldap_url'] = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
   else
-    node.normal[:nagios][:ldap_url] = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
-    node.normal[:nagios][:ldap_group_attribute] = "memberUid"
-    node.normal[:nagios][:ldap_group_attribute_is_dn] = "Off"
+    node.normal['nagios']['ldap_url'] = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
+    node.normal['nagios']['ldap_group_attribute'] = "memberUid"
+    node.normal['nagios']['ldap_group_attribute_is_dn'] = "Off"
 # Trying to use SSL seems to cause mod_ldap to die without logging any errors,
 # currently. Probably an Apache bug? XXX
-#    node.normal[:nagios][:ldap_trusted_global_cert] = "CA_BASE64 #{$MU_CFG['ssl']['chain']}"
-#    node.normal[:nagios][:ldap_trusted_mode] = "SSL"
+#    node.normal['nagios'][:ldap_trusted_global_cert] = "CA_BASE64 #{$MU_CFG['ssl']['chain']}"
+#    node.normal['nagios'][:ldap_trusted_mode] = "SSL"
   end
-  node.normal[:nagios][:server_auth_require] = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
-  node.normal[:nagios][:ldap_authoritative] = "On"
+  node.normal['nagios']['server_auth_require'] = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
+  node.normal['nagios']['ldap_authoritative'] = "On"
   node.save
 end
 
@@ -60,7 +60,7 @@ include_recipe "nagios"
 
 nagios_policies = ["nagios_selinux"]
 
-if platform_family?("rhel") and node[:platform_version].to_i == 7
+if platform_family?("rhel") and node['platform_version'].to_i == 7
   nagios_policies << "nagios_selinux_7"
 end
 
@@ -92,7 +92,7 @@ nagios_policies.each { |policy|
     not_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
     notifies :reload, "service[apache2]", :delayed
     notifies :restart, "service[nrpe]", :delayed
-    if platform_family?("rhel") and node[:platform_version].to_i >= 7
+    if platform_family?("rhel") and node['platform_version'].to_i >= 7
       notifies :run, "bash[RHEL7-family Nagios restart]", :delayed
     else
       notifies :reload, "service[nagios]", :delayed
@@ -102,7 +102,7 @@ nagios_policies.each { |policy|
 
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
 # URL at the moment, so copy it where it's actually looking.
-if File.exists?("/usr/lib/cgi-bin/nagios/statusjson.cgi")
+if File.exist?("/usr/lib/cgi-bin/nagios/statusjson.cgi")
   remote_file "/usr/lib/cgi-bin/statusjson.cgi" do
     source "file:///usr/lib/cgi-bin/nagios/statusjson.cgi"
     mode 0755
@@ -155,7 +155,7 @@ end
 ["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
   execute "/sbin/restorecon -R #{dir}" do
     not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
-    only_if { ::File.exists?(dir) }
+    only_if { ::File.exist?(dir) }
   end
 }
 
@@ -164,7 +164,7 @@ execute "/sbin/restorecon -R /var/log/nagios"
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
   not_if "grep '^interval_length=1$' /etc/nagios/nagios.cfg"
-  if platform_family?("rhel") and node[:platform_version].to_i >= 7
+  if platform_family?("rhel") and node['platform_version'].to_i >= 7
     notifies :run, "bash[RHEL7-family Nagios restart]", :delayed
   else
     notifies :reload, "service[nagios]", :delayed
@@ -235,7 +235,7 @@ end
 
 execute "chgrp nrpe /etc/nagios/nrpe.d/*"
 execute "/sbin/restorecon /etc/nagios/nrpe.cfg" do
-  if platform_family?("rhel") and node[:platform_version].to_i >= 7
+  if platform_family?("rhel") and node['platform_version'].to_i >= 7
     notifies :run, "bash[RHEL7-family Nagios restart]", :delayed
   end
 end

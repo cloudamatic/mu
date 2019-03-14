@@ -15,10 +15,11 @@
 module MU
   class Cloud
     class AWS
-      # A log as configured in {MU::Config::BasketofKittens::logs}
+      # A logging facility as configured in {MU::Config::BasketofKittens::logs}
       class Log < MU::Cloud::Log
         @deploy = nil
         @config = nil
+
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
@@ -37,11 +38,10 @@ module MU
           @config["log_group_name"] = @mu_name
           @config["log_stream_name"] =
             if @config["enable_cloudtrail_logging"]
-              "#{MU.account_number}_CloudTrail_#{@config["region"]}"
+              "#{MU::Cloud::AWS.credToAcct(@config['credentials'])}_CloudTrail_#{@config["region"]}"
             else
               @mu_name
             end
-
 
           tags = MU::MommaCat.listStandardTags
           if @config['optional_tags']
@@ -56,7 +56,7 @@ module MU
           end
 
           MU.log "Creating log group #{@mu_name}"
-          MU::Cloud::AWS.cloudwatchlogs(@config["region"]).create_log_group(
+          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).create_log_group(
             log_group_name: @config["log_group_name"],
             tags: tags
           )
@@ -76,19 +76,19 @@ module MU
             end
           end while resp.nil?
 
-          MU::Cloud::AWS.cloudwatchlogs(@config["region"]).create_log_stream(
+          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).create_log_stream(
             log_group_name: @config["log_group_name"],
             log_stream_name: @config["log_stream_name"]
           )
 
-          MU::Cloud::AWS.cloudwatchlogs(@config["region"]).put_retention_policy(
+          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).put_retention_policy(
             log_group_name: @config["log_group_name"],
             retention_in_days: @config["retention_period"]
           )
 
           if @config["filters"] && !@config["filters"].empty?
             @config["filters"].each{ |filter|
-              MU::Cloud::AWS.cloudwatchlogs(@config["region"]).put_metric_filter(
+              MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).put_metric_filter(
                 log_group_name: @config["log_group_name"],
                 filter_name: filter["name"],
                 filter_pattern: filter["search_pattern"],
@@ -102,8 +102,8 @@ module MU
           end
 
           if @config["enable_cloudtrail_logging"]
-            trail_resp = MU::Cloud::AWS.cloudtrail(@config["region"]).describe_trails.trail_list.first
-            raise MuError, "Can't find a cloudtrail in #{MU.account_number}/#{@config["region"]}. Please create cloudtrail before enabling logging on it" unless trail_resp
+            trail_resp = MU::Cloud::AWS.cloudtrail(region: @config["region"], credentials: @config["credentials"]).describe_trails.trail_list.first
+            raise MuError, "Can't find a cloudtrail in #{MU::Cloud::AWS.credToAcct(@config['credentials'])}/#{@config["region"]}. Please create cloudtrail before enabling logging on it" unless trail_resp
 
             iam_policy = '{
               "Version": "2012-10-17",
@@ -116,7 +116,7 @@ module MU
                     "logs:PutLogEventsBatch",
                     "logs:PutLogEvents"
                   ],
-                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
+                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU::Cloud::AWS.credToAcct(@config['credentials'])+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
                 }
               ]
             }'
@@ -141,12 +141,12 @@ module MU
 
             iam_role_name = "#{@mu_name}-CloudTrail"
             MU.log "Creating IAM role #{iam_role_name}"
-            iam_resp = MU::Cloud::AWS.iam(@config["region"]).create_role(
+            iam_resp = MU::Cloud::AWS.iam.create_role(
               role_name: iam_role_name,
               assume_role_policy_document: iam_assume_role_policy
             )
 
-            MU::Cloud::AWS.iam(@config["region"]).put_role_policy(
+            MU::Cloud::AWS.iam.put_role_policy(
               role_name: iam_role_name,
               policy_name: "CloudTrail_CloudWatchLogs",
               policy_document: iam_policy
@@ -156,7 +156,7 @@ module MU
 
             retries = 0
             begin 
-              MU::Cloud::AWS.cloudtrail(@config["region"]).update_trail(
+              MU::Cloud::AWS.cloudtrail(region: @config["region"], credentials: @config["credentials"]).update_trail(
                 name: trail_resp.name,
                 cloud_watch_logs_log_group_arn: log_group_resp.arn,
                 cloud_watch_logs_role_arn: iam_resp.role.arn
@@ -183,13 +183,24 @@ module MU
           prettyname = service.sub(/\..*/, "").capitalize
           doc = '{ "Version": "2012-10-17", "Statement": [ { "Sid": "'+prettyname+'LogsToCloudWatchLogs", "Effect": "Allow", "Principal": { "Service": [ "'+service+'" ] }, "Action": [ "logs:PutLogEvents", "logs:PutLogEventsBatch", "logs:CreateLogStream" ], "Resource": "'+log_arn+'" } ] }'
 
-          MU::Cloud::AWS.cloudwatchlogs(region).put_resource_policy(
+          MU::Cloud::AWS.cloudwatchlogs(region: region).put_resource_policy(
             policy_name: "Allow"+prettyname,
             policy_document: doc
           )
         end
 
-        # Return the metadata for this log cofiguration
+        # Return the cloud descriptor for the Log Group
+        def cloud_desc
+          MU::Cloud::AWS::Log.find(cloud_id: @cloud_id).values.first
+        end
+
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.arn
+        end
+
+        # Return the metadata for this log configuration
         # @return [Hash]
         def notify
           {
@@ -198,15 +209,28 @@ module MU
           }
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::BETA
+        end
+
         # Remove all logs associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           log_groups =
             begin 
-              MU::Cloud::AWS.cloudwatchlogs(region).describe_log_groups.log_groups
+              MU::Cloud::AWS.cloudwatchlogs(credentials: credentials, region: region).describe_log_groups.log_groups
             # TO DO: Why is it returning UnknownOperationException instead of valid error?
             rescue Aws::CloudWatchLogs::Errors::UnknownOperationException => e
               MU.log e.inspect
@@ -216,10 +240,10 @@ module MU
           if !log_groups.empty?
             log_groups.each{ |lg|
               if lg.log_group_name.match(MU.deploy_id)
-                log_streams = MU::Cloud::AWS.cloudwatchlogs(region).describe_log_streams(log_group_name: lg.log_group_name).log_streams
+                log_streams = MU::Cloud::AWS.cloudwatchlogs(credentials: credentials, region: region).describe_log_streams(log_group_name: lg.log_group_name).log_streams
                 if !log_streams.empty?
                   log_streams.each{ |ls|
-                    MU::Cloud::AWS.cloudwatchlogs(region).delete_log_stream(
+                    MU::Cloud::AWS.cloudwatchlogs(credentials: credentials, region: region).delete_log_stream(
                       log_group_name: lg.log_group_name,
                       log_stream_name: ls.log_stream_name
                     ) unless noop
@@ -228,7 +252,7 @@ module MU
                   }
                 end
 
-                MU::Cloud::AWS.cloudwatchlogs(region).delete_log_group(
+                MU::Cloud::AWS.cloudwatchlogs(credentials: credentials, region: region).delete_log_group(
                   log_group_name: lg.log_group_name
                 ) unless noop
                 MU.log "Deleted log group #{lg.log_group_name}"
@@ -237,10 +261,10 @@ module MU
           end
 
           unless noop
-            MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
+            MU::Cloud::AWS.iam(credentials: credentials).list_roles.roles.each{ |role|
               match_string = "#{MU.deploy_id}.*CloudTrail"
               # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
+#              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
             }
           end
         end
@@ -250,14 +274,16 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching log group.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           found = nil
           if !cloud_id.nil? and !cloud_id.match(/^arn:/i)
-            found = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
+            found ||= {}
+            found[cloud_id] = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region, credentials: nil)
           else
-            resp = MU::Cloud::AWS.cloudwatchlogs(region).describe_log_groups.log_groups.each { |group|
+            resp = MU::Cloud::AWS.cloudwatchlogs(region: region, credentials: credentials).describe_log_groups.log_groups.each { |group|
               if group.arn == cloud_id or group.arn.sub(/:\*$/, "") == cloud_id
-                found = group
+                found ||= {}
+                found[group.log_group_name] = group
                 break
               end
             }
@@ -341,8 +367,8 @@ module MU
         # @param name [String]: The cloud provider's identifier for this log group.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
-        def self.getLogGroupByName(name, region: MU.curRegion)
-          MU::Cloud::AWS.cloudwatchlogs(region).describe_log_groups(log_group_name_prefix: name).log_groups.first
+        def self.getLogGroupByName(name, region: MU.curRegion, credentials: nil)
+          MU::Cloud::AWS.cloudwatchlogs(region: region, credentials: credentials).describe_log_groups(log_group_name_prefix: name).log_groups.first
         end
       end
     end

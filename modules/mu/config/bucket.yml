@@ -1,0 +1,10 @@
+<% if $complexity == 'complex' %>
+name: bucket
+acl: public-read
+versioning: true
+storage_class: REDUCED_REDUNDANCY
+web_error_object: doh.html
+web_index_object: hi.html
+<% else %>
+name: bucket
+<% end %>

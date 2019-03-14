@@ -38,3 +38,22 @@ search_domains:
 databases:
 -
   <%= include("../mu/config/database.yml") %>
+buckets:
+-
+  <%= include("../mu/config/bucket.yml") %>
+
+container_clusters:
+-
+  <%= include("../mu/config/container_cluster.yml") %>
+
+nosqldbs:
+-
+  <%= include("../mu/config/nosqldb.yml") %>
+
+cache_clusters:
+-
+  <%= include("../mu/config/cache_cluster.yml") %>
+
+notifiers:
+-
+  <%= include("../mu/config/notifier.yml") %>

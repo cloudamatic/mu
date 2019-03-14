@@ -42,7 +42,8 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          resp = MU::Cloud::AWS.elasticsearch(@config['region']).create_elasticsearch_domain(params).domain_status
+          pp params
+          resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
 
@@ -58,7 +59,7 @@ module MU
             waitWhileProcessing # wait until the create finishes, if still going
 
             MU.log "Updating ElasticSearch domain #{@config['domain_name']}", MU::NOTICE, details: params
-            MU::Cloud::AWS.elasticsearch(@config['region']).update_elasticsearch_domain_config(params)
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).update_elasticsearch_domain_config(params)
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
@@ -69,11 +70,11 @@ module MU
         # our druthers.
         def cloud_desc
           if @config['domain_name']
-            MU::Cloud::AWS.elasticsearch(@config['region']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @config['domain_name']
             ).domain_status
-          elsif @deploydata['domain_name']
-            MU::Cloud::AWS.elasticsearch(@config['region']).describe_elasticsearch_domain(
+          elsif @deploydata and @deploydata['domain_name']
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @deploydata['domain_name']
             ).domain_status
           else
@@ -81,11 +82,17 @@ module MU
           end
         end
 
+        # Canonical Amazon Resource Number for this resource
+        # @return [String]
+        def arn
+          cloud_desc.arn
+        end
+
         # Return the metadata for this SearchDomain rule
         # @return [Hash]
         def notify
           deploy_struct = MU.structToHash(cloud_desc)
-          tags = MU::Cloud::AWS.elasticsearch(@config['region']).list_tags(arn: deploy_struct[:arn]).tag_list
+          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).list_tags(arn: deploy_struct[:arn]).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
@@ -94,23 +101,36 @@ module MU
           deploy_struct
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
+        end
+
         # Remove all search_domains associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          list = MU::Cloud::AWS.elasticsearch(region).list_domain_names
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
           if list and list.domain_names and list.domain_names.size > 0
-            descs = MU::Cloud::AWS.elasticsearch(region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+            descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
 
             descs.domain_status_list.each { |domain|
-              tags = MU::Cloud::AWS.elasticsearch(region).list_tags(arn: domain.arn)
+              tags = MU::Cloud::AWS.elasticsearch(region: region).list_tags(arn: domain.arn)
               tags.tag_list.each { |tag|
                 if tag.key == "MU-ID" and tag.value == MU.deploy_id
                   MU.log "Deleting ElasticSearch Domain #{domain.domain_name}"
                   if !noop
-                    MU::Cloud::AWS.elasticsearch(region).delete_elasticsearch_domain(domain_name: domain.domain_name)
+                    MU::Cloud::AWS.elasticsearch(region: region).delete_elasticsearch_domain(domain_name: domain.domain_name)
                   end
                   break
                 end
@@ -124,7 +144,7 @@ module MU
               resp = MU::Cloud::AWS.iam.list_roles(marker: marker)
               resp.roles.each{ |role|
                 # XXX Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-                MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
+#                MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
               }
               marker = resp.marker
             end while resp.is_truncated
@@ -136,14 +156,14 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching search_domain.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
           if cloud_id
             # Annoyingly, we might expect one of several possible artifacts,
             # since AWS couldn't decide what the real identifier of these
             # things should be
-            list = MU::Cloud::AWS.elasticsearch(region).list_domain_names
+            list = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).list_domain_names
             if list and list.domain_names and list.domain_names.size > 0
-              descs = MU::Cloud::AWS.elasticsearch(region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+              descs = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
               descs.domain_status_list.each { |domain|
                 return domain if domain.arn == cloud_id
                 return domain if domain.domain_name == cloud_id
@@ -174,6 +194,10 @@ module MU
           end
 
           schema = {
+            "name" => {
+              "type" => "string",
+              "pattern" => '^[a-z][a-z0-9\-]+$'
+            },
             "elasticsearch_version" => {
               "type" => "string",
               "default" => versions.first,
@@ -263,12 +287,12 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(dom, configurator)
           ok = true
-          versions = MU::Cloud::AWS.elasticsearch(dom['region']).list_elasticsearch_versions.elasticsearch_versions
+          versions = MU::Cloud::AWS.elasticsearch(region: dom['region']).list_elasticsearch_versions.elasticsearch_versions
           if !versions.include?(dom["elasticsearch_version"])
             MU.log "Invalid ElasticSearch version '#{dom["elasticsearch_version"]}' in SearchDomain '#{dom['name']}'", MU::ERR, details: versions
             ok = false
           else
-            resp = MU::Cloud::AWS.elasticsearch(dom['region']).list_elasticsearch_instance_types(
+            resp = MU::Cloud::AWS.elasticsearch(region: dom['region']).list_elasticsearch_instance_types(
               elasticsearch_version: dom["elasticsearch_version"]
             )
           
@@ -324,7 +348,7 @@ module MU
             if configurator.haveLitterMate?(dom['slow_logs'], "log")
               dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
             else
-              log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region'])
+              log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region']).values.first
               if !log_group
                 MU.log "Specified slow_logs CloudWatch log group '#{dom['slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
                 ok = false
@@ -334,7 +358,10 @@ module MU
             end
           else
             dom['slow_logs'] = dom['name']+"-slowlog"
-            log_group = { "name" => dom['slow_logs'] }
+            log_group = {
+              "name" => dom['slow_logs'],
+              "credentials" => dom['credentials']
+            }
             ok = false if !configurator.insertKitten(log_group, "logs")
             dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
           end
@@ -347,7 +374,7 @@ module MU
 
           if dom['cognito']
             begin
-              MU::Cloud::AWS.cognito_ident(dom['region']).describe_identity_pool(
+              MU::Cloud::AWS.cognito_ident(region: dom['region']).describe_identity_pool(
                 identity_pool_id: dom['cognito']['identity_pool_id']
               )
             rescue ::Aws::CognitoIdentity::Errors::ValidationException, Aws::CognitoIdentity::Errors::ResourceNotFoundException => e
@@ -355,7 +382,7 @@ module MU
               ok = false
             end
             begin
-              MU::Cloud::AWS.cognito_user(dom['region']).describe_user_pool(
+              MU::Cloud::AWS.cognito_user(region: dom['region']).describe_user_pool(
                 user_pool_id: dom['cognito']['user_pool_id']
               )
             rescue ::Aws::CognitoIdentityProvider::Errors::InvalidParameterException, Aws::CognitoIdentityProvider::Errors::ResourceNotFoundException => e
@@ -367,10 +394,10 @@ module MU
               rolename = dom['cognito']['role_arn'].sub(/.*?:role\/([a-z0-9-]+)$/, '\1')
               begin
                 if !dom['cognito']['role_arn'].match(/^arn:/)
-                  role = MU::Cloud::AWS.iam(dom['region']).get_role(role_name: rolename)
+                  role = MU::Cloud::AWS.iam.get_role(role_name: rolename)
                   dom['cognito']['role_arn'] = role.role.arn
                 end
-                pols = MU::Cloud::AWS.iam(dom['region']).list_attached_role_policies(role_name: rolename).attached_policies
+                pols = MU::Cloud::AWS.iam.list_attached_role_policies(role_name: rolename).attached_policies
                 found = false
                 pols.each { |policy|
                   found = true if policy.policy_name == "AmazonESCognitoAccess"
@@ -382,49 +409,37 @@ module MU
                 MU.log "IAM role #{dom['cognito']['role_arn']} malformed or does not exist in SearchDomain '#{dom['name']}'", MU::ERR
                 ok = false
               end
+            else
+              roledesc = {
+                "name" => dom['name']+"cognitorole",
+                "credentials" => dom['credentials'],
+                "can_assume" => [
+                  {
+                    "entity_id" => "es.amazonaws.com",
+                    "entity_type" => "service"
+                  }
+                ],
+                "import" => [
+                  "AmazonESCognitoAccess"
+                ]
+              }
+              configurator.insertKitten(roledesc, "roles")
 
+              dom['dependencies'] ||= []
+              dom['dependencies'] << {
+                "type" => "role",
+                "name" => dom['name']+"cognitorole"
+              }
             end
 
           end
 
-          # TODO have IAM API validate queue['access_policies'] if any is set
+          # TODO queue['access_policies'] should generate a policy blob via MU::Cloud::AWS::Role
 
           ok
         end
 
         private
-
-        def setIAMPolicies
-          assume_role_policy = {
-            "Version" => "2012-10-17",
-            "Statement" => [
-              {
-                "Effect": "Allow",
-                "Principal": {
-                  "Service": "es.amazonaws.com"
-                },
-                "Action": "sts:AssumeRole"
-              }
-            ]
-          }
-
-          begin
-            MU::Cloud::AWS.iam(@config['region']).get_role(role_name: @mu_name)
-          rescue ::Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Creating IAM role #{@mu_name}", details: assume_role_policy
-            MU::Cloud::AWS.iam(@config["region"]).create_role(
-              role_name: @mu_name,
-              assume_role_policy_document: JSON.generate(assume_role_policy)
-            )
-          end
-
-          MU::Cloud::AWS.iam.attach_role_policy(
-            role_name: @mu_name,
-            policy_arn: "arn:aws:iam::aws:policy/AmazonESCognitoAccess", 
-          )
-
-          MU::Cloud::AWS.iam(@config['region']).get_role(role_name: @mu_name).role
-        end
 
         # create_elasticsearch_domain and update_elasticsearch_domain_config
         # take almost the same set of parameters, so our create and groom 
@@ -478,7 +493,7 @@ module MU
               arn = @config['slow_logs']
             else
               log_group = @deploy.findLitterMate(type: "log", name: @config['slow_logs'])
-              log_group = MU::Cloud::AWS::Log.find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region'])
+              log_group = MU::Cloud::AWS::Log.find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region']).values.first
               if log_group.nil? or log_group.arn.nil?
                 raise MuError, "Failed to retrieve ARN of sibling LogGroup '#{@config['slow_logs']}'"
               end
@@ -594,7 +609,8 @@ module MU
               if @config['cognito']['role_arn']
                 params[:cognito_options][:role_arn] = @config['cognito']['role_arn']
               else
-                params[:cognito_options][:role_arn] = myrole.arn
+                myrole = @deploy.findLitterMate(name: @config['name']+"cognitorole", type: "roles")
+                params[:cognito_options][:role_arn] = myrole.cloudobj.arn
               end
             end
           end
@@ -625,7 +641,7 @@ module MU
             raise MU::MuError, "Can't tag ElasticSearch domain, cloud descriptor came back without an ARN"
           end
 
-          MU::Cloud::AWS.elasticsearch(@config['region']).add_tags(
+          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).add_tags(
             arn: domain.arn,
             tag_list: tags
           )

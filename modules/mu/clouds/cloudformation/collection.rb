@@ -111,6 +111,13 @@ module MU
           MU::Cloud::AWS::Collection.validateConfig(server, configurator)
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          MU::Cloud::AWS::Collection.isGlobal?
+        end
+
       end
     end
   end

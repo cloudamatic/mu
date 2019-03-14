@@ -127,7 +127,7 @@ class Nagios
         check_use_and_name(Nagios.instance.default_timeperiod)
       end
     end
-    # rubocop:enable MethodLength
+    
 
     def get_commands(obj)
       obj.map(&:to_s).join(',')
@@ -197,7 +197,7 @@ class Nagios
       end
       members
     end
-    # rubocop:enable MethodLength
+    
 
     def get_timeperiod(obj)
       return nil if obj.nil?
@@ -263,7 +263,7 @@ class Nagios
       end
       commands
     end
-    # rubocop:enable MethodLength
+    
 
     def hostname(name)
       if Nagios.instance.normalize_hostname
@@ -302,7 +302,7 @@ class Nagios
         n.push(self) if remote
       end
     end
-    # rubocop:enable MethodLength
+    
 
     def update_dependency_members(hash, option, object)
       return if blank?(hash) || hash[option].nil?

@@ -18,8 +18,8 @@
 
 
 master_ips = get_mu_master_ips
-case node[:platform]
-when "centos", "redhat"
+case node['platform']
+when platform_family?('rhel')
   include_recipe 'mu-firewall'
 
   if elversion >= 7 # Can use firewalld, but not if iptables is already rigged
@@ -30,7 +30,7 @@ when "centos", "redhat"
       command "/bin/firewall-cmd --reload"
       action :nothing
       not_if "/bin/systemctl list-units | grep iptables.service"
-      only_if { ::File.exists?("/bin/firewall-cmd") }
+      only_if { ::File.exist?("/bin/firewall-cmd") }
     end
   end
 
@@ -48,7 +48,7 @@ when "centos", "redhat"
 
   opento.uniq.each { |src|
     [:tcp, :udp, :icmp].each { |proto|
-      firewall_rule "allow all #{src} #{proto.to_s} traffic" do
+      firewall_rule "allow all #{src} #{proto} traffic" do
         source src
         protocol proto
       end

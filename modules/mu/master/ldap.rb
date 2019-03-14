@@ -886,7 +886,7 @@ module MU
               if getLDAPErr.match(/53 Unwilling to perform/)
                 raise MuLDAPError, "Failed to create user #{user} (#{getLDAPErr}). Most likely the LDAP password policy objected to the password '#{password}'"
               else
-                raise MuLDAPError, "Failed to create user #{user} (#{getLDAPErr})"
+                raise MuLDAPError, "Failed to create user #{user} (#{getLDAPErr}) from add(:dn => #{user_dn}, :attributes => #{attr.to_s})"
               end
             end
             attr[password_attr] = "********"

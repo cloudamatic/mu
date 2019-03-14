@@ -13,7 +13,7 @@ directory "/opt/java_jce" do
   mode 0755
 end
 
-admin_vault = chef_vault_item(node['jenkins_admin_vault'][:vault], node['jenkins_admin_vault'][:item])
+admin_vault = chef_vault_item(node['jenkins_admin_vault']['vault'], node['jenkins_admin_vault']['item'])
 
 directory "Mu Jenkins home #{node['jenkins']['master']['home']}" do
   path node['jenkins']['master']['home']
@@ -62,7 +62,8 @@ end
 
 
 # Download ALPN Jar file and fix to JENKINS_JAVA_OPTIONS
-open_jdk_version = `java -version 2>&1`
+# open_jdk_version = `java -version 2>&1`
+open_jdk_version = shell_out('java -version 2>&1').stdout.str
 if open_jdk_version.include?("openjdk version \"1.8") and node['platform_family'] == 'rhel'
 
   remote_file 'download_anlp_jar' do
@@ -82,14 +83,14 @@ end
 
 
 node['jenkins_plugins'].each { |plugin|
-#  if !::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
+#  if !::File.exist?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
 #    restart_jenkins = true
 #  end
 # XXX this runs as the 'jenkins' user, yet download the files as 0600/root
   jenkins_plugin plugin
   # do
     # notifies :restart, 'service[jenkins]', :delayed
-    #not_if { ::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi") }
+    #not_if { ::File.exist?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi") }
   # end
 }
 
@@ -130,7 +131,7 @@ uidsearch = "sAMAccountName={0}" if $MU_CFG['ldap']['type'] == "Active Directory
 membersearch = "(| (member={0}) (uniqueMember={0}) (memberUid={1}))"
 membersearch = "memberUid={0}" if $MU_CFG['ldap']['type'] == "389 Directory Services"
 bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
-jenkins_admins = ::MU::Master.listUsers.delete_if { |u, data| !data['admin'] }.keys
+jenkins_admins = ::MU::Master.listUsers.delete_if { |_u, data| !data['admin'] }.keys
 #jenkins_regular = ::MU::Master.listUsers.delete_if { |u, data| data['admin'] or u == "jenkins" }.keys
 regular_user_perms = ["Item.BUILD", "Item.CREATE", "Item.DISCOVER", "Item.READ"]
 jenkins_script 'configure_jenkins_auth' do
@@ -153,7 +154,7 @@ jenkins_script 'configure_jenkins_auth' do
   instance.save()
   EOH
 #  not_if "grep managerDN #{node['jenkins']['master']['home']}/config.xml | grep #{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}"
-  notifies :create, 'ruby_block[configure_jenkins_auth_set]', :immediately
+  notifies :run, 'ruby_block[configure_jenkins_auth_set]', :immediately
   action :nothing unless !::File.size?("#{node['jenkins']['master']['home']}/config.xml") or !::File.read("#{node['jenkins']['master']['home']}/config.xml").match(bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']])
 end
 

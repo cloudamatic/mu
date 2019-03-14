@@ -1,9 +1,10 @@
-image: centos
+image: ruby:2.5
 
 stages:
   - Lint Test
   - Test
   - Security Test
+  - Build
   - Smoke Test
   - Merge/Tag
   - Dockerbuild
@@ -23,13 +24,18 @@ Cookstyle:
   script:
     - cookstyle cookbooks/
   allow_failure: true
-  
+
 Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/
-  allow_failure: true
+    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
+
+Foodcritic Deprecations:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15
 
 ChefSpec:
   stage: Test
@@ -38,22 +44,25 @@ ChefSpec:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
 
-Rspec:
+.Rspec:
   stage: Test
-  image: chef/chefdk:latest
   script:
-    - echo "rspec"
+    - cd modules
+    - bundle install
+    - gem install rspec
+    - cd ../
+    - rspec
   allow_failure: true
 
-.New_Berks:
+New_Berks:
   stage: Test
   image: chef/chefdk:latest
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
-    - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Installing $d" && cd "$d" && berks install); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Verifying $d" && cd "$d" && berks verify); done
+    - for d in ./cookbooks/*/ ; do (echo && echo "Analyzing $d" && cd "$d" && berks outdated); done
   
 Berks:
   stage: Test
@@ -66,19 +75,46 @@ Berks:
     - berks verify
     - berks outdated
 
-BrakeMan:
-  stage: Security Test
-  image: codeclimate/codeclimate-brakeman:latest
+Gem Build:
+  stage: Build
   script:
-    - echo "BrakeMan!"
+    - gem build cloud-mu.gemspec
+    - echo "Upload me places? Pehaps to rubygems?"
+  only:
+    - master
+    - development
+    - gen_docs
+  artifacts:
+    paths:
+    - cloud-mu-*.gem
 
-Parser Test:
+.Muby Build:
+  stage: Build
+  image: centos
+  script: 
+    - yum -y groupinstall 'Development Tools'
+    - yum -y install rpm-build
+    - yum-builddep -y extras/ruby_rpm/muby.spec
+    - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
+    - echo "maybe do something cool and smart here?"
+  only:
+    - master
+    - development
+  allow_failure: true
+
+Gem Parser Test:
   stage: Smoke Test
   script:
+    - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+    - gem install cloud-mu-*.gem
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
-  tags: 
-    - mu-master
+  dependencies:
+  - Gem Build
+  only:
+    - master
+    - development
+  allow_failure: true
 
 Smoke Test:
   stage: Smoke Test
@@ -92,15 +128,7 @@ Smoke Test:
     - development
   when: manual
 
-Merge/Tag:
-  stage: Merge/Tag
-  script:
-    - echo "Merge and tag here"
-  only:
-    - master
-    - development
-
-Dockerbuild:
+.Dockerbuild:
   stage: Dockerbuild
   image: docker:latest
   script:
@@ -109,15 +137,54 @@ Dockerbuild:
     - master
     - development
 
+Gen Docs:
+  stage: Merge/Tag
+  script:
+  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+  - gem install cloud-mu-*.gem
+  - ruby bin/mu-gen-docs
+  - mkdir public
+  - cp -Rf /var/www/html/docs/* public
+  - ls public
+  dependencies:
+  - Gem Build
+  only:
+  - master
+  - development
+  - gen_docs
+  artifacts:
+    paths:
+    - public/
+
+.GitHub Pages:
+  stage: Deploy
+  image: bitnami/git:latest
+  script:
+  - echo "Hello I am going to push to GitHub"
+  - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+  - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
+  - cp -Rf public/* cloudamatic.github.io
+  - cd cloudamatic.github.io
+  - git status
+  - git add -a
+  - git commit -m "$CI_COMMIT_MESSAGE"
+  - git push origin master
+  dependencies:
+  - Gen Docs
+  only:
+  - master
+  - gen_docs
+  allow_failure: true
+
 pages:
   stage: Deploy
-  image: ruby:2.3
   script:
-  - mkdir public
-  - gem install yard
-  - yard doc modules -m markdown -o public
+  - ls public
+  dependencies:
+  - Gen Docs
   artifacts:
     paths:
     - public
   only:
   - master
+  - gen_docs

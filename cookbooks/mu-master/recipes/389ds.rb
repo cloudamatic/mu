@@ -42,7 +42,7 @@ $CREDS = {
 }
 
 service_name = "dirsrv"
-if node[:platform_version].to_i >= 7
+if node['platform_version'].to_i >= 7
   service_name = service_name + "@" + $MU_CFG["hostname"]
 end
 
@@ -50,7 +50,7 @@ directory "/root/389ds.tmp" do
   recursive true
   mode 0700
 end
-$CREDS.each_pair { |creds, cfg|
+$CREDS.each_pair { |creds, _cfg|
   user = pw = data = nil
   if $MU_CFG["ldap"].has_key?(creds)
     data = chef_vault_item($MU_CFG['ldap'][creds]['vault'], $MU_CFG['ldap'][creds]['item'])
@@ -73,7 +73,7 @@ end
 
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do
-  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
+  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
   action :nothing
 end
 
@@ -84,7 +84,7 @@ template "/root/389ds.tmp/389-directory-setup.inf"do
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS
-  not_if { ::Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") }
+  not_if { ::Dir.exist?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") }
   notifies :run, "execute[initialize 389 Directory Services]", :immediately
 end
 
@@ -92,7 +92,7 @@ service service_name do
   action [:enable, :start]
 end
 
-if platform_family?("rhel") and node[:platform_version].to_i >= 7
+if platform_family?("rhel") and node['platform_version'].to_i >= 7
   cookbook_file "dirsrv_admin.pp" do
     path "#{Chef::Config[:file_cache_path]}/dirsrv_admin.pp"
   end
@@ -131,7 +131,7 @@ ruby_block "import SSL certificates for 389ds" do
     certimportcmd = "/usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/389ds.tmp/blank -W \"\""
     require 'pty'
     require 'expect'
-    PTY.spawn(certimportcmd) { |r, w, pid|
+    PTY.spawn(certimportcmd) { |r, w, _pid|
       begin
         r.expect("Enter new password:") do
           w.puts

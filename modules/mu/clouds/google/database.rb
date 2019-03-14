@@ -18,6 +18,7 @@ module MU
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
         @deploy = nil
+        @project_id = nil
         @config = nil
         attr_reader :mu_name
         attr_reader :cloud_id
@@ -36,6 +37,11 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           else
             @mu_name ||=
               if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
@@ -51,6 +57,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
         def create
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
           labels = {}
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             if !value.nil?
@@ -74,7 +81,7 @@ module MU
             instance_type: "CLOUD_SQL_INSTANCE" # TODO: READ_REPLICA_INSTANCE
           )
           pp instance_desc
-          pp MU::Cloud::Google.sql.insert_instance(@config['project'], instance_desc)
+          pp MU::Cloud::Google.sql(credentials: @config['credentials']).insert_instance(@project_id, instance_desc)
         end
 
         # Locate an existing Database or Databases and return an array containing matching GCP resource descriptors for those that match.
@@ -84,11 +91,13 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
         end
 
         # Register a description of this database instance with this deployment's metadata.
@@ -103,19 +112,33 @@ module MU
         def allowHost(cidr)
         end
 
+        # Does this resource type exist as a global (cloud-wide) artifact, or
+        # is it localized to a region/zone?
+        # @return [Boolean]
+        def self.isGlobal?
+          false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::ALPHA
+        end
+
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject
-          instances = MU::Cloud::Google.sql.list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          skipsnapshots||= flags["skipsnapshots"]
+          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
           if instances and instances.items
             instances.items.each { |instance|
               MU.log "Deleting Cloud SQL instance #{instance.name}"
-              MU::Cloud::Google.sql.delete_instance(flags['project'], instance.name) if !noop
+              MU::Cloud::Google.sql(credentials: credentials).delete_instance(flags['project'], instance.name) if !noop
             }
           end
         end
