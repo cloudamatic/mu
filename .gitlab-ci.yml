@@ -79,11 +79,11 @@ Gem Build:
   stage: Build
   script:
     - gem build cloud-mu.gemspec
-    - echo "Upload me places? Pehaps to rubygems?"
   only:
     - master
     - development
     - gen_docs
+    - cicd_gem_push
   artifacts:
     paths:
     - cloud-mu-*.gem
