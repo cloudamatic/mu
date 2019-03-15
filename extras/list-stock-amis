@@ -1,5 +1,5 @@
 #!/usr/local/ruby-current/bin/ruby
-# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 
 require 'optimist'
 require 'json'
+require 'yaml'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/../bin/mu-load-config.rb"))
 require 'mu'
 
@@ -31,24 +32,33 @@ filters = [
   }
 ]
 
+platforms = {}
 
 MU::Cloud::AWS.listRegions.each { | r|
   images = MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_images(
     filters: filters + [{ "name" => "state", "values" => ["available"]}]
   ).images
   images.each { |ami|
-		if (DateTime.now.to_time - DateTime.parse(ami.creation_date).to_time) > 15552000 and ami.name.match(/^MU-(PROD|DEV)/)
-			snaps = []
-			ami.block_device_mappings.each { |dev|
-				if !dev.ebs.nil?
-					snaps << dev.ebs.snapshot_id
-				end
-			}
-			MU.log "Deregistering #{ami.name} (#{ami.creation_date})", MU::WARN, details: snaps
-			MU::Cloud::AWS.ec2(region: r, credentials: credentials).deregister_image(image_id: ami.image_id)
-			snaps.each { |snap_id|
-				MU::Cloud::AWS.ec2(region: r, credentials: credentials).delete_snapshot(snapshot_id: snap_id)
-			}
+		if (DateTime.now.to_time - DateTime.parse(ami.creation_date).to_time) < 15552000 and ami.name.match(/^MU-PROD-\d{10}-[A-Z]{2}-(.*)/)
+      platform = Regexp.last_match[1].downcase
+      next if !platform
+      platforms[platform] ||= {}
+      if !platforms[platform][r] or
+         DateTime.parse(ami.creation_date).to_time > platforms[platform][r]['date']
+        platforms[platform][r] = {
+          "date" => DateTime.parse(ami.creation_date).to_time,
+          "ami" => ami.image_id,
+          "name" => ami.name
+        }
+      end
 		end
   }
 }
+
+platforms.each_pair { |p, r_data|
+  r_data.each_pair { |r, data|
+    r_data[r] = data["ami"]
+  }
+}
+
+puts platforms.to_yaml

@@ -422,7 +422,7 @@ module MU
   # XXX these guys to move into mu/groomer
   # List of known/supported grooming agents (configuration management tools)
   def self.supportedGroomers
-    ["Chef"]
+    ["Chef", "Ansible"]
   end
 
   MU.supportedGroomers.each { |groomer|

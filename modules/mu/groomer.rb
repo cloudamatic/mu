@@ -48,8 +48,12 @@ module MU
       if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
         raise MuError, "Requested to use unsupported grooming agent #{groomer}"
       end
+      begin
       require "mu/groomers/#{groomer.downcase}"
-      myclass = Object.const_get("MU").const_get("Groomer").const_get(groomer)
+        myclass = Object.const_get("MU").const_get("Groomer").const_get(groomer)
+      rescue NameError
+        raise MuError, "No groomer available named '#{groomer}' - valid values (case-sensitive) are: #{MU.supportedGroomers.join(", ")})"
+      end
       MU::Groomer.requiredMethods.each { |method|
         if !myclass.public_instance_methods.include?(method)
           raise MuError, "MU::Groom::#{groomer} has not implemented required instance method #{method}"
