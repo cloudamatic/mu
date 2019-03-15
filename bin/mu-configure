@@ -1099,10 +1099,10 @@ if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
   if $?.exitstatus != 0
     puts output
     MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
-    %x{/sbin/service iptables start} if $INITIALIZE
+    %x{/sbin/service iptables start} if !$INITIALIZE
     exit 1
   end
-  %x{/sbin/service iptables start} if $INITIALIZE
+  %x{/sbin/service iptables start} if !$INITIALIZE
 end
 
 if $INITIALIZE and AMROOT
@@ -1168,7 +1168,7 @@ if AMROOT
     %x{/sbin/service iptables stop}
     system("/opt/opscode/bin/chef-server-ctl reconfigure")
     system("/opt/opscode/bin/chef-server-ctl restart")
-    %x{/sbin/service iptables start}
+    %x{/sbin/service iptables start} if !$INITIALIZE
     updateChefRbs
     $CHANGES << "chefcerts"
   else
