@@ -79,11 +79,12 @@ Gem Build:
   stage: Build
   script:
     - gem build cloud-mu.gemspec
-    - echo "Upload me places? Pehaps to rubygems?"
   only:
     - master
     - development
     - gen_docs
+    - /^gem-.*$/
+    - /^cicd-.*$/
   artifacts:
     paths:
     - cloud-mu-*.gem
@@ -114,6 +115,8 @@ Gem Parser Test:
   only:
     - master
     - development
+    - /^gem-.*$/
+    - /^cicd-.*$/
   allow_failure: true
 
 Smoke Test:
@@ -175,6 +178,36 @@ Gen Docs:
   - master
   - gen_docs
   allow_failure: true
+
+Upload Gem:
+  stage: Deploy
+  script:
+  - mkdir ~/.gem
+  - cat .gitlab-ci/gem_credentials | sed -e "s/__RUBYGEMS_API_KEY__/${RUBYGEMS_API_KEY}/" > ~/.gem/credentials
+  - chmod 0600 ~/.gem/credentials
+  - gem push cloud-mu-*.gem
+  - shred -u ~/.gem/credentials
+  when: on_success
+  dependencies:
+  - Gem Build
+  only:
+  - master
+
+Upload Gem Manual:
+  stage: Deploy
+  script:
+  - mkdir ~/.gem
+  - cat .gitlab-ci/gem_credentials | sed -e "s/__RUBYGEMS_API_KEY__/${RUBYGEMS_API_KEY}/" > ~/.gem/credentials
+  - chmod 0600 ~/.gem/credentials
+  - gem push cloud-mu-*.gem
+  - shred -u ~/.gem/credentials
+  dependencies:
+  - Gem Build
+  when: manual
+  only:
+  - development
+  - /^gem-.*$/
+  - /^cicd-.*$/
 
 pages:
   stage: Deploy
