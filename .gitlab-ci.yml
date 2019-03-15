@@ -176,6 +176,20 @@ Gen Docs:
   - gen_docs
   allow_failure: true
 
+Upload Gem:
+  stage: Deploy
+  script:
+  - mkdir ~/.gem
+  - cat .gitlab-ci/gem_credentials | sed -e "s/__RUBYGEMS_API_KEY__/${RUBYGEMS_API_KEY}/" > ~/.gem/credentials
+  - chmod 0600 ~/.gem/credentials
+  - gem push cloud-mu-*.gem
+  - shred -u ~/.gem/credentials
+  dependencies:
+  - Gem Build
+  only:
+  - cicd_gem_push
+  - master
+
 pages:
   stage: Deploy
   script:
