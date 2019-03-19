@@ -415,7 +415,7 @@ module MU
               "type" => "array",
               "items" => {
                   "type" => "string",
-                  "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
+                  "description" => "A list of +groomer+ recipes/roles/scripts to run, using naming conventions specific to the appropriate grooming layer. In +Chef+, this corresponds to a node's +run_list+ attribute, and entries should be of the form <tt>role[rolename]</tt> or <tt>recipe[recipename]</tt>. In +Ansible+, it should be a list of roles (+rolename+), which Mu will use to generate a custom Playbook for the deployment."
               }
           },
           "ingress_rules" => {

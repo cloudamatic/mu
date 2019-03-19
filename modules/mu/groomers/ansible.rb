@@ -20,13 +20,28 @@ module MU
     # Support for Ansible as a host configuration management layer.
     class Ansible
 
+      BINDIR = "/usr/local/python-current/bin"
+
       # @param node [MU::Cloud::Server]: The server object on which we'll be operating
       def initialize(node)
+        @config = node.config
+        @server = node
+        @inventory = Inventory.new(node.deploy)
+        @ansible_path = node.deploy.deploy_dir+"/ansible"
+
+        [@ansible_path, @ansible_path+"/roles", @ansible_path+"/vars", @ansible_path+"/group_vars", @ansible_path+"/vaults"].each { |dir|
+          if !Dir.exists?(dir)
+            MU.log "Creating #{dir}", MU::DEBUG
+            Dir.mkdir(dir, 0755)
+          end
+        }
+        installRoles
       end
+
 
       # Indicate whether our server has been bootstrapped with Ansible
       def haveBootstrapped?
-        true
+        false
       end
 
       # @param vault [String]: A repository of secrets to create/save into.
@@ -78,17 +93,37 @@ module MU
       def preClean(leave_ours = false)
       end
 
-      # Forcibly (re)install Ansible. Useful for upgrading or overwriting a
-      # broken existing install.
+      # This is a stub; since Ansible is effectively agentless, this operation
+      # doesn't have meaning.
       def reinstall
       end
 
-      # Bootstrap our server with Ansible
+      # Bootstrap our server with Ansible- basically, just make sure this node
+      # is listed in our deployment's Ansible inventory.
       def bootstrap
+        @inventory.add(@server.config['name'], @server.mu_name)
+        play = {
+          "hosts" => @server.config['name']
+        }
+
+        if @server.config['ssh_user'] != "root"
+          play["become"] = "yes"
+        end
+
+        if @server.config['run_list'] and !@server.config['run_list'].empty?
+          play["roles"] = @server.config['run_list']
+        end
+
+        File.open(@ansible_path+"/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+          f.flock(File::LOCK_EX)
+          f.puts [play].to_yaml
+          f.flock(File::LOCK_UN)
+        }
+
+        pp @server.config['run_list']
       end
 
-      # Synchronize the deployment structure managed by {MU::MommaCat} to Ansible,
-      # so that nodes can access this metadata.
+      # Synchronize the deployment structure managed by {MU::MommaCat} into some Ansible variables, so that nodes can access this metadata.
       # @return [Hash]: The data synchronized.
       def saveDeployData
       end
@@ -102,6 +137,158 @@ module MU
       end
 
       private
+
+      def isAnsibleRole?(path)
+        true # XXX no
+      end
+
+      # Find all of the Ansible roles in the various configured Mu repositories
+      # and 
+      def installRoles
+        roledir = @ansible_path+"/roles"
+
+        canon_links = {}
+
+        # Hook up any Ansible roles listed in our platform repos
+        $MU_CFG['repos'].each { |repo|
+          repo.match(/\/([^\/]+?)(\.git)?$/)
+          shortname = Regexp.last_match(1)
+          repodir = MU.dataDir + "/" + shortname
+          ["roles", "ansible/roles"].each { |subdir|
+            next if !Dir.exists?(repodir+"/"+subdir)
+            Dir.foreach(repodir+"/"+subdir) { |role|
+              next if [".", ".."].include?(role)
+              realpath = repodir+"/"+subdir+"/"+role
+              link = roledir+"/"+role
+              
+              if isAnsibleRole?(realpath)
+                if !File.exists?(link)
+                  File.symlink(realpath, link)
+                  canon_links[role] = realpath
+                elsif File.symlink?(link)
+                  cur_target = File.readlink(link)
+                  if cur_target == realpath
+                    canon_links[role] = realpath
+                  elsif !canon_links[role]
+                    File.unlink(link)
+                    File.symlink(realpath, link)
+                    canon_links[role] = realpath
+                  end
+                end
+              end
+            }
+          }
+        }
+
+        # Now layer on everything bundled in the main Mu repo
+        Dir.foreach(MU.myRoot+"/ansible/roles") { |role|
+          next if [".", ".."].include?(role)
+          next if File.exists?(roledir+"/"+role)
+          File.symlink(MU.myRoot+"/ansible/roles/"+role, roledir+"/"+role)
+        }
+
+        if @server.config['run_list']
+          @server.config['run_list'].each { |role|
+            if !File.exists?(roledir+"/"+role)
+              if role.match(/[^\.]\.[^\.]/)
+# TODO be able to toggle this behavior off
+                system(%Q{#{BINDIR}/ansible-galaxy --roles-path #{roledir} install #{role}})
+              else
+                canon_links.keys.each { |longrole|
+                  if longrole.match(/\.#{Regexp.quote(role)}$/)
+                    File.symlink(roledir+"/"+longrole, roledir+"/"+role)
+                    break
+                  end
+                }
+              end
+            end
+          }
+        end
+      end
+
+      # Simple interface for an Ansible inventory file.
+      class Inventory
+
+        # @param deploy [MU::MommaCat]
+        def initialize(deploy)
+          @deploy = deploy
+          @ansible_path = @deploy.deploy_dir+"/ansible"
+
+          @lockfile = File.open(@ansible_path+"/.hosts.lock", File::CREAT|File::RDWR, 0600)
+        end
+
+        # Add a node to our Ansible inventory
+        # @param group [String]: The host group to which the node belongs
+        # @param name [String]: The hostname or IP of the node
+        def add(group, name)
+          if group.nil? or group.empty? or name.nil? or name.empty?
+            raise MuError, "Ansible::Inventory.add requires both a host group string and a name"
+          end
+          lock
+          read
+          @inv[group] ||= []
+          @inv[group] << name
+          @inv[group].uniq!
+          save!
+          unlock
+        end
+
+        # Remove a node from our Ansible inventory
+        # @param name [String]: The hostname or IP of the node
+        def remove(name)
+          lock
+          read
+          @inv.each_pair { |group, nodes|
+            nodes.delete(name)
+          }
+          save!
+          unlock
+        end
+
+        private
+
+        def lock
+          @lockfile.flock(File::LOCK_EX)
+        end
+
+        def unlock
+          @lockfile.flock(File::LOCK_UN)
+        end
+
+        def save!
+          @inv ||= {}
+
+          File.open(@ansible_path+"/hosts", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+            @inv.each_pair { |group, hosts|
+              next if hosts.size == 0 # don't write empty groups
+              f.puts "["+group+"]"
+              f.puts hosts.join("\n")
+            }
+          }
+        end
+
+        def read
+          @inv = {}
+          if File.exists?(@ansible_path+"/hosts")
+            section = nil
+# XXX need that flock
+            File.readlines(@ansible_path+"/hosts").each { |l|
+              l.chomp!
+              l.sub!(/#.*/, "")
+              next if l.empty?
+              if l.match(/\[(.+?)\]/)
+                section = Regexp.last_match[1]
+                @inv[section] ||= []
+              else
+                @inv[section] << l
+              end
+            }
+          end
+
+          @inv
+        end
+
+      end
 
     end # class Ansible
   end # class Groomer
