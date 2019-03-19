@@ -624,8 +624,9 @@ module MU
 
   # Recursively turn a Ruby OpenStruct into a Hash
   # @param struct [OpenStruct]
+  # @param stringify_keys [Boolean]
   # @return [Hash]
-  def self.structToHash(struct)
+  def self.structToHash(struct, stringify_keys: false)
     google_struct = false
     begin
       google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
@@ -642,18 +643,33 @@ module MU
        google_struct or aws_struct
 
       hash = struct.to_h
+      if stringify_keys
+        newhash = {}
+        hash.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        hash = newhash 
+      end
+
       hash.each_pair { |key, value|
-        hash[key] = self.structToHash(value)
+        hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return hash
     elsif struct.is_a?(Hash)
+      if stringify_keys
+        newhash = {}
+        struct.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        struct = newhash 
+      end
       struct.each_pair { |key, value|
-        struct[key] = self.structToHash(value)
+        struct[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return struct
     elsif struct.is_a?(Array)
       struct.map! { |elt|
-        self.structToHash(elt)
+        self.structToHash(elt, stringify_keys: stringify_keys)
       }
     else
       return struct

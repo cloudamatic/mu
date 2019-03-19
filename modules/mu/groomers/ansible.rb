@@ -41,7 +41,7 @@ module MU
 
       # Indicate whether our server has been bootstrapped with Ansible
       def haveBootstrapped?
-        false
+        @inventory.haveNode?(@server.mu_name)
       end
 
       # @param vault [String]: A repository of secrets to create/save into.
@@ -87,9 +87,11 @@ module MU
       # @param output [Boolean]: Display Ansible's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
+        system(%Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name}})
       end
 
-      # Expunge
+      # This is a stub; since Ansible is effectively agentless, this operation
+      # doesn't have meaning.
       def preClean(leave_ours = false)
       end
 
@@ -119,13 +121,54 @@ module MU
           f.puts [play].to_yaml
           f.flock(File::LOCK_UN)
         }
-
-        pp @server.config['run_list']
       end
 
       # Synchronize the deployment structure managed by {MU::MommaCat} into some Ansible variables, so that nodes can access this metadata.
       # @return [Hash]: The data synchronized.
       def saveDeployData
+        @server.describe(update_cache: true) # Make sure we're fresh
+
+        allvars = {
+          "deployment" => @server.deploy.deployment,
+          "service_name" => @config["name"],
+          "windows_admin_username" => @config['windows_admin_username'],
+          "mu_environment" => MU.environment.downcase,
+        }
+        allvars['deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
+
+        if @server.config['cloud'] == "AWS"
+          allvars["ec2"] = MU.structToHash(@server.cloud_desc, stringify_keys: true)
+        end
+
+        if @server.windows?
+          allvars['windows_admin_username'] = @config['windows_admin_username']
+        end
+
+        if !@server.cloud.nil?
+          allvars["cloudprovider"] = @server.cloud
+        end
+
+        File.open(@ansible_path+"/vars/main.yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+          f.flock(File::LOCK_EX)
+          f.puts allvars.to_yaml
+          f.flock(File::LOCK_UN)
+        }
+
+        groupvars = {}
+        if @server.deploy.original_config.has_key?('parameters')
+          groupvars["mu_parameters"] = @server.deploy.original_config['parameters']
+        end
+        if !@config['application_attributes'].nil?
+          groupvars["application_attributes"] = @config['application_attributes']
+        end
+
+        File.open(@ansible_path+"/group_vars/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+          f.flock(File::LOCK_EX)
+          f.puts groupvars.to_yaml
+          f.flock(File::LOCK_UN)
+        }
+
+        allvars['deployment']
       end
 
       # Expunge Ansible resources associated with a node.
@@ -134,6 +177,7 @@ module MU
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       # @param nodeonly [Boolean]: Just delete the node and its keys, but leave other artifacts
       def self.cleanup(node, vaults_to_clean = [], noop = false, nodeonly: false)
+#        @inventory.remove(node)
       end
 
       private
@@ -215,6 +259,20 @@ module MU
           @ansible_path = @deploy.deploy_dir+"/ansible"
 
           @lockfile = File.open(@ansible_path+"/.hosts.lock", File::CREAT|File::RDWR, 0600)
+        end
+
+        # See if we have a particular node in our inventory.
+        def haveNode?(name)
+          lock
+          read
+          @inv.each_pair { |group, nodes|
+            if nodes.include?(name)
+              unlock
+              return true
+            end
+          }
+          unlock
+          false
         end
 
         # Add a node to our Ansible inventory
