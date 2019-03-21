@@ -177,7 +177,10 @@ module MU
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       # @param nodeonly [Boolean]: Just delete the node and its keys, but leave other artifacts
       def self.cleanup(node, vaults_to_clean = [], noop = false, nodeonly: false)
-#        @inventory.remove(node)
+        deploy = MU::MommaCat.new(MU.deploy_id)
+        inventory = Inventory.new(deploy)
+        ansible_path = deploy.deploy_dir+"/ansible"
+        inventory.remove(node)
       end
 
       private
