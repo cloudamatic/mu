@@ -44,11 +44,31 @@ module MU
         @inventory.haveNode?(@server.mu_name)
       end
 
+      def self.secretPwFile(user = MU.mu_user)
+      end
+
       # @param vault [String]: A repository of secrets to create/save into.
       # @param item [String]: The item within the repository to create/save.
       # @param data [Hash]: Data to save
       # @param permissions [String]: An implementation-specific string describing what node or nodes should have access to this secret.
-      def self.saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: nil)
+      def self.saveSecret(vault: nil, item: nil, data: nil, permissions: nil)
+        if vault.nil? or vault.empty? or item.nil? or item.empty?
+          raise MuError, "Must call saveSecret with vault and item names"
+        end
+        if vault.match(/\//) or item.match(/\//) #XXX this should just check for all valid dirname/filename chars
+          raise MuError, "Ansible vault/item names cannot include forward slashes"
+        end
+        dir = secret_dir+"/"+vault
+        path = dir+"/"+item
+        Dir.mkdir(dir, 0700) if !Dir.exists?(dir)
+        if File.exists?(path)
+        else
+          File.write(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+            f.write data
+          }
+          system(%Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-password-file})
+        end
+        puts "BOUT TO PLANT A SECRET IN "+path
       end
 
       # see {MU::Groomer::Ansible.saveSecret}
@@ -63,6 +83,9 @@ module MU
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
+        if vault.nil? or vault.empty? or item.nil? or item.empty?
+          raise MuError, "Must call saveSecret with vault and item names"
+        end
       end
 
       # see {MU::Groomer::Ansible.getSecret}
@@ -73,11 +96,14 @@ module MU
       # Delete a Ansible data bag / Vault
       # @param vault [String]: A repository of secrets to delete
       def self.deleteSecret(vault: nil, item: nil)
+        if vault.nil? or vault.empty?
+          raise MuError, "Must call deleteSecret with vault name"
+        end
       end
 
       # see {MU::Groomer::Ansible.deleteSecret}
-      def deleteSecret(vault: nil)
-        self.class.deleteSecret(vault: vault)
+      def deleteSecret(vault: nil, item: nil)
+        self.class.deleteSecret(vault: vault, item: nil)
       end
 
       # Invoke the Ansible client on the node at the other end of a provided SSH
@@ -185,6 +211,14 @@ module MU
 
       private
 
+      # Figure out where our main stash of secrets is, and make sure it exists
+      def self.secret_dir
+        path = MU.dataDir + "/ansible-secrets"
+        Dir.mkdir(path, 0755) if !Dir.exists?(path)
+
+        path
+      end
+
       def isAnsibleRole?(path)
         true # XXX no
       end
@@ -260,6 +294,9 @@ module MU
         def initialize(deploy)
           @deploy = deploy
           @ansible_path = @deploy.deploy_dir+"/ansible"
+          if !Dir.exists?(@ansible_path)
+            Dir.mkdir(@ansible_path, 0755)
+          end
 
           @lockfile = File.open(@ansible_path+"/.hosts.lock", File::CREAT|File::RDWR, 0600)
         end
