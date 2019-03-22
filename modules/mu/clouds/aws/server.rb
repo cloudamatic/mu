@@ -441,7 +441,7 @@ module MU
                 end
               end
               MU.log "Starting #{@mu_name} (#{@cloud_id})"
-              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).start_instances(
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).start_instances(
                 instance_ids: [@cloud_id]
               )
             ensure
