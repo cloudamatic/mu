@@ -423,8 +423,11 @@ module MU
               )
               groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
               MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
-              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).suspend_processes(
-                auto_scaling_group_name: groupname
+              MU::Cloud::AWS.autoscale(@config['region']).suspend_processes(
+                auto_scaling_group_name: groupname,
+                scaling_processes: [
+                  "Terminate",
+                ], 
               )
             end
             begin
@@ -444,8 +447,11 @@ module MU
             ensure
               if !groupname.nil?
                 MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
-                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).resume_processes(
-                  auto_scaling_group_name: groupname
+                MU::Cloud::AWS.autoscale(@config['region']).resume_processes(
+                  auto_scaling_group_name: groupname,
+                  scaling_processes: [
+                    "Terminate",
+                  ],
                 )
               end
             end
