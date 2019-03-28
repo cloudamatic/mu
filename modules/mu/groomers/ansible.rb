@@ -27,6 +27,7 @@ module MU
         @config = node.config
         @server = node
         @inventory = Inventory.new(node.deploy)
+        @mu_user = node.deploy.mu_user
         @ansible_path = node.deploy.deploy_dir+"/ansible"
 
         [@ansible_path, @ansible_path+"/roles", @ansible_path+"/vars", @ansible_path+"/group_vars", @ansible_path+"/vaults"].each { |dir|
@@ -44,9 +45,6 @@ module MU
         @inventory.haveNode?(@server.mu_name)
       end
 
-      def self.secretPwFile(user = MU.mu_user)
-      end
-
       # @param vault [String]: A repository of secrets to create/save into.
       # @param item [String]: The item within the repository to create/save.
       # @param data [Hash]: Data to save
@@ -58,17 +56,27 @@ module MU
         if vault.match(/\//) or item.match(/\//) #XXX this should just check for all valid dirname/filename chars
           raise MuError, "Ansible vault/item names cannot include forward slashes"
         end
+        pwfile = secret_dir+"/.vault_pw"
+        if !File.exists?(pwfile)
+          File.write(pwfile, File::CREAT|File::RDWR|File::TRUNC, 0400) { |f|
+            f.write data
+          }
+        end
+
         dir = secret_dir+"/"+vault
         path = dir+"/"+item
         Dir.mkdir(dir, 0700) if !Dir.exists?(dir)
+
         if File.exists?(path)
         else
           File.write(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
             f.write data
           }
-          system(%Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-password-file})
+          cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
+          MU.log cmd
+          system(cmd)
         end
-        puts "BOUT TO PLANT A SECRET IN "+path
+
       end
 
       # see {MU::Groomer::Ansible.saveSecret}
@@ -86,6 +94,12 @@ module MU
         if vault.nil? or vault.empty? or item.nil? or item.empty?
           raise MuError, "Must call saveSecret with vault and item names"
         end
+
+        pwfile = secret_dir+"/.vault_pw"
+        cmd = %Q{#{BINDIR}/ansible-vault view #{path} --vault-password-file #{pwfile}}
+        MU.log cmd
+        system(cmd)
+        MU.log "MU::Groomer::Ansible.getSecret needs to actually get the value and return it", MU::ERR
       end
 
       # see {MU::Groomer::Ansible.getSecret}
@@ -99,6 +113,7 @@ module MU
         if vault.nil? or vault.empty?
           raise MuError, "Must call deleteSecret with vault name"
         end
+        MU.log "MU::Groomer::Ansible.deleteSecret called, now implement it dumbass", MU::ERR
       end
 
       # see {MU::Groomer::Ansible.deleteSecret}
@@ -113,7 +128,12 @@ module MU
       # @param output [Boolean]: Display Ansible's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
-        system(%Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name}})
+        pwfile = secret_dir+"/.vault_pw"
+
+        cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile}}
+
+        MU.log cmd
+        system(cmd)
       end
 
       # This is a stub; since Ansible is effectively agentless, this operation
@@ -212,8 +232,13 @@ module MU
       private
 
       # Figure out where our main stash of secrets is, and make sure it exists
-      def self.secret_dir
-        path = MU.dataDir + "/ansible-secrets"
+      def secret_dir
+        MU::Groomer::Ansible.secret_dir(@mu_user)
+      end
+
+      # Figure out where our main stash of secrets is, and make sure it exists
+      def self.secret_dir(user = MU.mu_user)
+        path = MU.dataDir(user) + "/ansible-secrets"
         Dir.mkdir(path, 0755) if !Dir.exists?(path)
 
         path

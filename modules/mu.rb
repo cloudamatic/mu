@@ -210,11 +210,12 @@ module MU
   @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key?("MU_DATADIR")
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
-  def self.dataDir
-    if MU.mu_user.nil? or MU.mu_user.empty? or MU.mu_user == "mu" or MU.mu_user == "root"
+  def self.dataDir(for_user = MU.mu_user)
+    if for_user.nil? or for_user.empty? or for_user == "mu" or for_user == "root"
       return @myDataDir
     else
-      basepath = Etc.getpwnam(MU.mu_user).dir+"/.mu"
+      for_user ||= MU.mu_user
+      basepath = Etc.getpwnam(for_user).dir+"/.mu"
       Dir.mkdir(basepath, 0755) if !Dir.exists?(basepath)
       Dir.mkdir(basepath+"/var", 0755) if !Dir.exists?(basepath+"/var")
       return basepath+"/var"
