@@ -20,7 +20,9 @@ module MU
     # Support for Ansible as a host configuration management layer.
     class Ansible
 
+      # Location in which we'll find our Ansible executables
       BINDIR = "/usr/local/python-current/bin"
+      @@pwfile_semaphore = Mutex.new
 
       # @param node [MU::Cloud::Server]: The server object on which we'll be operating
       def initialize(node)
@@ -56,13 +58,7 @@ module MU
         if vault.match(/\//) or item.match(/\//) #XXX this should just check for all valid dirname/filename chars
           raise MuError, "Ansible vault/item names cannot include forward slashes"
         end
-        pwfile = secret_dir+"/.vault_pw"
-        if !File.exists?(pwfile)
-          MU.log "Generating Ansible vault password file at #{pwfile}", MU::DEBUG
-          File.open(pwfile, File::CREAT|File::RDWR|File::TRUNC, 0400) { |f|
-            f.write Password.random(12..14)
-          }
-        end
+        pwfile = vaultPasswordFile
 
         dir = secret_dir+"/"+vault
         path = dir+"/"+item
@@ -95,7 +91,7 @@ module MU
           raise MuError, "Must call getSecret with at least a vault name"
         end
 
-        pwfile = secret_dir+"/.vault_pw"
+        pwfile = vaultPasswordFile
         dir = secret_dir+"/"+vault
         if !Dir.exists?(dir)
           raise MuError, "No such vault #{vault}"
@@ -176,7 +172,7 @@ module MU
       # @param output [Boolean]: Display Ansible's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
-        pwfile = secret_dir+"/.vault_pw"
+        pwfile = MU::Groomer::Ansible.vaultPasswordFile
 
         cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile}}
 
@@ -277,6 +273,9 @@ module MU
         inventory.remove(node)
       end
 
+      # List the Ansible vaults, if any, owned by the specified Mu user
+      # @param user [String]: The user whose vaults we will list
+      # @return [Array<String>]
       def self.listSecrets(user = MU.mu_user)
         path = secret_dir(user)
         found = []
@@ -288,7 +287,33 @@ module MU
         found
       end
 
+      # Encrypt a string using +ansible-vault encrypt_string+ and print the
+      # the results to +STDOUT+.
+      # @param name [String]: The variable name to use for the string's YAML key
+      # @param string [String]: The string to encrypt
+      # @param for_user [String]: Encrypt using the Vault password of the specified Mu user
+      def self.encryptString(name, string, for_user = nil)
+        pwfile = vaultPasswordFile
+        cmd = %Q{#{BINDIR}/ansible-vault}
+        system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
+      end
+
       private
+
+      # Get the +.vault_pw+ file for the appropriate user. If it doesn't exist,
+      # generate one.
+      def self.vaultPasswordFile(for_user = nil)
+        pwfile = secret_dir(for_user)+"/.vault_pw"
+        @@pwfile_semaphore.synchronize {
+          if !File.exists?(pwfile)
+            MU.log "Generating Ansible vault password file at #{pwfile}", MU::DEBUG
+            File.open(pwfile, File::CREAT|File::RDWR|File::TRUNC, 0400) { |f|
+              f.write Password.random(12..14)
+            }
+          end
+        }
+        pwfile
+      end
 
       # Figure out where our main stash of secrets is, and make sure it exists
       def secret_dir
@@ -304,7 +329,7 @@ module MU
       end
 
       def isAnsibleRole?(path)
-        true # XXX no
+        true # TODO actually validate that this is an Ansible role, as opposed to some Chef nonsense
       end
 
       # Find all of the Ansible roles in the various configured Mu repositories
@@ -354,6 +379,7 @@ module MU
 
         if @server.config['run_list']
           @server.config['run_list'].each { |role|
+# TODO since we're getting strings from user space, we need to check them for command-line safety
             if !File.exists?(roledir+"/"+role)
               if role.match(/[^\.]\.[^\.]/)
 # TODO be able to toggle this behavior off
@@ -453,7 +479,6 @@ module MU
           @inv = {}
           if File.exists?(@ansible_path+"/hosts")
             section = nil
-# XXX need that flock
             File.readlines(@ansible_path+"/hosts").each { |l|
               l.chomp!
               l.sub!(/#.*/, "")
