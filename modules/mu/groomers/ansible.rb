@@ -58,8 +58,9 @@ module MU
         end
         pwfile = secret_dir+"/.vault_pw"
         if !File.exists?(pwfile)
-          File.write(pwfile, File::CREAT|File::RDWR|File::TRUNC, 0400) { |f|
-            f.write data
+          MU.log "Generating Ansible vault password file at #{pwfile}", MU::DEBUG
+          File.open(pwfile, File::CREAT|File::RDWR|File::TRUNC, 0400) { |f|
+            f.write Password.random(12..14)
           }
         end
 
@@ -68,15 +69,14 @@ module MU
         Dir.mkdir(dir, 0700) if !Dir.exists?(dir)
 
         if File.exists?(path)
-        else
-          File.write(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
-            f.write data
-          }
-          cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
-          MU.log cmd
-          system(cmd)
+          MU.log "Overwriting existing vault #{vault} item #{item}"
         end
-
+        File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
+          f.write data
+        }
+        cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
+        MU.log cmd
+        system(cmd)
       end
 
       # see {MU::Groomer::Ansible.saveSecret}
@@ -91,15 +91,47 @@ module MU
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
-        if vault.nil? or vault.empty? or item.nil? or item.empty?
-          raise MuError, "Must call saveSecret with vault and item names"
+        if vault.nil? or vault.empty?
+          raise MuError, "Must call getSecret with at least a vault name"
         end
 
         pwfile = secret_dir+"/.vault_pw"
-        cmd = %Q{#{BINDIR}/ansible-vault view #{path} --vault-password-file #{pwfile}}
-        MU.log cmd
-        system(cmd)
-        MU.log "MU::Groomer::Ansible.getSecret needs to actually get the value and return it", MU::ERR
+        dir = secret_dir+"/"+vault
+        if !Dir.exists?(dir)
+          raise MuError, "No such vault #{vault}"
+        end
+        puts dir
+        data = nil
+        if item
+          itempath = dir+"/"+item
+          puts itempath
+          if !File.exists?(itempath)
+            raise MuError, "No such item #{item} in vault #{vault}"
+          end
+          cmd = %Q{#{BINDIR}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
+          MU.log cmd
+          a = `#{cmd}`
+          # If we happen to have stored recognizeable JSON, return it as parsed,
+          # which is a behavior we're used to from Chef vault. Otherwise, return
+          # a String.
+          begin
+            data = JSON.parse(a)
+            if field and data[field]
+              data = data[field]
+            end
+          rescue JSON::ParserError
+            data = a
+          end
+        else
+          data = []
+          Dir.foreach(dir) { |entry|
+            next if entry == "." or entry == ".."
+            next if File.directory?(dir+"/"+entry)
+            data << entry
+          }
+        end
+
+        data
       end
 
       # see {MU::Groomer::Ansible.getSecret}
@@ -227,6 +259,17 @@ module MU
         inventory = Inventory.new(deploy)
         ansible_path = deploy.deploy_dir+"/ansible"
         inventory.remove(node)
+      end
+
+      def self.listSecrets(user = MU.mu_user)
+        path = secret_dir(user)
+        found = []
+        Dir.foreach(path) { |entry|
+          next if entry == "." or entry == ".."
+          next if !File.directory?(path+"/"+entry)
+          found << entry
+        }
+        found
       end
 
       private
