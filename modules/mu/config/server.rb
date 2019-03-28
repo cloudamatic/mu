@@ -136,6 +136,11 @@ module MU
             "default" => MU::Config.defaultGroomer,
             "enum" => MU.supportedGroomers
           },
+          "groomer_autofetch" => {
+            "type" => "boolean",
+            "description" => "For groomer implementations which support automatically fetching roles/recipes/manifests from a public library, such as Ansible Galaxy, this will toggle this behavior on or off.",
+            "default" => true
+          },
           "groom" => {
               "type" => "boolean",
               "default" => true,

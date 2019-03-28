@@ -328,8 +328,19 @@ module MU
         path
       end
 
+      # Make an effort to distinguish an Ansible role from other sorts of
+      # artifacts, since 'roles' is an awfully generic name for a directory.
+      # Short of a full, slow syntax check, this is the best we're liable to do.
       def isAnsibleRole?(path)
-        true # TODO actually validate that this is an Ansible role, as opposed to some Chef nonsense
+        Dir.foreach(path) { |entry|
+          if File.directory?(path+"/"+entry) and
+             ["tasks", "vars"].include?(entry)
+            return true # https://knowyourmeme.com/memes/close-enough
+          elsif ["metadata.rb", "recipes"].include?(entry)
+            return false
+          end
+        }
+        false
       end
 
       # Find all of the Ansible roles in the various configured Mu repositories
@@ -379,19 +390,26 @@ module MU
 
         if @server.config['run_list']
           @server.config['run_list'].each { |role|
-# TODO since we're getting strings from user space, we need to check them for command-line safety
+            found = false
             if !File.exists?(roledir+"/"+role)
-              if role.match(/[^\.]\.[^\.]/)
-# TODO be able to toggle this behavior off
-                system(%Q{#{BINDIR}/ansible-galaxy --roles-path #{roledir} install #{role}})
+              if role.match(/[^\.]\.[^\.]/) and @server.config['groomer_autofetch']
+                system(%Q{#{BINDIR}/ansible-galaxy}, "--roles-path", roledir, "install", role)
+                found = true
+# XXX check return value
               else
                 canon_links.keys.each { |longrole|
                   if longrole.match(/\.#{Regexp.quote(role)}$/)
                     File.symlink(roledir+"/"+longrole, roledir+"/"+role)
+                    found = true
                     break
                   end
                 }
               end
+            else
+              found = true
+            end
+            if !found
+              raise MuError, "Unable to locate Ansible role #{role}"
             end
           }
         end
