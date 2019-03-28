@@ -100,11 +100,10 @@ module MU
         if !Dir.exists?(dir)
           raise MuError, "No such vault #{vault}"
         end
-        puts dir
+
         data = nil
         if item
           itempath = dir+"/"+item
-          puts itempath
           if !File.exists?(itempath)
             raise MuError, "No such item #{item} in vault #{vault}"
           end
@@ -143,9 +142,26 @@ module MU
       # @param vault [String]: A repository of secrets to delete
       def self.deleteSecret(vault: nil, item: nil)
         if vault.nil? or vault.empty?
-          raise MuError, "Must call deleteSecret with vault name"
+          raise MuError, "Must call deleteSecret with at least a vault name"
         end
-        MU.log "MU::Groomer::Ansible.deleteSecret called, now implement it dumbass", MU::ERR
+        dir = secret_dir+"/"+vault
+        if !Dir.exists?(dir)
+          raise MuError, "No such vault #{vault}"
+        end
+
+        data = nil
+        if item
+          itempath = dir+"/"+item
+          if !File.exists?(itempath)
+            raise MuError, "No such item #{item} in vault #{vault}"
+          end
+          MU.log "Deleting Ansible vault #{vault} item #{item}", MU::NOTICE
+          File.unlink(itempath)
+        else
+          MU.log "Deleting Ansible vault #{vault}", MU::NOTICE
+          FileUtils.rm_rf(dir)
+        end
+
       end
 
       # see {MU::Groomer::Ansible.deleteSecret}
