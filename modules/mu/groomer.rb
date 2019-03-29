@@ -18,7 +18,11 @@ module MU
   class Groomer
 
     # An exception denoting a Groomer run that has failed
-    class RunError < MuError;
+    class RunError < MuError
+    end
+
+    # An exception denoting nonexistent secret
+    class MuNoSuchSecret < StandardError
     end
 
     # List of known/supported grooming agents (configuration management tools)

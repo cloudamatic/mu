@@ -20,6 +20,7 @@ module MU
     # Support for Ansible as a host configuration management layer.
     class Ansible
 
+
       # Location in which we'll find our Ansible executables
       BINDIR = "/usr/local/python-current/bin"
       @@pwfile_semaphore = Mutex.new
@@ -94,14 +95,14 @@ module MU
         pwfile = vaultPasswordFile
         dir = secret_dir+"/"+vault
         if !Dir.exists?(dir)
-          raise MuError, "No such vault #{vault}"
+          raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
         data = nil
         if item
           itempath = dir+"/"+item
           if !File.exists?(itempath)
-            raise MuError, "No such item #{item} in vault #{vault}"
+            raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           cmd = %Q{#{BINDIR}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
           MU.log cmd
@@ -142,14 +143,14 @@ module MU
         end
         dir = secret_dir+"/"+vault
         if !Dir.exists?(dir)
-          raise MuError, "No such vault #{vault}"
+          raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
         data = nil
         if item
           itempath = dir+"/"+item
           if !File.exists?(itempath)
-            raise MuError, "No such item #{item} in vault #{vault}"
+            raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           MU.log "Deleting Ansible vault #{vault} item #{item}", MU::NOTICE
           File.unlink(itempath)

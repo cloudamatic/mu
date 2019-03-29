@@ -20,11 +20,6 @@ module MU
     # Support for Chef as a host configuration management layer.
     class Chef
 
-      # Wrapper class for temporary Exceptions. Gives our internals something
-      # to inherit that will log a notice message appropriately before
-      # bubbling up.
-      class MuNoSuchSecret < StandardError;end
-
       Object.class_eval {
         def self.const_missing(symbol)
           if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
