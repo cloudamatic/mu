@@ -1,6 +1,6 @@
 export MU_DATADIR="<%= home %>/.mu/var"
 export MU_CHEF_CACHE="<%= home %>/.chef"
-export PATH="<%= installdir %>/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+export PATH="<%= installdir %>/bin:/usr/local/ruby-current/bin:/usr/local/python-current/bin:${PATH}:/opt/opscode/embedded/bin"
 
 if [ ! -f "<%= home %>/.first_chef_upload" -a "`tty`" != "not a tty" ];then
   touch "<%= home %>/.first_chef_upload"

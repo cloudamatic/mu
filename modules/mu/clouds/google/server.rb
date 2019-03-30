@@ -623,6 +623,8 @@ next if !create
                       az,
                       cloud_id
                     )
+                  rescue ::OpenSSL::SSL::SSLError => e
+                    MU.log "Got #{e.message} looking for instance #{cloud_id} in project #{flags["project"]} (#{az}). Usually this means we've tried to query a non-functional region.", MU::DEBUG
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/^notFound: /)
                   end

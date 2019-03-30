@@ -1214,7 +1214,7 @@ module MU
         "type" => "array",
         "minItems" => 1,
         "items" => {
-          "description" => "Tags to apply to this resource. Will apply at the cloud provider level and in Chef, where applicable.",
+          "description" => "Tags to apply to this resource. Will apply at the cloud provider level and in node groomers, where applicable.",
           "type" => "object",
           "title" => "tags",
           "required" => ["key", "value"],
@@ -1567,7 +1567,7 @@ module MU
     def self.check_vault_refs(server)
       ok = true
       server['vault_access'] = [] if server['vault_access'].nil?
-      server['groomer'] ||= "Chef"
+      server['groomer'] ||= self.defaultGroomer
       groomclass = MU::Groomer.loadGroomer(server['groomer'])
 
       begin

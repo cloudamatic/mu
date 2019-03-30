@@ -210,11 +210,12 @@ module MU
   @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key?("MU_DATADIR")
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
-  def self.dataDir
-    if MU.mu_user.nil? or MU.mu_user.empty? or MU.mu_user == "mu" or MU.mu_user == "root"
+  def self.dataDir(for_user = MU.mu_user)
+    if for_user.nil? or for_user.empty? or for_user == "mu" or for_user == "root"
       return @myDataDir
     else
-      basepath = Etc.getpwnam(MU.mu_user).dir+"/.mu"
+      for_user ||= MU.mu_user
+      basepath = Etc.getpwnam(for_user).dir+"/.mu"
       Dir.mkdir(basepath, 0755) if !Dir.exists?(basepath)
       Dir.mkdir(basepath+"/var", 0755) if !Dir.exists?(basepath+"/var")
       return basepath+"/var"
@@ -422,7 +423,7 @@ module MU
   # XXX these guys to move into mu/groomer
   # List of known/supported grooming agents (configuration management tools)
   def self.supportedGroomers
-    ["Chef"]
+    ["Chef", "Ansible"]
   end
 
   MU.supportedGroomers.each { |groomer|
@@ -624,8 +625,9 @@ module MU
 
   # Recursively turn a Ruby OpenStruct into a Hash
   # @param struct [OpenStruct]
+  # @param stringify_keys [Boolean]
   # @return [Hash]
-  def self.structToHash(struct)
+  def self.structToHash(struct, stringify_keys: false)
     google_struct = false
     begin
       google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
@@ -642,18 +644,33 @@ module MU
        google_struct or aws_struct
 
       hash = struct.to_h
+      if stringify_keys
+        newhash = {}
+        hash.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        hash = newhash 
+      end
+
       hash.each_pair { |key, value|
-        hash[key] = self.structToHash(value)
+        hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return hash
     elsif struct.is_a?(Hash)
+      if stringify_keys
+        newhash = {}
+        struct.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        struct = newhash 
+      end
       struct.each_pair { |key, value|
-        struct[key] = self.structToHash(value)
+        struct[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return struct
     elsif struct.is_a?(Array)
       struct.map! { |elt|
-        self.structToHash(elt)
+        self.structToHash(elt, stringify_keys: stringify_keys)
       }
     else
       return struct
