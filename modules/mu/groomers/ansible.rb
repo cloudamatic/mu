@@ -52,8 +52,9 @@ module MU
       # @param vault [String]: A repository of secrets to create/save into.
       # @param item [String]: The item within the repository to create/save.
       # @param data [Hash]: Data to save
-      # @param permissions [String]: An implementation-specific string describing what node or nodes should have access to this secret.
-      def self.saveSecret(vault: nil, item: nil, data: nil, permissions: nil)
+      # @param permissions [Boolean]: If true, save the secret under the current active deploy (if any), rather than in the global location for this user
+      # @param deploy_dir [String]: If permissions is +true+, save the secret here
+      def self.saveSecret(vault: nil, item: nil, data: nil, permissions: false, deploy_dir: nil)
         if vault.nil? or vault.empty? or item.nil? or item.empty?
           raise MuError, "Must call saveSecret with vault and item names"
         end
@@ -61,10 +62,24 @@ module MU
           raise MuError, "Ansible vault/item names cannot include forward slashes"
         end
         pwfile = vaultPasswordFile
+        
 
-        dir = secret_dir+"/"+vault
+        dir = if permissions
+          if deploy_dir
+            deploy_dir+"/ansible/vaults/"+vault
+          elsif MU.mommacat
+            MU.mommacat.deploy_dir+"/ansible/vaults/"+vault
+          else
+            raise "MU::Ansible::Groomer.saveSecret had permissions set to true, but I couldn't find an active deploy directory to save into"
+          end
+        else
+          secret_dir+"/"+vault
+        end
         path = dir+"/"+item
-        Dir.mkdir(dir, 0700) if !Dir.exists?(dir)
+
+        if !Dir.exists?(dir)
+          FileUtils.mkdir_p(dir, mode: 0700)
+        end
 
         if File.exists?(path)
           MU.log "Overwriting existing vault #{vault} item #{item}"
@@ -78,8 +93,8 @@ module MU
       end
 
       # see {MU::Groomer::Ansible.saveSecret}
-      def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: "name:#{@server.mu_name}")
-        self.class.saveSecret(vault: vault, item: item, data: data, permissions: permissions)
+      def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: true)
+        self.class.saveSecret(vault: vault, item: item, data: data, permissions: permissions, deploy_dir: @server.deploy.deploy_dir)
       end
 
       # Retrieve sensitive data, which hopefully we're storing and retrieving
@@ -175,7 +190,8 @@ module MU
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
         pwfile = MU::Groomer::Ansible.vaultPasswordFile
-#--vault-id dev@dev-password --vault-id prod@prompt
+        stashHostSSLCertSecret
+
         cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-id #{pwfile} --vault-id #{@ansible_path}/.vault_pw}
 
         MU.log cmd
@@ -415,6 +431,21 @@ module MU
             end
           }
         end
+      end
+
+      # Upload the certificate to a Chef Vault for this node
+      def stashHostSSLCertSecret
+        cert, key = @server.deploy.nodeSSLCerts(@server)
+        certdata = {
+          "data" => {
+            "node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),
+            "node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
+          }
+        }
+        saveSecret(item: "ssl_cert", data: certdata, permissions: true)
+
+        saveSecret(item: "secrets", data: @config['secrets'], permissions: true) if !@config['secrets'].nil?
+        certdata
       end
 
       # Simple interface for an Ansible inventory file.
