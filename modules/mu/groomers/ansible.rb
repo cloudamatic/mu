@@ -39,6 +39,7 @@ module MU
             Dir.mkdir(dir, 0755)
           end
         }
+        MU::Groomer::Ansible.vaultPasswordFile(pwfile: "#{@ansible_path}/.vault_pw")
         installRoles
       end
 
@@ -71,7 +72,7 @@ module MU
         File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
           f.write data
         }
-        cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
+        cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-id #{pwfile}}
         MU.log cmd
         system(cmd)
       end
@@ -104,7 +105,7 @@ module MU
           if !File.exists?(itempath)
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
-          cmd = %Q{#{BINDIR}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
+          cmd = %Q{#{BINDIR}/ansible-vault view #{itempath} --vault-id #{pwfile}}
           MU.log cmd
           a = `#{cmd}`
           # If we happen to have stored recognizeable JSON, return it as parsed,
@@ -174,8 +175,8 @@ module MU
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
         pwfile = MU::Groomer::Ansible.vaultPasswordFile
-
-        cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile}}
+#--vault-id dev@dev-password --vault-id prod@prompt
+        cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-id #{pwfile} --vault-id #{@ansible_path}/.vault_pw}
 
         MU.log cmd
         system(cmd)
@@ -296,15 +297,15 @@ module MU
       def self.encryptString(name, string, for_user = nil)
         pwfile = vaultPasswordFile
         cmd = %Q{#{BINDIR}/ansible-vault}
-        system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
+        system(cmd, "encrypt_string", string, "--name", name, "--vault-id", pwfile)
       end
 
       private
 
       # Get the +.vault_pw+ file for the appropriate user. If it doesn't exist,
       # generate one.
-      def self.vaultPasswordFile(for_user = nil)
-        pwfile = secret_dir(for_user)+"/.vault_pw"
+      def self.vaultPasswordFile(for_user = nil, pwfile: nil)
+        pwfile ||= secret_dir(for_user)+"/.vault_pw"
         @@pwfile_semaphore.synchronize {
           if !File.exists?(pwfile)
             MU.log "Generating Ansible vault password file at #{pwfile}", MU::DEBUG
