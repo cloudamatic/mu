@@ -1500,7 +1500,7 @@ module MU
           }
         end
         if conf_chunk.nil? and schema_chunk["default"] != nil
-          return schema_chunk["default"]
+          return schema_chunk["default"].dup
         end
       end
       return conf_chunk

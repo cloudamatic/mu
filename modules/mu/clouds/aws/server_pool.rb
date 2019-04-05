@@ -368,18 +368,7 @@ module MU
                 policy_params[:scaling_adjustment] = policy['adjustment']
                 policy_params[:adjustment_type] = policy['type']
               elsif policy["policy_type"] == "TargetTrackingScaling"
-                def strToSym(hash)
-                  newhash = {}
-                  hash.each_pair { |k, v|
-                    if v.is_a?(Hash)
-                      newhash[k.to_sym] = strToSym(v)
-                    else
-                      newhash[k.to_sym] = v
-                    end
-                  }
-                  newhash
-                end
-                policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                policy_params[:target_tracking_configuration] = MU.strToSym(policy['target_tracking_configuration'])
                 policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"

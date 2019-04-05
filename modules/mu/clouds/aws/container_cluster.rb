@@ -130,6 +130,7 @@ module MU
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
               cluster_name: @mu_name
             )
+
           end
           @cloud_id = @mu_name
         end
@@ -214,7 +215,7 @@ module MU
             end
 
             MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml}, MU::SUMMARY
-          else
+          elsif @config['flavor'] != "Fargate"
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
               cluster: @mu_name
             })
@@ -281,7 +282,247 @@ module MU
               }
             }
           end
-# launch_type: "EC2" only option in GovCloud
+
+          if @config['flavor'] != "EKS" and @config['containers']
+
+            tasks_registered = 0
+            svc_resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
+              cluster: arn
+            )
+            existing_svcs = svc_resp.service_arns.map { |s|
+              s.gsub(/.*?:service\/(.*)/, '\1')
+            }
+
+            # Reorganize things so that we have services and task definitions
+            # mapped to the set of containers they must contain
+            tasks = {}
+            created_generic_loggroup = false
+
+            @config['containers'].each { |c|
+              service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name+"-"+c['name'].upcase
+              tasks[service_name] ||= []
+              tasks[service_name] << c
+            }
+
+            tasks.each_pair { |service_name, containers|
+              launch_type = @config['flavor'] == "ECS" ? "EC2" : "FARGATE"
+              cpu_total = 0
+              mem_total = 0
+              role_arn = nil
+              container_definitions = containers.map { |c|
+                cpu_total += c['cpu']
+                mem_total += c['memory']
+
+              if c["role"] and !role_arn
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  "role",
+                  cloud_id: c["role"]["id"],
+                  name: c["role"]["name"],
+                  deploy_id: c["role"]["deploy_id"],
+                  dummy_ok: false
+                ).first
+                if found
+                  role_arn = found.cloudobj.arn
+                else
+                  raise MuError, "Unable to find execution role from #{c["role"]}"
+                end
+              end
+
+                params = {
+                  name: @mu_name+"-"+c['name'].upcase,
+                  image: c['image'],
+                  memory: c['memory'],
+                  cpu: c['cpu']
+                }
+                if c['log_configuration']
+                  params[:log_configuration] = MU.strToSym(c['log_configuration'])
+                end
+                params
+              }
+              cpu_total = 2 if cpu_total == 0
+              mem_total = 2 if mem_total == 0
+
+              task_params = {
+                family: @deploy.deploy_id,
+                container_definitions: container_definitions,
+                requires_compatibilities: [launch_type]
+              }
+              if role_arn
+                task_params[:execution_role_arn] = role_arn
+              end
+              if @config['flavor'] == "Fargate"
+                task_params[:network_mode] = "awsvpc"
+                task_params[:cpu] = cpu_total.to_i.to_s
+                task_params[:memory] = mem_total.to_i.to_s
+              end
+              tasks_registered += 1
+              MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
+              pp task_params
+# XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
+              resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
+
+              task_def = resp.task_definition.task_definition_arn
+
+              if !existing_svcs.include?(service_name)
+                service_params = {
+                  :cluster => @mu_name,
+                  :desired_count => @config['instance_count'], # XXX this makes no sense
+                  :service_name => service_name,
+                  :launch_type => launch_type,
+                  :task_definition => task_def
+                }
+                if @config['vpc']
+                  subnet_ids = []
+
+                  @vpc.subnets.each { |subnet_obj|
+                    raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+                    subnet_ids << subnet_obj.cloud_id
+                  }
+                  service_params[:network_configuration] = {
+                    :awsvpc_configuration => {
+                      :subnets => subnet_ids,
+#                      :security_groups => 
+#                      :assign_public_ip => "ENABLED"
+                    }
+                  }
+                end
+                MU.log "Creating Service #{service_name}"
+
+                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
+                existing_svcs << service_name 
+              else
+                MU.log "Updating Service #{service_name} XXX"
+              end
+            }
+
+            max_retries = 60
+            retries = 0
+            if tasks_registered > 0
+              retry_me = false
+              begin
+                retry_me = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: true, region: @config['region'], credentials: @config['credentials'])
+                retries += 1
+                sleep 5 if retry_me
+              end while retry_me and retries < max_retries
+              tasks = nil
+
+              if retry_me
+                MU.log "Not all tasks successfully launched in cluster #{@mu_name}", MU::WARN
+              end
+            end
+
+          end
+
+        end
+
+        # Returns true if all tasks in the given ECS/Fargate cluster are in the
+        # RUNNING state.
+        # @param cluster [String]: The cluster to check
+        # @param log [Boolean]: Output the state of each task to Mu's logger facility
+        # @param region [String]
+        # @param credentials [String]
+        # @return [Boolean]
+        def self.tasksRunning?(cluster, log: true, region: MU.myRegion, credentials: nil)
+          services = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
+            cluster: cluster
+          ).service_arns.map { |s| s.sub(/.*?:service\/([^\/:]+?)$/, '\1') }
+          
+          tasks_defined = []
+
+          begin
+            listme = services.slice!(0, (services.length >= 10 ? 10 : services.length))
+            tasks_defined.concat(
+              tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_services(
+                cluster: cluster,
+                services: listme
+              ).services.map { |s| s.task_definition }
+
+            )
+          end while services.size > 0
+
+          containers = {}
+
+          tasks_defined.each { |t|
+            taskdef = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_task_definition(
+              task_definition: t.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
+            )
+            taskdef.task_definition.container_definitions.each { |c|
+              containers[c.name] = {}
+            }
+          }
+
+          tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
+            cluster: cluster,
+            desired_status: "RUNNING"
+          ).task_arns
+          stopped_tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
+            cluster: cluster,
+            desired_status: "STOPPED"
+          ).task_arns
+
+          if !tasks or tasks.size == 0
+            tasks = stopped_tasks
+          end
+
+          def self.getTaskStates(cluster, tasks, log: true, region: nil, credentials: nil)
+            container_states = {}
+            task_ids = tasks.map { |task_arn|
+              task_arn.sub(/^.*?:task\/([a-f0-9\-]+)$/, '\1')
+            }
+
+            MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_tasks(
+              cluster: cluster,
+              tasks: task_ids
+            ).tasks.each { |t|
+              task_name = t.task_definition_arn.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
+              if log
+                case t.last_status
+                when "PENDING", "PROVISIONING"
+                  MU.log "TASK #{task_name} #{t.last_status}", MU::NOTICE
+                when "RUNNING"
+                  MU.log "TASK #{task_name} #{t.last_status}"
+                else
+                  MU.log "TASK #{task_name} #{t.last_status}", MU::WARN
+                end
+              end
+              t.containers.each { |c|
+                msg = ""
+                msg += c.reason if c.reason
+                msg += " ("+t.stopped_reason+")" if t.stopped_reason
+                container_states[c.name] = {
+                  "status" => c.last_status,
+                  "reason" => c.reason
+                }
+                if log
+                  case t.last_status
+                  when "PENDING", "PROVISIONING"
+                    MU.log "CONTAINER #{c.name} #{c.last_status} #{msg}", MU::NOTICE
+                  when "RUNNING"
+                    MU.log "CONTAINER #{c.name} #{c.last_status}"
+                  else
+                    MU.log "CONTAINER #{c.name} #{c.last_status} #{msg}", MU::WARN
+                  end
+                end
+              }
+            }
+            container_states
+          end
+
+          if tasks and tasks.size > 0
+            containers.merge!(self.getTaskStates(cluster, tasks, log: log, region: region, credentials: credentials))
+          end
+
+          to_return = true
+          containers.each_pair { |name, state|
+            to_return = false if state["status"] != "RUNNING"
+          }
+
+          if !to_return and log
+            self.getTaskStates(cluster, stopped_tasks, log: log, region: region, credentials: credentials)
+          end
+
+          to_return
         end
 
         # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
@@ -381,6 +622,24 @@ module MU
             resp.cluster_arns.each { |arn|
               if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
                 cluster = Regexp.last_match[1]
+
+                svc_resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
+                  cluster: arn
+                )
+                if svc_resp and svc_resp.service_arns
+                  svc_resp.service_arns.each { |svc_arn|
+                    svc_name = svc_arn.gsub(/.*?:service\/(.*)/, '\1')
+                    MU.log "Deleting Service #{svc_name} from ECS Cluster #{cluster}"
+                    if !noop
+                      MU::Cloud::AWS.ecs(region: region, credentials: credentials).delete_service(
+                        cluster: arn,
+                        service: svc_name,
+                        force: true # man forget scaling up and down if we're just deleting the cluster
+                      )
+                    end
+                  }
+                end
+
                 instances = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_container_instances({
                   cluster: cluster
                 })
@@ -400,13 +659,33 @@ module MU
                 MU.log "Deleting ECS Cluster #{cluster}"
                 if !noop
 # TODO de-register container instances
+                  begin
                   deletion = MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
                     cluster: cluster
                   )
+                  rescue Aws::ECS::Errors::ClusterContainsTasksException => e
+                    sleep 5
+                    retry
+                  end
                 end
               end
             }
           end
+
+          tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
+            family_prefix: MU.deploy_id
+          )
+          if tasks and tasks.task_definition_arns
+            tasks.task_definition_arns.each { |arn|
+              MU.log "Deregistering Fargate task definition #{arn}"
+              if !noop
+                MU::Cloud::AWS.ecs(region: region, credentials: credentials).deregister_task_definition(
+                  task_definition: arn
+                )
+              end
+            }
+          end
+
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
 
 
@@ -492,18 +771,69 @@ module MU
               "default" => "ECS"
             },
             "platform" => {
-              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else",
+              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else. Only valid for EKS and ECS flavors.",
               "default" => "centos7"
             },
             "ami_id" => {
               "type" => "string",
-              "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified."
+              "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified. Only valid for EKS and ECS flavors."
             },
             "run_list" => {
               "type" => "array",
               "items" => {
                   "type" => "string",
-                  "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes."
+                  "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes. Only valid for EKS and ECS flavors."
+              }
+            },
+            "containers" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "A container image to run on this cluster.",
+                "required" => ["name", "image"],
+                "properties" => {
+                  "name" => {
+                    "type" => "string",
+                  },
+                  "service" => {
+                    "type" => "string",
+                    "description" => "The Service of which this container will be a component. Default behavior, if unspecified, is to create a service with the name of this container definition and assume they map 1:1."
+                  },
+                  "image" => {
+                    "type" => "string",
+                    "description" => "A Docker image to run, as a shorthand name for a public Dockerhub image or a full URL to a private container repository. See +repository_credentials+ to specify authentication for a container repository.",
+                  },
+                  "cpu" => {
+                    "type" => "integer",
+                    "default" => 256,
+                    "description" => "CPU to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                  },
+                  "memory" => {
+                    "type" => "integer",
+                    "default" => 512,
+                    "description" => "Memory to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                  },
+                  "role" => MU::Config::Role.reference,
+                  "log_configuration" => {
+                    "type" => "object",
+                    "description" => "Where to send container logs. If not specified, Mu will create a CloudWatch Logs output channel. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method",
+                    "default" => {
+                      "log_driver" => "awslogs"
+                    },
+                    "required" => ["log_driver"],
+                    "properties" => {
+                      "log_driver" => {
+                        "type" => "string",
+                        "description" => "Type of logging facility to use for container logs.",
+                        "enum" => ["json-file", "syslog", "journald", "gelf", "fluentd", "awslogs", "splunk"]
+                      },
+                      "options" => {
+                        "type" => "object",
+                        "description" => "Per-driver configuration options. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method"
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -520,7 +850,6 @@ module MU
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
-
           if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
@@ -531,8 +860,74 @@ module MU
             ok = false
           end
 
-          if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] != "ECS"
-            MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet, just ECS", MU::ERR
+          if cluster["flavor"] != "EKS" and cluster["containers"]
+            created_generic_loggroup = false
+            cluster['containers'].each { |c|
+              if c['log_configuration'] and
+                 c['log_configuration']['log_driver'] == "awslogs" and
+                 (!c['log_configuration']['options'] or !c['log_configuration']['options']['awslogs-group'])
+
+                logname = cluster["name"]+"-svclogs"
+                rolename = cluster["name"]+"-logrole"
+                c['log_configuration']['options'] ||= {}
+                c['log_configuration']['options']['awslogs-group'] = logname
+                c['log_configuration']['options']['awslogs-region'] = cluster["region"]
+                c['log_configuration']['options']['awslogs-stream-prefix'] ||= c['name']
+                if !created_generic_loggroup
+                  cluster["dependencies"] << { "type" => "log", "name" => logname }
+                  logdesc = {
+                    "name" => logname,
+                    "region" => cluster["region"],
+                    "cloud" => cluster["cloud"]
+                  }
+                  configurator.insertKitten(logdesc, "logs")
+
+                  if !c['role']
+                    roledesc = {
+                      "name" => rolename,
+                      "cloud" => cluster["cloud"],
+                      "can_assume" => [
+                        {
+                          "entity_id" => "ecs-tasks.amazonaws.com",
+                          "entity_type" => "service"
+                        }
+                      ],
+                      "policies" => [
+                        {
+                          "name" => "ECSTaskLogPerms",
+                          "permissions" => [
+                            "logs:CreateLogStream",
+                            "logs:DescribeLogGroups",
+                            "logs:DescribeLogStreams",
+                            "logs:PutLogEvents"
+                          ],
+                          "targets" => [
+                            {
+                              "type" => "log",
+                              "identifier" => logname
+                            }
+                          ]
+                        }
+                      ],
+#                      "dependencies" => [{ "type" => "log", "name" => logname }]
+                    }
+                    configurator.insertKitten(roledesc, "roles")
+
+                    cluster["dependencies"] << {
+                      "type" => "role",
+                      "name" => rolename
+                    }
+                  end
+
+                  created_generic_loggroup = true
+                end
+                c['role'] ||= { 'name' => rolename }
+              end
+            }
+          end
+
+          if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] == "EKS"
+            MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet", MU::ERR
             ok = false
           end
 
@@ -563,6 +958,19 @@ module MU
             end
           end
 
+          if cluster["flavor"] == "Fargate" and !cluster['vpc']
+            if MU.myVPC
+              cluster["vpc"] = {
+                "vpc_id" => MU.myVPC,
+                "subnet_pref" => "all_private"
+              }
+              MU.log "Fargate cluster #{cluster['name']} did not specify a VPC, inserting into private subnets of #{MU.myVPC}", MU::NOTICE
+            else
+              MU.log "Fargate cluster #{cluster['name']} must specify a VPC", MU::ERR
+              ok = false
+            end
+
+          end
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
 
@@ -592,6 +1000,7 @@ module MU
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
             end
+
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
             end

@@ -623,6 +623,21 @@ module MU
     true
   end
 
+  # Given a hash, change all of the keys to symbols. Useful for formatting
+  # option parameters to some APIs.
+  def self.strToSym(hash)
+    newhash = {}
+    hash.each_pair { |k, v|
+      if v.is_a?(Hash)
+        newhash[k.to_sym] = MU.strToSym(v)
+      else
+        newhash[k.to_sym] = v
+      end
+    }
+    newhash
+  end
+
+
   # Recursively turn a Ruby OpenStruct into a Hash
   # @param struct [OpenStruct]
   # @param stringify_keys [Boolean]

@@ -45,6 +45,32 @@ module MU
         }
       end
 
+      # Chunk of schema to reference an account/project, here to be embedded
+      # into the schemas of other resources.
+      def self.reference
+        {
+          "type" => "object",
+          "description" => "An IAM role to associate with this resource",
+          "minProperties" => 1,
+          "additionalProperties" => false,
+          "properties" => {
+            "id" => {
+              "type" => "string",
+              "description" => "Discover this role by looking for this cloud provider identifier, such as an AWS ARN"
+            },
+            "name" => {
+              "type" => "string",
+              "description" => "Discover this role by Mu-internal name; typically the shorthand 'name' field of a Role object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+            },
+            "cloud" => MU::Config.cloud_primitive,
+            "deploy_id" => {
+              "type" => "string",
+              "description" => "Search for this Role in an existing Mu deploy by Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
+            }
+          }
+        }
+      end
+
       # A generic, cloud-neutral descriptor for a policy that grants or denies
       # permissions to some entity over some other entity.
       # @param subobjects [Boolean]: Whether the returned schema should include a +path+ parameter
