@@ -1171,7 +1171,9 @@ module MU
 
         matches = []
 
+        found_the_thing = false
         credlist.each { |creds|
+          break if found_the_thing
           if cloud_id or (tag_key and tag_value) or !flags.empty?
             regions = []
             begin
@@ -1193,6 +1195,7 @@ module MU
               cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds)
               # Stop if you found the thing
               if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
+                found_the_thing = true
                 break
               end
             }

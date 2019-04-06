@@ -396,14 +396,14 @@ module MU
               end
             }
 
-            max_retries = 60
+            max_retries = 10
             retries = 0
             if tasks_registered > 0
               retry_me = false
               begin
                 retry_me = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: true, region: @config['region'], credentials: @config['credentials'])
                 retries += 1
-                sleep 5 if retry_me
+                sleep 15 if retry_me
               end while retry_me and retries < max_retries
               tasks = nil
 
@@ -456,18 +456,18 @@ module MU
             cluster: cluster,
             desired_status: "RUNNING"
           ).task_arns
-          stopped_tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
+          tasks.concat(MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
             cluster: cluster,
             desired_status: "STOPPED"
-          ).task_arns
+          ).task_arns)
 
           if !tasks or tasks.size == 0
             tasks = stopped_tasks
           end
 
-          def self.getTaskStates(cluster, tasks, log: true, region: nil, credentials: nil)
-            container_states = {}
-            task_ids = tasks.map { |task_arn|
+          begin
+            sample = tasks.slice!(0, (tasks.length >= 100 ? 100 : tasks.length))
+            task_ids = sample.map { |task_arn|
               task_arn.sub(/^.*?:task\/([a-f0-9\-]+)$/, '\1')
             }
 
@@ -476,51 +476,36 @@ module MU
               tasks: task_ids
             ).tasks.each { |t|
               task_name = t.task_definition_arn.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
-              if log
-                case t.last_status
-                when "PENDING", "PROVISIONING"
-                  MU.log "TASK #{task_name} #{t.last_status}", MU::NOTICE
-                when "RUNNING"
-                  MU.log "TASK #{task_name} #{t.last_status}"
-                else
-                  MU.log "TASK #{task_name} #{t.last_status}", MU::WARN
-                end
-              end
               t.containers.each { |c|
-                msg = ""
-                msg += c.reason if c.reason
-                msg += " ("+t.stopped_reason+")" if t.stopped_reason
-                container_states[c.name] = {
-                  "status" => c.last_status,
-                  "reason" => c.reason
-                }
-                if log
-                  case t.last_status
-                  when "PENDING", "PROVISIONING"
-                    MU.log "CONTAINER #{c.name} #{c.last_status} #{msg}", MU::NOTICE
-                  when "RUNNING"
-                    MU.log "CONTAINER #{c.name} #{c.last_status}"
-                  else
-                    MU.log "CONTAINER #{c.name} #{c.last_status} #{msg}", MU::WARN
-                  end
+                containers[c.name] ||= {}
+                containers[c.name][t.desired_status] ||= {}
+                if !containers[c.name][t.desired_status]['time'] or
+                   t.created_at > containers[c.name][t.desired_status]['time']
+                  containers[c.name][t.desired_status] = {
+                    "time" => t.created_at,
+                    "status" => c.last_status,
+                    "reason" => c.reason
+                  }
                 end
               }
             }
-            container_states
-          end
-
-          if tasks and tasks.size > 0
-            containers.merge!(self.getTaskStates(cluster, tasks, log: log, region: region, credentials: credentials))
-          end
+          end while tasks.size > 0
 
           to_return = true
-          containers.each_pair { |name, state|
-            to_return = false if state["status"] != "RUNNING"
+          containers.each_pair { |name, states|
+            if !states["RUNNING"] or states["RUNNING"]["status"] != "RUNNING"
+              to_return = false
+              if states["STOPPED"] and states["STOPPED"]["status"]
+                MU.log "Container #{name} has failures", MU::WARN, details: states["STOPPED"] if log
+              elsif states["RUNNING"] and states["RUNNING"]["status"]
+                MU.log "Container #{name} not currently running", MU::NOTICE, details: states["RUNNING"] if log
+              else
+                MU.log "Container #{name} in unknown state", MU::WARN, details: states["STOPPED"] if log
+              end
+            else
+              MU.log "Container #{name} running", details: states["RUNNING"] if log
+            end
           }
-
-          if !to_return and log
-            self.getTaskStates(cluster, stopped_tasks, log: log, region: region, credentials: credentials)
-          end
 
           to_return
         end
