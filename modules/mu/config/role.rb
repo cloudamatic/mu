@@ -115,6 +115,9 @@ module MU
                   "identifier" => {
                     "type" => "string",
                     "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
+                  },
+                  "path" => {
+                    "type" => "string",
                   }
                 }
               }

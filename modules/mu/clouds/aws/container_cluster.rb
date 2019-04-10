@@ -285,10 +285,28 @@ module MU
 
           if @config['flavor'] != "EKS" and @config['containers']
 
+            security_groups = []
+            if @dependencies.has_key?("firewall_rule")
+              @dependencies['firewall_rule'].values.each { |sg|
+                security_groups << sg.cloud_id
+              }
+            end
+
             tasks_registered = 0
-            svc_resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
-              cluster: arn
-            )
+            retries = 0
+            svc_resp = begin
+              MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
+                cluster: arn
+              )
+            rescue Aws::ECS::Errors::ClusterNotFoundException => e
+              if retries < 10
+                sleep 5
+                retries += 1
+                retry
+              else
+                raise e
+              end
+            end
             existing_svcs = svc_resp.service_arns.map { |s|
               s.gsub(/.*?:service\/(.*)/, '\1')
             }
@@ -329,17 +347,23 @@ module MU
                 end
               end
 
-                params = {
-                  name: @mu_name+"-"+c['name'].upcase,
-                  image: c['image'],
-                  memory: c['memory'],
-                  cpu: c['cpu']
-                }
-                if c['log_configuration']
-                  params[:log_configuration] = MU.strToSym(c['log_configuration'])
-                end
-                params
+              params = {
+                name: @mu_name+"-"+c['name'].upcase,
+                image: c['image'],
+                memory: c['memory'],
+                cpu: c['cpu']
               }
+              if c['log_configuration']
+                log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
+                if log_obj
+                  c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
+                end
+                params[:log_configuration] = MU.strToSym(c['log_configuration'])
+              end
+              pp params
+              params
+            }
+
               cpu_total = 2 if cpu_total == 0
               mem_total = 2 if mem_total == 0
 
@@ -356,6 +380,7 @@ module MU
                 task_params[:cpu] = cpu_total.to_i.to_s
                 task_params[:memory] = mem_total.to_i.to_s
               end
+
               tasks_registered += 1
               MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
               pp task_params
@@ -374,16 +399,18 @@ module MU
                 }
                 if @config['vpc']
                   subnet_ids = []
-
+                  all_public = true
+                  subnet_names = @config['vpc']['subnets'].map { |s| s.values.first }
                   @vpc.subnets.each { |subnet_obj|
-                    raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+                    next if !subnet_names.include?(subnet_obj.config['name'])
                     subnet_ids << subnet_obj.cloud_id
+                    all_public = false if subnet_obj.private?
                   }
                   service_params[:network_configuration] = {
                     :awsvpc_configuration => {
                       :subnets => subnet_ids,
-#                      :security_groups => 
-#                      :assign_public_ip => "ENABLED"
+                      :security_groups => security_groups,
+                      :assign_public_ip => all_public ? "ENABLED" : "DISABLED"
                     }
                   }
                 end
@@ -461,12 +488,9 @@ module MU
             desired_status: "STOPPED"
           ).task_arns)
 
-          if !tasks or tasks.size == 0
-            tasks = stopped_tasks
-          end
-
           begin
             sample = tasks.slice!(0, (tasks.length >= 100 ? 100 : tasks.length))
+            break if sample.size == 0
             task_ids = sample.map { |task_arn|
               task_arn.sub(/^.*?:task\/([a-f0-9\-]+)$/, '\1')
             }
@@ -478,13 +502,21 @@ module MU
               task_name = t.task_definition_arn.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
               t.containers.each { |c|
                 containers[c.name] ||= {}
-                containers[c.name][t.desired_status] ||= {}
+                containers[c.name][t.desired_status] ||= {
+                  "reasons" => []
+                }
+                [t.stopped_reason, c.reason].each { |r|
+                  next if r.nil?
+                  containers[c.name][t.desired_status]["reasons"] << r
+                }
+                containers[c.name][t.desired_status]["reasons"].uniq!
                 if !containers[c.name][t.desired_status]['time'] or
                    t.created_at > containers[c.name][t.desired_status]['time']
+
                   containers[c.name][t.desired_status] = {
                     "time" => t.created_at,
                     "status" => c.last_status,
-                    "reason" => c.reason
+                    "reasons" => containers[c.name][t.desired_status]["reasons"]
                   }
                 end
               }
@@ -770,6 +802,17 @@ module MU
                   "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes. Only valid for EKS and ECS flavors."
               }
             },
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.ruleschema,
+              "default" => [
+                {
+                  "egress" => true,
+                  "port" => 443,
+                  "hosts" => [ "0.0.0.0/0" ]
+                }
+              ]
+            },
             "containers" => {
               "type" => "array",
               "items" => {
@@ -886,6 +929,9 @@ module MU
                             "logs:DescribeLogStreams",
                             "logs:PutLogEvents"
                           ],
+                          "import" => [
+                            ""
+                          ],
                           "targets" => [
                             {
                               "type" => "log",
@@ -894,7 +940,7 @@ module MU
                           ]
                         }
                       ],
-#                      "dependencies" => [{ "type" => "log", "name" => logname }]
+                      "dependencies" => [{ "type" => "log", "name" => logname }]
                     }
                     configurator.insertKitten(roledesc, "roles")
 
@@ -956,6 +1002,33 @@ module MU
             end
 
           end
+
+          cluster['ingress_rules'] ||= []
+          if cluster['flavor'] == "ECS"
+            cluster['ingress_rules'] << {
+              "sgs" => ["server_pool#{cluster['name']}workers"],
+              "port" => 443
+            }
+          end
+          fwname = "container_cluster#{cluster['name']}"
+
+          acl = {
+            "name" => fwname,
+            "credentials" => cluster["credentials"],
+            "rules" => cluster['ingress_rules'],
+            "region" => cluster['region'],
+            "optional_tags" => cluster['optional_tags']
+          }
+          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
+          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+
+          ok = false if !configurator.insertKitten(acl, "firewall_rules")
+          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
+          cluster["add_firewall_rules"] << {"rule_name" => fwname}
+          cluster["dependencies"] << {
+            "name" => fwname,
+            "type" => "firewall_rule",
+          }
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
 
@@ -1019,32 +1092,9 @@ module MU
                 "name" => cluster["name"]+"workers",
                 "type" => "server_pool",
               }
-            elsif cluster["flavor"] == "EKS"
-              cluster['ingress_rules'] ||= []
-              cluster['ingress_rules'] << {
-                "sgs" => ["server_pool#{cluster['name']}workers"],
-                "port" => 443
-              }
-              fwname = "container_cluster#{cluster['name']}"
+            end
 
-              acl = {
-                "name" => fwname,
-                "credentials" => cluster["credentials"],
-                "rules" => cluster['ingress_rules'],
-                "region" => cluster['region'],
-                "optional_tags" => cluster['optional_tags']
-              }
-              acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
-              acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-
-              ok = false if !configurator.insertKitten(acl, "firewall_rules")
-              cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
-              cluster["add_firewall_rules"] << {"rule_name" => fwname}
-              cluster["dependencies"] << {
-                "name" => fwname,
-                "type" => "firewall_rule",
-              }
-
+            if cluster["flavor"] == "EKS"
               role = {
                 "name" => cluster["name"]+"controlplane",
                 "credentials" => cluster["credentials"],

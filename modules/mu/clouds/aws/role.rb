@@ -121,6 +121,7 @@ module MU
                     policy_arn: arn,
                     version_id: desc.policy.default_version_id
                   )
+
                   if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
                     MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy.values.first
                     update_policy(arn, policy.values.first)
@@ -208,6 +209,7 @@ module MU
             policy = @mu_name+"-"+policy.upcase
           end
           my_policies = cloud_desc["policies"]
+          my_policies ||= []
           my_policies.each { |p|
             if p.policy_name == policy
               old = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy_version(
@@ -717,8 +719,15 @@ module MU
                     )
                     if sibling
                       id = sibling.cloudobj.arn
-                      id += target["path"] if target["path"]
+          MU.log "BARE ARN IS #{id}", MU::NOTICE, details: target
+                      id.sub!(/:([^:]+)$/, ":"+target["path"]) if target["path"]
                       doc["Statement"].first["Resource"] << id
+                      if id.match(/:log-group:/)
+                        stream_id = id.sub(/:([^:]+)$/, ":log-stream:*")
+#                        "arn:aws:logs:us-east-2:accountID:log-group:log_group_name:log-stream:CloudTrail_log_stream_name_prefix*"
+                        doc["Statement"].first["Resource"] << stream_id
+                      end
+              pp doc["Statement"].first["Resource"]
                     else
                       raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy"
                     end
@@ -727,6 +736,7 @@ module MU
                     doc["Statement"].first["Resource"] << target["identifier"]
                   end
                 }
+          MU.log "FECK", MU::NOTICE, details: doc["Statement"].first["Resource"]
               end
               iam_policies << { policy["name"] => doc }
             }
