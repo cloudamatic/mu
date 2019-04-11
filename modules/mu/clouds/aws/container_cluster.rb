@@ -327,42 +327,42 @@ module MU
               cpu_total = 0
               mem_total = 0
               role_arn = nil
+
               container_definitions = containers.map { |c|
                 cpu_total += c['cpu']
                 mem_total += c['memory']
 
-              if c["role"] and !role_arn
-                found = MU::MommaCat.findStray(
-                  @config['cloud'],
-                  "role",
-                  cloud_id: c["role"]["id"],
-                  name: c["role"]["name"],
-                  deploy_id: c["role"]["deploy_id"],
-                  dummy_ok: false
-                ).first
-                if found
-                  role_arn = found.cloudobj.arn
-                else
-                  raise MuError, "Unable to find execution role from #{c["role"]}"
+                if c["role"] and !role_arn
+                  found = MU::MommaCat.findStray(
+                    @config['cloud'],
+                    "role",
+                    cloud_id: c["role"]["id"],
+                    name: c["role"]["name"],
+                    deploy_id: c["role"]["deploy_id"],
+                    dummy_ok: false
+                  ).first
+                  if found
+                    role_arn = found.cloudobj.arn
+                  else
+                    raise MuError, "Unable to find execution role from #{c["role"]}"
+                  end
                 end
-              end
 
-              params = {
-                name: @mu_name+"-"+c['name'].upcase,
-                image: c['image'],
-                memory: c['memory'],
-                cpu: c['cpu']
-              }
-              if c['log_configuration']
-                log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
-                if log_obj
-                  c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
+                params = {
+                  name: @mu_name+"-"+c['name'].upcase,
+                  image: c['image'],
+                  memory: c['memory'],
+                  cpu: c['cpu']
+                }
+                if c['log_configuration']
+                  log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
+                  if log_obj
+                    c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
+                  end
+                  params[:log_configuration] = MU.strToSym(c['log_configuration'])
                 end
-                params[:log_configuration] = MU.strToSym(c['log_configuration'])
-              end
-              pp params
-              params
-            }
+                params
+              }
 
               cpu_total = 2 if cpu_total == 0
               mem_total = 2 if mem_total == 0
@@ -374,6 +374,7 @@ module MU
               }
               if role_arn
                 task_params[:execution_role_arn] = role_arn
+                task_params[:task_role_arn] = role_arn
               end
               if @config['flavor'] == "Fargate"
                 task_params[:network_mode] = "awsvpc"
@@ -383,44 +384,51 @@ module MU
 
               tasks_registered += 1
               MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
-              pp task_params
+
 # XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
+
               resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
 
               task_def = resp.task_definition.task_definition_arn
 
-              if !existing_svcs.include?(service_name)
-                service_params = {
-                  :cluster => @mu_name,
-                  :desired_count => @config['instance_count'], # XXX this makes no sense
-                  :service_name => service_name,
-                  :launch_type => launch_type,
-                  :task_definition => task_def
+              service_params = {
+                :cluster => @mu_name,
+                :desired_count => @config['instance_count'], # XXX this makes no sense
+                :service_name => service_name,
+                :launch_type => launch_type,
+                :task_definition => task_def
+              }
+              if @config['vpc']
+                subnet_ids = []
+                all_public = true
+                subnet_names = @config['vpc']['subnets'].map { |s| s.values.first }
+                @vpc.subnets.each { |subnet_obj|
+                  next if !subnet_names.include?(subnet_obj.config['name'])
+                  subnet_ids << subnet_obj.cloud_id
+                  all_public = false if subnet_obj.private?
                 }
-                if @config['vpc']
-                  subnet_ids = []
-                  all_public = true
-                  subnet_names = @config['vpc']['subnets'].map { |s| s.values.first }
-                  @vpc.subnets.each { |subnet_obj|
-                    next if !subnet_names.include?(subnet_obj.config['name'])
-                    subnet_ids << subnet_obj.cloud_id
-                    all_public = false if subnet_obj.private?
+                service_params[:network_configuration] = {
+                  :awsvpc_configuration => {
+                    :subnets => subnet_ids,
+                    :security_groups => security_groups,
+                    :assign_public_ip => all_public ? "ENABLED" : "DISABLED"
                   }
-                  service_params[:network_configuration] = {
-                    :awsvpc_configuration => {
-                      :subnets => subnet_ids,
-                      :security_groups => security_groups,
-                      :assign_public_ip => all_public ? "ENABLED" : "DISABLED"
-                    }
-                  }
-                end
+                }
+              end
+
+              if !existing_svcs.include?(service_name)
                 MU.log "Creating Service #{service_name}"
 
                 resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
-                existing_svcs << service_name 
               else
-                MU.log "Updating Service #{service_name} XXX"
+                service_params[:service] = service_params[:service_name].dup
+                service_params.delete(:service_name)
+                service_params.delete(:launch_type)
+                MU.log "Updating Service #{service_name}", MU::NOTICE, details: service_params
+
+                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
               end
+              existing_svcs << service_name 
             }
 
             max_retries = 10
@@ -483,6 +491,7 @@ module MU
             cluster: cluster,
             desired_status: "RUNNING"
           ).task_arns
+
           tasks.concat(MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
             cluster: cluster,
             desired_status: "STOPPED"
@@ -512,7 +521,7 @@ module MU
                 containers[c.name][t.desired_status]["reasons"].uniq!
                 if !containers[c.name][t.desired_status]['time'] or
                    t.created_at > containers[c.name][t.desired_status]['time']
-
+MU.log c.name, MU::NOTICE, details: t
                   containers[c.name][t.desired_status] = {
                     "time" => t.created_at,
                     "status" => c.last_status,

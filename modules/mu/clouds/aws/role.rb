@@ -719,7 +719,6 @@ module MU
                     )
                     if sibling
                       id = sibling.cloudobj.arn
-          MU.log "BARE ARN IS #{id}", MU::NOTICE, details: target
                       id.sub!(/:([^:]+)$/, ":"+target["path"]) if target["path"]
                       doc["Statement"].first["Resource"] << id
                       if id.match(/:log-group:/)
@@ -727,7 +726,6 @@ module MU
 #                        "arn:aws:logs:us-east-2:accountID:log-group:log_group_name:log-stream:CloudTrail_log_stream_name_prefix*"
                         doc["Statement"].first["Resource"] << stream_id
                       end
-              pp doc["Statement"].first["Resource"]
                     else
                       raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy"
                     end
@@ -736,7 +734,6 @@ module MU
                     doc["Statement"].first["Resource"] << target["identifier"]
                   end
                 }
-          MU.log "FECK", MU::NOTICE, details: doc["Statement"].first["Resource"]
               end
               iam_policies << { policy["name"] => doc }
             }
