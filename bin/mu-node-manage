@@ -102,16 +102,20 @@ else
   else
     do_nodes = ARGV
     do_deploys = []
+    matched = 0
     if do_nodes.size > 0
       # Just load the deploys we need
       do_nodes.each { |node|
         if node.match(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/)
+          matched += 1
           do_deploys << node.sub(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/, '\1')
         end
       }
       do_deploys.uniq!
     end
-    do_deploys = avail_deploys if do_deploys.size == 0
+    if do_deploys.size == 0 and do_nodes.size > 0 and matched > 0
+      do_deploys = avail_deploys
+    end
   end
 end
 
