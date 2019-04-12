@@ -386,8 +386,17 @@ module MU
                           }
 
                           MU.log "Creating route for #{route['destination_network']} through NAT gatway #{gateway['id']}", details: route_config
+                          nat_retries = 0
                           begin
                             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(route_config)
+                          rescue Aws::EC2::Errors::InvalidNatGatewayIDNotFound => e
+                            if nat_retries < 5
+                              nat_retries += 1 
+                              sleep 10
+                              retry
+                            else
+                              raise e
+                            end
                           rescue Aws::EC2::Errors::RouteAlreadyExists => e
                             MU.log "Attempt to create duplicate route to #{route['destination_network']} for #{gateway['id']} in #{rtb['route_table_id']}", MU::WARN
                           end

@@ -623,18 +623,30 @@ module MU
     true
   end
 
-  # Given a hash, change all of the keys to symbols. Useful for formatting
-  # option parameters to some APIs.
-  def self.strToSym(hash)
-    newhash = {}
-    hash.each_pair { |k, v|
-      if v.is_a?(Hash)
-        newhash[k.to_sym] = MU.strToSym(v)
-      else
-        newhash[k.to_sym] = v
-      end
-    }
-    newhash
+  # Given a hash, or an array that might contain a hash, change all of the keys
+  # to symbols. Useful for formatting option parameters to some APIs.
+  def self.strToSym(obj)
+    if obj.is_a?(Hash)
+      newhash = {}
+      obj.each_pair { |k, v|
+        if v.is_a?(Hash) or v.is_a?(Array)
+          newhash[k.to_sym] = MU.strToSym(v)
+        else
+          newhash[k.to_sym] = v
+        end
+      }
+      newhash
+    elsif obj.is_a?(Array)
+      newarr = []
+      obj.each { |v|
+        if v.is_a?(Hash) or v.is_a?(Array)
+          newarr << MU.strToSym(v)
+        else
+          newarr << v
+        end
+      }
+      newarr
+    end
   end
 
 

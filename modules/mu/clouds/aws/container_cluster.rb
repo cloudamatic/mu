@@ -352,7 +352,8 @@ module MU
                   name: @mu_name+"-"+c['name'].upcase,
                   image: c['image'],
                   memory: c['memory'],
-                  cpu: c['cpu']
+                  cpu: c['cpu'],
+                  essential: c['essential']
                 }
                 if c['log_configuration']
                   log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
@@ -360,6 +361,9 @@ module MU
                     c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
                   end
                   params[:log_configuration] = MU.strToSym(c['log_configuration'])
+                end
+                if c['port_mappings']
+                  params[:port_mappings] = MU.strToSym(c['port_mappings'])
                 end
                 params
               }
@@ -851,6 +855,29 @@ MU.log c.name, MU::NOTICE, details: t
                     "description" => "Memory to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
                   },
                   "role" => MU::Config::Role.reference,
+                  "essential" => {
+                    "type" => "boolean",
+                    "default" => true
+                  },
+                  "port_mappings" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "properties" => {
+                        "container_port" => {
+                          "type" => "integer"
+                        },
+                        "host_port" => {
+                          "type" => "integer"
+                        },
+                        "protocol" => {
+                          "type" => "string",
+                          "enum" => ["tcp", "udp"],
+                          "default" => "tcp"
+                        },
+                      }
+                    }
+                  },
                   "log_configuration" => {
                     "type" => "object",
                     "description" => "Where to send container logs. If not specified, Mu will create a CloudWatch Logs output channel. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method",
