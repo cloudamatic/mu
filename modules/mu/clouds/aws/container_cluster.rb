@@ -352,9 +352,32 @@ module MU
                   name: @mu_name+"-"+c['name'].upcase,
                   image: c['image'],
                   memory: c['memory'],
-                  cpu: c['cpu'],
-                  essential: c['essential']
+                  cpu: c['cpu']
                 }
+                if !@config['vpc']
+                  c['hostname'] ||= @mu_name+"-"+c['name'].upcase
+                end
+                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options].each { |param|
+                  if c.has_key?(param.to_s)
+                    params[param] = c[param.to_s]
+                  end
+                }
+                if @config['vpc']
+                  [:hostname, :dns_servers, :dns_search_domains, :links].each { |param|
+                    if params[param]
+                      MU.log "Container parameter #{param.to_s} not supported in VPC clusters, ignoring", MU::WARN
+                      params.delete(param)
+                    end
+                  }
+                end
+                if @config['flavor'] == "Fargate"
+                  [:privileged, :docker_security_options].each { |param|
+                    if params[param]
+                      MU.log "Container parameter #{param.to_s} not supported in Fargate clusters, ignoring", MU::WARN
+                      params.delete(param)
+                    end
+                  }
+                end
                 if c['log_configuration']
                   log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
                   if log_obj
@@ -440,7 +463,7 @@ module MU
             if tasks_registered > 0
               retry_me = false
               begin
-                retry_me = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: true, region: @config['region'], credentials: @config['credentials'])
+                retry_me = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @config['region'], credentials: @config['credentials'])
                 retries += 1
                 sleep 15 if retry_me
               end while retry_me and retries < max_retries
@@ -471,13 +494,14 @@ module MU
 
           begin
             listme = services.slice!(0, (services.length >= 10 ? 10 : services.length))
-            tasks_defined.concat(
-              tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_services(
-                cluster: cluster,
-                services: listme
-              ).services.map { |s| s.task_definition }
-
-            )
+            if services.size > 0
+              tasks_defined.concat(
+                tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_services(
+                  cluster: cluster,
+                  services: listme
+                ).services.map { |s| s.task_definition }
+              )
+            end
           end while services.size > 0
 
           containers = {}
@@ -857,8 +881,77 @@ MU.log c.name, MU::NOTICE, details: t
                   "role" => MU::Config::Role.reference,
                   "essential" => {
                     "type" => "boolean",
+                    "description" => "Flag this container as essential or non-essential to its parent task. If the container fails and is marked essential, the parent task will also be marked as failed.",
                     "default" => true
                   },
+                  "hostname" => {
+                    "type" => "string",
+                    "description" => "Set this container's local hostname. If not specified, will inherit the name of the parent task."
+                  },
+                  "user" => {
+                    "type" => "string",
+                  },
+                  "working_directory" => {
+                    "type" => "string",
+                  },
+                  "disable_networking" => {
+                    "type" => "boolean",
+                  },
+                  "privileged" => {
+                    "type" => "boolean",
+                  },
+                  "readonly_root_filesystem" => {
+                    "type" => "boolean",
+                  },
+                  "interactive" => {
+                    "type" => "boolean",
+                  },
+                  "pseudo_terminal" => {
+                    "type" => "boolean",
+                  },
+                  "start_timeout" => {
+                    "type" => "integer",
+                  },
+                  "stop_timeout" => {
+                    "type" => "integer",
+                  },
+                  "links" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "entry_point" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "command" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "dns_servers" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "dns_search_domains" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "docker_security_options" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+# :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options
                   "port_mappings" => {
                     "type" => "array",
                     "items" => {
