@@ -1058,7 +1058,8 @@ module MU
         allow_multi: false,
         calling_deploy: MU.mommacat,
         flags: {},
-        dummy_ok: false
+        dummy_ok: false,
+        debug: false
     )
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
       begin
@@ -1094,7 +1095,9 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}", MU::DEBUG, details: flags
+        loglevel = debug ? MU::NOTICE : MU::DEBUG
+
+        MU.log "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials})", loglevel, details: flags
 
         # See if the thing we're looking for is a member of the deploy that's
         # asking after it.
@@ -1110,9 +1113,11 @@ module MU
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 
           mu_descs.each_pair { |deploy_id, matches|
+            MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches", loglevel
             next if matches.nil? or matches.size == 0
             momma = MU::MommaCat.getLitter(deploy_id)
             straykitten = nil
+
 
             # If we found exactly one match in this deploy, use its metadata to
             # guess at resource names we weren't told.
@@ -1120,6 +1125,7 @@ module MU
               if cloud_id.nil?
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
               else
+                MU.log "findStray: attempting to narrow down with cloud_id #{cloud_id}", loglevel
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
               end
 #            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
@@ -1141,6 +1147,11 @@ module MU
 
             next if straykitten.nil?
 
+            if straykitten.cloud_id.nil?
+              MU.log "findStray: kitten #{straykitten.mu_name} came back with nil cloud_id", MU::WARN
+              next
+            end
+
             kittens[straykitten.cloud_id] = straykitten
 
             # Peace out if we found the exact resource we want
@@ -1153,6 +1164,7 @@ module MU
               return [straykitten]
             end
           }
+
 
 #          if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
 #             MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
@@ -1213,7 +1225,7 @@ module MU
                   # Give it a fake name if we have to and have decided that's ok.
                   if (name.nil? or name.empty?)
                     if !dummy_ok
-                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
+                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", loglevel, details: caller
                       next
                     else
                       if !mu_name.nil?

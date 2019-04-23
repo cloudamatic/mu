@@ -333,19 +333,34 @@ module MU
                 mem_total += c['memory']
 
                 if c["role"] and !role_arn
-                  found = MU::MommaCat.findStray(
-                    @config['cloud'],
-                    "role",
-                    cloud_id: c["role"]["id"],
-                    name: c["role"]["name"],
-                    deploy_id: c["role"]["deploy_id"],
-                    dummy_ok: false
-                  ).first
-                  if found
-                    role_arn = found.cloudobj.arn
-                  else
-                    raise MuError, "Unable to find execution role from #{c["role"]}"
-                  end
+                  role_retries = 0
+# XXX this needs a retry loop for some goddamn reason
+                  begin
+                    found = MU::MommaCat.findStray(
+                      @config['cloud'],
+                      "role",
+                      cloud_id: c["role"]["id"],
+                      name: c["role"]["name"],
+                      deploy_id: c["role"]["deploy_id"] || @deploy.deploy_id,
+                      dummy_ok: false,
+                      debug: (role_retries > 0)
+                    )
+                    if found
+                      found = found.first
+                      if found and found.cloudobj
+                        role_arn = found.cloudobj.arn
+                      end
+                    else
+
+MU.log "wtf role missing", MU::WARN, details: @config['dependencies']
+                      if role_retries < 3
+                        sleep 5
+                        role_retries += 1
+                      else
+                        raise MuError, "Unable to find execution role from #{c["role"]}"
+                      end
+                    end
+                  end while role_arn.nil?
                 end
 
                 params = {
@@ -357,9 +372,13 @@ module MU
                 if !@config['vpc']
                   c['hostname'] ||= @mu_name+"-"+c['name'].upcase
                 end
-                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options].each { |param|
+                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options, :port_mappings, :repository_credentials, :mount_points, :environment, :volumes_from, :secrets, :depend_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check].each { |param|
                   if c.has_key?(param.to_s)
-                    params[param] = c[param.to_s]
+                    params[param] = if !c[param.to_s].nil? and (c[param.to_s].is_a?(Hash) or c[param.to_s].is_a?(Array))
+                      MU.strToSym(c[param.to_s])
+                    else
+                      c[param.to_s]
+                    end
                   end
                 }
                 if @config['vpc']
@@ -385,9 +404,7 @@ module MU
                   end
                   params[:log_configuration] = MU.strToSym(c['log_configuration'])
                 end
-                if c['port_mappings']
-                  params[:port_mappings] = MU.strToSym(c['port_mappings'])
-                end
+              pp params
                 params
               }
 
@@ -951,7 +968,62 @@ MU.log c.name, MU::NOTICE, details: t
                       "type" => "string"
                     }
                   },
-# :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options
+# :secrets, :depend_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check
+                  "environment" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "properties" => {
+                        "name" => {
+                          "type" => "string"
+                        },
+                        "value" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "mount_points" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "properties" => {
+                        "source_volume" => {
+                          "type" => "string"
+                        },
+                        "container_path" => {
+                          "type" => "string"
+                        },
+                        "read_only" => {
+                          "type" => "boolean",
+                          "default" => false
+                        }
+                      }
+                    }
+                  },
+                  "volumes_from" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "properties" => {
+                        "source_container" => {
+                          "type" => "string"
+                        },
+                        "read_only" => {
+                          "type" => "boolean",
+                          "default" => false
+                        }
+                      }
+                    }
+                  },
+                  "repository_credentials" => {
+                    "type" => "object",
+                    "properties" => {
+                      "credentials_parameter" => {
+                        "type" => "string"
+                      }
+                    }
+                  },
                   "port_mappings" => {
                     "type" => "array",
                     "items" => {

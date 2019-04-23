@@ -30,6 +30,7 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           @mu_name = mu_name
+          @cloud_id ||= @mu_name # should be the same
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -50,6 +51,7 @@ module MU
 
           if !@config['bare_policies']
             MU.log "Creating IAM role #{@mu_name}"
+            @cloud_id = @mu_name
             resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).create_role(
               path: "/"+@deploy.deploy_id+"/",
               role_name: @mu_name,
@@ -190,6 +192,7 @@ module MU
             end
 
           end
+          desc['cloud_id'] ||= @cloud_id
 
           desc
         end
