@@ -294,7 +294,7 @@ yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
 end
 
 execute "Kill ruby-2.3.1" do
-  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y"
+  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y; rpm -e ruby23"
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
