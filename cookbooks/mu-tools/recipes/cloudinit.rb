@@ -20,7 +20,7 @@
 # common Linux platforms.
  
 if !node['application_attributes']['skip_recipes'].include?('epel') and !node['application_attributes']['skip_recipes'].include?('base_repositories')
-  if platform_family?("rhel")
+  if platform_family?("rhel") or platform_family?("amazon")
     include_recipe "yum-epel"
     package "cloud-init" do
       ignore_failure true
