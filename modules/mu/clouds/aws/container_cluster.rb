@@ -876,7 +876,7 @@ MU.log c.name, MU::NOTICE, details: t
                   "cpu" => {
                     "type" => "integer",
                     "default" => 256,
-                    "description" => "CPU to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                    "description" => "CPU to allocate for this container/task. This parameter maps to +CpuShares+ in the Create a container section of the Docker Remote API and the +--cpu-shares+ option to docker run. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
                   },
                   "memory" => {
                     "type" => "integer",
@@ -903,6 +903,7 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "disable_networking" => {
                     "type" => "boolean",
+                    "description" => "This parameter maps to +NetworkDisabled+ in the Create a container section of the Docker Remote API."
                   },
                   "privileged" => {
                     "type" => "boolean",
@@ -931,39 +932,46 @@ MU.log c.name, MU::NOTICE, details: t
                   "entry_point" => {
                     "type" => "array",
                     "items" => {
-                      "type" => "string"
+                      "type" => "string",
+                      "description" => "The entry point that is passed to the container. This parameter maps to +Entrypoint+ in the Create a container section of the Docker Remote API and the +--entrypoint+ option to docker run."
                     }
                   },
                   "command" => {
                     "type" => "array",
                     "items" => {
-                      "type" => "string"
+                      "type" => "string",
+                      "description" => "This parameter maps to +Cmd+ in the Create a container section of the Docker Remote API and the +COMMAND+ parameter to docker run."
                     }
                   },
                   "dns_servers" => {
                     "type" => "array",
                     "items" => {
-                      "type" => "string"
+                      "type" => "string",
+                      "description" => "A list of DNS servers that are presented to the container. This parameter maps to +Dns+ in the Create a container section of the Docker Remote API and the +--dns+ option to docker run."
                     }
                   },
                   "dns_search_domains" => {
                     "type" => "array",
                     "items" => {
-                      "type" => "string"
+                      "type" => "string",
+                      "description" => "A list of DNS search domains that are presented to the container. This parameter maps to +DnsSearch+ in the Create a container section of the Docker Remote API and the +--dns-search+ option to docker run."
                     }
                   },
                   "docker_labels" => {
                     "type" => "object",
+                    "description" => "A key/value map of labels to add to the container. This parameter maps to +Labels+ in the Create a container section of the Docker Remote API and the +--label+ option to docker run."
                   },
                   "docker_security_options" => {
                     "type" => "array",
                     "items" => {
-                      "type" => "string"
+                      "type" => "string",
+                      "description" => "A list of strings to provide custom labels for SELinux and AppArmor multi-level security systems. This field is not valid for containers in tasks using the Fargate launch type. This parameter maps to +SecurityOpt+ in the Create a container section of the Docker Remote API and the +--security-opt+ option to docker run."
                     }
                   },
                   "health_check" => {
                     "type" => "object",
                     "required" => ["command"],
+                    "description" => "The health check command and associated configuration parameters for the container. This parameter maps to +HealthCheck+ in the Create a container section of the Docker Remote API and the +HEALTHCHECK+ parameter of docker run.",
                     "properties" => {
                       "command" => {
                         "type" => "array",
@@ -989,6 +997,7 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "The environment variables to pass to a container. This parameter maps to +Env+ in the Create a container section of the Docker Remote API and the +--env+ option to docker run.",
                       "properties" => {
                         "name" => {
                           "type" => "string"
@@ -1052,6 +1061,7 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "A list of hostnames and IP address mappings to append to the +/etc/hosts+ file on the container. This parameter maps to ExtraHosts in the +Create+ a container section of the Docker Remote API and the +--add-host+ option to docker run.",
                       "required" => ["hostname", "ip_address"],
                       "properties" => {
                         "hostname" => {
@@ -1083,6 +1093,7 @@ MU.log c.name, MU::NOTICE, details: t
                     "items" => {
                       "type" => "object",
                       "required" => ["container_name", "condition"],
+                      "description" => "The dependencies defined for container startup and shutdown. A container can contain multiple dependencies. When a dependency is defined for container startup, for container shutdown it is reversed.",
                       "properties" => {
                         "container_name" => {
                           "type" => "string"
