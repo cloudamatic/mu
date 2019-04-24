@@ -18,7 +18,7 @@
 
 if !node['application_attributes']['skip_recipes'].include?('rsyslog')
   case node['platform_family']
-  when "rhel", "debian"
+  when "rhel", "debian", "amazon"
     package "rsyslog"
     package "rsyslog-gnutls"
     execute "chcon -R -h -t var_log_t /Mu_Logs" do
@@ -29,7 +29,7 @@ if !node['application_attributes']['skip_recipes'].include?('rsyslog')
       action [:enable, :start]
       notifies :run, "execute[chcon -R -h -t var_log_t /Mu_Logs]", :immediately
     end
-    if platform_family?("rhel")
+    if platform_family?("rhel") or platform_family?("amazon")
       $rsyslog_ssl_ca_path = "/etc/pki/Mu_CA.pem"
       if !platform?("amazon")
         package node['platform_version'].to_i < 6 ? "policycoreutils" : "policycoreutils-python"
