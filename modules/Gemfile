@@ -37,6 +37,7 @@ gem 'chef-vault', "~> 3.3.0"
 #gem 'googleauth', "~> 0.6.6"
 #gem 'google-api-client', "~> 0.25.0"
 gem 'chef-sugar'
+gem 'ffi-libarchive' # needed to keep berkshelf from breaking on Mac tarballs
 gem 'winrm', '~> 2.2.3'
 gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :branch => "winrm_cert_auth"
 #gem 'rubocop', '~> 0.58.2'
