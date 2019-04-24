@@ -333,34 +333,22 @@ module MU
                 mem_total += c['memory']
 
                 if c["role"] and !role_arn
-                  role_retries = 0
-# XXX this needs a retry loop for some goddamn reason
-                  begin
-                    found = MU::MommaCat.findStray(
-                      @config['cloud'],
-                      "role",
-                      cloud_id: c["role"]["id"],
-                      name: c["role"]["name"],
-                      deploy_id: c["role"]["deploy_id"] || @deploy.deploy_id,
-                      dummy_ok: false,
-                      debug: (role_retries > 0)
-                    )
-                    if found
-                      found = found.first
-                      if found and found.cloudobj
-                        role_arn = found.cloudobj.arn
-                      end
-                    else
-
-MU.log "wtf role missing", MU::WARN, details: @config['dependencies']
-                      if role_retries < 3
-                        sleep 5
-                        role_retries += 1
-                      else
-                        raise MuError, "Unable to find execution role from #{c["role"]}"
-                      end
+                  found = MU::MommaCat.findStray(
+                    @config['cloud'],
+                    "role",
+                    cloud_id: c["role"]["id"],
+                    name: c["role"]["name"],
+                    deploy_id: c["role"]["deploy_id"] || @deploy.deploy_id,
+                    dummy_ok: false
+                  )
+                  if found
+                    found = found.first
+                    if found and found.cloudobj
+                      role_arn = found.cloudobj.arn
                     end
-                  end while role_arn.nil?
+                  else
+                    raise MuError, "Unable to find execution role from #{c["role"]}"
+                  end
                 end
 
                 params = {
@@ -372,7 +360,7 @@ MU.log "wtf role missing", MU::WARN, details: @config['dependencies']
                 if !@config['vpc']
                   c['hostname'] ||= @mu_name+"-"+c['name'].upcase
                 end
-                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options, :port_mappings, :repository_credentials, :mount_points, :environment, :volumes_from, :secrets, :depend_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check].each { |param|
+                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options, :port_mappings, :repository_credentials, :mount_points, :environment, :volumes_from, :secrets, :depends_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check, :resource_requirements].each { |param|
                   if c.has_key?(param.to_s)
                     params[param] = if !c[param.to_s].nil? and (c[param.to_s].is_a?(Hash) or c[param.to_s].is_a?(Array))
                       MU.strToSym(c[param.to_s])
@@ -903,13 +891,15 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "hostname" => {
                     "type" => "string",
-                    "description" => "Set this container's local hostname. If not specified, will inherit the name of the parent task."
+                    "description" => "Set this container's local hostname. If not specified, will inherit the name of the parent task. Not valid for Fargate clusters."
                   },
                   "user" => {
                     "type" => "string",
+                    "description" => "The system-level user to use when executing commands inside this container"
                   },
                   "working_directory" => {
                     "type" => "string",
+                    "description" => "The working directory in which to run commands inside the container."
                   },
                   "disable_networking" => {
                     "type" => "boolean",
@@ -962,13 +952,39 @@ MU.log c.name, MU::NOTICE, details: t
                       "type" => "string"
                     }
                   },
+                  "docker_labels" => {
+                    "type" => "object",
+                  },
                   "docker_security_options" => {
                     "type" => "array",
                     "items" => {
                       "type" => "string"
                     }
                   },
-# :secrets, :depend_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check
+                  "health_check" => {
+                    "type" => "object",
+                    "required" => ["command"],
+                    "properties" => {
+                      "command" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "string"
+                        }
+                      },
+                      "interval" => {
+                        "type" => "integer"
+                      },
+                      "timeout" => {
+                        "type" => "integer"
+                      },
+                      "retries" => {
+                        "type" => "integer"
+                      },
+                      "start_period" => {
+                        "type" => "integer"
+                      }
+                    }
+                  },
                   "environment" => {
                     "type" => "array",
                     "items" => {
@@ -979,6 +995,101 @@ MU.log c.name, MU::NOTICE, details: t
                         },
                         "value" => {
                           "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "resource_requirements" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["type", "value"],
+                      "properties" => {
+                        "type" => {
+                          "type" => "string",
+                          "enum" => ["GPU"]
+                        },
+                        "value" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "system_controls" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "properties" => {
+                        "namespace" => {
+                          "type" => "string"
+                        },
+                        "value" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "ulimits" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["name", "soft_limit", "hard_limit"],
+                      "properties" => {
+                        "name" => {
+                          "type" => "string",
+                          "enum" => ["core", "cpu", "data", "fsize", "locks", "memlock", "msgqueue", "nice", "nofile", "nproc", "rss", "rtprio", "rttime", "sigpending", "stack"]
+                        },
+                        "soft_limit" => {
+                          "type" => "integer"
+                        },
+                        "hard_limit" => {
+                          "type" => "integer"
+                        },
+                      }
+                    }
+                  },
+                  "extra_hosts" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["hostname", "ip_address"],
+                      "properties" => {
+                        "hostname" => {
+                          "type" => "string"
+                        },
+                        "ip_address" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "secrets" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["name", "value_from"],
+                      "properties" => {
+                        "name" => {
+                          "type" => "string"
+                        },
+                        "value_from" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "depends_on" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["container_name", "condition"],
+                      "properties" => {
+                        "container_name" => {
+                          "type" => "string"
+                        },
+                        "condition" => {
+                          "type" => "string",
+                          "enum" => ["START", "COMPLETE", "SUCCESS", "HEALTHY"]
                         }
                       }
                     }
