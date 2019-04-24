@@ -864,6 +864,7 @@ MU.log c.name, MU::NOTICE, details: t
                 "properties" => {
                   "name" => {
                     "type" => "string",
+                    "description" => "The name of a container. If you are linking multiple containers together in a task definition, the name of one container can be entered in the +links+ of another container to connect the containers. This parameter maps to +name+ in the Create a container section of the Docker Remote API and the +--name+ option to docker run."
                   },
                   "service" => {
                     "type" => "string",
@@ -871,7 +872,7 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "image" => {
                     "type" => "string",
-                    "description" => "A Docker image to run, as a shorthand name for a public Dockerhub image or a full URL to a private container repository. See +repository_credentials+ to specify authentication for a container repository.",
+                    "description" => "A Docker image to run, as a shorthand name for a public Dockerhub image or a full URL to a private container repository (+repository-url/image:tag+ or +repository-url/image@digest+). See +repository_credentials+ to specify authentication for a container repository.",
                   },
                   "cpu" => {
                     "type" => "integer",
@@ -891,7 +892,7 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "hostname" => {
                     "type" => "string",
-                    "description" => "Set this container's local hostname. If not specified, will inherit the name of the parent task. Not valid for Fargate clusters."
+                    "description" => "Set this container's local hostname. If not specified, will inherit the name of the parent task. Not valid for Fargate clusters. This parameter maps to +Hostname+ in the Create a container section of the Docker Remote API and the +--hostname+ option to docker run."
                   },
                   "user" => {
                     "type" => "string",
@@ -913,6 +914,7 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "interactive" => {
                     "type" => "boolean",
+                    "description" => "When this parameter is +true+, this allows you to deploy containerized applications that require +stdin+ or a +tty+ to be allocated. This parameter maps to +OpenStdin+ in the Create a container section of the Docker Remote API and the +--interactive+ option to docker run."
                   },
                   "pseudo_terminal" => {
                     "type" => "boolean",
@@ -926,6 +928,7 @@ MU.log c.name, MU::NOTICE, details: t
                   "links" => {
                     "type" => "array",
                     "items" => {
+                      "description" => "The +link+ parameter allows containers to communicate with each other without the need for port mappings. Only supported if the network mode of a task definition is set to +bridge+. The +name:internalName+ construct is analogous to +name:alias+ in Docker links.",
                       "type" => "string"
                     }
                   },
@@ -976,20 +979,25 @@ MU.log c.name, MU::NOTICE, details: t
                       "command" => {
                         "type" => "array",
                         "items" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "A string array representing the command that the container runs to determine if it is healthy."
                         }
                       },
                       "interval" => {
-                        "type" => "integer"
+                        "type" => "integer",
+                        "description" => "The time period in seconds between each health check execution."
                       },
                       "timeout" => {
-                        "type" => "integer"
+                        "type" => "integer",
+                        "description" => "The time period in seconds to wait for a health check to succeed before it is considered a failure."
                       },
                       "retries" => {
-                        "type" => "integer"
+                        "type" => "integer",
+                        "description" => "The number of times to retry a failed health check before the container is considered unhealthy."
                       },
                       "start_period" => {
-                        "type" => "integer"
+                        "type" => "integer",
+                        "description" => "The optional grace period within which to provide containers time to bootstrap before failed health checks count towards the maximum number of retries."
                       }
                     }
                   },
@@ -1109,16 +1117,21 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "The mount points for data volumes in your container. This parameter maps to +Volumes+ in the Create a container section of the Docker Remote API and the +--volume+ option to docker run.",
                       "properties" => {
                         "source_volume" => {
-                          "type" => "string"
+                          "type" => "string",
+# XXX have this auto-generate the relevant config in the task definition, instead of expecting users to do it
+                          "description" => "The name of the volume to moun; must be a volume name referenced in the name parameter of task definition volume"
                         },
                         "container_path" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The container-side path where this volume must be mounted"
                         },
                         "read_only" => {
                           "type" => "boolean",
-                          "default" => false
+                          "default" => false,
+                          "description" => "Mount the volume read-only"
                         }
                       }
                     }
