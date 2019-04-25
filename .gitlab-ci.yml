@@ -29,13 +29,13 @@ Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
+    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X cookbooks/firewall
 
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15
+    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall
 
 ChefSpec:
   stage: Test
