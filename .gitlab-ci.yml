@@ -60,9 +60,9 @@ New_Berks:
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
-    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Installing $d" && cd "$d" && berks install); done
-    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "$d" && berks verify); done
-    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "$d" && berks outdated); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Installing $d" && cd "cookbooks/$d" && berks install); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "cookbooks/$d" && berks verify); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "cookbooks/$d" && berks outdated); done
   
 Berks:
   stage: Test
