@@ -5,6 +5,7 @@ include Chef::Mixin::ShellOut
 require 'net/http'
 require 'timeout'
 require 'open-uri'
+require 'aws-sdk-core'
 
 module Mutools
   module Helper
