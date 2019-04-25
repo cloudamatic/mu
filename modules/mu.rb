@@ -80,6 +80,10 @@ module MU
     @@myRoot
   end
 
+  # Front our global $MU_CFG hash with a read-only copy
+  def self.muCfg
+    Marshal.load(Marshal.dump($MU_CFG)).freeze
+  end
 
   # The main (root) Mu user's data directory.
   @@mainDataDir = File.expand_path(@@myRoot+"/../var")
