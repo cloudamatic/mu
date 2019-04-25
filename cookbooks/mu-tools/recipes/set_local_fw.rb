@@ -22,7 +22,7 @@ case node['platform_family']
 when 'rhel', 'amazon'
   include_recipe 'mu-firewall'
 
-  if elversion >= 7 # Can use firewalld, but not if iptables is already rigged
+  if elversion >= 7 and node['platform_family'] != "amazon" # Can use firewalld, but not if iptables is already rigged
     package "firewall-config" do
       not_if "/bin/systemctl list-units | grep iptables.service"
     end
@@ -42,6 +42,14 @@ when 'rhel', 'amazon'
     firewall_rule "Allow loopback out" do
       raw "-A OUTPUT -o lo -j ACCEPT"
     end
+  end
+
+  firewall_rule "Allow eth0 out" do
+    raw "-A OUTPUT -o eth0 -j ACCEPT"
+  end
+
+  firewall_rule "Allow established connections" do
+    raw "-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT"
   end
 
   opento = master_ips.map { |x| "#{x}/32"}
