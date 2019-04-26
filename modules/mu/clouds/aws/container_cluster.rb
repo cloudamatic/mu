@@ -908,9 +908,11 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "privileged" => {
                     "type" => "boolean",
+                    "description" => "When this parameter is true, the container is given elevated privileges on the host container instance (similar to the root user). This parameter maps to +Privileged+ in the Create a container section of the Docker Remote API and the +--privileged+ option to docker run. Not valid for Fargate clusters."
                   },
                   "readonly_root_filesystem" => {
                     "type" => "boolean",
+                    "description" => "This parameter maps to +ReadonlyRootfs+ in the Create a container section of the Docker Remote API and the +--read-only+ option to docker run."
                   },
                   "interactive" => {
                     "type" => "boolean",
@@ -918,12 +920,15 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "pseudo_terminal" => {
                     "type" => "boolean",
+                    "description" => "When this parameter is true, a TTY is allocated. This parameter maps to +Tty+ in the Create a container section of the Docker Remote API and the +--tty+ option to docker run."
                   },
                   "start_timeout" => {
                     "type" => "integer",
+                    "description" => "Time duration to wait before giving up on containers which have been specified with +depends_on+ for this one."
                   },
                   "stop_timeout" => {
                     "type" => "integer",
+                    "description" => "Time duration to wait before the container is forcefully killed if it doesn't exit normally on its own."
                   },
                   "links" => {
                     "type" => "array",
@@ -1020,14 +1025,17 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "Special requirements for this container. As of this writing, +GPU+ is the only valid option.",
                       "required" => ["type", "value"],
                       "properties" => {
                         "type" => {
                           "type" => "string",
-                          "enum" => ["GPU"]
+                          "enum" => ["GPU"],
+                          "description" => "Special requirements for this container. As of this writing, +GPU+ is the only valid option."
                         },
                         "value" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The number of physical GPUs the Amazon ECS container agent will reserve for the container."
                         }
                       }
                     }
@@ -1036,12 +1044,15 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "A list of namespaced kernel parameters to set in the container. This parameter maps to +Sysctls+ in the Create a container section of the Docker Remote API and the +--sysctl+ option to docker run.",
                       "properties" => {
                         "namespace" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The namespaced kernel parameter for which to set a +value+."
                         },
                         "value" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The value for the namespaced kernel parameter specified in +namespace+."
                         }
                       }
                     }
@@ -1050,17 +1061,21 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "This parameter maps to +Ulimits+ in the Create a container section of the Docker Remote API and the +--ulimit+ option to docker run.",
                       "required" => ["name", "soft_limit", "hard_limit"],
                       "properties" => {
                         "name" => {
                           "type" => "string",
+                          "description" => "The ulimit parameter to set.",
                           "enum" => ["core", "cpu", "data", "fsize", "locks", "memlock", "msgqueue", "nice", "nofile", "nproc", "rss", "rtprio", "rttime", "sigpending", "stack"]
                         },
                         "soft_limit" => {
-                          "type" => "integer"
+                          "type" => "integer",
+                          "description" => "The soft limit for the ulimit type."
                         },
                         "hard_limit" => {
-                          "type" => "integer"
+                          "type" => "integer",
+                          "description" => "The hard limit for the ulimit type."
                         },
                       }
                     }
@@ -1085,13 +1100,16 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "See https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data.html",
                       "required" => ["name", "value_from"],
                       "properties" => {
                         "name" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The value to set as the environment variable on the container."
                         },
                         "value_from" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The secret to expose to the container."
                         }
                       }
                     }
@@ -1140,38 +1158,48 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "Data volumes to mount from another container. This parameter maps to +VolumesFrom+ in the Create a container section of the Docker Remote API and the +--volumes-from+ option to docker run.",
                       "properties" => {
                         "source_container" => {
-                          "type" => "string"
+                          "type" => "string",
+                          "description" => "The name of another container within the same task definition from which to mount volumes."
                         },
                         "read_only" => {
                           "type" => "boolean",
-                          "default" => false
+                          "default" => false,
+                          "description" => "If this value is +true+, the container has read-only access to the volume."
                         }
                       }
                     }
                   },
                   "repository_credentials" => {
                     "type" => "object",
+                    "description" => "The Amazon Resource Name (ARN) of a secret containing the private repository credentials.",
                     "properties" => {
                       "credentials_parameter" => {
-                        "type" => "string"
+                        "type" => "string",
+                        # XXX KMS? Secrets Manager? This documentation is vague.
+                        "description" => "The Amazon Resource Name (ARN) of a secret containing the private repository credentials."
                       }
                     }
                   },
                   "port_mappings" => {
                     "type" => "array",
                     "items" => {
+                      "description" => "Mappings of ports between the container instance and the host instance. This parameter maps to +PortBindings+ in the Create a container section of the Docker Remote API and the +--publish+ option to docker run.",
                       "type" => "object",
                       "properties" => {
                         "container_port" => {
-                          "type" => "integer"
+                          "type" => "integer",
+                          "description" => "The port number on the container that is bound to the user-specified or automatically assigned host port."
                         },
                         "host_port" => {
-                          "type" => "integer"
+                          "type" => "integer",
+                          "description" => "The port number on the container instance to reserve for your container. This should not be specified for Fargate clusters, nor for ECS clusters deployed into VPCs."
                         },
                         "protocol" => {
                           "type" => "string",
+                          "description" => "The protocol used for the port mapping.",
                           "enum" => ["tcp", "udp"],
                           "default" => "tcp"
                         },
