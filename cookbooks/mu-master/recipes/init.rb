@@ -556,6 +556,8 @@ export MU_DATADIR="#{MU_BASE}/var"
 export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:/usr/local/python-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
+  action :create_if_missing
+  not_if { ::File.size?("#{MU_BASE}/etc/mu.rc") }
 end
 
 # Community cookbooks keep touching gems, and none of them are smart about our

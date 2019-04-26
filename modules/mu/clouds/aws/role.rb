@@ -117,6 +117,9 @@ module MU
 
             if @config['iam_policies']
               @config['iam_policies'].each { |policy|
+                policy.values.each { |p|
+                  p["Version"] ||= "2012-10-17"
+                }
                 policy_name = @mu_name+"-"+policy.keys.first.upcase
 
                 arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
