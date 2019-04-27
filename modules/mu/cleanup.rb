@@ -157,6 +157,10 @@ module MU
                       rescue MU::MuError, NoMethodError => e
                         MU.log e.message, MU::WARN
                         next
+                      rescue ::Aws::EC2::Errors::AuthFailure => e
+                        # AWS has been having transient auth problems with ap-east-1 lately
+                        MU.log e.message+" in "+r, MU::ERR
+                        next
                       end
 
                       if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
