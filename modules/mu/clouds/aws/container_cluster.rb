@@ -392,7 +392,6 @@ module MU
                   end
                   params[:log_configuration] = MU.strToSym(c['log_configuration'])
                 end
-              pp params
                 params
               }
 
@@ -404,6 +403,25 @@ module MU
                 container_definitions: container_definitions,
                 requires_compatibilities: [launch_type]
               }
+
+              if @config['volumes']
+                task_params[:volumes] = []
+                @config['volumes'].each { |v|
+                  vol = { :name => v['name'] }
+                  if v['type'] == "host"
+                    vol[:host] = {}
+                    if v['host_volume_source_path']
+                      vol[:host][:source_path] = v['host_volume_source_path']
+                    end
+                  elsif v['type'] == "docker"
+                    vol[:docker_volume_configuration] = MU.strToSym(v['docker_volume_configuration'])
+                  else
+                    raise MuError, "Invalid volume type '#{v['type']}' specified in ContainerCluster '#{@mu_name}'"
+                  end
+                  task_params[:volumes] << vol
+                }
+              end
+
               if role_arn
                 task_params[:execution_role_arn] = role_arn
                 task_params[:task_role_arn] = role_arn
@@ -418,7 +436,6 @@ module MU
               MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
 
 # XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
-
               resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
 
               task_def = resp.task_definition.task_definition_arn
@@ -855,6 +872,55 @@ MU.log c.name, MU::NOTICE, details: t
                 }
               ]
             },
+            "volumes" => {
+              "type" => "array",
+              "items" => {
+                "description" => "Define one or more volumes which can then be referenced by the +mount_points+ parameter inside +containers+. +docker+ volumes are not valid for Fargate clusters. See also https://docs.aws.amazon.com/AmazonECS/latest/developerguide/using_data_volumes.html",
+                "type" => "object",
+                "required" => ["name", "type"],
+                "properties" => {
+                  "name" => {
+                    "type" => "string",
+                    "description" => "Name this volume so it can be referenced by containers."
+                  },
+                  "type" => {
+                    "type" => "string",
+                    "enum" => ["docker", "host"]
+                  },
+                  "docker_volume_configuration" => {
+                    "type" => "object",
+                    "default" => {
+                      "autoprovision" => true,
+                      "driver" => "local"
+                    },
+                    "description" => "This parameter is specified when you are using +docker+ volumes. Docker volumes are only supported when you are using the EC2 launch type. To use bind mounts, specify a +host+ volume instead.",
+                    "properties" => {
+                      "autoprovision" => {
+                        "type" => "boolean",
+                        "description" => "Create the Docker volume if it does not already exist.",
+                        "default" => true
+                      },
+                      "driver" => {
+                        "type" => "string",
+                        "description" => "The Docker volume driver to use. Note that Windows containers can only use the +local+ driver. This parameter maps to +Driver+ in the Create a volume section of the Docker Remote API and the +xxdriver+ option to docker volume create."
+                      },
+                      "labels" => {
+                        "description" => "Custom metadata to add to your Docker volume.",
+                        "type" => "object"
+                      },
+                      "driver_opts" => {
+                        "description" => "A map of Docker driver-specific options passed through. This parameter maps to +DriverOpts+ in the Create a volume section of the Docker Remote API and the +xxopt+ option to docker volume create .",
+                        "type" => "object"
+                      },
+                    }
+                  },
+                  "host_volume_source_path" => {
+                    "type" => "string",
+                    "description" => "If specified, and the +type+ of this volume is +host+, data will be stored in the container host in this location and will persist after containers associated with it stop running."
+                  }
+                }
+              }
+            },
             "containers" => {
               "type" => "array",
               "items" => {
@@ -872,7 +938,7 @@ MU.log c.name, MU::NOTICE, details: t
                   },
                   "image" => {
                     "type" => "string",
-                    "description" => "A Docker image to run, as a shorthand name for a public Dockerhub image or a full URL to a private container repository (+repository-url/image:tag+ or +repository-url/image@digest+). See +repository_credentials+ to specify authentication for a container repository.",
+                    "description" => "A Docker image to run, as a shorthand name for a public Dockerhub image or a full URL to a private container repository (+repository-url/image:tag+ or <tt>repository-url/image@digest</tt>). See +repository_credentials+ to specify authentication for a container repository.",
                   },
                   "cpu" => {
                     "type" => "integer",
@@ -1229,8 +1295,7 @@ MU.log c.name, MU::NOTICE, details: t
                       "properties" => {
                         "source_volume" => {
                           "type" => "string",
-# XXX have this auto-generate the relevant config in the task definition, instead of expecting users to do it
-                          "description" => "The name of the volume to moun; must be a volume name referenced in the name parameter of task definition volume"
+                          "description" => "The name of the +volume+ to mount, defined under the +volumes+ section of our parent +container_cluster+ (if the volume is not defined, an ephemeral bind host volume will be allocated)."
                         },
                         "container_path" => {
                           "type" => "string",
@@ -1342,6 +1407,17 @@ MU.log c.name, MU::NOTICE, details: t
             ok = false
           end
 
+          if cluster["volumes"]
+            cluster["volumes"].each { |v|
+              if v["type"] == "docker"
+                if cluster["flavor"] == "Fargate"
+                  MU.log "ContainerCluster #{cluster['name']}: Docker volumes are not supported in Fargate clusters (volume '#{v['name']}' is not valid)", MU::ERR
+                  ok = false
+                end
+              end
+            }
+          end
+
           if cluster["flavor"] != "EKS" and cluster["containers"]
             created_generic_loggroup = false
             cluster['containers'].each { |c|
@@ -1355,6 +1431,19 @@ MU.log c.name, MU::NOTICE, details: t
                 c['log_configuration']['options']['awslogs-group'] = logname
                 c['log_configuration']['options']['awslogs-region'] = cluster["region"]
                 c['log_configuration']['options']['awslogs-stream-prefix'] ||= c['name']
+                if c['mount_points']
+                  cluster['volumes'] ||= []
+                  volnames = cluster['volumes'].map { |v| v['name'] }
+                  c['mount_points'].each { |m|
+                    if !volnames.include?(m['source_volume'])
+                      cluster['volumes'] << {
+                        "name" => m['source_volume'],
+                        "type" => "host"
+                      }
+                    end
+                  }
+                end
+
                 if !created_generic_loggroup
                   cluster["dependencies"] << { "type" => "log", "name" => logname }
                   logdesc = {
