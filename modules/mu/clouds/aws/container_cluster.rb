@@ -882,7 +882,12 @@ MU.log c.name, MU::NOTICE, details: t
                   "memory" => {
                     "type" => "integer",
                     "default" => 512,
-                    "description" => "Memory to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                    "description" => "Hard limit of memory to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                  },
+                  "memory_reservation" => {
+                    "type" => "integer",
+                    "default" => 512,
+                    "description" => "Soft limit of memory to allocate for this container/task. This parameter maps to +MemoryReservation+ in the Create a container section of the Docker Remote API and the +--memory-reservation+ option to docker run."
                   },
                   "role" => MU::Config::Role.reference,
                   "essential" => {
@@ -963,6 +968,91 @@ MU.log c.name, MU::NOTICE, details: t
                     "items" => {
                       "type" => "string",
                       "description" => "A list of DNS search domains that are presented to the container. This parameter maps to +DnsSearch+ in the Create a container section of the Docker Remote API and the +--dns-search+ option to docker run."
+                    }
+                  },
+                  "linux_parameters" => {
+                    "type" => "object",
+                    "description" => "Linux-specific options that are applied to the container, such as Linux KernelCapabilities.",
+                    "properties" => {
+                      "init_process_enabled" => {
+                        "type" => "boolean",
+                        "description" => "Run an +init+ process inside the container that forwards signals and reaps processes. This parameter maps to the +--init+ option to docker run."
+                      },
+                      "shared_memory_size" => {
+                        "type" => "integer",
+                        "description" => "The value for the size (in MiB) of the +/dev/shm+ volume. This parameter maps to the +--shm-size+ option to docker run. Not valid for Fargate clusters."
+                      },
+                      "capabilities" => {
+                        "type" => "object",
+                        "description" => "The Linux capabilities for the container that are added to or dropped from the default configuration provided by Docker.",
+                        "properties" => {
+                          "add" => {
+                            "type" => "array",
+                            "items" => {
+                              "type" => "string",
+                              "description" => "This parameter maps to +CapAdd+ in the Create a container section of the Docker Remote API and the +--cap-add+ option to docker run. Not valid for Fargate clusters.",
+                              "enum" => ["ALL", "AUDIT_CONTROL", "AUDIT_WRITE", "BLOCK_SUSPEND", "CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID", "IPC_LOCK", "IPC_OWNER", "KILL", "LEASE", "LINUX_IMMUTABLE", "MAC_ADMIN", "MAC_OVERRIDE", "MKNOD", "NET_ADMIN", "NET_BIND_SERVICE", "NET_BROADCAST", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_ADMIN", "SYS_BOOT", "SYS_CHROOT", "SYS_MODULE", "SYS_NICE", "SYS_PACCT", "SYS_PTRACE", "SYS_RAWIO", "SYS_RESOURCE", "SYS_TIME", "SYS_TTY_CONFIG", "SYSLOG", "WAKE_ALARM"]
+                            }
+                          },
+                          "drop" => {
+                            "type" => "array",
+                            "items" => {
+                              "type" => "string",
+                              "description" => "This parameter maps to +CapDrop+ in the Create a container section of the Docker Remote API and the +--cap-drop+ option to docker run.",
+                              "enum" => ["ALL", "AUDIT_CONTROL", "AUDIT_WRITE", "BLOCK_SUSPEND", "CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID", "IPC_LOCK", "IPC_OWNER", "KILL", "LEASE", "LINUX_IMMUTABLE", "MAC_ADMIN", "MAC_OVERRIDE", "MKNOD", "NET_ADMIN", "NET_BIND_SERVICE", "NET_BROADCAST", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_ADMIN", "SYS_BOOT", "SYS_CHROOT", "SYS_MODULE", "SYS_NICE", "SYS_PACCT", "SYS_PTRACE", "SYS_RAWIO", "SYS_RESOURCE", "SYS_TIME", "SYS_TTY_CONFIG", "SYSLOG", "WAKE_ALARM"]
+                            }
+                          }
+                        }
+                      },
+                      "devices" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "object",
+                          "description" => "Host devices to expose to the container.",
+                          "properties" => {
+                            "host_path" => {
+                              "type" => "string",
+                              "description" => "The path for the device on the host container instance."
+                            },
+                            "container_path" => {
+                              "type" => "string",
+                              "description" => "The path inside the container at which to expose the host device."
+                            },
+                            "permissions" => {
+                              "type" => "array",
+                              "items" => {
+                                "description" => "The explicit permissions to provide to the container for the device. By default, the container has permissions for +read+, +write+, and +mknod+ for the device.",
+                                "type" => "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "tmpfs" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "object",
+                          "description" => "A tmpfs device to expost to the container. This parameter maps to the +--tmpfs+ option to docker run. Not valid for Fargate clusters.",
+                          "properties" => {
+                            "container_path" => {
+                              "type" => "string",
+                              "description" => "The absolute file path where the tmpfs volume is to be mounted."
+                            },
+                            "size" => {
+                              "type" => "integer",
+                              "description" => "The size (in MiB) of the tmpfs volume."
+                            },
+                            "mount_options" => {
+                              "type" => "array",
+                              "items" => {
+                                "description" => "tmpfs volume mount options",
+                                "type" => "string",
+                                "enum" => ["defaults", "ro", "rw", "suid", "nosuid", "dev", "nodev", "exec", "noexec", "sync", "async", "dirsync", "remount", "mand", "nomand", "atime", "noatime", "diratime", "nodiratime", "bind", "rbind", "unbindable", "runbindable", "private", "rprivate", "shared", "rshared", "slave", "rslave", "relatime", "norelatime", "strictatime", "nostrictatime", "mode", "uid", "gid", "nr_inodes", "nr_blocks", "mpol"]
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                   },
                   "docker_labels" => {
