@@ -87,7 +87,7 @@ module MU
       end
 
       def self.listCredentials
-        "TODO"
+        []
       end
 
       def self.credConfig

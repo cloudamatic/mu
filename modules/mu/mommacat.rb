@@ -1110,6 +1110,7 @@ module MU
         kittens = {}
         # Search our other deploys for matching resources
         if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
+          MU.log "findStray: searching my deployments", loglevel
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 
           mu_descs.each_pair { |deploy_id, matches|
@@ -1186,81 +1187,124 @@ module MU
         found_the_thing = false
         credlist.each { |creds|
           break if found_the_thing
-          if cloud_id or (tag_key and tag_value) or !flags.empty?
-            regions = []
-            begin
-              if region
-                regions << region
-              else
-                regions = cloudclass.listRegions(credentials: creds)
-              end
+          if cloud_id or (tag_key and tag_value) or !flags.empty? or allow_multi
+
+            regions = begin
+              region ? [region] : cloudclass.listRegions(credentials: creds)
             rescue NoMethodError # Not all cloud providers have regions
-              regions = [""]
+              [nil]
             end
 
-            if cloud == "Google" and ["vpcs", "firewall_rules"].include?(cfg_plural)
+            # ..not all resource types care about regions either
+            if resourceclass.isGlobal?
               regions = [nil]
             end
 
+            projects = begin
+              flags["project"] ? [flags["project"]] : cloudclass.listProjects(creds)
+            rescue NoMethodError # we only expect this to work on Google atm
+              [nil]
+            end
+
+            project_threads = []
+            desc_semaphore = Mutex.new
+
             cloud_descs = {}
-            regions.each { |r|
-              cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds)
-              # Stop if you found the thing
-              if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
-                found_the_thing = true
-                break
-              end
+            projects.each { |proj| project_threads << Thread.new(proj) { |p|
+              cloud_descs[p] = {}
+              region_threads = []
+              regions.each { |reg| region_threads << Thread.new(reg) { |r|
+                MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p})", loglevel
+                found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, project: p)
+                if found
+                  desc_semaphore.synchronize {
+                    cloud_descs[p][r] = found
+                  }
+                end
+                # Stop if you found the thing by a specific cloud_id
+                if cloud_id and found and !found.empty?
+                  found_the_thing = true
+                  break # XXX does this make sense in thread land?
+                end
+              } }
+              region_threads.each { |t|
+                t.join
+              }
+            } }
+            project_threads.each { |t|
+              t.join
             }
-            regions.each { |r|
-              next if cloud_descs[r].nil?
-              cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
-                # We already have a MU::Cloud object for this guy, use it
-                if kittens.has_key?(kitten_cloud_id)
-                  matches << kittens[kitten_cloud_id]
-                elsif kittens.size == 0
-                  if !dummy_ok
-                    next
-                  end
-                  # If we don't have a MU::Cloud object, manufacture a dummy one.
-                  # Give it a fake name if we have to and have decided that's ok.
-                  if (name.nil? or name.empty?)
+
+            project_threads = []
+            projects.each { |proj| project_threads << Thread.new(proj) { |p|
+              region_threads = []
+              regions.each { |reg| region_threads << Thread.new(reg) { |r|
+                next if cloud_descs[p][r].nil?
+                cloud_descs[p][r].each_pair { |kitten_cloud_id, descriptor|
+                  # We already have a MU::Cloud object for this guy, use it
+                  if kittens.has_key?(kitten_cloud_id)
+                    desc_semaphore.synchronize {
+                      matches << kittens[kitten_cloud_id]
+                    }
+                  elsif kittens.size == 0
                     if !dummy_ok
-                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", loglevel, details: caller
                       next
-                    else
-                      if !mu_name.nil?
-                        name = mu_name
-                      elsif !tag_value.nil?
-                        name = tag_value
+                    end
+                    # If we don't have a MU::Cloud object, manufacture a dummy one.
+                    # Give it a fake name if we have to and have decided that's ok.
+                    if (name.nil? or name.empty?)
+                      if !dummy_ok
+                        MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", loglevel, details: caller
+                        next
                       else
-                        name = kitten_cloud_id
+                        if !mu_name.nil?
+                          name = mu_name
+                        elsif !tag_value.nil?
+                          name = tag_value
+                        else
+                          name = kitten_cloud_id
+                        end
                       end
                     end
-                  end
-                  cfg = {
-                    "name" => name,
-                    "cloud" => cloud,
-                    "region" => r,
-                    "credentials" => creds
-                  }
-                  # If we can at least find the config from the deploy this will
-                  # belong with, use that, even if it's an ungroomed resource.
-                  if !calling_deploy.nil? and
-                     !calling_deploy.original_config.nil? and
-                     !calling_deploy.original_config[type+"s"].nil?
-                    calling_deploy.original_config[type+"s"].each { |s|
-                      if s["name"] == name
-                        cfg = s.dup
-                        break
-                      end
+                    cfg = {
+                      "name" => name,
+                      "cloud" => cloud,
+                      "credentials" => creds
                     }
+                    cfg["region"] = r if !r.nil?
+                    cfg["project"] = p if !p.nil?
+                    # If we can at least find the config from the deploy this will
+                    # belong with, use that, even if it's an ungroomed resource.
+                    if !calling_deploy.nil? and
+                       !calling_deploy.original_config.nil? and
+                       !calling_deploy.original_config[type+"s"].nil?
+                      calling_deploy.original_config[type+"s"].each { |s|
+                        if s["name"] == name
+                          cfg = s.dup
+                          break
+                        end
+                      }
 
-                    matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
-                  else
-                    matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
+                      newkitten = resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+                      desc_semaphore.synchronize {
+                        matches << newkitten
+                      }
+                    else
+                     MU.log "findStray: Generating dummy cloudobj with mu_name: #{name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
+                      newkitten = resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
+                      desc_semaphore.synchronize {
+                        matches << newkitten
+                      }
+                    end
                   end
-                end
+                }
+              } }
+              region_threads.each { |t|
+                t.join
               }
+            } }
+            project_threads.each { |t|
+              t.join
             }
           end
         }

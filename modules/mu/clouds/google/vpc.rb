@@ -235,28 +235,32 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-#MU.log "CALLED MU::Cloud::Google::VPC.find(#{cloud_id}, #{region}, #{tag_key}, #{tag_value}) with credentials #{credentials} from #{caller[0]}", MU::NOTICE, details: flags
+#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+        def self.find(**args)
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           resp = {}
-          if cloud_id
-            vpc = MU::Cloud::Google.compute(credentials: credentials).get_network(
-              flags['project'],
-              cloud_id.to_s.sub(/^.*?\/([^\/]+)$/, '\1')
+          if args[:cloud_id]
+            vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
+              args[:project],
+              args[:cloud_id].to_s.sub(/^.*?\/([^\/]+)$/, '\1')
             )
-            resp[cloud_id] = vpc if !vpc.nil?
+            resp[args[:cloud_id]] = vpc if !vpc.nil?
           else # XXX other criteria
-            MU::Cloud::Google.compute(credentials: credentials).list_networks(
-              flags["project"]
-            ).items.each { |vpc|
-              resp[vpc.name] = vpc
-            }
+            vpcs = MU::Cloud::Google.compute(credentials: args[:credentials]).list_networks(
+              args[:project]
+            )
+
+            if vpcs and vpcs.items
+              vpcs.items.each { |vpc|
+                resp[vpc.name] = vpc
+              }
+            end
           end
 #MU.log "THINGY", MU::WARN, details: resp
           resp.each_pair { |cloud_id, vpc|
-            routes = MU::Cloud::Google.compute(credentials: credentials).list_routes(
-              flags["project"],
+            routes = MU::Cloud::Google.compute(credentials: args[:credentials]).list_routes(
+              args[:project],
               filter: "network eq #{vpc.self_link}"
             ).items
 #            pp routes

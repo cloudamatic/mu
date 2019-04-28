@@ -81,13 +81,13 @@ module MU
       # @param sibling_only [Boolean]
       # @return [MU::Cloud::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
-        project_obj = deploy.findLitterMate(type: "habitats", name: name)
+        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
 
         if !project_obj and !sibling_only
           resp = MU::MommaCat.findStray(
             "Google",
             "habitats",
-            deploy_id: deploy.deploy_id,
+            deploy_id: deploy ? deploy.deploy_id : nil,
             cloud_id: name,
             name: name,
             dummy_ok: true

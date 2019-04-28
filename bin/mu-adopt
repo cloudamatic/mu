@@ -1,0 +1,101 @@
+#!/usr/local/ruby-current/bin/ruby
+#
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
+
+require 'rubygems'
+require 'bundler/setup'
+require 'optimist'
+require 'mu'
+
+available_clouds = MU::Cloud.supportedClouds
+available_clouds.reject! { |cloud|
+  cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+  cloudclass.listCredentials.nil? or cloudclass.listCredentials.size == 0
+}
+
+$opt = Optimist::options do
+  banner <<-EOS
+#{$0}
+  EOS
+  opt :types, "The resource types to scan and import. Valid types: #{MU::Cloud.resource_types.keys.map { |t| t.to_s }.join(", ")}", :required => true, :type => :strings
+  opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => available_clouds
+end
+
+ok = true
+
+types = []
+$opt[:types].each { |t|
+  t_name = t.gsub(/-/, "_")
+  t_name.gsub!(/^[^a-z0-9]|[^a-z0-9]$/i, "")
+  shortclass, name, plural, classname = MU::Cloud.getResourceNames(t_name)
+  if !classname
+    MU.log "'#{t}' does not map to a valid Mu resource type", MU::ERR
+    ok = false
+  else
+    types << shortclass
+  end
+}
+
+clouds = []
+if !$opt[:clouds] or $opt[:clouds].empty?
+  MU.log "At least one cloud must be specified", MU::ERR
+  ok = false
+end
+$opt[:clouds].each { |cloud|
+  found_match = false
+  MU::Cloud.supportedClouds.each { |known_cloud|
+    if cloud.match(/^[^a-z0-9]*?#{Regexp.quote(known_cloud)}[^a-z0-9]*?$/i)
+      clouds << known_cloud
+      found_match = true
+      break
+    end
+  }
+  if !found_match
+    MU.log "'#{cloud}' does not map to a valid Mu cloud layer", MU::ERR
+    ok = false
+  end
+}
+
+if !ok
+  puts "Invoke with --help for more information."
+  exit 1
+end
+
+clouds.each { |cloud|
+  cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+  next if cloudclass.listCredentials.nil?
+  cloudclass.listCredentials.each { |credset|
+    puts cloud+" "+credset
+    types.each { |type|
+      begin
+        res_class = MU::Cloud.loadCloudType(cloud, type)
+      rescue MU::Cloud::MuCloudResourceNotImplemented => e
+        next
+      end
+
+      pp MU::MommaCat.findStray(
+        cloud,
+        type,
+        credentials: credset,
+        allow_multi: true,
+        dummy_ok: true,
+        debug: true
+      )
+
+    }
+  }
+}
