@@ -75,14 +75,15 @@ if !ok
   exit 1
 end
 
+bok = {}
 clouds.each { |cloud|
   cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
   next if cloudclass.listCredentials.nil?
   cloudclass.listCredentials.each { |credset|
     puts cloud+" "+credset
     types.each { |type|
-      begin
-        res_class = MU::Cloud.loadCloudType(cloud, type)
+      res_class = begin
+        MU::Cloud.loadCloudType(cloud, type)
       rescue MU::Cloud::MuCloudResourceNotImplemented => e
         next
       end
@@ -95,11 +96,17 @@ clouds.each { |cloud|
         dummy_ok: true,
         debug: true
       )
+      
+      if found.size > 0
+        bok[res_class.cfg_plural] = []
 
-      found.each { |obj|
-        obj.toKittenConfig
-      }
+        found.each { |obj|
+          resource_bok, diff = obj.toKittenConfig
+          bok[res_class.cfg_plural] << resource_bok
+        }
+      end
 
     }
   }
 }
+puts bok.to_yaml

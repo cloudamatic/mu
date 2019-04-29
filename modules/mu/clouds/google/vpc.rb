@@ -547,22 +547,73 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly.
         def toKittenConfig(strip_defaults = false, strip_name: true)
-          bok = {}
-          MU.log "#{@project_id}/#{@mu_name}", MU::NOTICE, details: cloud_desc
+          bok = {
+            "cloud" => "Google",
+            "project" => @project_id,
+            "credentials" => @config['credentials']
+          }
+          MU::Cloud::Google.listRegions.size
 
           diff = {}
           schema, valid = MU::Config.loadResourceSchema("VPC", cloud: "Google")
           return [nil, nil] if !valid
+#          pp schema
+#          MU.log "++++++++++++++++++++++++++++++++"
 
           bok['name'] = cloud_desc[:name].dup
           if strip_name
             bok['name'].gsub!(/(^vpc-?|-vpc$)/i, '')
           end
 
+          if cloud_desc[:subnetworks]
+            bok['subnets'] = []
+            regions_seen = []
+            names_seen = []
+            cloud_desc[:subnetworks].each { |s|
+              subnet_name = s[:name].dup
+              names_seen << s[:name].dup
+              regions_seen << s[:region]
+              if strip_name
+                subnet_name.gsub!(/(^subnet-?|-subnet$)/i, '')
+              end
+              bok['subnets'] << {
+                "name" => subnet_name,
+                "ip_block" => s[:ip_cidr_range]
+              }
+            }
+            
+            # If all of the subnets are named 'default' and there's one per
+            # region, we're using GCP-generated subnets instead of explicitly
+            # declared ones.
+            if names_seen.uniq.size == 1 and names_seen.first == "default" and
+               regions_seen.uniq.size == regions_seen.size and
+               regions_seen.size >= (MU::Cloud::Google.listRegions.size * 0.8)
+              bok.delete("subnets")
+              bok['auto_create_subnetworks'] = true
+            end
+          end
+
+#MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details: cloud_desc
+
+          if cloud_desc[:peerings]
+            bok['peers'] = []
+            cloud_desc[:peerings].each { |peer|
+              vpc_id = peer[:network]
+              peer[:network].match(/\/([^\/]+)$/)
+              vpc_name = Regexp.last_match[1]
+              if strip_name
+                vpc_name.gsub!(/(^vpc-?|-vpc$)/i, '')
+              end
+# XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
+              bok['peers'] << {
+                "vpc_name" => vpc_name,
+                "vpc_id" => vpc_id
+              }
+            }
+          end
+
 # XXX validate that we've at least touched every required attribute
-#          pp schema
           MU.log "#{@project_id}/#{@mu_name}'s resulting BoK", MU::NOTICE, details: bok
-          MU.log "================================"
           return [bok, diff]
         end
 
@@ -579,6 +630,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             "project" => {
               "type" => "string",
               "description" => "The project into which to deploy resources"
+            },
+            "auto_create_subnetworks" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Sets the +auto_create_subnetworks+ flag, which causes Google to generate a set of generic subnets, one per region. This effectively overrides Mu's +create_standard_subnets+ and any explicitly defined +subnets+."
             }
           }
           [toplevel_required, schema]
