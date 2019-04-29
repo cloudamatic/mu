@@ -87,7 +87,7 @@ clouds.each { |cloud|
         next
       end
 
-      pp MU::MommaCat.findStray(
+      found = MU::MommaCat.findStray(
         cloud,
         type,
         credentials: credset,
@@ -95,6 +95,10 @@ clouds.each { |cloud|
         dummy_ok: true,
         debug: true
       )
+
+      found.each { |obj|
+        obj.toKittenConfig
+      }
 
     }
   }

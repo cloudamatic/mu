@@ -1969,6 +1969,57 @@ module MU
       end
     end
 
+    # Load and validate the schema for an individual resource class, optionally
+    # merging cloud-specific schema components.
+    # @param type [String]: The resource type to load
+    # @param cloud [String]: A specific cloud, whose implementation's schema of this resource we will merge
+    # @return [Hash]
+    def self.loadResourceSchema(type, cloud: nil)
+      valid = true
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
+
+      [:schema, :validate].each { |method|
+        if !schemaclass.respond_to?(method)
+          MU.log "MU::Config::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
+          return [nil, false] if method == :schema
+          valid = false
+        end
+      }
+
+      schema = schemaclass.schema.dup
+
+      schema["properties"]["virtual_name"] = {
+        "description" => "Internal use.",
+        "type" => "string"
+      }
+      schema["properties"]["dependencies"] = MU::Config.dependencies_primitive
+      schema["properties"]["cloud"] = MU::Config.cloud_primitive
+      schema["properties"]["credentials"] = MU::Config.credentials_primitive
+      schema["title"] = type.to_s
+
+      if cloud
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
+
+        if cloudclass.respond_to?(:schema)
+          reqd, cloudschema = cloudclass.schema
+          cloudschema.each { |key, cfg|
+            if schema["properties"][key]
+              schemaMerge(schema["properties"][key], cfg, cloud)
+            else
+              schema["properties"][key] = cfg.dup
+            end
+          }
+        else
+          MU.log "MU::Cloud::#{cloud}::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
+          valid = false
+        end
+
+      end
+
+      return [schema, valid]
+    end
+
     @@schema = {
       "$schema" => "http://json-schema.org/draft-04/schema#",
       "title" => "MU Application",
@@ -2084,28 +2135,16 @@ module MU
       end
     }
 
+
     MU::Cloud.resource_types.each_pair { |type, cfg|
       begin
-        schemaclass = Object.const_get("MU").const_get("Config").const_get(type)
-        [:schema, :validate].each { |method|
-          if !schemaclass.respond_to?(method)
-            MU.log "MU::Config::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
-            failed << type
-          end
-        }
+        schema, valid = loadResourceSchema(type)
+        failed << type if !valid
         next if failed.include?(type)
         @@schema["properties"][cfg[:cfg_plural]] = {
           "type" => "array",
-          "items" => schemaclass.schema
+          "items" => schema
         }
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["virtual_name"] = {
-          "description" => "Internal use.",
-          "type" => "string"
-        }
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["credentials"] = MU::Config.credentials_primitive
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
       rescue NameError => e
         failed << type
         MU.log "Error loading #{type} schema from mu/config/#{cfg[:cfg_name]}", MU::ERR, details: "\t"+e.inspect+"\n\t"+e.backtrace[0]
