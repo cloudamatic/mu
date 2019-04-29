@@ -23,9 +23,11 @@ module MU
         @config = nil
         @project_id = nil
         attr_reader :mu_name
+        attr_reader :project_id
         attr_reader :cloud_id
         attr_reader :url
         attr_reader :config
+        attr_reader :cloud_desc_cache
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
@@ -137,7 +139,19 @@ module MU
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
         def cloud_desc
+          if @cloud_desc_cache
+            if @subnets and @subnets.size > 0 and
+               (@cloud_desc_cache.size != @subnets.size or 
+                !@cloud_desc_cache[:subnetworks].first.is_a?(Hash))
+              # This is woefully inefficient; we're making an API call per
+              # subnet because they're scoped to regions. It'd be really nice
+              # if we could get them all in one sweep.
+              @cloud_desc_cache[:subnetworks] = @subnets.map { |s| s.cloud_desc }
+            end
+            return @cloud_desc_cache
+          end
 
+          MU.log "VPC CLOUD_DESC CALLED ON #{@project_id}/#{@mu_name}", MU::WARN
           resp = MU::Cloud::Google.compute(credentials: @config['credentials']).get_network(@project_id, @cloud_id)
           if @cloud_id.nil? or @cloud_id == ""
             MU.log "Couldn't describe #{self}, @cloud_id #{@cloud_id.nil? ? "undefined" : "empty" }", MU::ERR
@@ -151,9 +165,13 @@ module MU
             filter: "network eq #{@cloud_id}"
           ).items
           resp[:routes] = routes.map { |r| r.to_h } if routes
-# XXX subnets too
 
-          resp
+          if @subnets
+            resp[:subnetworks] = @subnets.map { |s| s.cloud_desc }
+          end
+          @cloud_desc_cache = resp
+
+          @cloud_desc_cache
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -525,10 +543,33 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           }
         end
 
+        # Reverse-engineer our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly.
+        def toKittenConfig(strip_defaults = false, strip_name: true)
+          bok = {}
+          MU.log "#{@project_id}/#{@mu_name}", MU::NOTICE, details: cloud_desc
+
+          diff = {}
+          schema, valid = MU::Config.loadResourceSchema("VPC", cloud: "Google")
+          return [nil, nil] if !valid
+
+          bok['name'] = cloud_desc[:name].dup
+          if strip_name
+            bok['name'].gsub!(/(^vpc-?|-vpc$)/i, '')
+          end
+
+# XXX validate that we've at least touched every required attribute
+#          pp schema
+          MU.log "#{@project_id}/#{@mu_name}'s resulting BoK", MU::NOTICE, details: bok
+          MU.log "================================"
+          return [bok, diff]
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(config = nil)
           toplevel_required = []
           schema = {
             "regions" => {
@@ -892,8 +933,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           attr_reader :ip_block
           attr_reader :mu_name
           attr_reader :name
+          attr_reader :cloud_desc_cache
           attr_reader :az
-
 
           # @param parent [MU::Cloud::Google::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:
@@ -907,10 +948,17 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             @deploydata = config # This is a dummy for the sake of describe()
             @az = config['az']
             @ip_block = config['ip_block']
+            @cloud_desc_cache = nil
+            cloud_desc # pre-populate this mess
           end
 
           # Return the cloud identifier for the default route of this subnet.
           def defaultRoute
+          end
+
+          def cloud_desc
+            @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.config['project'], @config['region'], @config['cloud_id']).to_h
+            @cloud_desc_cache
           end
 
           # Is this subnet privately-routable only, or public?

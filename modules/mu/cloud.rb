@@ -797,7 +797,7 @@ module MU
           end
         end
         
-        def cloud_desc()
+        def cloud_desc
           describe
           if !@cloudobj.nil?
             @cloud_desc_cache ||= @cloudobj.cloud_desc

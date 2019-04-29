@@ -1241,6 +1241,7 @@ module MU
               regions.each { |reg| region_threads << Thread.new(reg) { |r|
                 next if cloud_descs[p][r].nil?
                 cloud_descs[p][r].each_pair { |kitten_cloud_id, descriptor|
+MU.log "#{p}/#{r}/#{kitten_cloud_id}"
                   # We already have a MU::Cloud object for this guy, use it
                   if kittens.has_key?(kitten_cloud_id)
                     desc_semaphore.synchronize {
@@ -1252,22 +1253,27 @@ module MU
                     end
                     # If we don't have a MU::Cloud object, manufacture a dummy one.
                     # Give it a fake name if we have to and have decided that's ok.
-                    if (name.nil? or name.empty?)
+                    use_name = if (name.nil? or name.empty?)
                       if !dummy_ok
-                        MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", loglevel, details: caller
-                        next
+                        nil
                       else
                         if !mu_name.nil?
-                          name = mu_name
+                          mu_name
                         elsif !tag_value.nil?
-                          name = tag_value
+                          tag_value
                         else
-                          name = kitten_cloud_id
+                          kitten_cloud_id
                         end
                       end
+                    else
+                      name
+                    end
+                    if use_name.nil?
+                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", loglevel, details: caller
+                      next
                     end
                     cfg = {
-                      "name" => name,
+                      "name" => use_name,
                       "cloud" => cloud,
                       "credentials" => creds
                     }
@@ -1279,7 +1285,7 @@ module MU
                        !calling_deploy.original_config.nil? and
                        !calling_deploy.original_config[type+"s"].nil?
                       calling_deploy.original_config[type+"s"].each { |s|
-                        if s["name"] == name
+                        if s["name"] == use_name
                           cfg = s.dup
                           break
                         end
@@ -1290,8 +1296,8 @@ module MU
                         matches << newkitten
                       }
                     else
-                     MU.log "findStray: Generating dummy cloudobj with mu_name: #{name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
-                      newkitten = resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
+                     MU.log "findStray: Generating dummy cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
+                      newkitten = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                       desc_semaphore.synchronize {
                         matches << newkitten
                       }
@@ -1311,6 +1317,7 @@ module MU
       rescue Exception => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
+
       matches
     end
 
