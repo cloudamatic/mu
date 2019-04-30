@@ -231,16 +231,24 @@ module MU
             bok['name'].gsub!(/(^(sg|firewall)-|-(sg|firewall)$)/i, '')
           end
 
+          host_field = :source_ranges
           if cloud_desc[:direction] == "EGRESS"
             bok['egress'] = true
             bok['ingress'] = false
+            host_field = :destination_ranges
           end
+
+          [:source_service_accounts, :source_tags, :target_service_accounts, :target_tags].each { |field|
+            if cloud_desc[field]
+              bok[field.to_s] = cloud_desc[field].dup
+            end
+          }
 
           byport = {}
 
           if cloud_desc[:allowed]
             cloud_desc[:allowed].each { |rule|
-              hosts = cloud_desc[:source_ranges] ? cloud_desc[:source_ranges] : "0.0.0.0/0"
+              hosts = cloud_desc[host_field] ? cloud_desc[host_field] : "0.0.0.0/0"
               proto = rule[:ip_protocol] ? rule[:ip_protocol] : "all"
 
               if rule[:ports]
@@ -286,8 +294,6 @@ module MU
               }
             }
           }
-
-          MU.log "FW PORT MAP #{bok['name']}", MU::NOTICE, details: byport
 
           bok
         end
