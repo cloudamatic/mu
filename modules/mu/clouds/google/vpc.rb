@@ -151,7 +151,6 @@ module MU
             return @cloud_desc_cache
           end
 
-          MU.log "VPC CLOUD_DESC CALLED ON #{@project_id}/#{@mu_name}", MU::WARN
           resp = MU::Cloud::Google.compute(credentials: @config['credentials']).get_network(@project_id, @cloud_id)
           if @cloud_id.nil? or @cloud_id == ""
             MU.log "Couldn't describe #{self}, @cloud_id #{@cloud_id.nil? ? "undefined" : "empty" }", MU::ERR
@@ -543,10 +542,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           }
         end
 
-        # Reverse-engineer our cloud description into a runnable config hash.
+        # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
-        # calculate our own accordingly.
-        def toKittenConfig(strip_defaults = false, strip_name: true)
+        # calculate our own accordingly based on what's live in the cloud.
+        # XXX add flag to return the diff between @config and live cloud
+        def toKitten(strip_name: true)
           bok = {
             "cloud" => "Google",
             "project" => @project_id,
@@ -593,7 +593,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             end
           end
 
-#MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details: cloud_desc
+MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details: cloud_desc
 
           if cloud_desc[:peerings]
             bok['peers'] = []
@@ -612,9 +612,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             }
           end
 
-# XXX validate that we've at least touched every required attribute
-          MU.log "#{@project_id}/#{@mu_name}'s resulting BoK", MU::NOTICE, details: bok
-          return [bok, diff]
+# XXX validate that we've at least touched every required attribute (maybe upstream)
+MU.log "#{@project_id}/#{@mu_name}'s resulting BoK", MU::NOTICE, details: bok
+          bok
         end
 
         # Cloud-specific configuration properties.

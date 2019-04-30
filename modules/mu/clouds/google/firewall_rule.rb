@@ -24,6 +24,7 @@ module MU
         @project_id = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
+        PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
 
         attr_reader :mu_name
         attr_reader :config
@@ -69,6 +70,7 @@ module MU
           @config['rules'].each { |rule|
             srcs = []
             ruleobj = nil
+# XXX 'all' and 'standard' keywords
             if ["tcp", "udp"].include?(rule['proto']) and (rule['port_range'] or rule['port'])
               ruleobj = MU::Cloud::Google.compute(:Firewall)::Allowed.new(
                 ip_protocol: rule['proto'],
@@ -165,17 +167,19 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+        def self.find(**args)
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           found = {}
-          resp = MU::Cloud::Google.compute(credentials: credentials).list_firewalls(flags["project"])
+          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project])
           if resp and resp.items
             resp.items.each { |fw|
-              next if !cloud_id.nil? and fw.name != cloud_id
+              next if !args[:cloud_id].nil? and fw.name != args[:cloud_id]
               found[fw.name] = fw
             }
           end
+
           found
         end
 
@@ -207,10 +211,91 @@ module MU
           )
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(strip_name: true)
+          schema, valid = MU::Config.loadResourceSchema("FirewallRule", cloud: "Google")
+          return [nil, nil] if !valid or !cloud_desc
+
+          bok = {
+            "cloud" => "Google",
+            "project" => @project_id,
+            "credentials" => @config['credentials']
+          }
+
+          bok['rules'] = []
+          bok['name'] = cloud_desc[:name].dup
+
+          if strip_name
+            bok['name'].gsub!(/(^(sg|firewall)-|-(sg|firewall)$)/i, '')
+          end
+
+          if cloud_desc[:direction] == "EGRESS"
+            bok['egress'] = true
+            bok['ingress'] = false
+          end
+
+          byport = {}
+
+          if cloud_desc[:allowed]
+            cloud_desc[:allowed].each { |rule|
+              hosts = cloud_desc[:source_ranges] ? cloud_desc[:source_ranges] : "0.0.0.0/0"
+              proto = rule[:ip_protocol] ? rule[:ip_protocol] : "all"
+
+              if rule[:ports]
+                rule[:ports].each { |ports|
+                  ports = "0-65535" if ["1-65535", "1-65536", "0-65536"].include?(ports)
+                  byport[ports] ||= {}
+                  byport[ports][hosts] ||= []
+                  byport[ports][hosts] << proto
+                }
+              else
+                byport["0-65535"] ||= {}
+                byport["0-65535"][hosts] ||= []
+                byport["0-65535"][hosts] << proto
+              end
+            }
+          elsif cloud_desc[:denied]
+            MU.log "XXX #{bok['name']} is a DENY rule", MU::WARN
+          else
+            MU.log "FW CLOUD_DESC #{bok['name']}", MU::WARN, details: cloud_desc
+            raise MuError, "FUCK OFF"
+          end
+
+          byport.each_pair { |ports, hostlist|
+            hostlist.each_pair { |hostlist, protos|
+              protolist = if protos.sort.uniq == PROTOS.sort.uniq
+                ["all"]
+              elsif protos.sort.uniq == ["icmp", "tcp", "udp"]
+                ["standard"]
+              else
+                protos
+              end
+              protolist.each { |proto|
+                rule = {
+                  "proto" => proto,
+                  "hosts" => hostlist,
+                }
+                if ports.match(/-/)
+                  rule["port_range"] = ports
+                else
+                  rule["port"] = ports.to_i
+                end
+                bok['rules'] << rule
+              }
+            }
+          }
+
+          MU.log "FW PORT MAP #{bok['name']}", MU::NOTICE, details: byport
+
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(config = nil)
           toplevel_required = []
 #                ['source_ranges', 'source_service_accounts', 'source_tags', 'target_ranges', 'target_service_accounts'].each { |filter|
           schema = {
@@ -218,7 +303,8 @@ module MU
               "items" => {
                 "properties" => {
                   "proto" => {
-                    "enum" => ["udp", "tcp", "icmp", "all"]
+                    "description" => "The protocol to allow with this rule. The +standard+ keyword will expand to a series of identical rules covering +icmp+, +tcp+, and +udp; the +all+ keyword will expand to a series of identical rules for all supported protocols.",
+                    "enum" => PROTOS + ["all", "standard"]
                   },
                   "source_tags" => {
                     "type" => "array",

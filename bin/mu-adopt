@@ -75,7 +75,13 @@ if !ok
   exit 1
 end
 
-bok = {}
+bok = {
+  "appname" => "foo" # XXX CLI flag and/or inference from found resources
+}
+
+schema, valid = MU::Config.loadResourceSchema("FirewallRule", cloud: "Google")
+pp schema
+
 clouds.each { |cloud|
   cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
   next if cloudclass.listCredentials.nil?
@@ -101,8 +107,8 @@ clouds.each { |cloud|
         bok[res_class.cfg_plural] = []
 
         found.each { |obj|
-          resource_bok, diff = obj.toKittenConfig
-          bok[res_class.cfg_plural] << resource_bok
+          resource_bok = obj.toKitten
+          bok[res_class.cfg_plural] << resource_bok if resource_bok
         }
       end
 

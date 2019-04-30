@@ -808,11 +808,11 @@ module MU
             # as a key and a cloud platform descriptor as the value.
             begin
 
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: @config['project'])
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc_cache = matches[@cloud_id]
+                @cloud_desc_cache = matches[@cloud_id].to_h
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}/#{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }", MU::WARN, details: caller
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
