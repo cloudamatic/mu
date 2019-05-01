@@ -218,6 +218,7 @@ module MU
           if !policy.match(/^#{@deploy.deploy_id}/)
             policy = @mu_name+"-"+policy.upcase
           end
+
           my_policies = cloud_desc["policies"]
           my_policies ||= []
           my_policies.each { |p|
@@ -236,15 +237,19 @@ module MU
                       type: target["type"]
                     )
                     sibling.cloudobj.arn
-                  else
+                  elsif target.is_a?(Hash)
                     target['identifier']
+                  else
+                    target
                   end
-                  if sibling and !s["Resource"].include?(targetstr)
+
+                  if targetstr and !s["Resource"].include?(targetstr)
                     s["Resource"] << targetstr
                     need_update = true
                   end
                 }
               }
+
               if need_update
                 MU.log "Updating IAM policy #{policy} to grant permissions on #{targets.to_s}", details: doc
                 update_policy(p.arn, doc)
