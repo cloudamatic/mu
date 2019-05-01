@@ -458,6 +458,7 @@ module MU
   end
 
   require 'mu/config'
+  require 'mu/adoption'
 
   # Figure out what cloud provider we're in, if any.
   # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.

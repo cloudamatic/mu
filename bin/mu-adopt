@@ -75,44 +75,7 @@ if !ok
   exit 1
 end
 
-bok = {
-  "appname" => "foo" # XXX CLI flag and/or inference from found resources
-}
-
-schema, valid = MU::Config.loadResourceSchema("FirewallRule", cloud: "Google")
-pp schema
-
-clouds.each { |cloud|
-  cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-  next if cloudclass.listCredentials.nil?
-  cloudclass.listCredentials.each { |credset|
-    puts cloud+" "+credset
-    types.each { |type|
-      res_class = begin
-        MU::Cloud.loadCloudType(cloud, type)
-      rescue MU::Cloud::MuCloudResourceNotImplemented => e
-        next
-      end
-
-      found = MU::MommaCat.findStray(
-        cloud,
-        type,
-        credentials: credset,
-        allow_multi: true,
-        dummy_ok: true,
-        debug: true
-      )
-      
-      if found.size > 0
-        bok[res_class.cfg_plural] = []
-
-        found.each { |obj|
-          resource_bok = obj.toKitten
-          bok[res_class.cfg_plural] << resource_bok if resource_bok
-        }
-      end
-
-    }
-  }
-}
+adoption = MU::Adoption.new(clouds: clouds, types: types)
+adoption.scrapeClouds
+bok = adoption.generateBasket
 puts bok.to_yaml
