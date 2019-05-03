@@ -802,6 +802,7 @@ module MU
           if !@cloudobj.nil?
             @cloud_desc_cache ||= @cloudobj.cloud_desc
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
+            @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
           end
           if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id
@@ -809,7 +810,16 @@ module MU
             begin
 
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: @config['project'])
-              if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
+              if !matches.nil? and matches.is_a?(Hash) and matches[@cloud_id]
+#                puts matches[@cloud_id][:self_link]
+#                puts matches[@cloud_id][:url]
+#                if matches[@cloud_id][:self_link]
+#                  @url ||= matches[@cloud_id][:self_link]
+#                elsif matches[@cloud_id][:url]
+#                  @url ||= matches[@cloud_id][:url]
+#                elsif matches[@cloud_id][:arn]
+#                  @arn ||= matches[@cloud_id][:arn]
+#                end
                 @cloud_desc_cache = matches[@cloud_id].to_h
               else
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }", MU::WARN, details: caller

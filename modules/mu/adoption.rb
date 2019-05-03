@@ -31,7 +31,6 @@ module MU
         cloudclass.listCredentials.each { |credset|
           puts cloud+" "+credset
           @types.each { |type|
-            @scraped[type] ||= []
       
             found = MU::MommaCat.findStray(
               cloud,
@@ -43,6 +42,8 @@ module MU
             )
 
             if found and found.size > 0
+              @scraped[type] ||= []
+              @scraped[type].concat(found)
             end
 
           }
@@ -65,13 +66,28 @@ module MU
           bok[res_class.cfg_plural] ||= []
 
           resources.each { |obj|
+#          puts obj.mu_name
+#          puts obj.config['name']
+#          puts obj.cloud_id
+#          puts obj.url
+#          puts obj.arn
+          puts "============================================="
             resource_bok = obj.toKitten
+#            pp resource_bok
             bok[res_class.cfg_plural] << resource_bok if resource_bok
           }
         }
       }
       
       bok
+    end
+
+    private
+
+    # Go through everything we've scraped and update our mappings of cloud ids
+    # and bare name fields, so that resources can reference one another
+    # portably by name.
+    def updateReferenceMap
     end
 
   end

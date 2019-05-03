@@ -23,6 +23,7 @@ module MU
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
+        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::habitats}
@@ -140,7 +141,7 @@ module MU
 
         # Return the cloud descriptor for the Habitat
         def cloud_desc
-          MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
+          MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first.to_h
         end
 
         # Return the metadata for this project's configuration
@@ -195,21 +196,47 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
+        def self.find(**args)
           found = {}
-          if cloud_id
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
-              filter: "name:#{cloud_id}"
+          args[:cloud_id] ||= args[:project]
+
+          if args[:cloud_id]
+            resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects(
+              filter: "id:#{args[:cloud_id]}"
             )
-            found[resp.name] = resp.projects.first if resp and resp.projects
+            found[args[:cloud_id]] = resp.projects.first if resp and resp.projects
           else
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects().projects
+            resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects().projects
             resp.each { |p|
               found[p.name] = p
             }
           end
-          
+
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(strip_name: true)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials']
+          }
+          bok['name'] = cloud_desc[:name]
+
+          if cloud_desc[:parent] and cloud_desc[:parent][:id]
+            bok['parent'] = {
+              'id' => cloud_desc[:parent][:id]
+            }
+          end
+
+          cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
+          if cur_billing and cur_billing.billing_account_name
+            bok['billing_acct'] = cur_billing.billing_account_name.sub(/^billingAccounts\//, '')
+          end
+
+          bok
         end
 
         # Cloud-specific configuration properties.

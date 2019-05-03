@@ -25,6 +25,7 @@ module MU
         attr_reader :config
         attr_reader :cloud_id
         attr_reader :targetgroups
+        attr_reader :url
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data

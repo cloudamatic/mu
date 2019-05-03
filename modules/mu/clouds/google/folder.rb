@@ -24,6 +24,7 @@ module MU
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
+        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::folders}
@@ -124,7 +125,7 @@ module MU
 
         # Return the cloud descriptor for the Folder
         def cloud_desc
-          MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first
+          MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first.to_h
         end
 
         # Return the metadata for this project's configuration
@@ -205,9 +206,10 @@ module MU
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
+#        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
+        def self.find(**args)
           found = {}
-
+pp args
           # Recursively search a GCP folder hierarchy for a folder matching our
           # supplied name or identifier.
           def self.find_matching_folder(parent, name: nil, id: nil, credentials: nil)
@@ -227,25 +229,46 @@ module MU
             nil
           end
 
-          if cloud_id
-            found[cloud_id.sub(/^folders\//, "")] = MU::Cloud::Google.folder(credentials: credentials).get_folder("folders/"+cloud_id.sub(/^folders\//, ""))
-          elsif flags['display_name']
-            parent = if flags['parent_id']
-              flags['parent_id']
-            else
-              my_org = MU::Cloud::Google.getOrg(credentials)
-              my_org.name
-            end
+          parent = if args[:flags] and args[:flags]['parent_id']
+            args[:flags]['parent_id']
+          else
+            my_org = MU::Cloud::Google.getOrg(args[:credentials])
+            my_org.name
+          end
+
+          if args[:cloud_id]
+            found[args[:cloud_id].sub(/^folders\//, "")] = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+args[:cloud_id].sub(/^folders\//, ""))
+          elsif args[:flags]['display_name']
 
             if parent
-              resp = self.find_matching_folder(parent, name: flags['display_name'], credentials: credentials)
+              resp = self.find_matching_folder(parent, name: args[:flags]['display_name'], credentials: args[:credentials])
               if resp
                 found[resp.name.sub(/^folders\//, "")] = resp
               end
             end
+          else
+            resp = MU::Cloud::Google.folder(credentials: args[:credentials]).list_folders(parent: parent)
+            if resp and resp.folders
+              resp.folders.each { |folder|
+                found[folder.name.sub(/^folders\//, "")] = folder
+              }
+            end
           end
-          
+
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(strip_name: true)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials']
+          }
+          bok['name'] = cloud_desc[:display_name]
+
+          bok
         end
 
         # Cloud-specific configuration properties.

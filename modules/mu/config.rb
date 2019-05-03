@@ -260,6 +260,100 @@ module MU
       return config
     end
 
+    # A wrapper class for resources to refer to other resources, whether they
+    # be a sibling object in the current deploy, an object in another deploy,
+    # or a plain cloud id from outside of Mu.
+    class Ref
+      attr_reader :id 
+      attr_reader :name 
+      attr_reader :type 
+      attr_reader :cloud 
+      attr_reader :deploy_id 
+      attr_reader :region 
+      attr_reader :credentials 
+      attr_reader :obj 
+
+      # @param [Hash]: A {Hash}, typically in the style of
+      # {reference}, containing lookup information for a cloud
+      # object
+      def initialize(cfg)
+      end
+
+      # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
+      # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
+      # @return [Hash]
+      def self.schema(aliases = [])
+        schema = {
+          "type" => "object",
+          "minProperties" => 1,
+          "properties" => {
+            "id" => {
+              "type" => "string"
+            },
+            "name" => {
+              "type" => "string"
+            },
+            "type" => {
+              "type" => "string",
+              "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }
+            },
+            "deploy_id" => {
+              "type" => "string"
+            },
+            "credentials" => MU::Config.credentials_primitive,
+            "region" => MU::Config.region_primitive,
+            "cloud" => MU::Config.cloud_primitive,
+            "tag" => {
+              "type" => "object",
+              "properties" => {
+                "key" => {
+                  "type" => "string"
+                },
+                "value" => {
+                  "type" => "string"
+                }
+              }
+            }
+          }
+        }
+
+        aliases.each { |a|
+          a.each_pair { |k, v|
+            if schema[v]
+              schema[k] = schema[v].dup
+              schema[k]["description"] = "Alias for +#{v}+"
+            else
+              MU.log "Reference schema alias #{k} wants to alias #{v}, but no such attribute exists", MU::WARN, details: caller[1]
+            end
+          }
+        }
+
+        schema
+      end
+
+      # Decompose into a plain-jane {MU::Config::BasketOfKittens} hash fragment,
+      # of the sort that would have been used to declare this reference in the
+      # first place.
+      def to_h
+        me = { }
+        me['id'] = @id if @id
+        me['name'] = @name if @name
+        me['type'] = @type if @type
+        me['cloud'] = @cloud if @cloud
+        me['deploy_id'] = @deploy_id if @deploy_id
+        me
+      end
+
+      # Return a {MU::Cloud} object for this reference
+      def kitten
+        return @obj if @obj
+
+        # Go fish, and what's more set any of our unset attributes that we end
+        # up finding in the results.
+      end
+
+    end
+
     # A wrapper for config leaves that came from ERB parameters instead of raw
     # YAML or JSON. Will behave like a string for things that expect that
     # sort of thing. Code that needs to know that this leaf was the result of

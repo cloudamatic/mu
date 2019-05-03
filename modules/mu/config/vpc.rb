@@ -223,34 +223,41 @@ module MU
       # @param subnet_pref [String]:
       # @return [Hash]
       def self.reference(subnets = MANY_SUBNETS, nat_opts = NAT_OPTS, subnet_pref = nil)
-        vpc_ref_schema = {
-          "type" => "object",
-          "description" => "Deploy, attach, allow access from, or peer this resource with a VPC of VPCs.",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-            "vpc_id" => {
-              "type" => "string",
-              "description" => "Discover this VPC by looking for this cloud provider identifier."
-            },
-            "credentials" => MU::Config.credentials_primitive,
-            "vpc_name" => {
-              "type" => "string",
-              "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
-            },
-            "region" => MU::Config.region_primitive,
-            "cloud" => MU::Config.cloud_primitive,
-            "tag" => {
-              "type" => "string",
-              "description" => "Discover this VPC by a cloud provider tag (key=value); note that this tag must not match more than one resource.",
-              "pattern" => "^[^=]+=.+"
-            },
-            "deploy_id" => {
-              "type" => "string",
-              "description" => "Search for this VPC in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
-            }
-          }
-        }
+        schema_aliases = [
+          { "vpc_id" => "id" },
+          { "vpc_name" => "name" },
+          { "vpc_derp" => "thang" },
+        ]
+        vpc_ref_schema = MU::Config::Ref.schema(schema_aliases)
+
+#        vpc_ref_schema = {
+#          "type" => "object",
+#          "description" => "Deploy, attach, allow access from, or peer this resource with a VPC of VPCs.",
+#          "minProperties" => 1,
+#          "additionalProperties" => false,
+#          "properties" => {
+#            "vpc_id" => {
+#              "type" => "string",
+#              "description" => "Discover this VPC by looking for this cloud provider identifier."
+#            },
+#            "credentials" => MU::Config.credentials_primitive,
+#            "vpc_name" => {
+#              "type" => "string",
+#              "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+#            },
+#            "region" => MU::Config.region_primitive,
+#            "cloud" => MU::Config.cloud_primitive,
+#            "tag" => {
+#              "type" => "string",
+#              "description" => "Discover this VPC by a cloud provider tag (key=value); note that this tag must not match more than one resource.",
+#              "pattern" => "^[^=]+=.+"
+#            },
+#            "deploy_id" => {
+#              "type" => "string",
+#              "description" => "Search for this VPC in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
+#            }
+#          }
+#        }
 
         if nat_opts
           vpc_ref_schema["properties"].merge!(

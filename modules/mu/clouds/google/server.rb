@@ -36,6 +36,7 @@ module MU
         attr_reader :cloud_id
         attr_reader :cloud_desc
         attr_reader :groomer
+        attr_reader :url
         attr_accessor :mu_windows_name
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.

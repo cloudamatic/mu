@@ -41,6 +41,8 @@ module MU
             @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
           elsif cloud_id and !cloud_id.empty?
             @cloud_id = cloud_id.to_s
+            desc = cloud_desc
+            @url = desc[:self_link] if desc and desc[:self_link]
           end
 
           if !mu_name.nil?
@@ -75,7 +77,7 @@ module MU
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']}) in project #{@project_id}", details: networkobj
 
           resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_network(@project_id, networkobj)
-          @url = resp.self_link # XXX needs to go in notify
+          @url = resp.self_link
           @cloud_id = resp.name
 
           if @config['subnets']

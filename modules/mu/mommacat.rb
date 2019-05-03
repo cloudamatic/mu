@@ -1241,7 +1241,7 @@ module MU
               regions.each { |reg| region_threads << Thread.new(reg) { |r|
                 next if cloud_descs[p][r].nil?
                 cloud_descs[p][r].each_pair { |kitten_cloud_id, descriptor|
-MU.log "#{p}/#{r}/#{kitten_cloud_id}"
+
                   # We already have a MU::Cloud object for this guy, use it
                   if kittens.has_key?(kitten_cloud_id)
                     desc_semaphore.synchronize {

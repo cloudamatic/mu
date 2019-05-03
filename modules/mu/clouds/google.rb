@@ -35,7 +35,7 @@ module MU
       # {MU::Cloud}
       # @return [Array<Symbol>]
       def self.required_instance_methods
-        []
+        [:url]
       end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
@@ -845,6 +845,7 @@ module MU
             MU.log "Calling #{method_sym}", MU::DEBUG, details: arguments
             retval = nil
             retries = 0
+            wait_backoff = 5
             begin
               if !arguments.nil? and arguments.size == 1
                 retval = @api.method(method_sym).call(arguments[0])
@@ -858,6 +859,15 @@ module MU
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym} in project #{arguments.first}"
               else
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym}"
+              end
+            rescue ::Google::Apis::RateLimitError => e
+              if retries <= 10
+                sleep wait_backoff
+                retries += 1
+                wait_backoff = wait_backoff * 2
+                retry
+              else
+                raise e
               end
             rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
               if e.message.match(/^invalidParameter:/)

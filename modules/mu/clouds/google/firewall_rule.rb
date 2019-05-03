@@ -28,6 +28,7 @@ module MU
 
         attr_reader :mu_name
         attr_reader :config
+        attr_reader :url
         attr_reader :cloud_id
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -36,6 +37,12 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+
+          if @cloud_id
+            desc = cloud_desc
+            @url = desc[:self_link] if desc and desc[:self_link]
+          end
+
           if !mu_name.nil?
             @mu_name = mu_name
             # This is really a placeholder, since we "own" multiple rule sets
@@ -121,6 +128,7 @@ module MU
               fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
               MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
               resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+              @url = resp.self_link
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
             }
@@ -215,9 +223,6 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         def toKitten(strip_name: true)
-          schema, valid = MU::Config.loadResourceSchema("FirewallRule", cloud: "Google")
-          return [nil, nil] if !valid or !cloud_desc
-
           bok = {
             "cloud" => "Google",
             "project" => @project_id,
@@ -228,7 +233,7 @@ module MU
           bok['name'] = cloud_desc[:name].dup
 
           if strip_name
-            bok['name'].gsub!(/(^(sg|firewall)-|-(sg|firewall)$)/i, '')
+            bok['name'].gsub!(/(^(sg|firewall|ingress|egress)-|-(sg|firewall|ingress|egress)$)/i, '')
           end
 
           host_field = :source_ranges
