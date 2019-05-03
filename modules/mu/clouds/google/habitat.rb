@@ -192,10 +192,7 @@ module MU
         end
 
         # Locate an existing project
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
+        # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
           found = {}
           args[:cloud_id] ||= args[:project]

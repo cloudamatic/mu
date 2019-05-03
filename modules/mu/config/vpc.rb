@@ -225,10 +225,9 @@ module MU
       def self.reference(subnets = MANY_SUBNETS, nat_opts = NAT_OPTS, subnet_pref = nil)
         schema_aliases = [
           { "vpc_id" => "id" },
-          { "vpc_name" => "name" },
-          { "vpc_derp" => "thang" },
+          { "vpc_name" => "name" }
         ]
-        vpc_ref_schema = MU::Config::Ref.schema(schema_aliases)
+        vpc_ref_schema = MU::Config::Ref.schema(schema_aliases, type: "vpcs")
 
 #        vpc_ref_schema = {
 #          "type" => "object",

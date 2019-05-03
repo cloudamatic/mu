@@ -89,18 +89,13 @@ module MU
       # Schema block for other resources to use when referencing a sibling FirewallRule
       # @return [Hash]
       def self.reference
+        schema_aliases = [
+          { "rule_id" => "id" },
+          { "rule_name" => "name" }
+        ]
         {
           "type" => "array",
-          "items" => {
-            "type" => "object",
-            "additionalProperties" => false,
-            "description" => "Apply one or more network rulesets, defined in this stack or pre-existing, to this resource. Note that if you add a pre-existing ACL to your resource, they must be compatible (e.g. if using VPCs, they must reside in the same VPC).",
-            "minProperties" => 1,
-            "properties" => {
-                "rule_id" => {"type" => "string"},
-                "rule_name" => {"type" => "string"}
-            }
-          }
+          "items" => MU::Config::Ref.schema(schema_aliases, type: "firewall_rules")
         }
       end
 

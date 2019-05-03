@@ -273,57 +273,71 @@ module MU
       attr_reader :credentials 
       attr_reader :obj 
 
-      # @param [Hash]: A {Hash}, typically in the style of
-      # {reference}, containing lookup information for a cloud
-      # object
+      # @param cfg [Hash]: A Basket of Kittens configuration hash containing
+      # lookup information for a cloud object
       def initialize(cfg)
       end
 
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
-      def self.schema(aliases = [])
+      def self.schema(aliases = [], type: nil, parent_obj: nil)
+        parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
         schema = {
           "type" => "object",
           "minProperties" => 1,
+          "description" => "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource",
           "properties" => {
             "id" => {
-              "type" => "string"
+              "type" => "string",
+              "description" => "Cloud identifier of a resource we want to reference, typically used when leveraging resources not managed by MU"
             },
             "name" => {
-              "type" => "string"
+              "type" => "string",
+              "description" => "The short (internal Mu) name of a resource we're attempting to reference. Typically used when referring to a sibling resource elsewhere in the same deploy, or in another known Mu deploy in conjunction with +deploy_id+."
             },
             "type" => {
               "type" => "string",
+              "description" => "The resource type we're attempting to reference.",
               "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }
             },
             "deploy_id" => {
-              "type" => "string"
+              "type" => "string",
+              "description" => "Our target resource should be found in this Mu deploy."
             },
             "credentials" => MU::Config.credentials_primitive,
             "region" => MU::Config.region_primitive,
             "cloud" => MU::Config.cloud_primitive,
             "tag" => {
               "type" => "object",
+              "description" => "If the target resource supports tagging and our resource implementations +find+ method supports it, we can attempt to locate it by tag.",
               "properties" => {
                 "key" => {
-                  "type" => "string"
+                  "type" => "string",
+                  "description" => "The tag or label key to search against"
                 },
                 "value" => {
-                  "type" => "string"
+                  "type" => "string",
+                  "description" => "The tag or label value to match"
                 }
               }
             }
           }
         }
 
+        if !type.nil?
+          schema["required"] = ["type"]
+          schema["properties"]["type"]["default"] = type
+          schema["properties"]["type"]["enum"] = [type]
+        end
+
         aliases.each { |a|
           a.each_pair { |k, v|
-            if schema[v]
-              schema[k] = schema[v].dup
-              schema[k]["description"] = "Alias for +#{v}+"
+            if schema["properties"][v]
+              schema["properties"][k] = schema["properties"][v].dup
+              schema["properties"][k]["description"] = "Alias for <tt>#{v}</tt>"
             else
-              MU.log "Reference schema alias #{k} wants to alias #{v}, but no such attribute exists", MU::WARN, details: caller[1]
+              MU.log "Reference schema alias #{k} wants to alias #{v}, but no such attribute exists", MU::WARN, details: caller[4]
             end
           }
         }
