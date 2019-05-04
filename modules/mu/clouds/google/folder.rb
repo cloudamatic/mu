@@ -209,7 +209,7 @@ module MU
 #        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
         def self.find(**args)
           found = {}
-pp args
+
           # Recursively search a GCP folder hierarchy for a folder matching our
           # supplied name or identifier.
           def self.find_matching_folder(parent, name: nil, id: nil, credentials: nil)

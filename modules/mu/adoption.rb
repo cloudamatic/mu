@@ -71,23 +71,112 @@ module MU
 #          puts obj.cloud_id
 #          puts obj.url
 #          puts obj.arn
-          puts "============================================="
             resource_bok = obj.toKitten
 #            pp resource_bok
             bok[res_class.cfg_plural] << resource_bok if resource_bok
           }
         }
       }
-      
-      bok
+
+# Now walk through all of the Refs in these objects, resolve them, and minimize
+# their config footprint
+
+      vacuum(bok)
     end
 
     private
 
+    # Recursively walk through a BoK hash, validate all {MU::Config::Ref}
+    # objects, convert them to hashes, and pare them down to the minimal
+    # representation (remove extraneous attributes that match the parent
+    # object).
+    # Do the same for our main objects: if they all use the same credentials,
+    # for example, remove the explicit +credentials+ attributes and set that
+    # value globally, once.
+    def vacuum(bok)
+      deploy = generateStubDeploy(bok)
+
+      MU::Cloud.resource_types.each_pair { |typename, attrs|
+        if bok[attrs[:cfg_plural]]
+          MU.log "CHEWING #{bok[attrs[:cfg_plural]].size.to_s} #{attrs[:cfg_plural]} (#{bok[attrs[:cfg_plural]].map { |x| x['name'] }.uniq.size.to_s})", MU::WARN, details: bok[attrs[:cfg_plural]].map { |x| x['name'] }.uniq.sort
+          bok[attrs[:cfg_plural]].each { |resource|
+            obj = mommacat.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+            resource = cleanReferences(resource, deploy, obj)
+          }
+        end
+      }
+
+      bok
+    end
+
+    def cleanReferences(cfg, deploy, parent)
+      if cfg.is_a?(MU::Config::Ref)
+        if cfg.kitten
+          cfg = if mommacat.findLitterMate(type: cfg.type, name: cfg.name)
+            { "type" => cfg.type, "name" => cfg.name }
+          # XXX other common cases: deploy_id, project, etc
+          else
+            cfg.to_h
+          end
+        else
+          MU.log "Failed to resolve reference for #{parent}", MU::ERR, details: cfg
+          raise MuError, "Failed to resolve reference"
+        end
+      elsif cfg.is_a?(Hash)
+        cfg.each_pair { |key, value|
+          cfg[key] = cleanReferences(value, deploy, parent)
+        }
+      elsif cfg.is_a?(Array)
+        cfg.each { |value|
+          cleanReferences(value, deploy, parent)
+        }
+      end
+
+      cfg
+    end
+
+    # @return [MU::MommaCat]
+    def generateStubDeploy(cfg)
+#      hashify Ref objects before passing into here... or do we...?
+
+      time = Time.new
+      timestamp = time.strftime("%Y%m%d%H").to_s;
+      timestamp.freeze
+
+      retries = 0
+      deploy_id = nil
+      seed = nil
+      begin
+        raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
+        seedsize = 1 + (retries/10).abs
+        seed = (0...seedsize+1).map { ('a'..'z').to_a[rand(26)] }.join
+        deploy_id = cfg['appname'].upcase + "-ADOPT-" + timestamp + "-" + seed.upcase
+      end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu" or seed[0] == seed[1]
+
+      MU.setVar("deploy_id", deploy_id)
+      MU.setVar("appname", cfg['appname'].upcase)
+      MU.setVar("environment", "ADOPT")
+      MU.setVar("timestamp", timestamp)
+      MU.setVar("seed", seed)
+      MU.setVar("handle", MU::MommaCat.generateHandle(seed))
+
+      MU::MommaCat.new(
+        deploy_id,
+        create: true,
+        config: cfg,
+        environment: "adopt",
+        nocleanup: true,
+        no_artifacts: true,
+        set_context_to_me: true,
+        mu_user: MU.mu_user
+      )
+
+    end
+
     # Go through everything we've scraped and update our mappings of cloud ids
     # and bare name fields, so that resources can reference one another
     # portably by name.
-    def updateReferenceMap
+    def catalogResources
     end
 
   end

@@ -223,9 +223,12 @@ module MU
           bok['name'] = cloud_desc[:name]
 
           if cloud_desc[:parent] and cloud_desc[:parent][:id]
-            bok['parent'] = {
-              'id' => cloud_desc[:parent][:id]
-            }
+            bok['parent'] = MU::Config::Ref.new(
+              id: cloud_desc[:parent][:id],
+              cloud: "Google",
+              credentials: @config['credentials'],
+              type: "habitats"
+            )
           end
 
           cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)

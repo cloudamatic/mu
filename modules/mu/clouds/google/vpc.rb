@@ -36,6 +36,12 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
           @subnetcachesemaphore = Mutex.new
+
+          if !@project_id
+            project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+            @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+          end
+
           if cloud_id and cloud_id.match(/^https:\/\//)
             @url = cloud_id.clone
             @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
@@ -45,16 +51,13 @@ module MU
             @url = desc[:self_link] if desc and desc[:self_link]
           end
 
+
           if !mu_name.nil?
             @mu_name = mu_name
             if @cloud_id.nil? or @cloud_id.empty?
               @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
             end
             @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
             loadSubnets
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
@@ -219,7 +222,6 @@ module MU
               elsif peer_obj.cloudobj.deploydata
                 peer_obj.cloudobj.deploydata['self_link']
               else
-                pp peer_obj.cloudobj.cloud_desc
                 raise MuError, "Can't find the damn URL of my damn peer VPC #{peer['vpc']}"
               end
               cnxn_name = MU::Cloud::Google.nameStr(@mu_name+"-peer-"+count.to_s)
@@ -257,9 +259,8 @@ module MU
 #        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
         def self.find(**args)
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
-
           resp = {}
-          if args[:cloud_id]
+          if args[:cloud_id] and args[:project]
             vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
               args[:project],
               args[:cloud_id].to_s.sub(/^.*?\/([^\/]+)$/, '\1')
@@ -600,17 +601,23 @@ MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details:
           if cloud_desc[:peerings]
             bok['peers'] = []
             cloud_desc[:peerings].each { |peer|
-              vpc_id = peer[:network]
-              peer[:network].match(/\/([^\/]+)$/)
-              vpc_name = Regexp.last_match[1]
+              peer[:network].match(/projects\/([^\/]+?)\/[^\/]+?\/networks\/([^\/]+)$/)
+              vpc_project = Regexp.last_match[1]
+              vpc_name = Regexp.last_match[2]
+              vpc_id = vpc_name.dup
               if strip_name
                 vpc_name.gsub!(/(^vpc-?|-vpc$)/i, '')
               end
 # XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
-              bok['peers'] << {
-                "vpc_name" => vpc_name,
-                "vpc_id" => vpc_id
-              }
+              bok['peers'] << MU::Config::Ref.new(
+                id: vpc_id,
+                name: vpc_name,
+                cloud: "Google",
+                project: vpc_project,
+                credentials: @config['credentials'],
+                type: "vpcs",
+                project: @project_id # XXX this is NOT a valid assumption
+              )
             }
           end
 

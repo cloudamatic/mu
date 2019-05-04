@@ -236,6 +236,17 @@ module MU
             bok['name'].gsub!(/(^(sg|firewall|ingress|egress)-|-(sg|firewall|ingress|egress)$)/i, '')
           end
 
+          cloud_desc[:network].match(/\/networks\/([^\/]+)(?:$|\/)/)
+          vpc_id = Regexp.last_match[1]
+
+          bok['vpc'] = MU::Config::Ref.new(
+            id: vpc_id,
+            project: @project_id,
+            cloud: "Google",
+            credentials: @config['credentials'],
+            type: "vpcs"
+          )
+
           host_field = :source_ranges
           if cloud_desc[:direction] == "EGRESS"
             bok['egress'] = true

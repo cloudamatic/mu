@@ -688,6 +688,8 @@ module MU
         hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return hash
+    elsif struct.is_a?(MU::Config::Ref)
+      struct = struct.to_h
     elsif struct.is_a?(Hash)
       if stringify_keys
         newhash = {}

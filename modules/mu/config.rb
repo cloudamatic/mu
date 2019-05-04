@@ -271,11 +271,28 @@ module MU
       attr_reader :deploy_id 
       attr_reader :region 
       attr_reader :credentials 
+      attr_reader :project
+      attr_reader :tag_key 
+      attr_reader :tag_value
       attr_reader :obj 
 
       # @param cfg [Hash]: A Basket of Kittens configuration hash containing
       # lookup information for a cloud object
       def initialize(cfg)
+
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'project', 'credentials'].each { |field|
+          if !cfg[field].nil? and !cfg[field].empty?
+            self.instance_variable_set("@#{field}".to_sym, cfg[field])
+          elsif !cfg[field.to_sym].nil? and !cfg[field.to_sym].empty?
+            self.instance_variable_set("@#{field.to_s}".to_sym, cfg[field.to_sym])
+          end
+        }
+        if cfg['tag'] and cfg['tag']['key'] and
+           !cfg['tag']['key'].empty? and cfg['tag']['value']
+          @tag_key = cfg['tag']['key']
+          @tag_value = cfg['tag']['value']
+        end
+
       end
 
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
@@ -285,6 +302,7 @@ module MU
         parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
         schema = {
           "type" => "object",
+          "#MU_REFERENCE" => true,
           "minProperties" => 1,
           "description" => "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource",
           "properties" => {
@@ -295,6 +313,10 @@ module MU
             "name" => {
               "type" => "string",
               "description" => "The short (internal Mu) name of a resource we're attempting to reference. Typically used when referring to a sibling resource elsewhere in the same deploy, or in another known Mu deploy in conjunction with +deploy_id+."
+            },
+            "project" => {
+              "type" => "string",
+              "description" => "*GOOGLE ONLY* - +GOOGLE+: The project in which this resource should be found"
             },
             "type" => {
               "type" => "string",
@@ -350,20 +372,40 @@ module MU
       # first place.
       def to_h
         me = { }
-        me['id'] = @id if @id
-        me['name'] = @name if @name
-        me['type'] = @type if @type
-        me['cloud'] = @cloud if @cloud
-        me['deploy_id'] = @deploy_id if @deploy_id
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'credentials', 'project'].each { |field|
+          val = self.instance_variable_get("@#{field}".to_sym)
+          if val
+            me[field] = val
+          end
+        }
+        if @tag_key and !@tag_key.empty?
+          m['tag']['key'] = @tag_key
+          m['tag']['value'] = @tag_value
+        end
         me
       end
 
-      # Return a {MU::Cloud} object for this reference
-      def kitten
+      # Return a {MU::Cloud} object for this reference. This is only meant to be
+      # called in a live deploy, which is to say that if called during initial
+      # configuration parsing, results may be incorrect.
+      # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
+      def kitten(mommacat = nil)
         return @obj if @obj
 
-        # Go fish, and what's more set any of our unset attributes that we end
-        # up finding in the results.
+        if mommacat
+          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials)
+          if @obj
+# TODO initialize any attributes that we didn't already know
+#            @name ||= @obj.name
+#            @id ||= @obj.cloud_id
+            return @obj
+          else
+            MU.log "Failed to find myself", MU::WARN, details: self
+          end
+        end
+
+        # XXX findStray this mess
+        @obj
       end
 
     end
@@ -740,7 +782,7 @@ module MU
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
 
       # Convert parameter entries that constitute whole config keys into
-      # MU::Config::Tail objects.
+      # {MU::Config::Tail} objects.
       def resolveTails(tree, indent= "")
         if tree.is_a?(Hash)
           tree.each_pair { |key, val|
