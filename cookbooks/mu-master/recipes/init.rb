@@ -292,7 +292,7 @@ yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
 end
 
 execute "Kill ruby-2.3.1" do
-  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y"
+  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y; rpm -e ruby23"
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
@@ -547,6 +547,8 @@ export MU_DATADIR="#{MU_BASE}/var"
 export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
+  action :create_if_missing
+  not_if { ::File.size?("#{MU_BASE}/etc/mu.rc") }
 end
 
 # Community cookbooks keep touching gems, and none of them are smart about our

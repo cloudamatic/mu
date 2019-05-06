@@ -16,7 +16,7 @@
 
 if !node['application_attributes']['skip_recipes'].include?('nrpe')
   case node['platform_family']
-    when "rhel"
+    when "rhel", "amazon"
     package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
     master_ips = get_mu_master_ips
     master_ips << "127.0.0.1"

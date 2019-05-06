@@ -1,5 +1,5 @@
 {
-	"name": "DEV",
+	"name": "dev",
 	"default_attributes": {
 	  },
 	"json_class": "Chef::Environment",

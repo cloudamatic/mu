@@ -37,6 +37,10 @@ module MU
         def create
           if @config['iam_policies']
             @config['iam_policies'].each { |policy|
+              policy.values.each { |p|
+                p["Version"] ||= "2012-10-17"
+              }
+
               policy_name = @mu_name+"-"+policy.keys.first.upcase
               MU.log "Creating IAM policy #{policy_name}"
               resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy(
@@ -111,6 +115,9 @@ module MU
 
             if @config['iam_policies']
               @config['iam_policies'].each { |policy|
+                policy.values.each { |p|
+                  p["Version"] ||= "2012-10-17"
+                }
                 policy_name = @mu_name+"-"+policy.keys.first.upcase
 
                 arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
@@ -207,6 +214,7 @@ module MU
           if !policy.match(/^#{@deploy.deploy_id}/)
             policy = @mu_name+"-"+policy.upcase
           end
+
           my_policies = cloud_desc["policies"]
           my_policies.each { |p|
             if p.policy_name == policy
@@ -224,15 +232,19 @@ module MU
                       type: target["type"]
                     )
                     sibling.cloudobj.arn
-                  else
+                  elsif target.is_a?(Hash)
                     target['identifier']
+                  else
+                    target
                   end
-                  if sibling and !s["Resource"].include?(targetstr)
+
+                  if targetstr and !s["Resource"].include?(targetstr)
                     s["Resource"] << targetstr
                     need_update = true
                   end
                 }
               }
+
               if need_update
                 MU.log "Updating IAM policy #{policy} to grant permissions on #{targets.to_s}", details: doc
                 update_policy(p.arn, doc)

@@ -329,10 +329,12 @@ if !node['update_nagios_only']
     mode 0644
     owner "root"
     variables(
-      :installdir => MU.installDir
+      :installdir => MU.installDir,
+      :repos => MU.muCfg['repos']
     )
     not_if { ::File.size?("#{MU.etcDir}/mu.rc") }
   end
+
   execute "source #{MU.etcDir}/mu.rc from root dotfiles" do
     command "echo 'source #{MU.etcDir}/mu.rc' >> #{Etc.getpwnam("root").dir}/.bashrc"
     not_if "test -f #{Etc.getpwnam("root").dir}/.bashrc && grep '^source #{MU.etcDir}/mu.rc$' #{Etc.getpwnam("root").dir}/.bashrc"

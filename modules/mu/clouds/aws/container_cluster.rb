@@ -586,6 +586,9 @@ module MU
                 "sgs" => ["container_cluster#{cluster['name']}"],
                 "port_range" => "1-65535"
               ]
+              worker_pool["application_attributes"] ||= {}
+              worker_pool["application_attributes"]["skip_recipes"] ||= []
+              worker_pool["application_attributes"]["skip_recipes"] << "set_local_fw"
             end
             if cluster["vpc"]
               worker_pool["vpc"] = cluster["vpc"].dup
