@@ -66,7 +66,7 @@ if ping -c 5 8.8.8.8 > /dev/null; then
         version=6
       fi
     fi
-    if [ $version -eq 7 ];then
+    if [ "$version" == "7" ];then
       userdata_dir="/var/lib/cloud/instances/$instance_id"
     else
       userdata_dir="/var/lib/cloud/instance"
@@ -79,7 +79,7 @@ if ping -c 5 8.8.8.8 > /dev/null; then
 
     sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
 
-    if [ $version == 7 ];then
+    if [ "$version" == "7" ];then
       chmod 755 /etc/rc.d/rc.local
       systemctl reset-failed sshd.service
     fi
@@ -161,7 +161,6 @@ if [ "$need_reboot" == "1" ];then
   shutdown -r now "Applying new kernel"
 fi
 <% end %>
-fi
 
 if [ "$AWSCLI" != "" ];then
   $AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
