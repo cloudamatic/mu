@@ -222,7 +222,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(strip_name: true)
+        def toKitten
           bok = {
             "cloud" => "Google",
             "project" => @project_id,
@@ -230,11 +230,8 @@ module MU
           }
 
           bok['rules'] = []
-          bok['name'] = cloud_desc[:name].dup
-
-          if strip_name
-            bok['name'].gsub!(/(^(sg|firewall|ingress|egress)-|-(sg|firewall|ingress|egress)$)/i, '')
-          end
+          bok['name'] = @project_id+"-"+cloud_desc[:name].dup
+          bok['cloud_id'] = cloud_desc[:name].dup
 
           cloud_desc[:network].match(/\/networks\/([^\/]+)(?:$|\/)/)
           vpc_id = Regexp.last_match[1]

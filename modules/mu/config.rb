@@ -400,7 +400,8 @@ module MU
 #            @id ||= @obj.cloud_id
             return @obj
           else
-            MU.log "Failed to find myself", MU::WARN, details: self
+            pp mommacat.kittens[@type].keys
+            MU.log "Failed to find myself (#{@name})", MU::WARN, details: self
           end
         end
 

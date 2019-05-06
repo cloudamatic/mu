@@ -549,7 +549,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
-        def toKitten(strip_name: true)
+        def toKitten
           bok = {
             "cloud" => "Google",
             "project" => @project_id,
@@ -563,10 +563,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 #          pp schema
 #          MU.log "++++++++++++++++++++++++++++++++"
 
-          bok['name'] = cloud_desc[:name].dup
-          if strip_name
-            bok['name'].gsub!(/(^vpc-?|-vpc$)/i, '')
-          end
+          bok['name'] = @project_id+"-"+cloud_desc[:name].dup
+          bok['cloud_id'] = cloud_desc[:name].dup
 
           if cloud_desc[:subnetworks]
             bok['subnets'] = []
@@ -576,9 +574,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               subnet_name = s[:name].dup
               names_seen << s[:name].dup
               regions_seen << s[:region]
-              if strip_name
-                subnet_name.gsub!(/(^subnet-?|-subnet$)/i, '')
-              end
               bok['subnets'] << {
                 "name" => subnet_name,
                 "ip_block" => s[:ip_cidr_range]
@@ -605,18 +600,14 @@ MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details:
               vpc_project = Regexp.last_match[1]
               vpc_name = Regexp.last_match[2]
               vpc_id = vpc_name.dup
-              if strip_name
-                vpc_name.gsub!(/(^vpc-?|-vpc$)/i, '')
-              end
 # XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
               bok['peers'] << MU::Config::Ref.new(
                 id: vpc_id,
-                name: vpc_name,
+                name: vpc_project+"-"+vpc_name,
                 cloud: "Google",
                 project: vpc_project,
                 credentials: @config['credentials'],
-                type: "vpcs",
-                project: @project_id # XXX this is NOT a valid assumption
+                type: "vpcs"
               )
             }
           end

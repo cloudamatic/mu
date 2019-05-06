@@ -215,12 +215,13 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(strip_name: true)
+        def toKitten
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
           bok['name'] = cloud_desc[:name]
+          bok['cloud_id'] = cloud_desc[:project_id]
 
           if cloud_desc[:parent] and cloud_desc[:parent][:id]
             bok['parent'] = MU::Config::Ref.new(

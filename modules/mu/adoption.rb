@@ -17,6 +17,8 @@ module MU
 
     attr_reader :found
 
+    class Incomplete < MU::MuNonFatal; end
+
     def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys)
       @scraped = {}
       @clouds = clouds
@@ -42,8 +44,10 @@ module MU
             )
 
             if found and found.size > 0
-              @scraped[type] ||= []
-              @scraped[type].concat(found)
+              @scraped[type] ||= {}
+              found.each { |obj|
+                @scraped[type][obj.cloud_id] = obj
+              }
             end
 
           }
@@ -65,7 +69,7 @@ module MU
 
           bok[res_class.cfg_plural] ||= []
 
-          resources.each { |obj|
+          resources.each_pair { |cloud_id, obj|
 #          puts obj.mu_name
 #          puts obj.config['name']
 #          puts obj.cloud_id
@@ -82,6 +86,7 @@ module MU
 # their config footprint
 
       vacuum(bok)
+
     end
 
     private
@@ -96,47 +101,96 @@ module MU
     def vacuum(bok)
       deploy = generateStubDeploy(bok)
 
+      globals = {
+        'cloud' => {},
+        'credentials' => {},
+        'region' => {},
+      }
+      clouds = {}
+      credentials = {}
+      regions = {}
       MU::Cloud.resource_types.each_pair { |typename, attrs|
         if bok[attrs[:cfg_plural]]
-          MU.log "CHEWING #{bok[attrs[:cfg_plural]].size.to_s} #{attrs[:cfg_plural]} (#{bok[attrs[:cfg_plural]].map { |x| x['name'] }.uniq.size.to_s})", MU::WARN, details: bok[attrs[:cfg_plural]].map { |x| x['name'] }.uniq.sort
+          processed = []
           bok[attrs[:cfg_plural]].each { |resource|
-            obj = mommacat.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
-            resource = cleanReferences(resource, deploy, obj)
+            globals.each_pair { |field, counts|
+              if resource[field]
+                counts[resource[field]] ||= 0
+                counts[resource[field]] += 1
+              end
+            }
+            obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+            begin
+              processed << resolveReferences(resource, deploy, obj)
+            rescue Incomplete
+            end
+            resource.delete("cloud_id")
           }
+          bok[attrs[:cfg_plural]] = processed
         end
+      }
+
+      globals.each_pair { |field, counts|
+        next if counts.size != 1
+        bok[field] = counts.keys.first
+        MU.log "Setting global default #{field} to #{counts.values.first}"
+        MU::Cloud.resource_types.each_pair { |typename, attrs|
+          if bok[attrs[:cfg_plural]]
+            bok[attrs[:cfg_plural]].each { |resource|
+              resource.delete(field)
+            }
+          end
+        }
       }
 
       bok
     end
 
-    def cleanReferences(cfg, deploy, parent)
+    def resolveReferences(cfg, deploy, parent)
+
       if cfg.is_a?(MU::Config::Ref)
-        if cfg.kitten
-          cfg = if mommacat.findLitterMate(type: cfg.type, name: cfg.name)
+        if cfg.kitten(deploy)
+          cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name)
+            MU.log "REPLACING THIS BISH #{cfg.to_s} WITH A MINIMAL HASH FOR #{parent}", MU::WARN, details: { "type" => cfg.type, "name" => cfg.name }
             { "type" => cfg.type, "name" => cfg.name }
           # XXX other common cases: deploy_id, project, etc
           else
+            MU.log "REPLACING THIS BISH WITH A HASH", MU::WARN, details: cfg.to_h
             cfg.to_h
           end
         else
-          MU.log "Failed to resolve reference for #{parent}", MU::ERR, details: cfg
-          raise MuError, "Failed to resolve reference"
+          MU.log "Failed to resolve reference on behalf of #{parent}", MU::ERR, details: cfg
+          raise Incomplete, "Failed to resolve reference"
         end
+
       elsif cfg.is_a?(Hash)
+        deletia = []
         cfg.each_pair { |key, value|
-          cfg[key] = cleanReferences(value, deploy, parent)
+          begin
+            cfg[key] = resolveReferences(value, deploy, parent)
+          rescue Incomplete
+            deletia << key
+          end
+        }
+        deletia.each { |key|
+          cfg.delete(key)
         }
       elsif cfg.is_a?(Array)
+        new_array = []
         cfg.each { |value|
-          cleanReferences(value, deploy, parent)
+          begin
+            new_array << resolveReferences(value, deploy, parent)
+          rescue Incomplete
+          end
         }
+        cfg = new_array
       end
 
       cfg
     end
 
     # @return [MU::MommaCat]
-    def generateStubDeploy(cfg)
+    def generateStubDeploy(bok)
 #      hashify Ref objects before passing into here... or do we...?
 
       time = Time.new
@@ -150,27 +204,39 @@ module MU
         raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
         seedsize = 1 + (retries/10).abs
         seed = (0...seedsize+1).map { ('a'..'z').to_a[rand(26)] }.join
-        deploy_id = cfg['appname'].upcase + "-ADOPT-" + timestamp + "-" + seed.upcase
+        deploy_id = bok['appname'].upcase + "-ADOPT-" + timestamp + "-" + seed.upcase
       end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu" or seed[0] == seed[1]
 
       MU.setVar("deploy_id", deploy_id)
-      MU.setVar("appname", cfg['appname'].upcase)
+      MU.setVar("appname", bok['appname'].upcase)
       MU.setVar("environment", "ADOPT")
       MU.setVar("timestamp", timestamp)
       MU.setVar("seed", seed)
       MU.setVar("handle", MU::MommaCat.generateHandle(seed))
 
-      MU::MommaCat.new(
+      deploy = MU::MommaCat.new(
         deploy_id,
         create: true,
-        config: cfg,
+        config: bok,
         environment: "adopt",
         nocleanup: true,
         no_artifacts: true,
         set_context_to_me: true,
         mu_user: MU.mu_user
       )
+      MU::Cloud.resource_types.each_pair { |typename, attrs|
+        if bok[attrs[:cfg_plural]]
+          bok[attrs[:cfg_plural]].each { |kitten|
+            deploy.addKitten(
+              attrs[:cfg_plural],
+              kitten['name'],
+              @scraped[typename][kitten['cloud_id']]
+            )
+          }
+        end
+      }
 
+      deploy
     end
 
     # Go through everything we've scraped and update our mappings of cloud ids

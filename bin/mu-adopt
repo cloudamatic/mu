@@ -78,4 +78,4 @@ end
 adoption = MU::Adoption.new(clouds: clouds, types: types)
 adoption.scrapeClouds
 bok = adoption.generateBasket
-puts bok.to_yaml
+puts JSON.parse(JSON.generate(bok)).to_yaml
