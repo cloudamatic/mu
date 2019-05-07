@@ -201,9 +201,8 @@ fi
 if [ "$rebuild_chef_artifacts" == "1" ];then
   /bin/rm -rf /root/.berkshelf/cookbooks
   $bindir/mu-upload-chef-artifacts -p
-else
-  $bindir/mu-upload-chef-artifacts -r mu
 fi
+$bindir/mu-upload-chef-artifacts -r mu
 $bindir/mu-configure -n
 
 for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do
