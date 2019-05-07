@@ -113,7 +113,7 @@ else
       }
       do_deploys.uniq!
     end
-    if do_deploys.size == 0 and do_nodes.size > 0 and matched > 0
+    if do_deploys.size == 0 and do_nodes.size > 0 and (matched > 0 or ARGV.size > 0)
       do_deploys = avail_deploys
     end
   end
