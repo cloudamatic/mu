@@ -834,6 +834,8 @@ module MU
                 ok = false
               end
             else
+              s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem']
+
               role = {
                 "name" => pool["name"],
                 "can_assume" => [
@@ -846,19 +848,15 @@ module MU
                   {
                     "name" => "MuSecrets",
                     "permissions" => ["s3:GetObject"],
-                    "targets" => [
-                      {
-                        "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem'
-                      }
-                    ]
+                    "targets" => s3_objs.map { |f| { "identifier" => f } }
                   }
                 ]
               }
               if launch['iam_policies']
                 role['iam_policies'] = launch['iam_policies'].dup
               end
-              if pool['canned_policies']
-                role['import'] = pool['canned_policies'].dup
+              if pool['canned_iam_policies']
+                role['import'] = pool['canned_iam_policies'].dup
               end
               if pool['iam_role']
 # XXX maybe break this down into policies and add those?

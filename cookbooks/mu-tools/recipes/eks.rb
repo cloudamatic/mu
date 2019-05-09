@@ -93,7 +93,7 @@ EOH
     source "https://s3-us-west-2.amazonaws.com/amazon-eks/1.10.3/2018-06-05/eks-2017-11-01.normal.json"
   end
 
-  execute "aws configure add-model --service-model file://root/.aws/eks/eks-2017-11-01.normal.json --service-name eks"
+  execute "aws configure add-model --service-model file:///root/.aws/eks/eks-2017-11-01.normal.json --service-name eks"
 
   execute "systemctl daemon-reload" do
     action :nothing
@@ -115,7 +115,7 @@ EOH
   directory "/root/.kube"
 
   remote_file "/usr/bin/aws-iam-authenticator" do
-    source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator"
+    source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.12.7/2019-03-27/bin/linux/amd64/aws-iam-authenticator"
     mode 0755
     not_if "test -f /usr/bin/aws-iam-authenticator"
   end

@@ -108,8 +108,8 @@ if ping -c 5 8.8.8.8 > /dev/null; then
         service sshd start
       fi
     fi
-  fi
 <% end %>
+  fi
 else
   /bin/logger "***** Unable to verify internet connectivity, skipping package updates from userdata"
   touch /.mu-installer-ran-updates

@@ -2211,8 +2211,8 @@ module MU
             if server['iam_policies']
               role['iam_policies'] = server['iam_policies'].dup
             end
-            if server['canned_policies']
-              role['import'] = server['canned_policies'].dup
+            if server['canned_iam_policies']
+              role['import'] = server['canned_iam_policies'].dup
             end
             if server['iam_role']
 # XXX maybe break this down into policies and add those?

@@ -182,14 +182,14 @@ module MU
             }
 
             authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
-            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", details: authmap_cmd
+            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
             %x{#{authmap_cmd}}
 
 # and this one
             admin_user_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
             admin_role_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
-            MU.log "Configuring Kubernetes admin-user and role", details: admin_user_cmd+"\n"+admin_role_cmd
+            MU.log "Configuring Kubernetes admin-user and role", MU::NOTICE, details: admin_user_cmd+"\n"+admin_role_cmd
             %x{#{admin_user_cmd}}
             %x{#{admin_role_cmd}}
 
@@ -214,7 +214,7 @@ module MU
               }
             end
 
-            MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml}, MU::SUMMARY
+            MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
           elsif @config['flavor'] != "Fargate"
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
               cluster: @mu_name
@@ -654,7 +654,19 @@ MU.log c.name, MU::NOTICE, details: t
           elsif flavor == "EKS"
             # XXX this is absurd, but these don't appear to be available from an API anywhere
             # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
-            amis = { "us-east-1" => "ami-0440e4f6b9713faf6", "us-west-2" => "ami-0a54c984b9f908c81", "eu-west-1" => "ami-0c7a4976cb6fafd3a" }
+            amis = {
+              "us-east-1" => "ami-0abcb9f9190e867ab",
+              "us-east-2" => "ami-04ea7cb66af82ae4a",
+              "us-west-2" => "ami-0923e4b35a30a5f53",
+              "eu-west-1" => "ami-08716b70cac884aaa",
+              "eu-west-2" => "ami-0c7388116d474ee10",
+              "eu-west-3" => "ami-0560aea042fec8b12",
+              "ap-northeast-1" => "ami-0bfedee6a7845c26d",
+              "ap-northeast-2" => "ami-0a904348b703e620c",
+              "ap-south-1" => "ami-09c3eb35bb3be46a4",
+              "ap-southeast-1" => "ami-07b922b9b94d9a6d2",
+              "ap-southeast-2" => "ami-0f0121e9e64ebd3dc"
+            }
             return amis[region]
           end
           nil
@@ -1603,7 +1615,7 @@ MU.log c.name, MU::NOTICE, details: t
               worker_pool["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
-            end
+           end
 
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
