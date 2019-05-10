@@ -44,7 +44,7 @@ module MU
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -632,6 +632,7 @@ module MU
         attr_reader :mu_name
         attr_reader :cloud_id
         attr_reader :credentials
+        attr_reader :habitat
         attr_reader :url
         attr_reader :config
         attr_reader :deploydata
@@ -708,6 +709,14 @@ module MU
           @credentials = credentials
           @credentials ||= kitten_cfg['credentials']
 
+          # It's probably fairly easy to contrive a generic .habitat method
+          # implemented by the cloud provider, instead of this
+          @habitat ||= if @config['cloud'] == "AWS"
+            MU::Cloud::AWS.credToAcct(@credentials)
+          elsif @config['cloud'] == "Google"
+            @config['project'] || MU::Cloud::Google.defaultProject(@credentials)
+          end
+
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
             MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
@@ -757,6 +766,11 @@ module MU
             end
           end
 
+          # XXX might just want to make a list of interesting symbols in each
+          # cloud provider, and attrib-ify them programmatically
+          @url = @cloudobj.url if @cloudobj.respond_to?(:url)
+          @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
+
           # Register us with our parent deploy so that we can be found by our
           # littermates if needed.
           if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
@@ -766,6 +780,30 @@ module MU
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
 
+        end
+
+        def cloud
+          if @cloud
+            @cloud
+          elsif self.class.name.match(/^MU::Cloud::([^:]+)::.+/)
+            cloudclass_name = Regexp.last_match[1]
+            if MU::Cloud.supportedClouds.include?(cloudclass_name)
+              cloudclass_name
+            else
+              nil
+            end
+          else
+            nil
+          end
+        end
+
+        # Return the cloud object's idea of where it lives (project, account,
+        # etc). If not applicable for this object, we expect to return +nil+.
+        # @return [String,nil]
+        def habitat
+          @cloudobj ||= self
+          parent_class = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          parent_class.habitat(@cloudobj)
         end
 
         # Remove all metadata and cloud resources associated with this object
@@ -803,6 +841,7 @@ module MU
             @cloud_desc_cache ||= @cloudobj.cloud_desc
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
             @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
+            @project_id = @cloudobj.project_id if @cloudobj.respond_to?(:project_id)
           end
           if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id

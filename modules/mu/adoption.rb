@@ -58,8 +58,10 @@ module MU
     def generateBasket(appname: "mu")
       bok = { "appname" => appname }
 
+      count = 0
       @clouds.each { |cloud|
         @scraped.each_pair { |type, resources|
+          MU.log "Scraping #{type} in #{cloud}"
           res_class = begin
             MU::Cloud.loadCloudType(cloud, type)
           rescue MU::Cloud::MuCloudResourceNotImplemented => e
@@ -72,19 +74,21 @@ module MU
           resources.each_pair { |cloud_id, obj|
 #          puts obj.mu_name
 #          puts obj.config['name']
-#          puts obj.cloud_id
 #          puts obj.url
 #          puts obj.arn
             resource_bok = obj.toKitten
 #            pp resource_bok
-            bok[res_class.cfg_plural] << resource_bok if resource_bok
+            if resource_bok
+              bok[res_class.cfg_plural] << resource_bok
+              count += 1
+            end
           }
         }
       }
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
-
+      MU.log "Minimizing footprint of #{count.to_s} found resources"
       vacuum(bok)
 
     end
@@ -100,6 +104,14 @@ module MU
     # value globally, once.
     def vacuum(bok)
       deploy = generateStubDeploy(bok)
+#      deploy.kittens["folders"].each_pair { |parent, children|
+#        puts "under #{parent.to_s}:"
+#        pp children.values.map { |o| o.mu_name+" "+o.cloud_id }
+#      }
+#      deploy.kittens["habitats"].each_pair { |parent, children|
+#        puts "under #{parent.to_s}:"
+#        pp children.values.map { |o| o.mu_name+" "+o.cloud_id }
+#      }
 
       globals = {
         'cloud' => {},
@@ -124,7 +136,7 @@ module MU
               processed << resolveReferences(resource, deploy, obj)
             rescue Incomplete
             end
-            resource.delete("cloud_id")
+#            resource.delete("cloud_id")
           }
           bok[attrs[:cfg_plural]] = processed
         end
@@ -133,7 +145,7 @@ module MU
       globals.each_pair { |field, counts|
         next if counts.size != 1
         bok[field] = counts.keys.first
-        MU.log "Setting global default #{field} to #{counts.values.first}"
+        MU.log "Setting global default #{field} to #{bok[field]}"
         MU::Cloud.resource_types.each_pair { |typename, attrs|
           if bok[attrs[:cfg_plural]]
             bok[attrs[:cfg_plural]].each { |resource|
@@ -150,17 +162,15 @@ module MU
 
       if cfg.is_a?(MU::Config::Ref)
         if cfg.kitten(deploy)
-          cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name)
-            MU.log "REPLACING THIS BISH #{cfg.to_s} WITH A MINIMAL HASH FOR #{parent}", MU::WARN, details: { "type" => cfg.type, "name" => cfg.name }
+          cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id)
             { "type" => cfg.type, "name" => cfg.name }
           # XXX other common cases: deploy_id, project, etc
           else
-            MU.log "REPLACING THIS BISH WITH A HASH", MU::WARN, details: cfg.to_h
             cfg.to_h
           end
         else
-          MU.log "Failed to resolve reference on behalf of #{parent}", MU::ERR, details: cfg
-          raise Incomplete, "Failed to resolve reference"
+          pp parent.cloud_desc
+          raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
 
       elsif cfg.is_a?(Hash)
@@ -227,6 +237,11 @@ module MU
       MU::Cloud.resource_types.each_pair { |typename, attrs|
         if bok[attrs[:cfg_plural]]
           bok[attrs[:cfg_plural]].each { |kitten|
+            if !@scraped[typename][kitten['cloud_id']]
+              MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR
+              next
+            end
+            MU.log "Inserting #{attrs[:cfg_name]} #{kitten['name']} (#{kitten['cloud_id']}) into stub deploy"
             deploy.addKitten(
               attrs[:cfg_plural],
               kitten['name'],

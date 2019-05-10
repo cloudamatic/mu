@@ -394,14 +394,18 @@ module MU
 
         if mommacat
           @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials)
-          if @obj
-# TODO initialize any attributes that we didn't already know
-#            @name ||= @obj.name
-#            @id ||= @obj.cloud_id
+          if @obj # initialize missing attributes, if we can
+            @id ||= @obj.cloud_id
+            if !@name
+              if @obj.config and @obj.config['name']
+                @name = @obj.config['name']
+              elsif @obj.mu_name
+                @name = @obj.mu_name
+              end
+            end
             return @obj
           else
-            pp mommacat.kittens[@type].keys
-            MU.log "Failed to find myself (#{@name})", MU::WARN, details: self
+            MU.log "Failed to find a live '#{@type.to_s}' object named #{@name}#{@id ? " (#{@id})" : "" }#{ @project ? " in project #{@project}" : "" }", MU::WARN, details: self
           end
         end
 

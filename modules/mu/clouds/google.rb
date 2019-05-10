@@ -35,7 +35,16 @@ module MU
       # {MU::Cloud}
       # @return [Array<Symbol>]
       def self.required_instance_methods
-        [:url]
+        [:url, :project_id]
+      end
+
+      # Return what we think of as a cloud object's habitat. In GCP, this means
+      # the +project_id+ in which is resident. If this is not applicable, such
+      # as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::Google]: The resource from which to extract the habitat id
+      # @return [String,nil]
+      def self.habitat(cloudobj)
+        cloudobj.respond_to?(:project_id) ? cloudobj.project_id : nil
       end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to

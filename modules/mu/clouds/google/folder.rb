@@ -22,6 +22,7 @@ module MU
         @parent = nil
 
         attr_reader :mu_name
+        attr_reader :project_id # should always be nil
         attr_reader :config
         attr_reader :cloud_id
         attr_reader :url
@@ -32,6 +33,8 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+
+          cloud_desc if @cloud_id
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -80,6 +83,8 @@ module MU
             end
           end while found.size == 0
 
+          @project_id = parent
+
         end
 
         # Given a {MU::Config::Folder.reference} configuration block, resolve
@@ -125,7 +130,9 @@ module MU
 
         # Return the cloud descriptor for the Folder
         def cloud_desc
-          MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first.to_h
+          @cached_cloud_desc ||= MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first
+          @project_id ||= @cached_cloud_desc.parent.sub(/^(folders|organizations)\//, "")
+          @cached_cloud_desc
         end
 
         # Return the metadata for this project's configuration
@@ -237,7 +244,10 @@ module MU
           end
 
           if args[:cloud_id]
-            found[args[:cloud_id].sub(/^folders\//, "")] = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+args[:cloud_id].sub(/^folders\//, ""))
+            raw_id = args[:cloud_id].sub(/^folders\//, "")
+
+            found[raw_id] = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
+
           elsif args[:flags]['display_name']
 
             if parent
@@ -251,6 +261,14 @@ module MU
             if resp and resp.folders
               resp.folders.each { |folder|
                 found[folder.name.sub(/^folders\//, "")] = folder
+                # recurse so that we'll pick up child folders
+                children = self.find(
+                  credentials: args[:credentials],
+                  flags: { 'parent_id' => folder.name }
+                )
+                if !children.nil? and !children.empty?
+                  found.merge!(children)
+                end
               }
             end
           end
@@ -266,8 +284,22 @@ module MU
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
-          bok['name'] = cloud_desc[:display_name]
-          bok['cloud_id'] = cloud_desc[:name].sub(/^folders\//, "")
+
+          bok['name'] = cloud_desc.display_name
+          bok['cloud_id'] = cloud_desc.name.sub(/^folders\//, "")
+          if cloud_desc.parent.match(/^folders\/(.*)/)
+            bok['parent'] = MU::Config::Ref.new(
+              id: Regexp.last_match[1],
+              cloud: "Google",
+              credentials: @config['credentials'],
+              type: "folders"
+            )
+          else
+            bok['parent'] = { 'id' => cloud_desc.parent }
+          end
+#if @cloud_id == "455213018804" or cloud_desc.parent == "folders/455213018804"
+#  MU.log "FOLDER TOKITTEN MENTIONS MY MIA ONE #{caller[1]}", MU::WARN, details: bok
+#`end
 
           bok
         end

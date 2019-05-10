@@ -22,8 +22,8 @@ module MU
         @deploy = nil
         @config = nil
         @project_id = nil
-        attr_reader :mu_name
         attr_reader :project_id
+        attr_reader :mu_name
         attr_reader :cloud_id
         attr_reader :url
         attr_reader :config
@@ -36,6 +36,7 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
           @subnetcachesemaphore = Mutex.new
+          @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
 
           if !@project_id
             project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
@@ -57,7 +58,6 @@ module MU
             if @cloud_id.nil? or @cloud_id.empty?
               @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
             end
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
             loadSubnets
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
@@ -563,7 +563,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 #          pp schema
 #          MU.log "++++++++++++++++++++++++++++++++"
 
-          bok['name'] = @project_id+"-"+cloud_desc[:name].dup
+          bok['name'] = cloud_desc[:name].dup
           bok['cloud_id'] = cloud_desc[:name].dup
 
           if cloud_desc[:subnetworks]
@@ -591,7 +591,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             end
           end
 
-MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details: cloud_desc
 
           if cloud_desc[:peerings]
             bok['peers'] = []
@@ -603,7 +602,7 @@ MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details:
 # XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
               bok['peers'] << MU::Config::Ref.new(
                 id: vpc_id,
-                name: vpc_project+"-"+vpc_name,
+                name: vpc_name,
                 cloud: "Google",
                 project: vpc_project,
                 credentials: @config['credentials'],
@@ -612,8 +611,9 @@ MU.log "#{@project_id}/#{@mu_name} (#{cloud_desc[:name]})", MU::NOTICE, details:
             }
           end
 
+# TODO route tables
+
 # XXX validate that we've at least touched every required attribute (maybe upstream)
-MU.log "#{@project_id}/#{@mu_name}'s resulting BoK", MU::NOTICE, details: bok
           bok
         end
 
@@ -1013,7 +1013,7 @@ MU.log "#{@project_id}/#{@mu_name}'s resulting BoK", MU::NOTICE, details: bok
           end
 
           def cloud_desc
-            @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.config['project'], @config['region'], @config['cloud_id']).to_h
+            @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.config['project'], @config['region'], @config['cloud_id'])
             @cloud_desc_cache
           end
 

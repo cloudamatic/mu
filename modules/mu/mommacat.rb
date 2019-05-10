@@ -427,11 +427,12 @@ module MU
 
       @kitten_semaphore.synchronize {
         @kittens[type] ||= {}
+        @kittens[type][object.habitat] ||= {}
         if has_multiples
-          @kittens[type][name] ||= {}
-          @kittens[type][name][object.mu_name] = object
+          @kittens[type][object.habitat][name] ||= {}
+          @kittens[type][object.habitat][name][object.mu_name] = object
         else
-          @kittens[type][name] = object
+          @kittens[type][object.habitat][name] = object
         end
       }
     end
@@ -1201,7 +1202,13 @@ module MU
             end
 
             projects = begin
-              flags["project"] ? [flags["project"]] : cloudclass.listProjects(creds)
+              if [:Habitat, :Folder].include?(shortclass)
+                [nil]
+              elsif flags["project"]
+                [flags["project"]]
+              else
+                cloudclass.listProjects(creds)
+              end
             rescue NoMethodError # we only expect this to work on Google atm
               [nil]
             end
@@ -1259,6 +1266,10 @@ module MU
                       else
                         if !mu_name.nil?
                           mu_name
+                        elsif descriptor.respond_to?(:display_name)
+                          descriptor.display_name
+                        elsif descriptor.respond_to?(:name)
+                          descriptor.name
                         elsif !tag_value.nil?
                           tag_value
                         else
@@ -1296,7 +1307,7 @@ module MU
                         matches << newkitten
                       }
                     else
-                     MU.log "findStray: Generating dummy cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
+                     MU.log "findStray: Generating dummy '#{type}' cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
                       newkitten = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                       desc_semaphore.synchronize {
                         matches << newkitten
@@ -1338,10 +1349,11 @@ module MU
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", MU::DEBUG, details: @kittens[type].keys.map { |k| k.to_s+": "+@kittens[type][k].keys.join(", ") }
         matches = []
 
-        @kittens[type].each { |sib_class, data|
+        @kittens[type].each { |habitat, sib_classes|
+          sib_classes.each_pair { |sib_class, data|
           virtual_name = nil
 
           if !has_multiples and data and !data.is_a?(Hash) and data.config and data.config.is_a?(Hash) and data.config['virtual_name'] and name == data.config['virtual_name']
@@ -1383,6 +1395,7 @@ module MU
               matches << data if !created_only or !data.cloud_id.nil?
             end
           end
+          }
         }
 
         return matches.first if matches.size == 1

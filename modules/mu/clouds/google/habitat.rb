@@ -21,6 +21,7 @@ module MU
         @config = nil
 
         attr_reader :mu_name
+        attr_reader :project_id # should always be nil
         attr_reader :config
         attr_reader :cloud_id
         attr_reader :url
@@ -31,6 +32,7 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+          cloud_desc if @cloud_id
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -106,6 +108,7 @@ module MU
 
 
           @cloud_id = name_string.downcase
+          @project_id = parent_id
           setProjectBilling
         end
 
@@ -141,7 +144,9 @@ module MU
 
         # Return the cloud descriptor for the Habitat
         def cloud_desc
-          MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first.to_h
+          @cached_cloud_desc ||= MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
+          @project_id ||= @cached_cloud_desc.parent.id
+          @cached_cloud_desc
         end
 
         # Return the metadata for this project's configuration
@@ -196,16 +201,29 @@ module MU
         def self.find(**args)
           found = {}
           args[:cloud_id] ||= args[:project]
+# XXX we probably want to cache this
+# XXX but why are we being called over and over
 
           if args[:cloud_id]
             resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects(
               filter: "id:#{args[:cloud_id]}"
             )
-            found[args[:cloud_id]] = resp.projects.first if resp and resp.projects
+            if resp and resp.projects and resp.projects.size == 1
+              found[args[:cloud_id]] = resp.projects.first if resp and resp.projects
+            else
+              # it's loony that there's no filter for project_number
+              resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects
+              resp.projects.each { |p|
+                if p.project_number.to_s == args[:cloud_id].to_s
+                  found[args[:cloud_id]] = p
+                  break
+                end
+              }
+            end
           else
             resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects().projects
             resp.each { |p|
-              found[p.name] = p
+              found[p.project_id] = p
             }
           end
 
@@ -220,16 +238,21 @@ module MU
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
-          bok['name'] = cloud_desc[:name]
-          bok['cloud_id'] = cloud_desc[:project_id]
 
-          if cloud_desc[:parent] and cloud_desc[:parent][:id]
-            bok['parent'] = MU::Config::Ref.new(
-              id: cloud_desc[:parent][:id],
-              cloud: "Google",
-              credentials: @config['credentials'],
-              type: "habitats"
-            )
+          bok['name'] = cloud_desc.name
+          bok['cloud_id'] = cloud_desc.project_id
+
+          if cloud_desc.parent and cloud_desc.parent.id
+            if cloud_desc.parent.type == "folder"
+              bok['parent'] = MU::Config::Ref.new(
+                id: cloud_desc.parent.id,
+                cloud: "Google",
+                credentials: @config['credentials'],
+                type: "folders"
+              )
+            else
+              # org parent is *probably* safe to infer from credentials
+            end
           end
 
           cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)

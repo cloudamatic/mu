@@ -27,6 +27,7 @@ module MU
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
 
         attr_reader :mu_name
+        attr_reader :project_id
         attr_reader :config
         attr_reader :url
         attr_reader :cloud_id
@@ -37,6 +38,11 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+
+          if !@project_id
+            project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+            @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+          end
 
           if @cloud_id
             desc = cloud_desc
@@ -230,7 +236,7 @@ module MU
           }
 
           bok['rules'] = []
-          bok['name'] = @project_id+"-"+cloud_desc[:name].dup
+          bok['name'] = cloud_desc[:name].dup
           bok['cloud_id'] = cloud_desc[:name].dup
 
           cloud_desc[:network].match(/\/networks\/([^\/]+)(?:$|\/)/)
