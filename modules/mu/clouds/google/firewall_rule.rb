@@ -46,7 +46,7 @@ module MU
 
           if @cloud_id
             desc = cloud_desc
-            @url = desc[:self_link] if desc and desc[:self_link]
+            @url = desc.self_link if desc and desc.self_link
           end
 
           if !mu_name.nil?
@@ -236,10 +236,10 @@ module MU
           }
 
           bok['rules'] = []
-          bok['name'] = cloud_desc[:name].dup
-          bok['cloud_id'] = cloud_desc[:name].dup
+          bok['name'] = cloud_desc.name.dup
+          bok['cloud_id'] = cloud_desc.name.dup
 
-          cloud_desc[:network].match(/\/networks\/([^\/]+)(?:$|\/)/)
+          cloud_desc.network.match(/\/networks\/([^\/]+)(?:$|\/)/)
           vpc_id = Regexp.last_match[1]
 
           bok['vpc'] = MU::Config::Ref.new(
@@ -250,45 +250,48 @@ module MU
             type: "vpcs"
           )
 
-          host_field = :source_ranges
-          if cloud_desc[:direction] == "EGRESS"
+          if cloud_desc.direction == "EGRESS"
             bok['egress'] = true
             bok['ingress'] = false
-            host_field = :destination_ranges
           end
 
-          [:source_service_accounts, :source_tags, :target_service_accounts, :target_tags].each { |field|
-            if cloud_desc[field]
-              bok[field.to_s] = cloud_desc[field].dup
-            end
-          }
+          bok["source_service_accounts"] = cloud_desc.source_service_accounts if cloud_desc.source_service_accounts
+          bok["source_tags"] = cloud_desc.source_tags if cloud_desc.source_tags
+          bok["target_service_accounts"] = cloud_desc.target_service_accounts if cloud_desc.target_service_accounts
+          bok["target_tags"] = cloud_desc.target_tags if cloud_desc.target_tags
 
           byport = {}
 
-          if cloud_desc[:allowed]
-            cloud_desc[:allowed].each { |rule|
-              hosts = cloud_desc[host_field] ? cloud_desc[host_field] : "0.0.0.0/0"
-              proto = rule[:ip_protocol] ? rule[:ip_protocol] : "all"
-
-              if rule[:ports]
-                rule[:ports].each { |ports|
-                  ports = "0-65535" if ["1-65535", "1-65536", "0-65536"].include?(ports)
-                  byport[ports] ||= {}
-                  byport[ports][hosts] ||= []
-                  byport[ports][hosts] << proto
-                }
-              else
-                byport["0-65535"] ||= {}
-                byport["0-65535"][hosts] ||= []
-                byport["0-65535"][hosts] << proto
-              end
-            }
-          elsif cloud_desc[:denied]
-            MU.log "XXX #{bok['name']} is a DENY rule", MU::WARN
+          rule_list = []
+          is_deny = false
+          if cloud_desc.denied
+            rule_list = cloud_desc.denied
+            is_deny = true
           else
-            MU.log "FW CLOUD_DESC #{bok['name']}", MU::WARN, details: cloud_desc
-            raise MuError, "FUCK OFF"
+            rule_list = cloud_desc.allowed
           end
+
+          rule_list.each { |rule|
+            hosts = if cloud_desc.direction == "INGRESS"
+              cloud_desc.source_ranges ? cloud_desc.source_ranges : "0.0.0.0/0"
+            else
+              cloud_desc.destination_ranges ? cloud_desc.destination_ranges : "0.0.0.0/0"
+            end
+            proto = rule.ip_protocol ? rule.ip_protocol : "all"
+
+            if rule.ports
+              rule.ports.each { |ports|
+                ports = "0-65535" if ["1-65535", "1-65536", "0-65536"].include?(ports)
+                byport[ports] ||= {}
+                byport[ports][hosts] ||= []
+                byport[ports][hosts] << proto
+              }
+            else
+              byport["0-65535"] ||= {}
+              byport["0-65535"][hosts] ||= []
+              byport["0-65535"][hosts] << proto
+            end
+          }
 
           byport.each_pair { |ports, hostlist|
             hostlist.each_pair { |hostlist, protos|
@@ -302,8 +305,12 @@ module MU
               protolist.each { |proto|
                 rule = {
                   "proto" => proto,
-                  "hosts" => hostlist,
+                  "hosts" => hostlist
                 }
+                rule["deny"] = true if is_deny
+                if cloud_desc.priority and cloud_desc.priority != 1000
+                  rule["weight"] = cloud_desc.priority
+                end
                 if ports.match(/-/)
                   rule["port_range"] = ports
                 else
@@ -314,6 +321,11 @@ module MU
             }
           }
 
+          if @routes
+            pp @routes
+            exit
+          end
+
           bok
         end
 
@@ -322,11 +334,19 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config = nil)
           toplevel_required = []
-#                ['source_ranges', 'source_service_accounts', 'source_tags', 'target_ranges', 'target_service_accounts'].each { |filter|
           schema = {
             "rules" => {
               "items" => {
                 "properties" => {
+                  "weight" => {
+                    "type" => "integer",
+                    "description" => "Explicitly set a priority for this firewall rule, between 0 and 65535, with lower numbered priority rules having greater precedence."
+                  },
+                  "deny" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "Set this rule to +DENY+ traffic instead of +ALLOW+"
+                  },
                   "proto" => {
                     "description" => "The protocol to allow with this rule. The +standard+ keyword will expand to a series of identical rules covering +icmp+, +tcp+, and +udp; the +all+ keyword will expand to a series of identical rules for all supported protocols.",
                     "enum" => PROTOS + ["all", "standard"]

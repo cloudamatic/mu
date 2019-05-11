@@ -859,7 +859,7 @@ module MU
 #                elsif matches[@cloud_id][:arn]
 #                  @arn ||= matches[@cloud_id][:arn]
 #                end
-                @cloud_desc_cache = matches[@cloud_id].to_h
+                @cloud_desc_cache = matches[@cloud_id]
               else
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }", MU::WARN, details: caller
               end

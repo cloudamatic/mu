@@ -49,7 +49,7 @@ module MU
           elsif cloud_id and !cloud_id.empty?
             @cloud_id = cloud_id.to_s
             desc = cloud_desc
-            @url = desc[:self_link] if desc and desc[:self_link]
+            @url = desc.self_link if desc and desc.self_link
           end
 
 
@@ -145,14 +145,6 @@ module MU
         # @return [Hash]
         def cloud_desc
           if @cloud_desc_cache
-            if @subnets and @subnets.size > 0 and
-               (@cloud_desc_cache.size != @subnets.size or 
-                !@cloud_desc_cache[:subnetworks].first.is_a?(Hash))
-              # This is woefully inefficient; we're making an API call per
-              # subnet because they're scoped to regions. It'd be really nice
-              # if we could get them all in one sweep.
-              @cloud_desc_cache[:subnetworks] = @subnets.map { |s| s.cloud_desc }
-            end
             return @cloud_desc_cache
           end
 
@@ -161,19 +153,15 @@ module MU
             MU.log "Couldn't describe #{self}, @cloud_id #{@cloud_id.nil? ? "undefined" : "empty" }", MU::ERR
             return nil
           end
+          @cloud_desc_cache = resp
 
-          resp = resp.to_h
-          @url ||= resp[:self_link]
+          # populate other parts and pieces of ourself
+          @url ||= resp.self_link
           routes = MU::Cloud::Google.compute(credentials: @config['credentials']).list_routes(
             @project_id,
-            filter: "network eq #{@cloud_id}"
+            filter: "network = \"#{@url}\""
           ).items
-          resp[:routes] = routes.map { |r| r.to_h } if routes
-
-          if @subnets
-            resp[:subnetworks] = @subnets.map { |s| s.cloud_desc }
-          end
-          @cloud_desc_cache = resp
+          @routes = routes if routes and routes.size > 0
 
           @cloud_desc_cache
         end
@@ -317,7 +305,7 @@ module MU
             resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_subnetworks(
               @project_id,
               r,
-              filter: "network eq #{network[:self_link]}"
+              filter: "network eq #{network.self_link}"
             )
             next if resp.nil? or resp.items.nil?
             resp.items.each { |subnet|
@@ -563,20 +551,21 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 #          pp schema
 #          MU.log "++++++++++++++++++++++++++++++++"
 
-          bok['name'] = cloud_desc[:name].dup
-          bok['cloud_id'] = cloud_desc[:name].dup
+          bok['name'] = cloud_desc.name.dup
+          bok['cloud_id'] = cloud_desc.name.dup
 
-          if cloud_desc[:subnetworks]
+
+          if @subnets and @subnets.size > 0
             bok['subnets'] = []
             regions_seen = []
             names_seen = []
-            cloud_desc[:subnetworks].each { |s|
-              subnet_name = s[:name].dup
-              names_seen << s[:name].dup
-              regions_seen << s[:region]
+            @subnets.map { |x| x.cloud_desc }.each { |s|
+              subnet_name = s.name.dup
+              names_seen << s.name.dup
+              regions_seen << s.region
               bok['subnets'] << {
                 "name" => subnet_name,
-                "ip_block" => s[:ip_cidr_range]
+                "ip_block" => s.ip_cidr_range
               }
             }
             
@@ -591,11 +580,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             end
           end
 
-
-          if cloud_desc[:peerings]
+          peer_names = []
+          if cloud_desc.peerings
             bok['peers'] = []
-            cloud_desc[:peerings].each { |peer|
-              peer[:network].match(/projects\/([^\/]+?)\/[^\/]+?\/networks\/([^\/]+)$/)
+            cloud_desc.peerings.each { |peer|
+              peer.network.match(/projects\/([^\/]+?)\/[^\/]+?\/networks\/([^\/]+)$/)
               vpc_project = Regexp.last_match[1]
               vpc_name = Regexp.last_match[2]
               vpc_id = vpc_name.dup
@@ -610,10 +599,28 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               )
             }
           end
+# XXX need to grok VPN tunnels, priorities, and maybe preserve descriptions; make sure we know where next_hop_gateway  and next_hop_ip come from
+          pp @routes
+          if @routes
+            routes = []
+            @routes.each { |r|
+              next if r.next_hop_peering # these are auto-created
+              route = {
+                "destination_network" => r.dest_range
+              }
+              if r.next_hop_instance
+                route["nat_host_id"] = r.next_hop_instance
+              end
+            }
+            bok['route_tables'] = [
+              {
+                "name" => "default",
+                "routes" => routes
+              }
+            ]
+          end
 
-# TODO route tables
-
-# XXX validate that we've at least touched every required attribute (maybe upstream)
+# XXX validate that we've at least touched every required attribute (maybe upstream?)
           bok
         end
 

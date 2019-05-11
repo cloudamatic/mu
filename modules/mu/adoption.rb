@@ -61,13 +61,13 @@ module MU
       count = 0
       @clouds.each { |cloud|
         @scraped.each_pair { |type, resources|
-          MU.log "Scraping #{type} in #{cloud}"
           res_class = begin
             MU::Cloud.loadCloudType(cloud, type)
           rescue MU::Cloud::MuCloudResourceNotImplemented => e
             # XXX I don't think this can actually happen
             next
           end
+          MU.log "Scraping #{res_class.cfg_plural} in #{cloud}"
 
           bok[res_class.cfg_plural] ||= []
 
