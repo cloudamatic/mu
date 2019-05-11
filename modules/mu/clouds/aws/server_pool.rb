@@ -478,6 +478,11 @@ module MU
           toplevel_required = []
           
           schema = {
+            "role_strip_path" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Normally we namespace IAM roles with a +path+ set to match our +deploy_id+; this disables that behavior. Temporary workaround for a bug in EKS/IAM integration."
+            },
             "notifications" => {
               "type" => "object",
               "description" => "Send notifications to an SNS topic for basic AutoScaling events",
@@ -838,6 +843,7 @@ module MU
 
               role = {
                 "name" => pool["name"],
+                "strip_path" => pool["role_strip_path"],
                 "can_assume" => [
                   {
                     "entity_id" => "ec2.amazonaws.com",

@@ -61,16 +61,28 @@ module MU
 
             resp = nil
             begin
-              MU.log "Creating EKS cluster #{@mu_name}"
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(
-                name: @mu_name,
-                version: @config['kubernetes']['version'],
-                role_arn: role_arn,
-                resources_vpc_config: {
-                  security_group_ids: security_groups,
-                  subnet_ids: subnet_ids
+              params = {
+                :name => @mu_name,
+                :version => @config['kubernetes']['version'],
+                :role_arn => role_arn,
+                :resources_vpc_config => {
+                  :security_group_ids => security_groups,
+                  :subnet_ids => subnet_ids
                 }
-              )
+              }
+              if @config['logging'] and @config['logging'].size > 0
+                params[:logging] = {
+                  :cluster_logging => [
+                    {
+                      :types => @config['logging'],
+                      :enabled => true
+                    }
+                  ]
+                }
+              end
+
+              MU.log "Creating EKS cluster #{@mu_name}", details: params
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(params)
             rescue Aws::EKS::Errors::UnsupportedAvailabilityZoneException => e
               # this isn't the dumbest thing we've ever done, but it's up there
               if e.message.match(/because (#{Regexp.quote(@config['region'])}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
@@ -858,6 +870,9 @@ MU.log c.name, MU::NOTICE, details: t
               "enum" => ["ECS", "EKS", "Fargate"],
               "default" => "ECS"
             },
+            "kubernetes" => {
+              "default" => { "version" => "1.11" }
+            },
             "platform" => {
               "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else. Only valid for EKS and ECS flavors.",
               "default" => "centos7"
@@ -883,6 +898,15 @@ MU.log c.name, MU::NOTICE, details: t
                   "hosts" => [ "0.0.0.0/0" ]
                 }
               ]
+            },
+            "logging" => {
+              "type" => "array",
+              "default" => ["authenticator", "api"],
+              "items" => {
+                "type" => "string",
+                "description" => "Cluster CloudWatch logs to enable for EKS clusters.",
+                "enum" => ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+              }
             },
             "volumes" => {
               "type" => "array",
@@ -1595,6 +1619,7 @@ MU.log c.name, MU::NOTICE, details: t
               "max_size" => cluster["instance_count"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
+              "role_strip_path" => true,
               "basis" => {
                 "launch_config" => {
                   "name" => cluster["name"]+"workers",

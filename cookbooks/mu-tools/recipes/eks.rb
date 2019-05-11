@@ -112,6 +112,29 @@ EOH
     notifies :restart, "service[kubelet]", :delayed
   end
 
+  file "/etc/systemd/system/kubelet.service.d/10-kubelet-args.conf" do
+    content "[Service]
+Environment='KUBELET_ARGS=--node-ip=#{get_aws_metadata("meta-data/local-ipv4")} --pod-infra-container-image=602401143452.dkr.ecr.#{region}.amazonaws.com/eks/pause-amd64:3.1'"
+    notifies :run, "execute[systemctl daemon-reload]", :immediately
+    notifies :restart, "service[kubelet]", :delayed
+  end
+
+  template "/etc/kubernetes/kubelet/kubelet-config.json" do
+    source "kubelet-config.json.erb"
+    variables(
+      :dns => get_first_nameserver(),
+    )
+    notifies :restart, "service[kubelet]", :delayed
+  end
+
+  file "/etc/systemd/system/kubelet.service.d/30-kubelet-extra-args.conf" do
+    content "[Service]
+Environment='KUBELET_EXTRA_ARGS=$KUBELET_EXTRA_ARGS'
+"
+    notifies :restart, "service[kubelet]", :delayed
+    notifies :run, "execute[systemctl daemon-reload]", :immediately
+  end
+
   directory "/root/.kube"
 
   remote_file "/usr/bin/aws-iam-authenticator" do

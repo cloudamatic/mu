@@ -200,6 +200,7 @@ fi
 
 if [ "$rebuild_chef_artifacts" == "1" ];then
   /bin/rm -rf /root/.berkshelf/cookbooks
+  cd $MU_LIBDIR && berks install
   $bindir/mu-upload-chef-artifacts -p
 fi
 $bindir/mu-upload-chef-artifacts -r mu
