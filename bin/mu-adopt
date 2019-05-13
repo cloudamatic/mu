@@ -31,11 +31,19 @@ $opt = Optimist::options do
   banner <<-EOS
 #{$0}
   EOS
+  opt :appname, "The overarching name of the application stack we will generate", :required => false, :default => "mu", :type => :string
   opt :types, "The resource types to scan and import. Valid types: #{MU::Cloud.resource_types.keys.map { |t| t.to_s }.join(", ")}", :required => true, :type => :strings
   opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => available_clouds
 end
 
 ok = true
+
+app_pattern = Regexp.new('^[a-z][0-9a-z\-_]{0,10}[a-z0-9]$', true)
+
+if !$opt[:appname] or !app_pattern.match($opt[:appname])
+  MU.log "--appname must match pattern #{app_pattern.to_s}", MU::ERR
+  exit 1
+end
 
 types = []
 $opt[:types].each { |t|
@@ -79,4 +87,13 @@ adoption = MU::Adoption.new(clouds: clouds, types: types)
 adoption.scrapeClouds
 MU.log "Generating basket"
 bok = adoption.generateBasket
-puts JSON.parse(JSON.generate(bok)).to_yaml
+
+MU.log "Writing to #{$opt[:appname]}.yaml"
+File.open("#{$opt[:appname]}.yaml", "w") { |f|
+  f.write JSON.parse(JSON.generate(bok)).to_yaml
+}
+
+conf_engine = MU::Config.new("#{$opt[:appname]}.yaml")
+stack_conf = conf_engine.config
+puts stack_conf.to_yaml
+MU.log("#{$opt[:appname]}.yaml validated successfully")

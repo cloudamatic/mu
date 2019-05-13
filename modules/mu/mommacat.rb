@@ -155,6 +155,8 @@ module MU
                    ssh_private_key: nil,
                    ssh_public_key: nil,
                    nocleanup: false,
+                   appname: nil,
+                   timestamp: nil,
                    set_context_to_me: true,
                    skip_resource_objects: false,
                    no_artifacts: false,
@@ -197,6 +199,8 @@ module MU
       @clouds = {}
       @seed = MU.seed # pass this in
       @handle = MU.handle # pass this in
+      @appname = @original_config['name'] if @original_config
+
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
@@ -214,7 +218,6 @@ module MU
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
         credsets = {}
-        @appname = @original_config['name']
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
             @original_config[data[:cfg_plural]].each { |resource|
@@ -253,7 +256,11 @@ module MU
           raise DeployInitializeError, "Invalid or incorrect deploy key."
         end
       end
-
+      @appname ||= MU.appname
+      @timestamp ||= MU.timestamp
+      @appname ||= appname
+      @timestamp ||= timestamp
+MU.log "initializing deploy variables in thread #{Thread.current.object_id} appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}, deploy_id: #{@deploy_id}", MU::WARN, details: { "appname" => @original_config['appname'] }
 
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
@@ -507,7 +514,8 @@ module MU
         raise MuError, "Got no argument to MU::MommaCat.getResourceName"
       end
       if @appname.nil? or @environment.nil? or @timestamp.nil? or @seed.nil?
-        MU.log "Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}' (appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}", MU::WARN, details: caller
+        MU.log "getResourceName: Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}' (appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}, deploy_id: #{@deploy_id}", MU::WARN, details: caller
+raise "NAH"
         return name
       end
       need_unique_string = false if scrub_mu_isms

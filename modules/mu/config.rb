@@ -1026,6 +1026,7 @@ module MU
       ok = true
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
@@ -1057,6 +1058,17 @@ module MU
 
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
+
+        # Quietly fix old vpc reference style
+        if descriptor['vpc']['vpc_id']
+          descriptor['vpc']['id'] ||= descriptor['vpc']['vpc_id']
+          descriptor['vpc'].delete('vpc_id')
+        end
+        if descriptor['vpc']['vpc_name']
+          descriptor['vpc']['name'] = descriptor['vpc']['vpc_name']
+          descriptor['vpc'].delete('vpc_name')
+        end
+
         descriptor['vpc']['cloud'] = descriptor['cloud']
         if descriptor['credentials']
           descriptor['vpc']['credentials'] ||= descriptor['credentials']
@@ -1066,16 +1078,16 @@ module MU
         end
 
         # If we're using a VPC in this deploy, set it as a dependency
-        if !descriptor["vpc"]["vpc_name"].nil? and
-           haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs") and
+        if !descriptor["vpc"]["name"].nil? and
+           haveLitterMate?(descriptor["vpc"]["name"], "vpcs") and
            descriptor["vpc"]['deploy_id'].nil? and
-           descriptor["vpc"]['vpc_id'].nil?
+           descriptor["vpc"]['id'].nil?
           descriptor["dependencies"] << {
             "type" => "vpc",
-            "name" => descriptor["vpc"]["vpc_name"]
+            "name" => descriptor["vpc"]["name"]
           }
 
-          siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
+          siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
           # things that live in subnets need their VPCs to be fully
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
@@ -1090,6 +1102,7 @@ module MU
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
                                   credentials: descriptor['credentials'],
+                                  dflt_project: descriptor['project'],
                                   sibling_vpcs: @kittens['vpcs'])
             ok = false
           end
@@ -1102,6 +1115,7 @@ module MU
                                   "#{shortclass} #{descriptor['name']}",
                                   self,
                                   credentials: descriptor['credentials'],
+                                  dflt_project: descriptor['project'],
                                   dflt_region: descriptor['region'])
             MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
@@ -1391,7 +1405,7 @@ module MU
     def self.cloud_primitive
       {
         "type" => "string",
-        "default" => MU::Config.defaultCloud,
+#        "default" => MU::Config.defaultCloud, # inheritDefaults does this better
         "enum" => MU::Cloud.supportedClouds
       }
     end
@@ -1421,17 +1435,23 @@ module MU
 
       if vpc
         realvpc = {}
-        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
-        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
+        ['vpc_name', 'vpc_id'].each { |p|
+          if vpc[p]
+            vpc[p.sub(/^vpc_/, '')] = vpc[p] 
+            vpc.delete(p)
+          end
+        }
+        realvpc['id'] = vpc['id'] if !vpc['id'].nil?
+        realvpc['name'] = vpc['name'] if !vpc['name'].nil?
         realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
-        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
+        if !realvpc['id'].nil? and !realvpc['id'].empty?
           # Stupid kludge for Google cloud_ids which are sometimes URLs and
           # sometimes not. Requirements are inconsistent from scenario to
           # scenario.
-          name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
-          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
-        elsif !realvpc['vpc_name'].nil?
-          name = name + "-" + realvpc['vpc_name']
+          name = name + "-" + realvpc['id'].gsub(/.*\//, "")
+          realvpc['id'] = getTail("id", value: realvpc['id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["id"].is_a?(String)
+        elsif !realvpc['name'].nil?
+          name = name + "-" + realvpc['name']
         end
       end
 
@@ -1781,19 +1801,24 @@ module MU
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
+      kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
+
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
 
       schema_fields = ["us_only", "scrub_mu_isms", "credentials"]
       if !resclass.isGlobal?
+        kitten['cloud'] ||= @config['region']
         schema_fields << "region"
       end
 
       if kitten['cloud'] == "Google"
-        kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
-        schema_fields << "project"
+        if cfg_name != "habitat"
+          kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
+          schema_fields << "project"
+        end
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            !resclass.isGlobal? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])

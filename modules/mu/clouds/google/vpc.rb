@@ -553,7 +553,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
           bok['name'] = cloud_desc.name.dup
           bok['cloud_id'] = cloud_desc.name.dup
-
+          bok['create_standard_subnets'] = false
 
           if @subnets and @subnets.size > 0
             bok['subnets'] = []
@@ -581,7 +581,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           end
 
           peer_names = []
-          if cloud_desc.peerings
+          if cloud_desc.peerings and cloud_desc.peerings.size > 0
             bok['peers'] = []
             cloud_desc.peerings.each { |peer|
               peer.network.match(/projects\/([^\/]+?)\/[^\/]+?\/networks\/([^\/]+)$/)
@@ -589,18 +589,18 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               vpc_name = Regexp.last_match[2]
               vpc_id = vpc_name.dup
 # XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
-              bok['peers'] << MU::Config::Ref.new(
+              bok['peers'] << { "vpc" => MU::Config::Ref.new(
                 id: vpc_id,
                 name: vpc_name,
                 cloud: "Google",
                 project: vpc_project,
                 credentials: @config['credentials'],
                 type: "vpcs"
-              )
+              ) }
             }
           end
+
 # XXX need to grok VPN tunnels, priorities, and maybe preserve descriptions; make sure we know where next_hop_gateway  and next_hop_ip come from
-          pp @routes
           if @routes
             routes = []
             @routes.each { |r|
@@ -612,12 +612,14 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 route["nat_host_id"] = r.next_hop_instance
               end
             }
-            bok['route_tables'] = [
-              {
-                "name" => "default",
-                "routes" => routes
-              }
-            ]
+            if routes.size > 0
+              bok['route_tables'] = [
+                {
+                  "name" => "default",
+                  "routes" => routes
+                }
+              ]
+            end
           end
 
 # XXX validate that we've at least touched every required attribute (maybe upstream?)

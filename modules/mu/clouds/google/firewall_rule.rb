@@ -249,16 +249,13 @@ module MU
             credentials: @config['credentials'],
             type: "vpcs"
           )
-
-          if cloud_desc.direction == "EGRESS"
-            bok['egress'] = true
-            bok['ingress'] = false
+          if bok['name'] == "default-allow-icmp" or bok['name'] == "default-allow-http"
+            MU.log "MY VPC REFERENCE #{@project_id}/#{bok['name']}", MU::WARN, details: bok['vpc']
           end
+#          if bok['vpc'].name == "default"
+#            bok['vpc'] = { "id" => "default" }
+#          end
 
-          bok["source_service_accounts"] = cloud_desc.source_service_accounts if cloud_desc.source_service_accounts
-          bok["source_tags"] = cloud_desc.source_tags if cloud_desc.source_tags
-          bok["target_service_accounts"] = cloud_desc.target_service_accounts if cloud_desc.target_service_accounts
-          bok["target_tags"] = cloud_desc.target_tags if cloud_desc.target_tags
 
           byport = {}
 
@@ -273,10 +270,14 @@ module MU
 
           rule_list.each { |rule|
             hosts = if cloud_desc.direction == "INGRESS"
-              cloud_desc.source_ranges ? cloud_desc.source_ranges : "0.0.0.0/0"
+              cloud_desc.source_ranges ? cloud_desc.source_ranges : ["0.0.0.0/0"]
             else
-              cloud_desc.destination_ranges ? cloud_desc.destination_ranges : "0.0.0.0/0"
+              cloud_desc.destination_ranges ? cloud_desc.destination_ranges : ["0.0.0.0/0"]
             end
+            hosts.map! { |h|
+              h = h+"/32" if h.match(/^\d+\.\d+\.\d+\.\d+$/)
+              h
+            }
             proto = rule.ip_protocol ? rule.ip_protocol : "all"
 
             if rule.ports
@@ -291,6 +292,7 @@ module MU
               byport["0-65535"][hosts] ||= []
               byport["0-65535"][hosts] << proto
             end
+
           }
 
           byport.each_pair { |ports, hostlist|
@@ -316,15 +318,26 @@ module MU
                 else
                   rule["port"] = ports.to_i
                 end
+                if cloud_desc.source_service_accounts
+                  rule["source_service_accounts"] = cloud_desc.source_service_accounts
+                end
+                if cloud_desc.source_tags
+                  rule["source_tags"] = cloud_desc.source_tags
+                end
+                if cloud_desc.target_service_accounts
+                  rule["target_service_accounts"] = cloud_desc.target_service_accounts
+                end
+                if cloud_desc.target_tags
+                  rule["target_tags"] = cloud_desc.target_tags
+                end
+                if cloud_desc.direction == "EGRESS"
+                  rule['egress'] = true
+                  rule['ingress'] = false
+                end
                 bok['rules'] << rule
               }
             }
           }
-
-          if @routes
-            pp @routes
-            exit
-          end
 
           bok
         end

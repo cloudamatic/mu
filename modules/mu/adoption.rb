@@ -136,7 +136,7 @@ module MU
               processed << resolveReferences(resource, deploy, obj)
             rescue Incomplete
             end
-#            resource.delete("cloud_id")
+            resource.delete("cloud_id")
           }
           bok[attrs[:cfg_plural]] = processed
         end
@@ -179,18 +179,26 @@ module MU
           begin
             cfg[key] = resolveReferences(value, deploy, parent)
           rescue Incomplete
+            MU.log "Dropping unresolved key #{key}", MU::WARN, details: cfg
             deletia << key
           end
         }
         deletia.each { |key|
           cfg.delete(key)
         }
+        cfg = nil if cfg.empty? and deletia.size > 0
       elsif cfg.is_a?(Array)
         new_array = []
         cfg.each { |value|
           begin
-            new_array << resolveReferences(value, deploy, parent)
+            new_item = resolveReferences(value, deploy, parent)
+            if !new_item
+              MU.log "Dropping unresolved value", MU::WARN, details: value
+            else
+              new_array << new_item
+            end
           rescue Incomplete
+            MU.log "Dropping unresolved value", MU::WARN, details: value
           end
         }
         cfg = new_array
@@ -229,6 +237,8 @@ module MU
         create: true,
         config: bok,
         environment: "adopt",
+        appname: bok['appname'].upcase,
+        timestamp: timestamp,
         nocleanup: true,
         no_artifacts: true,
         set_context_to_me: true,

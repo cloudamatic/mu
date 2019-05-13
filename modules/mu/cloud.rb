@@ -964,8 +964,8 @@ module MU
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
             MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
-            if !@config['vpc']["vpc_name"].nil? and @deploy
-              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs", return_all: true)
+            if !@config['vpc']["name"].nil? and @deploy
+              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true)
               if sib_by_name.is_a?(Array)
                 if sib_by_name.size == 1
                   @vpc = matches.first
@@ -994,13 +994,13 @@ module MU
               end
             end
 
-            if !@vpc and !@config['vpc']["vpc_name"].nil? and
+            if !@vpc and !@config['vpc']["name"].nil? and
                 @dependencies.has_key?("vpc") and
-                @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
-              @vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
+                @dependencies["vpc"].has_key?(@config['vpc']["name"])
+              @vpc = @dependencies["vpc"][@config['vpc']["name"]]
             elsif !@vpc
               tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-              if !@config['vpc'].has_key?("vpc_id") and
+              if !@config['vpc'].has_key?("id") and
                   !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
                 @config['vpc']["deploy_id"] = @deploy.deploy_id
               end
@@ -1008,8 +1008,8 @@ module MU
                 @config['cloud'],
                 "vpc",
                 deploy_id: @config['vpc']["deploy_id"],
-                cloud_id: @config['vpc']["vpc_id"],
-                name: @config['vpc']["vpc_name"],
+                cloud_id: @config['vpc']["id"],
+                name: @config['vpc']["name"],
                 tag_key: tag_key,
                 tag_value: tag_value,
                 region: @config['vpc']["region"],

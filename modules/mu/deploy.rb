@@ -109,7 +109,7 @@ module MU
         @updating = false
         time=Time.new
         @appname = stack_conf["appname"]
-        @timestamp = time.strftime("%Y%m%d%H").to_s;
+        @timestamp = time.strftime("%Y%m%d%H").to_s
         @timestamp.freeze
         @timestart = time.to_s;
         @timestart.freeze
