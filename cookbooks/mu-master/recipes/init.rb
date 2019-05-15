@@ -173,7 +173,7 @@ dpkgs = {}
 
 elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
 if platform_family?("rhel")
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
 
   rpms = {
@@ -195,7 +195,7 @@ if platform_family?("rhel")
 
   # RHEL7, CentOS7
   elsif elversion < 8
-    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel", "cryptsetup"])
+    basepackages.concat(["libX11", "mariadb-devel", "cryptsetup"])
     rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
     rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el7.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
