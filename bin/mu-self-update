@@ -198,13 +198,18 @@ fi
 /bin/rm -rf $MU_DATADIR/tmp/cookbook_changes.$$
 /bin/rm -rf $MU_DATADIR/tmp/berks_changes.$$
 
+/bin/rm -rf /root/.berkshelf/
 if [ "$rebuild_chef_artifacts" == "1" ];then
-  /bin/rm -rf /root/.berkshelf/cookbooks
   cd $MU_LIBDIR && berks install
   $bindir/mu-upload-chef-artifacts -p
 fi
+
+# Make double sure our purely-mu cookbooks are uploaded and ready for platform
+# repos to reference.
 $bindir/mu-upload-chef-artifacts -r mu
-$bindir/mu-configure -n
+
+# Now a regular upload for platform repos.
+$bindir/mu-upload-chef-artifacts
 
 for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do
   echo "${GREEN}Sanitizing permissions in ${BOLD}$dir${NORM}${GREEN}${NORM}"
@@ -214,6 +219,8 @@ for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-c
   done
 done
 chmod go+rx $MU_LIBDIR/bin/*
+
+$bindir/mu-configure -n
 
 set -e
 
