@@ -286,6 +286,7 @@ end
 # REMOVE OLD RUBYs
 execute "clean up old Ruby 2.1.6" do
   command "rm -rf /opt/rubies/ruby-2.1.6"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.1.6") }
 end
 
@@ -297,6 +298,7 @@ end
 
 execute "clean up old ruby-2.3.1" do
   command "rm -rf /opt/rubies/ruby-2.3.1"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
