@@ -86,7 +86,15 @@ end
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
 if $opts[:sg]
-  open_ports = [80, 443, 2260, 7443, 8443, 9443, 8200]
+  open_ports = [443, 2260, 7443, 8443, 9443, 8200]
+  ranges = if $MU_CFG and $MU_CFG['my_networks'] and $MU_CFG['my_networks'].size > 0
+    $MU_CFG['my_networks'].map { |r|
+      r = r+"/32" if r.match(/^\d+\.\d+\.\d+\.\d+$/)
+      r
+    }
+  else
+    ["0.0.0.0/0"]
+  end
 
   # This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
   # found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
@@ -98,24 +106,35 @@ if $opts[:sg]
   end
   admin_sg = found.first if !found.nil? and found.size > 0
 
+  rules = Array.new
+  open_ports.each { |port|
+    rules << {
+      "port" => port,
+      "hosts" => ranges
+    }
+  }
+  rules << {
+    "port" => 22,
+    "hosts" => ["#{preferred_ip}/32"]
+  }
+  if !ranges.include?("0.0.0.0/0")
+    rules << {
+      "port" => 80,
+      "hosts" => ["0.0.0.0/0"]
+    }
+  end
+  MU.log "Configuring basic TCP access for Mu services", MU::NOTICE, details: rules
+
   if !admin_sg.nil?
     MU.log "Using an existing Security Group, #{admin_sg}, already associated with this Mu server."
     open_ports.each { |port|
-      admin_sg.addRule(["0.0.0.0/0"], port: port)
+      admin_sg.addRule(ranges, port: port)
     }
     admin_sg.addRule(["#{preferred_ip}/32"], port: 22)
+    if !ranges.include?("0.0.0.0/0")
+      admin_sg.addRule(["0.0.0.0/0"], port: 80)
+    end
   else
-    rules = Array.new
-    open_ports.each { |port|
-      rules << {
-        "port" => port,
-        "hosts" => ["0.0.0.0/0"]
-      }
-    }
-    rules << {
-      "port" => 22,
-      "hosts" => ["#{preferred_ip}/32"]
-    }
     cfg = {
       "name" => "Mu Master",
       "cloud" => "AWS",
