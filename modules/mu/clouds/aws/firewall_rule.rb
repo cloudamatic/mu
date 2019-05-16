@@ -150,7 +150,7 @@ module MU
         # @param egress [Boolean]: Whether this is an egress ruleset, instead of ingress.
         # @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
         # @return [void]
-        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535")
+        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535", comment: nil)
           rule = Hash.new
           rule["proto"] = proto
           if hosts.is_a?(String)
@@ -164,7 +164,9 @@ module MU
           else
             rule["port_range"] = port_range
           end
+          rule["description"] = comment if comment
           ec2_rule = convertToEc2([rule])
+          pp ec2_rule
 
           begin
             if egress
@@ -180,6 +182,21 @@ module MU
             end
           rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
             MU.log "Attempt to add duplicate rule to #{@cloud_id}", MU::DEBUG, details: ec2_rule
+            # Ensure that, at least, the description field gets updated on
+            # existing rules
+            if comment
+              if egress
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).update_security_group_rule_descriptions_egress(
+                  group_id: @cloud_id,
+                  ip_permissions: ec2_rule
+                )
+              else
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).update_security_group_rule_descriptions_ingress(
+                  group_id: @cloud_id,
+                  ip_permissions: ec2_rule
+                )
+              end
+            end
           end
         end
 
@@ -554,7 +571,11 @@ module MU
                 rule['hosts'].each { |cidr|
                   next if cidr.nil? # XXX where is that coming from?
                   cidr = cidr + "/32" if cidr.match(/^\d+\.\d+\.\d+\.\d+$/)
-                  ec2_rule[:ip_ranges] << {cidr_ip: cidr}
+                  if rule['description']
+                    ec2_rule[:ip_ranges] << {cidr_ip: cidr, description: rule['description']}
+                  else
+                    ec2_rule[:ip_ranges] << {cidr_ip: cidr}
+                  end
                 }
               end
 

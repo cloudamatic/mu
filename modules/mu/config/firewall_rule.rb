@@ -78,6 +78,10 @@ module MU
               "type" => "boolean",
               "default" => false
             },
+            "comment" => {
+              "type" => "string",
+              "description" => "String description of this firewall rule, where supported"
+            },
             "hosts" => {
               "type" => "array",
               "items" => MU::Config::CIDR_PRIMITIVE

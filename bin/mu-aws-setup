@@ -110,17 +110,20 @@ if $opts[:sg]
   open_ports.each { |port|
     rules << {
       "port" => port,
-      "hosts" => ranges
+      "hosts" => ranges,
+      "description" => "Mu Master service access"
     }
   }
   rules << {
     "port" => 22,
-    "hosts" => ["#{preferred_ip}/32"]
+    "hosts" => ["#{preferred_ip}/32"],
+    "description" => "Mu Master service access"
   }
   if !ranges.include?("0.0.0.0/0")
     rules << {
       "port" => 80,
-      "hosts" => ["0.0.0.0/0"]
+      "hosts" => ["0.0.0.0/0"],
+      "description" => "Mu Master service access"
     }
   end
   MU.log "Configuring basic TCP access for Mu services", MU::NOTICE, details: rules
@@ -128,11 +131,11 @@ if $opts[:sg]
   if !admin_sg.nil?
     MU.log "Using an existing Security Group, #{admin_sg}, already associated with this Mu server."
     open_ports.each { |port|
-      admin_sg.addRule(ranges, port: port)
+      admin_sg.addRule(ranges, port: port, comment: "Mu Master service access")
     }
-    admin_sg.addRule(["#{preferred_ip}/32"], port: 22)
+    admin_sg.addRule(["#{preferred_ip}/32"], port: 22, comment: "Mu Master service access")
     if !ranges.include?("0.0.0.0/0")
-      admin_sg.addRule(["0.0.0.0/0"], port: 80)
+      admin_sg.addRule(["0.0.0.0/0"], port: 80, comment: "Mu Master service access")
     end
   else
     cfg = {
