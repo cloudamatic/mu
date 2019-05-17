@@ -14,7 +14,6 @@
 
 require 'open-uri'
 require 'json'
-#require 'azure_sdk'
 
 module MU
   class Cloud
@@ -73,7 +72,16 @@ module MU
       end
 
       def self.myRegion
-        "TODO"
+        cfg = credConfig(credentials) #Get Azure configuration from the config file
+
+        if cfg and cfg['region'] 
+          @@myRegion_var = cfg['region'] # If region is defined in the config, return it
+        elsif MU::Cloud::Azure.hosted? # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
+          zone = MU::Cloud::Azure.get_metadata()['compute']['location']
+          @@myRegion_var = zone
+        end
+
+        return @@myRegion_var
       end
 
       def self.listRegions(credentials = nil)
@@ -104,8 +112,34 @@ module MU
         "TODO"
       end
 
-      def self.credConfig
-        "TODO"
+      def self.credConfig (name = nil, name_only: false)
+pp MU_CFG
+        # If there's nothing in mu.yaml (which is wrong), but we're running on a machine hosted in Azure, fake it with that machine's service account and hope for the best.
+        if !$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0
+          return @@my_hosted_cfg if @@my_hosted_cfg # IF I ALREADY HAVE A CONFIG, RETURN THAT
+          if hosted?
+            pp "I don't have Azure credentials in my config file, but I am hosted in Azure... Falling back to instance role."
+            # TODO: CONFIGURE A WAY TO UTILIZE THE MACHINE ACCOUT CREDENTIALS
+          end
+          return nil
+        end
+
+        if name.nil? # IF WE ARE NOT GIVEN A NAME, LOOKUP THE DEFAULT
+          $MU_CFG['azure'].each_pair { |name, cfg|
+            if cfg['default']
+              return name_only ? name : cfg
+            end
+          }
+        else # WE HAVE BEEN GIVEN A NAME, LOOK UP THE CREDENTIALS BY THAT NAME
+          if $MU_CFG['azure'][name]
+            return name_only ? name : $MU_CFG['azure'][name]
+          elsif @@acct_to_profile_map[name.to_s]
+            return name_only ? name : @@acct_to_profile_map[name.to_s]
+          end
+          return nil
+        end
+
+        return credentials
       end
 
       def self.listInstanceTypes

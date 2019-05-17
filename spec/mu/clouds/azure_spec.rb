@@ -105,8 +105,14 @@ describe MU::Cloud::Azure do
 	end
 
 	describe ".credConfig" do
-		it "responds with TODO" do
-			expect(MU::Cloud::Azure.credConfig).to eql("TODO")
+		if is_azure_for_rizzle
+			it "responds with TODO" do
+				expect(MU::Cloud::Azure.credConfig).to eql({"TODO":"TODO"})
+			end
+		else
+			it "returns nil because no credentials are configured" do
+				expect(MU::Cloud::Azure.credConfig).to be_nil
+			end
 		end
 	end
 	
