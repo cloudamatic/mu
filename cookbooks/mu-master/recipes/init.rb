@@ -192,12 +192,11 @@ when 'rhel'
   end
 
 when 'amazon'
-  elversion = 7 #HACK TO FORCE AMAZON TO BE TREATED LIKE RHEL 7
   basepackages.concat(["libX11", "mariadb-devel", "cryptsetup", "compat-libffi5"])
   removepackages = ["nagios", "firewalld"]
   rpms.delete("epel-release")
 
-  case amazon_elversion
+  case elversion
   when 1
     #TODO special things for Amazon Linux 1
   when 2
@@ -205,6 +204,7 @@ when 'amazon'
   else
     raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{elversion})"
   end
+  elversion = 7 #HACK TO FORCE AMAZON TO BE TREATED LIKE RHEL 7
 else
   raise "Mu Masters are currently only supported on RHEL and Amazon family hosts."
 end
