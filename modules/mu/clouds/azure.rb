@@ -14,12 +14,15 @@
 
 require 'open-uri'
 require 'json'
+require 'timeout'
 
 module MU
   class Cloud
     # Support for Microsoft Azure as a provisioning layer.
     class Azure
       @@is_in_azure = nil
+      @@metadata = nil
+      @@acct_to_profile_map = nil #WHAT EVEN IS THIS? 
 
       # Alias for #{MU::Cloud::AWS.hosted?}
       def self.hosted
@@ -77,7 +80,8 @@ module MU
         if cfg and cfg['region'] 
           @@myRegion_var = cfg['region'] # If region is defined in the config, return it
         elsif MU::Cloud::Azure.hosted? # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
-          zone = MU::Cloud::Azure.get_metadata()['compute']['location']
+          metadata = get_metadata()
+          zone = metadata['compute']['location']
           @@myRegion_var = zone
         end
 
@@ -113,9 +117,8 @@ module MU
       end
 
       def self.credConfig (name = nil, name_only: false)
-pp MU_CFG
         # If there's nothing in mu.yaml (which is wrong), but we're running on a machine hosted in Azure, fake it with that machine's service account and hope for the best.
-        if !$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0
+        if !$MU_CFG.nil? and (!$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0)
           return @@my_hosted_cfg if @@my_hosted_cfg # IF I ALREADY HAVE A CONFIG, RETURN THAT
           if hosted?
             pp "I don't have Azure credentials in my config file, but I am hosted in Azure... Falling back to instance role."
@@ -124,16 +127,16 @@ pp MU_CFG
           return nil
         end
 
-        if name.nil? # IF WE ARE NOT GIVEN A NAME, LOOKUP THE DEFAULT
+        if name.nil? and !$MU_CFG.nil? # IF WE ARE NOT GIVEN A NAME, LOOKUP THE DEFAULT
           $MU_CFG['azure'].each_pair { |name, cfg|
             if cfg['default']
               return name_only ? name : cfg
             end
           }
         else # WE HAVE BEEN GIVEN A NAME, LOOK UP THE CREDENTIALS BY THAT NAME
-          if $MU_CFG['azure'][name]
+          if !$MU_CFG.nil? and $MU_CFG['azure'][name]
             return name_only ? name : $MU_CFG['azure'][name]
-          elsif @@acct_to_profile_map[name.to_s]
+          elsif !@@acct_to_profile_map.nil? and @@acct_to_profile_map[name.to_s]
             return name_only ? name : @@acct_to_profile_map[name.to_s]
           end
           return nil
@@ -157,21 +160,27 @@ pp MU_CFG
       #END REQUIRED METHODS
 
 
-      # Fetch an Azure instance metadata parameter (example: public-ipv4).
-      # @return [String, nil]
+      # Fetch (ALL) Azure instance metadata
+      # @return [Hash, nil]
       def self.get_metadata()
         base_url = "http://169.254.169.254/metadata/instance"
         api_version = '2017-08-01'
-        # begin
-          response = nil
-          
-          response = JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
 
-          response
-        # rescue
-        #   MU.log "Failed to get Azure MetaData."
-        # end
+        begin
+          Timeout.timeout(2) do
+            @@metadata ||= JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
+          end
+          return @@metadata
+
+        rescue Timeout::Error => e
+          # MU.log "Timeout querying Azure Metadata"
+          return nil
+        rescue
+          # MU.log "Failed to get Azure MetaData."
+          return nil
+        end
       end
+
     end
   end
 end

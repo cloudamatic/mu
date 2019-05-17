@@ -11,3 +11,4 @@ bin/vault
 .vscode
 Berksfile.lock
 cloud-mu-*.gem
+coverage

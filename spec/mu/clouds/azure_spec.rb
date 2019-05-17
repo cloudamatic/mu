@@ -121,4 +121,16 @@ describe MU::Cloud::Azure do
 			expect(MU::Cloud::Azure.listInstanceTypes).to eql("TODO")
 		end
 	end
+
+	describe ".get_metadata" do
+		if is_azure_for_rizzle
+			it "responds with a hash of presumed metadata" do
+				expect(MU::Cloud::Azure.get_metadata).to eql(Hash)
+			end
+		else
+			it "responds with nil if not hosted in azure" do
+				expect(MU::Cloud::Azure.get_metadata).to be_nil
+			end
+		end
+	end
 end
