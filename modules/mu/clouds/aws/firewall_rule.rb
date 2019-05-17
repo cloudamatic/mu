@@ -106,10 +106,10 @@ module MU
           # XXX the egress logic here is a crude hack, this really needs to be
           # done at config level
           setRules(
-              [],
-              add_to_self: @config['self_referencing'],
-              ingress: true,
-              egress: egress
+            [],
+            add_to_self: @config['self_referencing'],
+            ingress: true,
+            egress: egress
           )
 
           MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
@@ -124,10 +124,10 @@ module MU
             # XXX the egress logic here is a crude hack, this really needs to be
             # done at config level
             setRules(
-                @config['rules'],
-                add_to_self: @config['self_referencing'],
-                ingress: true,
-                egress: egress
+              @config['rules'],
+              add_to_self: @config['self_referencing'],
+              ingress: true,
+              egress: egress
             )
           end
         end
@@ -153,11 +153,17 @@ module MU
         def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535", comment: nil)
           rule = Hash.new
           rule["proto"] = proto
-          if hosts.is_a?(String)
-            rule["hosts"] = [hosts]
-          else
-            rule["hosts"] = hosts
-          end
+          sgs = []
+          hosts = [hosts] if hosts.is_a?(String)
+          hosts.each { |h|
+            if h.match(/^sg-/)
+              sgs << h
+            end
+          }
+          rule["sgs"] = sgs if sgs.size > 0
+          hosts = hosts - sgs
+          rule["hosts"] = hosts if hosts.size > 0
+
           if port != nil
             port = port.to_s if !port.is_a?(String)
             rule["port"] = port
@@ -166,18 +172,17 @@ module MU
           end
           rule["description"] = comment if comment
           ec2_rule = convertToEc2([rule])
-          pp ec2_rule
 
           begin
             if egress
               MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
-                  group_id: @cloud_id,
-                  ip_permissions: ec2_rule
+                group_id: @cloud_id,
+                ip_permissions: ec2_rule
               )
             else
               MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
-                  group_id: @cloud_id,
-                  ip_permissions: ec2_rule
+                group_id: @cloud_id,
+                ip_permissions: ec2_rule
               )
             end
           rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e

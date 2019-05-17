@@ -97,14 +97,44 @@ if $opts[:sg]
   end
 
   # This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
-  # found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
-  found = nil
 
-  if found.nil? or found.size < 1 and instance.security_groups.size > 0
-    # maybe we should make sure we don't use the "Mu Client Rules for" security group for this.
-    found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, cloud_id: instance.security_groups.first.group_id)
+  admin_sg = nil
+  if instance.security_groups.size > 0
+    instance.security_groups.each { |sg|
+      found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, cloud_id: sg.group_id)
+      if found.size > 0 and
+         !found.first.cloud_desc.group_name.match(/^Mu Client Rules for /)
+        admin_sg = found.first
+
+        break
+      end
+    }
   end
-  admin_sg = found.first if !found.nil? and found.size > 0
+
+  # Clean out any old rules that aren't part of our current config
+  admin_sg.cloud_desc.ip_permissions.each { |rule|
+    rule.ip_ranges.each { |range|
+      if range.description == "Mu Master service access" and
+         !ranges.include?(range.cidr_ip) and rule.to_port != 80 and
+         !(rule.to_port == 22 and range.cidr_ip == "#{preferred_ip}/32")
+        MU.log "Revoking old Mu Master service access rule for #{range.cidr_ip} port #{rule.to_port.to_s}", MU::NOTICE
+        MU::Cloud::AWS.ec2(region: MU.myRegion, credentials: admin_sg.credentials).revoke_security_group_ingress(
+          group_id: admin_sg.cloud_desc.group_id,
+          ip_permissions: [
+            {
+              to_port: rule.to_port,
+              from_port: rule.from_port,
+              ip_protocol: rule.ip_protocol,
+              ip_ranges: [
+                { cidr_ip: range.cidr_ip }
+              ]
+            }
+          ]
+        )
+
+      end
+    }
+  }
 
   rules = Array.new
   open_ports.each { |port|
@@ -119,13 +149,16 @@ if $opts[:sg]
     "hosts" => ["#{preferred_ip}/32"],
     "description" => "Mu Master service access"
   }
-  if !ranges.include?("0.0.0.0/0")
-    rules << {
-      "port" => 80,
-      "hosts" => ["0.0.0.0/0"],
-      "description" => "Mu Master service access"
-    }
-  end
+  rules << {
+    "port" => 80,
+    "hosts" => ["0.0.0.0/0"],
+    "description" => "Mu Master service access"
+  }
+  rules << {
+    "port_range" => "0-65535",
+    "sgs" => admin_sg.cloud_id,
+    "description" => "Mu Master service access"
+  }
   MU.log "Configuring basic TCP access for Mu services", MU::NOTICE, details: rules
 
   if !admin_sg.nil?
@@ -134,9 +167,8 @@ if $opts[:sg]
       admin_sg.addRule(ranges, port: port, comment: "Mu Master service access")
     }
     admin_sg.addRule(["#{preferred_ip}/32"], port: 22, comment: "Mu Master service access")
-    if !ranges.include?("0.0.0.0/0")
-      admin_sg.addRule(["0.0.0.0/0"], port: 80, comment: "Mu Master service access")
-    end
+    admin_sg.addRule(["0.0.0.0/0"], port: 80, comment: "Mu Master service access")
+    admin_sg.addRule([admin_sg.cloud_id], comment: "Mu Master service access")
   else
     cfg = {
       "name" => "Mu Master",
@@ -163,7 +195,6 @@ if instance.public_ip_address != preferred_ip and !preferred_ip.nil? and !prefer
     filters << {name: "domain", values: ["vpc"]} if !instance.vpc_id.nil?
     filters << {name: "public-ip", values: [instance.public_ip_address]}
     resp = MU::Cloud::AWS.ec2.describe_addresses(filters: filters)
-    pp resp
     if resp.addresses.size > 0
       has_elastic_ip
     end
