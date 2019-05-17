@@ -192,7 +192,7 @@ when 'rhel'
   end
 
 when 'amazon'
-  basepackages.concat(["libX11", "mariadb-devel", "cryptsetup", "compat-libffi5"])
+  basepackages.concat(["libX11", "mariadb-devel", "cryptsetup"])
   removepackages = ["nagios", "firewalld"]
   rpms.delete("epel-release")
 
