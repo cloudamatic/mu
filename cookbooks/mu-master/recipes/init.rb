@@ -172,43 +172,50 @@ rpms = {}
 dpkgs = {}
 
 elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
-if platform_family?('rhel', 'amazon')
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
-#        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
 
-  rpms = {
-    "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
-    "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
-  }
+basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 
-
-  if elversion < 6 or elversion >= 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
-
-  # RHEL6, CentOS6, Amazon Linux
-  elsif elversion < 7
+case node['platform_family']
+when 'rhel'
+  case elversion
+  when 6
     basepackages.concat(["mysql-devel"])
-    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
-    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el6.x86_64.rpm"
-    
     removepackages = ["nagios"]
-
-  # RHEL7, CentOS7
-  elsif elversion < 8
+  when 7
     basepackages.concat(["libX11", "mariadb-devel", "cryptsetup"])
-    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
-    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el7.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
-  end
-  # Amazon Linux
-  if node['platform_version'].to_i > 2000
-    basepackages.concat(["compat-libffi5"])
-    rpms.delete("epel-release")
+  when 8
+    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
+    #TODO Support for RHEL8
+  else
+    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
   end
 
+when 'amazon'
+  elversion = 7 #HACK TO FORCE AMAZON TO BE TREATED LIKE RHEL 7
+  basepackages.concat(["libX11", "mariadb-devel", "cryptsetup", "compat-libffi5"])
+  removepackages = ["nagios", "firewalld"]
+  rpms.delete("epel-release")
+
+  case amazon_elversion
+  when 1
+    #TODO special things for Amazon Linux 1
+  when 2
+    #TODO special things for Amazon Linux 2
+  else
+    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{elversion})"
+  end
 else
-  raise "Mu Masters are currently only supported on RHEL-family hosts."
+  raise "Mu Masters are currently only supported on RHEL and Amazon family hosts."
 end
+
+rpms = {
+  "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
+  "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
+}
+
+rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el#{elversion}.x86_64.rpm"
+rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el#{elversion}.x86_64.rpm"
 
 package basepackages
 
