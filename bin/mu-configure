@@ -194,14 +194,18 @@ $CONFIGURABLES = {
     "title" => "Microsoft Azure Cloud Computing Platform & Services",
     "named_subentries" => true,
     "subtree" => {
-      "subscription" => {
-        "title" => "Default Subscription",
+      "" => {
+        "title" => "Directory ID",
         "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
       },
-      "credentials" => {
-        "title" => "Credentials Vault:Item",
-        "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      "subscription" => {
+        "title" => "Default Subscription",
+        "desc" => "Default Microsoft Azure Subscription we will use to deploy."
       },
+      # "credentials" => {
+      #   "title" => "Credentials Vault:Item",
+      #   "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      # },
       "credentials_file" => {
         "title" => "Credentials File",
         "desc" => "JSON-formatted Service Account credentials for our Azure account, stored in plain text in a file."
@@ -211,11 +215,11 @@ $CONFIGURABLES = {
         "desc" => "Default Microsoft Azure region in which we operate and deploy",
         "default" => "eastus"
       },
-      "log_bucket_name" => {
-        "title" => "Log and Secret Bucket Name",
-        "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
-        "changes" => ["chefrun"]
-      },
+      # "log_bucket_name" => {
+      #   "title" => "Log and Secret Bucket Name",
+      #   "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
+      #   "changes" => ["chefrun"]
+      # },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,
