@@ -182,7 +182,7 @@ when 'rhel'
     basepackages.concat(["mysql-devel"])
     removepackages = ["nagios"]
   when 7
-    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel'])
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
     removepackages = ['nagios', 'firewalld']
   when 8
     raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
