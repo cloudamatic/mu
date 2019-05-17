@@ -75,6 +75,8 @@ module MU
         []
       end
 
+      # Method that returns the default Azure region for this Mu Master
+      # @return [string]
       def self.myRegion
         cfg = credConfig() #Get Azure configuration from the config file
 
@@ -120,7 +122,7 @@ module MU
 
       def self.credConfig (name = nil, name_only: false)
         # If there's nothing in mu.yaml (which is wrong), but we're running on a machine hosted in Azure, fake it with that machine's service account and hope for the best.
-        if !$MU_CFG.nil? and (!$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0)
+        if $MU_CFG and (!$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0)
           return @@my_hosted_cfg if @@my_hosted_cfg # IF I ALREADY HAVE A CONFIG, RETURN THAT
           if hosted?
             pp "I don't have Azure credentials in my config file, but I am hosted in Azure... Falling back to instance role."
@@ -129,14 +131,14 @@ module MU
           return nil
         end
 
-        if name.nil? and !$MU_CFG.nil? # IF WE ARE NOT GIVEN A NAME, LOOKUP THE DEFAULT
+        if name.nil? and $MU_CFG # IF WE ARE NOT GIVEN A NAME, LOOKUP THE DEFAULT
           $MU_CFG['azure'].each_pair { |name, cfg|
             if cfg['default']
               return name_only ? name : cfg
             end
           }
         else # WE HAVE BEEN GIVEN A NAME, LOOK UP THE CREDENTIALS BY THAT NAME
-          if !$MU_CFG.nil? and $MU_CFG['azure'][name]
+          if $MU_CFG and $MU_CFG['azure'][name]
             return name_only ? name : $MU_CFG['azure'][name]
           elsif !@@acct_to_profile_map.nil? and @@acct_to_profile_map[name.to_s]
             return name_only ? name : @@acct_to_profile_map[name.to_s]
