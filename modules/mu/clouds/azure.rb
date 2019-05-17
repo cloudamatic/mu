@@ -23,6 +23,7 @@ module MU
       @@is_in_azure = nil
       @@metadata = nil
       @@acct_to_profile_map = nil #WHAT EVEN IS THIS? 
+      @@myRegion_var = nil
 
       # Alias for #{MU::Cloud::AWS.hosted?}
       def self.hosted
@@ -75,10 +76,11 @@ module MU
       end
 
       def self.myRegion
-        cfg = credConfig(credentials) #Get Azure configuration from the config file
+        cfg = credConfig() #Get Azure configuration from the config file
 
         if cfg and cfg['region'] 
           @@myRegion_var = cfg['region'] # If region is defined in the config, return it
+
         elsif MU::Cloud::Azure.hosted? # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
           metadata = get_metadata()
           zone = metadata['compute']['location']

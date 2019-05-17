@@ -133,4 +133,16 @@ describe MU::Cloud::Azure do
 			end
 		end
 	end
+
+	describe ".myRegion" do
+		if is_azure_for_rizzle
+			it "responds with a valid region" do
+				expect(MU::Cloud::Azure.myRegion).to eql('eastus') #TODO Provide a valid list of regions
+			end
+		else
+			it "responds with nil if not hosted in azure" do
+				expect(MU::Cloud::Azure.myRegion).to be_nil
+			end
+		end
+	end
 end
