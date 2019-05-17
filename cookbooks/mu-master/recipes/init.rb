@@ -196,7 +196,7 @@ when 'amazon'
   rpms.delete('epel-release')
   case elversion
   when 1, 6 #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
-    basepackages.concat(['mysql-devel', 'libffi-deve'])
+    basepackages.concat(['mysql-devel', 'libffi-devel'])
     basepackages.delete('tk')
     removepackages = ["nagios"]
   when 2
