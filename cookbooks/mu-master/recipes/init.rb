@@ -192,21 +192,21 @@ when 'rhel'
   end
 
 when 'amazon'
-  basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
-  removepackages = ['nagios', 'firewalld']
-  rpms.delete('epel-release')
 
+  rpms.delete('epel-release')
   case elversion
-  when 1
-    #TODO special things for Amazon Linux 1
+  when 6 #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
+    basepackages.concat(["mysql-devel"])
+    removepackages = ["nagios"]
   when 2
-    #TODO special things for Amazon Linux 2
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
+    removepackages = ['nagios', 'firewalld']
+    elversion = 7 #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
   else
     raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{elversion})"
   end
-  elversion = 7 #HACK TO FORCE AMAZON TO BE TREATED LIKE RHEL 7
 else
-  raise "Mu Masters are currently only supported on RHEL and Amazon family hosts."
+  raise "Mu Masters are currently only supported on RHEL and Amazon family hosts (got #{node['platform_family']})."
 end
 
 rpms = {
