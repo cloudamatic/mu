@@ -197,6 +197,7 @@ when 'amazon'
   case elversion
   when 6 #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
     basepackages.concat(["mysql-devel"])
+    basepackages.delete('tk')
     removepackages = ["nagios"]
   when 2
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
