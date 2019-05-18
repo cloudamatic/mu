@@ -127,7 +127,7 @@ describe MU::Cloud::Azure do
 			it "responds with a hash of expected metadata" do
 				metadata = MU::Cloud::Azure.get_metadata()
 				expect(metadata).to have_key('compute')
-				expect(metadata).to have_key('networks')
+				expect(metadata).to have_key('network')
 				expect(metadata['compute']).to have_key('location')
 				expect(metadata['compute']).to have_key('name')
 				expect(metadata['compute']).to have_key('osType')
