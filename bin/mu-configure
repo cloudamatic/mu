@@ -194,7 +194,7 @@ $CONFIGURABLES = {
     "title" => "Microsoft Azure Cloud Computing Platform & Services",
     "named_subentries" => true,
     "subtree" => {
-      "" => {
+      "directory_id" => {
         "title" => "Directory ID",
         "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
       },
