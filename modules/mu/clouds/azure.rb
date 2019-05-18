@@ -93,6 +93,7 @@ module MU
       end
 
       def self.listRegions(credentials = nil)
+        #subscriptions_client = Azure::Subscriptions::Profiles::Latest::Mgmt::Client.new(options)
         []
       end
 
@@ -122,31 +123,38 @@ module MU
 
       def self.credConfig (name = nil, name_only: false)
         # If there's nothing in mu.yaml (which is wrong), but we're running on a machine hosted in Azure, fake it with that machine's service account and hope for the best.
-        if $MU_CFG and (!$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0)
-          return @@my_hosted_cfg if @@my_hosted_cfg # IF I ALREADY HAVE A CONFIG, RETURN THAT
-          if hosted?
-            pp "I don't have Azure credentials in my config file, but I am hosted in Azure... Falling back to instance role."
-            # TODO: CONFIGURE A WAY TO UTILIZE THE MACHINE ACCOUT CREDENTIALS
-          end
-          return nil
-        end
+#         if !$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0
+#           return @@my_hosted_cfg if @@my_hosted_cfg
 
-        if name.nil? and $MU_CFG # IF WE ARE NOT GIVEN A NAME, LOOKUP THE DEFAULT
+#           if hosted?
+#             begin
+# #              iam_data = JSON.parse(getAWSMetaData("iam/info"))
+# #              if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
+#                 @@my_hosted_cfg = hosted_config
+#                 return name_only ? "#default" : @@my_hosted_cfg
+# #              end
+#             rescue JSON::ParserError => e
+#             end
+#           end
+
+#           return nil
+#         end
+
+        if name.nil?
           $MU_CFG['azure'].each_pair { |name, cfg|
-            if cfg['default']
+            if cfg['azure']
               return name_only ? name : cfg
             end
           }
-        else # WE HAVE BEEN GIVEN A NAME, LOOK UP THE CREDENTIALS BY THAT NAME
-          if $MU_CFG and $MU_CFG['azure'][name]
+        else
+          if $MU_CFG['azure'][name]
             return name_only ? name : $MU_CFG['azure'][name]
-          elsif !@@acct_to_profile_map.nil? and @@acct_to_profile_map[name.to_s]
+          elsif @@acct_to_profile_map[name.to_s]
             return name_only ? name : @@acct_to_profile_map[name.to_s]
           end
+# XXX whatever process might lead us to populate @@acct_to_profile_map with some mappings, like projectname -> account profile, goes here
           return nil
         end
-
-        return credentials
       end
 
       def self.listInstanceTypes
