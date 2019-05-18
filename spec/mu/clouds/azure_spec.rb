@@ -86,7 +86,6 @@ describe MU::Cloud::Azure do
 				expect(example).to have_key('log_bucket_name')
 				expect(example).to have_key('region')
 				expect(example).to have_key('subscriptionId')
-				expect(example['region']).to eql("TODO")
 			end
 			it "responds with the correct region" do
 				example = MU::Cloud::Azure.config_example()
