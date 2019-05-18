@@ -80,8 +80,17 @@ describe MU::Cloud::Azure do
 
 	describe ".config_example" do
 		if is_azure_for_rizzle
-			it "responds with TODO" do
-				expect(MU::Cloud::Azure.config_example).to eql({"TODO":"TODO"})
+			it "responds with a valid configuation hash" do
+				example = MU::Cloud::Azure.config_example()
+				expect(example).to have_key('credentials_file')
+				expect(example).to have_key('log_bucket_name')
+				expect(example).to have_key('region')
+				expect(example).to have_key('subscriptionId')
+				expect(example['region']).to eql("TODO")
+			end
+			it "responds with the correct region" do
+				example = MU::Cloud::Azure.config_example()
+				expect(example['region']).to eql(MU::Cloud::Azure.myRegion())
 			end
 		else
 			default_sample = {"credentials_file"=>"~/.azure/credentials", "log_bucket_name"=>"my-mu-s3-bucket", "region"=>"eastus", "subscriptionId"=>"b8f6ed82-98b5-4249-8d2f-681f636cd787"}
