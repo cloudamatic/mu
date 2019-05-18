@@ -68,11 +68,16 @@ describe MU::Cloud::Azure do
 
 	describe ".hosted_config" do
 		if is_azure_for_rizzle
-			it "responds with TODO" do
-				expect(MU::Cloud::Azure.hosted_config).to eql("TODO")
+			it "responds with a valid configuation hash" do
+				example = MU::Cloud::Azure.hosted_config()
+				#TODO DETERMINE WHAT ARE REQUIRED CONFIGURATIONS
+				#expect(example).to have_key('credentials_file')
+				#expect(example).to have_key('log_bucket_name')
+				expect(example).to have_key('region')
+				expect(example).to have_key('subscriptionId')
 			end
 		else
-			it "responds with TODO" do
+			it "responds with nil" do
 				expect(MU::Cloud::Azure.hosted_config).to eql(nil)
 			end
 		end
