@@ -125,8 +125,9 @@ describe MU::Cloud::Azure do
 	describe ".get_metadata" do
 		if is_azure_for_rizzle
 			it "responds with a hash of expected metadata" do
-				expect(MU::Cloud::Azure.get_metadata).to have_key(:compute)
-				expect(MU::Cloud::Azure.get_metadata)['compute'].to include(:location, :name, :osType, :subscriptionId, :vmId)
+				metadata = MU::Cloud::Azure.get_metadata()
+				expect(metadata).to have_key(:compute)
+				expect(metadata['compute']).to include(:location, :name, :osType, :subscriptionId, :vmId)
 			end
 		else
 			it "responds with nil if not hosted in azure" do
