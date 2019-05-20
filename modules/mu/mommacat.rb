@@ -260,7 +260,6 @@ module MU
       @timestamp ||= MU.timestamp
       @appname ||= appname
       @timestamp ||= timestamp
-MU.log "initializing deploy variables in thread #{Thread.current.object_id} appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}, deploy_id: #{@deploy_id}", MU::WARN, details: { "appname" => @original_config['appname'] }
 
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
@@ -1239,7 +1238,7 @@ raise "NAH"
                 # Stop if you found the thing by a specific cloud_id
                 if cloud_id and found and !found.empty?
                   found_the_thing = true
-                  break # XXX does this make sense in thread land?
+                  Thread.exit
                 end
               } }
               region_threads.each { |t|

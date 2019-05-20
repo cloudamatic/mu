@@ -38,20 +38,23 @@ module MU
           @subnetcachesemaphore = Mutex.new
           @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
 
-          if !@project_id
+          if !@project_id and @deploy
             project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-            @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            @project_id = project.nil? ? @config['project'] : project.cloud_id
+          else
+            @project_id ||= @config['project']
           end
 
-          if cloud_id and cloud_id.match(/^https:\/\//)
-            @url = cloud_id.clone
-            @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
-          elsif cloud_id and !cloud_id.empty?
-            @cloud_id = cloud_id.to_s
-            desc = cloud_desc
-            @url = desc.self_link if desc and desc.self_link
+          if cloud_id
+            if cloud_id.match(/^https:\/\//)
+              @url = cloud_id.clone
+              @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
+            elsif !cloud_id.empty?
+              @cloud_id = cloud_id.to_s
+              desc = cloud_desc
+              @url = desc.self_link if desc and desc.self_link
+            end
           end
-
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -69,7 +72,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           networkobj = MU::Cloud::Google.compute(:Network).new(
             name: MU::Cloud::Google.nameStr(@mu_name),
@@ -89,8 +92,9 @@ module MU
             @config['subnets'].each { |subnet|
               subnetthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                subnet_name = @config['name']+"-"+subnet['name']
-                subnet_mu_name = MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name))
+                subnet_name = subnet['name']
+
+                subnet_mu_name = MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
@@ -168,7 +172,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           rtb = @config['route_tables'].first
 
@@ -540,7 +544,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         def toKitten
           bok = {
             "cloud" => "Google",
-            "project" => @project_id,
+            "project" => @config['project'],
             "credentials" => @config['credentials']
           }
           MU::Cloud::Google.listRegions.size
@@ -712,6 +716,13 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               }
             }
           end
+
+          vpc['subnets'].each { |s|
+            if !s['availability_zone']
+              s['availability_zone'] = vpc['region']
+              s['availability_zone'] ||= MU::Cloud::Google.myRegion(vpc['credentials'])
+            end
+          }
 
           # Google VPCs can't have routes that are anything other than global
           # (they can be tied to individual instances by tags, but w/e). So we
@@ -1022,7 +1033,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           end
 
           def cloud_desc
-            @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.config['project'], @config['region'], @config['cloud_id'])
+            @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.config['project'], @config['az'], @config['cloud_id'])
             @cloud_desc_cache
           end
 

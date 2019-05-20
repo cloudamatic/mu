@@ -21,6 +21,7 @@ module MU
         @config = nil
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :project_id
         attr_reader :config
         attr_reader :groomer    
         attr_reader :url

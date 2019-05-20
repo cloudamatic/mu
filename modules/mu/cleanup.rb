@@ -142,6 +142,8 @@ module MU
                       begin
                         skipme = false
                         global_vs_region_semaphore.synchronize {
+                          MU::Cloud.loadCloudType(provider, t)
+                          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
                           if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
                             if !global_done.include?(t)
                               global_done << t
@@ -155,7 +157,7 @@ module MU
                       rescue MU::Cloud::MuCloudResourceNotImplemented => e
                         next
                       rescue MU::MuError, NoMethodError => e
-                        MU.log e.message, MU::WARN
+                        MU.log "While checking mu/clouds/#{provider.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
                         next
                       rescue ::Aws::EC2::Errors::AuthFailure => e
                         # AWS has been having transient auth problems with ap-east-1 lately
@@ -177,7 +179,7 @@ module MU
                             flags['known'] << found.cloud_id                            
                           end
                         end
-                        begin
+#                        begin
                           resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
                           resclass.cleanup(
                             noop: @noop,
@@ -187,9 +189,9 @@ module MU
                             flags: flags,
                             credentials: credset
                           )
-                        rescue Seahorse::Client::NetworkingError => e
-                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
-                        end
+#                        rescue ::Seahorse::Client::NetworkingError => e
+#                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
+#                        end
                       end
                     }
                   }
@@ -228,7 +230,7 @@ module MU
       end
 
       # Scrub any residual Chef records with matching tags
-      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
+      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exists?("/opt/mu/lib"))
         MU::Groomer::Chef.loadChefLib
         if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")

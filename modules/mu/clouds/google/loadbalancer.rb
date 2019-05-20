@@ -26,6 +26,7 @@ module MU
         attr_reader :cloud_id
         attr_reader :targetgroups
         attr_reader :url
+        attr_reader :project_id
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
@@ -193,6 +194,7 @@ module MU
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["project"],
+                nil,
                 noop
               )
             }

@@ -90,6 +90,10 @@ module MU
         []
       end
 
+      def self.habitat
+        nil
+      end
+
       def self.credConfig
         "TODO"
       end

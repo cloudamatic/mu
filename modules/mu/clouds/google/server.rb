@@ -34,6 +34,7 @@ module MU
         attr_reader :config
         attr_reader :deploy
         attr_reader :cloud_id
+        attr_reader :project_id
         attr_reader :cloud_desc
         attr_reader :groomer
         attr_reader :url
@@ -74,7 +75,7 @@ module MU
             @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
             if !@project_id
               project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+              @project_id = project.nil? ? @config['project'] : project.cloud_id
             end
           else
             if kitten_cfg.has_key?("basis")
@@ -250,7 +251,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloud_id
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
@@ -725,7 +726,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloud_id
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           

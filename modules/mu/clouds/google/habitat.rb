@@ -32,7 +32,10 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-          cloud_desc if @cloud_id
+          cloud_desc if @cloud_id # XXX why don't I have this on regroom?
+          if !@cloud_id and cloud_desc and cloud_desc.project_id
+            @cloud_id = cloud_desc.project_id
+          end
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -50,12 +53,12 @@ module MU
           name_string = if @config['scrub_mu_isms']
             @config["name"]
           else
-            @deploy.getResourceName(@config["name"], max_length: 30).downcase
+            @deploy.getResourceName(@config["name"], max_length: 30)
           end
 
           params = {
-            name: name_string,
-            project_id: name_string,
+            name: name_string.gsub(/[^a-z0-9\-'"\s!]/i, "-"),
+            project_id: name_string.downcase.gsub(/[^0-9a-z\-]/, "-")
           }
 
           MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -68,6 +71,9 @@ module MU
             params[:labels] = labels
           end
 
+          if @config['parent']['name'] and !@config['parent']['id']
+            @config['parent']['deploy_id'] = @deploy.deploy_id
+          end
           parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
           if !parent
             MU.log "Unable to resolve parent resource of Google Project #{@config['name']}", MU::ERR, details: @config['parent']
@@ -82,14 +88,19 @@ module MU
 
           project_obj = MU::Cloud::Google.resource_manager(:Project).new(params)
 
-          MU.log "Creating project #{name_string} under #{parent}", details: project_obj
-          MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+          MU.log "Creating project #{params[:project_id]} (#{params[:name]}) under #{parent}", details: project_obj
+
+          begin
+            MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+          rescue ::Google::Apis::ClientError => e
+            MU.log "Got #{e.message} attempting to create #{params[:project_id]}", MU::ERR, details: project_obj
+          end
 
 
           found = false
           retries = 0
           begin
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects()
             if resp and resp.projects
               resp.projects.each { |p|
                 if p.name == name_string.downcase
@@ -98,6 +109,9 @@ module MU
               }
             end
             if !found
+              if retries > 30
+                raise MuError, "Project #{name_string} never showed up in list_projects after I created it!"
+              end
               if retries > 0 and (retries % 3) == 0
                 MU.log "Waiting for Google Cloud project #{name_string} to appear in list_projects results...", MU::NOTICE
               end
@@ -107,7 +121,7 @@ module MU
           end while !found
 
 
-          @cloud_id = name_string.downcase
+          @cloud_id = params[:project_id]
           @project_id = parent_id
           setProjectBilling
         end
@@ -134,10 +148,14 @@ module MU
               project_id: @cloud_id
             )
             MU.log "Associating project #{@cloud_id} with billing account #{@config['billing_acct']}"
-            MU::Cloud::Google.billing(credentials: credentials).update_project_billing_info(
-              "projects/"+@cloud_id,
-              billing_obj
-            )
+            begin
+              MU::Cloud::Google.billing(credentials: credentials).update_project_billing_info(
+                "projects/"+@cloud_id,
+                billing_obj
+              )
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Error setting billing for #{@cloud_id}: "+e.message, MU::ERR, details: billing_obj
+            end
 
           end
         end
@@ -182,7 +200,7 @@ module MU
                 MU.log "Deleting project #{p.name}", details: p
                 if !noop
                   begin
-                    MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.name)
+                    MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.project_id)
                   rescue ::Google::Apis::ClientError => e
                     if e.message.match(/Cannot delete an inactive project/)
                       # this is fine
@@ -223,6 +241,7 @@ module MU
           else
             resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects().projects
             resp.each { |p|
+              next if p.lifecycle_state == "DELETE_REQUESTED"
               found[p.project_id] = p
             }
           end

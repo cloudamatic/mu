@@ -46,6 +46,13 @@ module MU
             if found and found.size > 0
               @scraped[type] ||= {}
               found.each { |obj|
+begin
+if obj.cloud_desc.labels and obj.cloud_desc.labels["mu-id"]
+  MU.log "skipping #{obj.cloud_id}", MU::WARN
+  next
+end
+rescue NoMethodError => e
+end
                 @scraped[type][obj.cloud_id] = obj
               }
             end
@@ -53,6 +60,7 @@ module MU
           }
         }
       }
+
     end
 
     def generateBasket(appname: "mu")

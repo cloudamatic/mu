@@ -41,7 +41,7 @@ module MU
 
           if !@project_id
             project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-            @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            @project_id = project.nil? ? @config['project'] : project.cloud_id
           end
 
           if @cloud_id
@@ -56,7 +56,7 @@ module MU
             @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
             if !@project_id
               project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+              @project_id = project.nil? ? @config['project'] : project.cloud_id
             end
           else
             if !@vpc.nil?
@@ -72,7 +72,7 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
@@ -147,7 +147,7 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
         end
 
         # Log metadata about this ruleset to the currently running deployment
@@ -231,7 +231,7 @@ module MU
         def toKitten
           bok = {
             "cloud" => "Google",
-            "project" => @project_id,
+            "project" => @config['project'],
             "credentials" => @config['credentials']
           }
 

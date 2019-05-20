@@ -101,7 +101,8 @@ module MU
             name: name,
             dummy_ok: true
           )
-          project_obj = resp.first if resp
+          pp resp if resp
+          project_obj = resp.first if resp and resp.size > 0
         end
 
         if (!project_obj or !project_obj.cloud_id) and raise_on_fail
@@ -642,7 +643,7 @@ module MU
 
         if subclass.nil?
 #          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], credentials: credentials)
+          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects', 'https://www.googleapis.com/auth/cloudplatformorganizations'], credentials: credentials)
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -746,6 +747,7 @@ module MU
       # @return [Array<OpenStruct>],nil]
       def self.getOrg(credentials = nil)
         resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
+MU.log "ORG CHECK WITH CREDS #{credentials}", MU::WARN, details: resp
         if resp and resp.organizations
           # XXX no idea if it's possible to be a member of multiple orgs
           return resp.organizations.first
@@ -906,7 +908,12 @@ module MU
                     MU.setLogging(MU::Logger::NORMAL)
                     MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
                     MU.setLogging(save_verbosity)
-                    MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
+                    begin
+                      MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
+                    rescue ::Google::Apis::ClientError => e
+                      MU.log "Error enabling #{svc_name} in #{project}: "+ e.message, MU::ERR, details: enable_obj
+                      raise e
+                    end
                   }
                   sleep wait_time/retries
                   retry

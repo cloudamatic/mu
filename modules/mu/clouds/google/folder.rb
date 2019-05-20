@@ -58,6 +58,9 @@ module MU
             display_name: name_string
           }
 
+          if @config['parent']['name'] and !@config['parent']['id']
+            @config['parent']['deploy_id'] = @deploy.deploy_id
+          end
           parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
 
           folder_obj = MU::Cloud::Google.folder(:Folder).new(params)
@@ -166,45 +169,51 @@ module MU
           # We can't label GCP folders, and their names are too short to encode
           # Mu deploy IDs, so all we can do is rely on flags['known'] passed in
           # from cleanup, which relies on our metadata to know what's ours.
-
+#noop = true
           if flags and flags['known']
+            threads = []
             flags['known'].each { |cloud_id|
-              found = self.find(cloud_id: cloud_id, credentials: credentials)
-              if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
-                MU.log "Deleting folder #{found.values.first.display_name} (#{found.keys.first})"
-                if !noop
-                  max_retries = 10
-                  retries = 0
-                  success = false
-                  begin
-                    MU::Cloud::Google.folder(credentials: credentials).delete_folder(
-                      "folders/"+found.keys.first   
-                    )
-                    found = self.find(cloud_id: cloud_id, credentials: credentials)
-                    if found and found.size > 0 and found.values.first.lifecycle_state != "DELETE_REQUESTED"
-                      if retries < max_retries
+              threads << Thread.new { 
+                found = self.find(cloud_id: cloud_id, credentials: credentials)
+                if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
+                  MU.log "Deleting folder #{found.values.first.display_name} (#{found.keys.first})"
+                  if !noop
+                    max_retries = 10
+                    retries = 0
+                    success = false
+                    begin
+                      MU::Cloud::Google.folder(credentials: credentials).delete_folder(
+                        "folders/"+found.keys.first   
+                      )
+                      found = self.find(cloud_id: cloud_id, credentials: credentials)
+                      if found and found.size > 0 and found.values.first.lifecycle_state != "DELETE_REQUESTED"
+                        if retries < max_retries
+                          sleep 30
+                          retries += 1
+                          puts retries
+                        else
+                          MU.log "Folder #{cloud_id} still exists after #{max_retries.to_s} attempts to delete", MU::ERR
+                          break
+                        end
+                      else
+                        success = true
+                      end
+  
+                    rescue ::Google::Apis::ClientError => e
+                      if e.message.match(/failedPrecondition/) and retries < max_retries
                         sleep 30
                         retries += 1
-                        puts retries
+                        retry
                       else
-                        MU.log "Folder #{cloud_id} still exists after #{max_retries.to_s} attempts to delete", MU::ERR
-                        break
+                        raise e
                       end
-                    else
-                      success = true
-                    end
-
-                  rescue ::Google::Apis::ClientError => e
-                    if e.message.match(/failedPrecondition/) and retries < max_retries
-                      sleep 30
-                      retries += 1
-                      retry
-                    else
-                      raise e
-                    end
-                  end while !success
+                    end while !success
+                  end
                 end
-              end
+              }
+            }
+            threads.each { |t|
+              t.join
             }
           end
         end
@@ -248,7 +257,7 @@ module MU
 
             found[raw_id] = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
 
-          elsif args[:flags]['display_name']
+          elsif args[:flags] and args[:flags]['display_name']
 
             if parent
               resp = self.find_matching_folder(parent, name: args[:flags]['display_name'], credentials: args[:credentials])
@@ -260,6 +269,7 @@ module MU
             resp = MU::Cloud::Google.folder(credentials: args[:credentials]).list_folders(parent: parent)
             if resp and resp.folders
               resp.folders.each { |folder|
+                next if folder.lifecycle_state == "DELETE_REQUESTED"
                 found[folder.name.sub(/^folders\//, "")] = folder
                 # recurse so that we'll pick up child folders
                 children = self.find(
