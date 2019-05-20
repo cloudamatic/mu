@@ -1,16 +1,16 @@
 GIT
   remote: https://github.com/eGT-Labs/knife-windows.git
-  revision: 0deb5ce9bba6718ebac6bb6c48a1a4b7bdc4b15b
+  revision: d9ed1c2da3fa60a6adaa4e3089cbab32a5999e93
   branch: winrm_cert_auth
   specs:
-    knife-windows (1.9.0)
+    knife-windows (2.0.3)
       winrm (~> 2.1)
       winrm-elevated (~> 1.0)
 
 PATH
   remote: ..
   specs:
-    cloud-mu (2.0.0.pre.beta2)
+    cloud-mu (2.0.2)
       addressable (~> 2.5)
       aws-sdk-core (< 3)
       bundler (~> 1.17)
@@ -41,12 +41,14 @@ GEM
     addressable (2.5.2)
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
-    aws-sdk-core (2.11.235)
+    aws-eventstream (1.0.3)
+    aws-sdk-core (2.11.271)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
-    aws-sigv4 (1.0.3)
-    backports (3.12.0)
-    berkshelf (7.0.7)
+    aws-sigv4 (1.1.0)
+      aws-eventstream (~> 1.0, >= 1.0.2)
+    backports (3.14.0)
+    berkshelf (7.0.8)
       chef (>= 13.6.52)
       chef-config
       cleanroom (~> 1.0)
@@ -153,7 +155,9 @@ GEM
     eventmachine (1.2.7)
     faraday (0.15.4)
       multipart-post (>= 1.2, < 3)
-    ffi (1.10.0)
+    ffi (1.11.1)
+    ffi-libarchive (0.4.6)
+      ffi (~> 1.0)
     ffi-yajl (2.3.1)
       libyajl2 (~> 1.2)
     foodcritic (14.1.0)
@@ -184,7 +188,7 @@ GEM
       multi_json (~> 1.11)
       os (>= 0.9, < 2.0)
       signet (~> 0.7)
-    gssapi (1.2.0)
+    gssapi (1.3.0)
       ffi (>= 1.0.1)
     gyoku (1.3.1)
       builder (>= 2.1.2)
@@ -216,7 +220,7 @@ GEM
     mixlib-cli (1.7.0)
     mixlib-config (2.2.18)
       tomlrb
-    mixlib-install (3.11.11)
+    mixlib-install (3.11.18)
       mixlib-shellout
       mixlib-versioning
       thor
@@ -225,7 +229,7 @@ GEM
     mixlib-versioning (1.2.7)
     molinillo (0.6.6)
     multi_json (1.13.1)
-    multipart-post (2.0.0)
+    multipart-post (2.1.0)
     mysql2 (0.5.2)
     net-ldap (0.16.1)
     net-scp (1.2.1)
@@ -246,7 +250,7 @@ GEM
     numerizer (0.1.1)
     octokit (4.13.0)
       sawyer (~> 0.8.0, >= 0.5.3)
-    ohai (14.8.10)
+    ohai (14.8.12)
       chef-config (>= 12.8, < 15)
       ffi (~> 1.9)
       ffi-yajl (~> 2.2)
@@ -259,17 +263,16 @@ GEM
       systemu (~> 2.6.4)
       wmi-lite (~> 1.0)
     optimist (3.0.0)
-    os (1.0.0)
+    os (1.0.1)
     paint (1.0.1)
-    parallel (1.14.0)
-    parser (2.6.0.0)
+    parallel (1.17.0)
+    parser (2.6.3.0)
       ast (~> 2.4.0)
     pg (0.18.4)
     plist (3.5.0)
     polyglot (0.3.5)
     powerpack (0.1.2)
     proxifier (1.0.3)
-    psych (3.1.0)
     public_suffix (3.0.3)
     rack (2.0.6)
     rainbow (3.0.0)
@@ -299,12 +302,10 @@ GEM
     rspec_junit_formatter (0.2.3)
       builder (< 4)
       rspec-core (>= 2, < 4, != 2.12.0)
-    rubocop (0.65.0)
+    rubocop (0.68.1)
       jaro_winkler (~> 1.5.1)
       parallel (~> 1.10)
       parser (>= 2.5, != 2.5.1.1)
-      powerpack (~> 0.1)
-      psych (>= 3.1.0)
       rainbow (>= 2.2.2, < 4.0)
       ruby-progressbar (~> 1.7)
       unicode-display_width (~> 1.4.0)
@@ -314,9 +315,9 @@ GEM
     rubyntlm (0.6.2)
     rubyzip (1.2.2)
     rufus-lru (1.1.0)
-    sawyer (0.8.1)
-      addressable (>= 2.3.5, < 2.6)
-      faraday (~> 0.8, < 1.0)
+    sawyer (0.8.2)
+      addressable (>= 2.3.5)
+      faraday (> 0.8, < 2.0)
     semverse (3.0.0)
     serverspec (2.41.3)
       multi_json
@@ -334,7 +335,7 @@ GEM
     solve (4.0.2)
       molinillo (~> 0.6)
       semverse (>= 1.1, < 4.0)
-    specinfra (2.76.9)
+    specinfra (2.77.1)
       net-scp
       net-ssh (>= 2.7)
       net-telnet (= 0.1.1)
