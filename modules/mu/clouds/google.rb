@@ -747,7 +747,7 @@ module MU
       # @return [Array<OpenStruct>],nil]
       def self.getOrg(credentials = nil)
         resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
-MU.log "ORG CHECK WITH CREDS #{credentials}", MU::WARN, details: resp
+#MU.log "ORG CHECK WITH CREDS #{credentials}", MU::WARN, details: resp
         if resp and resp.organizations
           # XXX no idea if it's possible to be a member of multiple orgs
           return resp.organizations.first

@@ -541,7 +541,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
-        def toKitten
+        def toKitten(rootparent = nil)
           bok = {
             "cloud" => "Google",
             "project" => @config['project'],

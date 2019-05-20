@@ -19,19 +19,40 @@ module MU
 
     class Incomplete < MU::MuNonFatal; end
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil)
       @scraped = {}
       @clouds = clouds
       @types = types
+      @parent = parent
       @reference_map = {}
     end
 
     def scrapeClouds()
+      @default_parent = nil
       @clouds.each { |cloud|
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         next if cloudclass.listCredentials.nil?
         cloudclass.listCredentials.each { |credset|
           puts cloud+" "+credset
+          puts @parent
+          if @parent
+# TODO handle different inputs (cloud_id, etc)
+# TODO do something about vague matches
+            found = MU::MommaCat.findStray(
+              cloud,
+              "folders",
+              flags: { "display_name" => @parent },
+              credentials: credset,
+              allow_multi: false,
+              dummy_ok: true,
+              debug: false
+            )
+            if found and found.size == 1
+              @default_parent = found.first
+            end
+
+          end
+
           @types.each { |type|
       
             found = MU::MommaCat.findStray(
@@ -40,7 +61,7 @@ module MU
               credentials: credset,
               allow_multi: true,
               dummy_ok: true,
-              debug: true
+#              debug: true
             )
 
             if found and found.size > 0
@@ -60,6 +81,10 @@ end
           }
         }
       }
+
+      if @parent and !@default_parent
+        MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
+      end
 
     end
 
@@ -84,7 +109,7 @@ end
 #          puts obj.config['name']
 #          puts obj.url
 #          puts obj.arn
-            resource_bok = obj.toKitten
+            resource_bok = obj.toKitten(@default_parent)
 #            pp resource_bok
             if resource_bok
               bok[res_class.cfg_plural] << resource_bok

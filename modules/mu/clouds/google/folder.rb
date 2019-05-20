@@ -289,7 +289,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten
+        def toKitten(rootparent = nil)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
@@ -304,6 +304,8 @@ module MU
               credentials: @config['credentials'],
               type: "folders"
             )
+          elsif rootparent
+            bok['parent'] = { 'id' => rootparent.cloud_desc.name }
           else
             bok['parent'] = { 'id' => cloud_desc.parent }
           end
