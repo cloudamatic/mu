@@ -225,8 +225,10 @@ puts @config['credentials']
             if found and found.clusters
               found.clusters.each { |cluster|
 
-                if !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
-                   cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                if !cluster.resource_labels or (
+                     !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
+                     cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                   )
                   next
                 end
                 MU.log "Deleting GKE cluster #{cluster.name}"

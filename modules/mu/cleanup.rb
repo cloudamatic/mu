@@ -102,9 +102,10 @@ module MU
         keyname = "deploy-#{MU.deploy_id}"
 # XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
         creds.each_pair { |provider, credsets|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
           credsets.each_pair { |credset, regions|
             global_vs_region_semaphore = Mutex.new
-            global_done = []
+            global_done = {}
             regions.each { |r|
               @regionthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
@@ -114,10 +115,14 @@ module MU
 # XXX GCP credential schema needs an array for projects
                   projects << $MU_CFG[provider.downcase][credset]["project"]
                 end
+                begin
+                  projects.concat(cloudclass.listProjects(credset))
+                rescue NoMethodError
+                end
 
                 if projects == []
                   projects << "" # dummy
-                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE, details: projects
                 end
 
                 # We do these in an order that unrolls dependent resources
@@ -125,6 +130,16 @@ module MU
                 # CloudFormation sometimes fails internally.
                 projectthreads = []
                 projects.each { |project|
+                  # cap our concurrency somewhere so we don't just grow to
+                  # infinity and bonk against system thread limits
+                  begin
+                    projectthreads.each do |t|
+                      t.join(0.1)
+                    end
+                    projectthreads.reject! { |t| !t.alive? }
+#                    sleep 1 if projectthreads.size > 10
+                  end while projectthreads.size > 10
+
                   projectthreads << Thread.new {
                     MU.dupGlobals(parent_thread_id)
                     MU.setVar("curRegion", r)
@@ -145,8 +160,9 @@ module MU
                           MU::Cloud.loadCloudType(provider, t)
                           shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
                           if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
-                            if !global_done.include?(t)
-                              global_done << t
+                            global_done[project] ||= []
+                            if !global_done[project].include?(t)
+                              global_done[project] << t
                               flags['global'] = true
                             else
                               skipme = true
