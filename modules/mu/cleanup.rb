@@ -106,6 +106,7 @@ module MU
           credsets.each_pair { |credset, regions|
             global_vs_region_semaphore = Mutex.new
             global_done = {}
+            habitats_done = {}
             regions.each { |r|
               @regionthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
@@ -133,12 +134,13 @@ module MU
                   # cap our concurrency somewhere so we don't just grow to
                   # infinity and bonk against system thread limits
                   begin
-                    projectthreads.each do |t|
-                      t.join(0.1)
+                    projectthreads.each do |thr|
+                      thr.join(0.1)
                     end
-                    projectthreads.reject! { |t| !t.alive? }
+                    projectthreads.reject! { |thr| !thr.alive? }
 #                    sleep 1 if projectthreads.size > 10
-                  end while projectthreads.size > 10
+# XXX this hack is stupid an inaccurate and we should have a real thread ceiling
+                  end while (@regionthreads.size * projectthreads.size) > 64
 
                   projectthreads << Thread.new {
                     MU.dupGlobals(parent_thread_id)
@@ -167,6 +169,13 @@ module MU
                             else
                               skipme = true
                             end
+                          elsif ["Habitat", "Folder"].include?(t)
+# XXX this is an asinine workaround; these resources are neither project-bound nor region-bound and should be handled somewhere else, but we'll still want a lot of the other logic of this section so refactor this mess
+                            if !habitats_done[t]
+                              habitats_done[t] = true
+                            else
+                              skipme = true
+                            end
                           end
                         }
                         next if skipme
@@ -175,8 +184,7 @@ module MU
                       rescue MU::MuError, NoMethodError => e
                         MU.log "While checking mu/clouds/#{provider.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
                         next
-                      rescue ::Aws::EC2::Errors::AuthFailure => e
-                        # AWS has been having transient auth problems with ap-east-1 lately
+                      rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
                         MU.log e.message+" in "+r, MU::ERR
                         next
                       end

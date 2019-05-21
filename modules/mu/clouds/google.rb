@@ -91,7 +91,6 @@ module MU
       # @return [MU::Cloud::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
         project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
-
         if !project_obj and !sibling_only
           resp = MU::MommaCat.findStray(
             "Google",
@@ -898,30 +897,33 @@ module MU
                   consumer_id: "project:"+project
                 )
                 # XXX dumbass way to get this string
-                e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
+                if e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
 
-                svc_name = Regexp.last_match[1]
-                save_verbosity = MU.verbosity
-                if svc_name != "servicemanagement.googleapis.com"
-                  retries += 1
-                  @@enable_semaphores[project].synchronize {
+                  svc_name = Regexp.last_match[1]
+                  save_verbosity = MU.verbosity
+                  if svc_name != "servicemanagement.googleapis.com" and method_sym != :delete
+                    retries += 1
+                    @@enable_semaphores[project].synchronize {
+                      MU.setLogging(MU::Logger::NORMAL)
+                      MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                      MU.setLogging(save_verbosity)
+                      begin
+                        MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
+                      rescue ::Google::Apis::ClientError => e
+                        MU.log "Error enabling #{svc_name} in #{project} for #{method_sym.to_s}: "+ e.message, MU::ERR, details: enable_obj
+                        raise e
+                      end
+                    }
+                    sleep wait_time/retries
+                    retry
+                  else
                     MU.setLogging(MU::Logger::NORMAL)
-                    MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                    MU.log "Google Cloud's Service Management API must be enabled manually by visiting #{e.message.gsub(/.*?(https?:\/\/[^\s]+)(?:$|\s).*/, '\1')}", MU::ERR
                     MU.setLogging(save_verbosity)
-                    begin
-                      MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
-                    rescue ::Google::Apis::ClientError => e
-                      MU.log "Error enabling #{svc_name} in #{project}: "+ e.message, MU::ERR, details: enable_obj
-                      raise e
-                    end
-                  }
-                  sleep wait_time/retries
-                  retry
+                    raise MU::MuError, "Service Management API not yet enabled for this account/project"
+                  end
                 else
-                  MU.setLogging(MU::Logger::NORMAL)
-                  MU.log "Google Cloud's Service Management API must be enabled manually by visiting #{e.message.gsub(/.*?(https?:\/\/[^\s]+)(?:$|\s).*/, '\1')}", MU::ERR
-                  MU.setLogging(save_verbosity)
-                  raise MU::MuError, "Service Management API not yet enabled for this account/project"
+                  MU.log e.message, MU::ERR
                 end
               elsif retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or

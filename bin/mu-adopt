@@ -35,6 +35,7 @@ $opt = Optimist::options do
   opt :types, "The resource types to scan and import. Valid types: #{MU::Cloud.resource_types.keys.map { |t| t.to_s }.join(", ")}", :required => true, :type => :strings
   opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => available_clouds
   opt :parent, "Where applicable, resources which reside in the root folder or organization are configured with the specified parent in our target BoK", :required => false, :type => :string
+  opt :billing, "Force-set this billing entity on created resources, instead of copying from the live resources", :required => false, :type => :string
 end
 
 ok = true
@@ -84,7 +85,7 @@ if !ok
   exit 1
 end
 
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing])
 adoption.scrapeClouds
 MU.log "Generating basket"
 bok = adoption.generateBasket

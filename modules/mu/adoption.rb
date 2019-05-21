@@ -19,16 +19,18 @@ module MU
 
     class Incomplete < MU::MuNonFatal; end
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil)
       @scraped = {}
       @clouds = clouds
       @types = types
       @parent = parent
+      @billing = billing
       @reference_map = {}
     end
 
     def scrapeClouds()
       @default_parent = nil
+
       @clouds.each { |cloud|
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         next if cloudclass.listCredentials.nil?
@@ -92,6 +94,7 @@ end
       bok = { "appname" => appname }
 
       count = 0
+
       @clouds.each { |cloud|
         @scraped.each_pair { |type, resources|
           res_class = begin
@@ -109,7 +112,7 @@ end
 #          puts obj.config['name']
 #          puts obj.url
 #          puts obj.arn
-            resource_bok = obj.toKitten(@default_parent)
+            resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
 #            pp resource_bok
             if resource_bok
               bok[res_class.cfg_plural] << resource_bok

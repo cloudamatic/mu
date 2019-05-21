@@ -55,9 +55,10 @@ module MU
           else
             @deploy.getResourceName(@config["name"], max_length: 30)
           end
+          display_name = @config['display_name'] || name_string.gsub(/[^a-z0-9\-'"\s!]/i, "-")
 
           params = {
-            name: name_string.gsub(/[^a-z0-9\-'"\s!]/i, "-"),
+            name: display_name,
             project_id: name_string.downcase.gsub(/[^0-9a-z\-]/, "-")
           }
 
@@ -103,7 +104,7 @@ module MU
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects()
             if resp and resp.projects
               resp.projects.each { |p|
-                if p.name == name_string.downcase
+                if p.project_id ==  name_string.downcase.gsub(/[^0-9a-z\-]/, "-")
                   found = true
                 end
               }
@@ -124,6 +125,7 @@ module MU
           @cloud_id = params[:project_id]
           @project_id = parent_id
           setProjectBilling
+          MU.log "Project #{params[:project_id]} (#{params[:name]}) created"
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -197,7 +199,7 @@ module MU
             resp.projects.each { |p|
               if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase and
                  p.lifecycle_state == "ACTIVE"
-                MU.log "Deleting project #{p.name}", details: p
+                MU.log "Deleting project #{p.project_id} (#{p.name})", details: p
                 if !noop
                   begin
                     MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.project_id)
@@ -205,7 +207,8 @@ module MU
                     if e.message.match(/Cannot delete an inactive project/)
                       # this is fine
                     else
-                      raise e
+                      MU.log "Got #{e.message} trying to delete project #{p.project_id} (#{p.name})", MU::ERR
+                      next
                     end
                   end
                 end
@@ -252,14 +255,17 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent = nil)
+        def toKitten(rootparent: nil, billing: nil)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
 
-          bok['name'] = cloud_desc.name
+          bok['name'] = cloud_desc.project_id
           bok['cloud_id'] = cloud_desc.project_id
+#          if cloud_desc.name != cloud_desc.project_id
+            bok['display_name'] = cloud_desc.name
+#          end
 
           if cloud_desc.parent and cloud_desc.parent.id
             if cloud_desc.parent.type == "folder"
@@ -276,9 +282,13 @@ module MU
             end
           end
 
-          cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
-          if cur_billing and cur_billing.billing_account_name
-            bok['billing_acct'] = cur_billing.billing_account_name.sub(/^billingAccounts\//, '')
+          if billing
+            bok['billing_acct'] = billing
+          else
+            cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
+            if cur_billing and cur_billing.billing_account_name
+              bok['billing_acct'] = cur_billing.billing_account_name.sub(/^billingAccounts\//, '')
+            end
           end
 
           bok
@@ -293,6 +303,10 @@ module MU
             "billing_acct" => {
               "type" => "string",
               "description" => "Billing account ID to associate with a newly-created Google Project. If not specified, will attempt to locate a billing account associated with the default project for our credentials."
+            },
+            "display_name" => {
+              "type" => "string",
+              "description" => "A human readable name for this project. If not specified, will default to our long-form deploy-generated name."
             }
           }
           [toplevel_required, schema]

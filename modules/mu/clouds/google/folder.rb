@@ -112,12 +112,12 @@ module MU
               name: parentblock['name']
             ).first
             if sib_folder
-              return "folders/"+sib_folder.cloudobj.cloud_id
+              return sib_folder.cloud_desc.name
             end
           end
 
           begin
-          found = MU::Cloud::Google::Folder.find(cloud_id: parentblock['id'], credentials: credentials, flags: { 'display_name' => parentblock['name'] })
+            found = MU::Cloud::Google::Folder.find(cloud_id: parentblock['id'], credentials: credentials, flags: { 'display_name' => parentblock['name'] })
           rescue ::Google::Apis::ClientError => e
             if !e.message.match(/Invalid request status_code: 404/)
               raise e
@@ -174,7 +174,9 @@ module MU
             threads = []
             flags['known'].each { |cloud_id|
               threads << Thread.new { 
+
                 found = self.find(cloud_id: cloud_id, credentials: credentials)
+
                 if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
                   MU.log "Deleting folder #{found.values.first.display_name} (#{found.keys.first})"
                   if !noop
@@ -251,10 +253,10 @@ module MU
             my_org = MU::Cloud::Google.getOrg(args[:credentials])
             my_org.name
           end
-
+begin
+raw_id = nil
           if args[:cloud_id]
             raw_id = args[:cloud_id].sub(/^folders\//, "")
-
             found[raw_id] = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
 
           elsif args[:flags] and args[:flags]['display_name']
@@ -282,6 +284,9 @@ module MU
               }
             end
           end
+rescue ::Google::Apis::ClientError => e
+MU.log "FAILSAUCE IN FOLDER FIND folders/#{raw_id}: #{e.message}", MU::WARN, details: args
+end
 
           found
         end
@@ -289,7 +294,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent = nil)
+        def toKitten(rootparent: nil, billing: nil)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']

@@ -72,7 +72,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
+          #@project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true).cloud_id
+          myproject = MU::Cloud::Google.projectLookup(@config['project'], @deploy)
+
+          @project_id = myproject.cloud_id
 
           networkobj = MU::Cloud::Google.compute(:Network).new(
             name: MU::Cloud::Google.nameStr(@mu_name),
@@ -541,7 +544,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
-        def toKitten(rootparent = nil)
+        def toKitten(rootparent: nil, billing: nil)
           bok = {
             "cloud" => "Google",
             "project" => @config['project'],
