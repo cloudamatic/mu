@@ -138,9 +138,9 @@ module MU
                       thr.join(0.1)
                     end
                     projectthreads.reject! { |thr| !thr.alive? }
-#                    sleep 1 if projectthreads.size > 10
+                    sleep 0.1
 # XXX this hack is stupid an inaccurate and we should have a real thread ceiling
-                  end while (@regionthreads.size * projectthreads.size) > 64
+                  end while (@regionthreads.size * projectthreads.size) > 32
 
                   projectthreads << Thread.new {
                     MU.dupGlobals(parent_thread_id)

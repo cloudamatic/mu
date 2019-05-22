@@ -25,6 +25,7 @@ module MU
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
+        STD_PROTOS = ["icmp", "tcp", "udp"]
 
         attr_reader :mu_name
         attr_reader :project_id
@@ -133,7 +134,12 @@ module MU
             threads << Thread.new { 
               fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
               MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
-              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+begin
+  resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+rescue Exception => e
+  MU.log e.message, MU::ERR, details: fwobj
+  raise e
+end
               @url = resp.self_link
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
@@ -244,7 +250,7 @@ module MU
 
           bok['vpc'] = MU::Config::Ref.new(
             id: vpc_id,
-            project: @project_id,
+            project: @config['project'],
             cloud: "Google",
             credentials: @config['credentials'],
             type: "vpcs"
@@ -409,6 +415,31 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
+          if acl['rules']
+            append = []
+            delete = []
+            acl['rules'].each { |r|
+              if r['proto'] == "standard"
+                STD_PROTOS.each { |p|
+                  newrule = r.dup
+                  newrule['proto'] = p
+                  append << newrule
+                }
+                delete << r
+              elsif r['proto'] == "all"
+                PROTOS.each { |p|
+                  newrule = r.dup
+                  newrule['proto'] = p
+                  append << newrule
+                }
+                delete << r
+              end
+            }
+            delete.each { |r|
+              acl['rules'].delete(r)
+            }
+            acl['rules'].concat(append)
+          end
         end
 
         private
