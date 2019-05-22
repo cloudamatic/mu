@@ -61,7 +61,7 @@ module MU
       end
 
 
-      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection", "Habitat", "Folder"]
+      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -169,13 +169,6 @@ module MU
                             else
                               skipme = true
                             end
-                          elsif ["Habitat", "Folder"].include?(t)
-# XXX this is an asinine workaround; these resources are neither project-bound nor region-bound and should be handled somewhere else, but we'll still want a lot of the other logic of this section so refactor this mess
-                            if !habitats_done[t]
-                              habitats_done[t] = true
-                            else
-                              skipme = true
-                            end
                           end
                         }
                         next if skipme
@@ -189,37 +182,11 @@ module MU
                         next
                       end
 
-                      if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
-                        if @mommacat
-                          found = @mommacat.findLitterMate(type: t, return_all: true, credentials: credset)
-                          flags['known'] ||= []
-                          if found.is_a?(Array)
-                            found.each { |k|
-                              flags['known'] << k.cloud_id
-                            }
-                          elsif found and found.is_a?(Hash)
-                            flags['known'] << found['cloud_id']
-                          elsif found
-                            flags['known'] << found.cloud_id                            
-                          end
-                        end
-#                        begin
-                          resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
-                          resclass.cleanup(
-                            noop: @noop,
-                            ignoremaster: @ignoremaster,
-                            region: r,
-                            cloud: provider,
-                            flags: flags,
-                            credentials: credset
-                          )
-#                        rescue ::Seahorse::Client::NetworkingError => e
-#                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
-#                        end
-                      end
+                      self.call_cleanup(t, credset, provider, flags, r)
+
                     }
-                  }
-                }
+                  } # types_in_order.each { |t|
+                } # projects.each { |project|
                 projectthreads.each do |t|
                   t.join
                 end
@@ -234,10 +201,19 @@ module MU
                     MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
                   }
                 end
+              } # @regionthreads << Thread.new {
+            } # regions.each { |r|
+
+            ["Habitat", "Folder"].each { |t|
+              flags = {
+                "onlycloud" => @onlycloud,
+                "skipsnapshots" => @skipsnapshots
               }
+              self.call_cleanup(t, credset, provider, flags, nil)
             }
-          }
-        }
+
+          } # credsets.each_pair { |credset, regions|
+        } # creds.each_pair { |provider, credsets|
 
         @regionthreads.each do |t|
           t.join
@@ -379,6 +355,39 @@ module MU
 #        MU::MommaCat.syncMonitoringConfig
       end
 
+    end
+
+    private
+
+    def self.call_cleanup(type, credset, provider, flags, region)
+      if @mommacat.nil? or @mommacat.numKittens(types: [type]) > 0
+        if @mommacat
+          found = @mommacat.findLitterMate(type: type, return_all: true, credentials: credset)
+          flags['known'] ||= []
+          if found.is_a?(Array)
+            found.each { |k|
+              flags['known'] << k.cloud_id
+            }
+          elsif found and found.is_a?(Hash)
+            flags['known'] << found['cloud_id']
+          elsif found
+            flags['known'] << found.cloud_id                            
+          end
+        end
+#        begin
+          resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
+          resclass.cleanup(
+            noop: @noop,
+            ignoremaster: @ignoremaster,
+            region: region,
+            cloud: provider,
+            flags: flags,
+            credentials: credset
+          )
+#                        rescue ::Seahorse::Client::NetworkingError => e
+#                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
+#                        end
+      end
     end
   end #class
 end #module
