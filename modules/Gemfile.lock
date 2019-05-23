@@ -353,7 +353,7 @@ GEM
     uber (0.1.0)
     unicode-display_width (1.4.1)
     uuidtools (2.1.5)
-    winrm (2.2.3)
+    winrm (2.3.2)
       builder (>= 2.1.2)
       erubis (~> 2.7)
       gssapi (~> 1.2)
@@ -389,7 +389,7 @@ DEPENDENCIES
   rack
   ruby-wmi
   thin
-  winrm (~> 2.2.3)
+  winrm (~> 2.3, >= 2.3.2)
 
 BUNDLED WITH
    1.17.2
