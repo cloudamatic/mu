@@ -41,6 +41,10 @@ ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 require 'mu/logger'
 module MU
 
+  # The maximum number of concurrent threads that {MU::Deploy} or {MU::Cleanup}
+  # will try to run concurrently.
+  MAXTHREADS = 32
+
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError

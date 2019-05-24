@@ -137,7 +137,8 @@ module MU
 begin
   resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
 rescue Exception => e
-  MU.log e.message, MU::ERR, details: fwobj
+  MU.log e.inspect, MU::ERR, details: fwobj
+  
   raise e
 end
               @url = resp.self_link
@@ -223,6 +224,8 @@ end
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+
           MU::Cloud::Google.compute(credentials: credentials).delete(
             "firewall",
             flags["project"],
@@ -247,6 +250,10 @@ end
 
           cloud_desc.network.match(/\/networks\/([^\/]+)(?:$|\/)/)
           vpc_id = Regexp.last_match[1]
+
+          if vpc_id == "default" and !@config['project']
+            raise MuError, "FirewallRule toKitten: I'm in 'default' VPC but can't figure out what project I'm in"
+          end
 
           bok['vpc'] = MU::Config::Ref.new(
             id: vpc_id,
@@ -415,6 +422,11 @@ end
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
+          
+          if acl['vpc']
+            acl['vpc']['project'] ||= acl['project']
+          end
+
           if acl['rules']
             append = []
             delete = []

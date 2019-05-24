@@ -30,6 +30,7 @@ module MU
       @@acct_to_profile_map = {}
       @@enable_semaphores = {}
 
+
       # Any cloud-specific instance methods we require our resource
       # implementations to have, above and beyond the ones specified by
       # {MU::Cloud}
@@ -870,7 +871,7 @@ module MU
               else
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym}"
               end
-            rescue ::Google::Apis::RateLimitError => e
+            rescue ::Google::Apis::RateLimitError, ::Google::Apis::TransmissionError, ::ThreadError => e
               if retries <= 10
                 sleep wait_backoff
                 retries += 1
@@ -892,6 +893,11 @@ module MU
               if retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
                 project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
+                if !MU::Cloud::Google::Habitat.isLive?(project, @credentials) and method_sym == :delete
+                  MU.log "Got accessNotConfigured while attempting to delete a resource in #{project}", MU::WARN
+                   
+                  return
+                end
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project
@@ -922,8 +928,10 @@ module MU
                     MU.setLogging(save_verbosity)
                     raise MU::MuError, "Service Management API not yet enabled for this account/project"
                   end
+                elsif e.message.match(/scheduled for deletion and cannot be used for API calls/)
+                  raise MuDefunctHabitat, e.message
                 else
-                  MU.log e.message, MU::ERR
+                  MU.log "Unfamiliar error calling #{method_sym.to_s} "+e.message, MU::ERR, details: arguments
                 end
               elsif retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or

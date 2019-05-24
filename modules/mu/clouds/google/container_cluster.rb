@@ -220,6 +220,8 @@ puts @config['credentials']
           skipsnapshots = flags["skipsnapshots"]
 
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+
           MU::Cloud::Google.listAZs(region).each { |az|
             found = MU::Cloud::Google.container(credentials: credentials).list_zone_clusters(flags["project"], az)
             if found and found.clusters

@@ -1050,6 +1050,7 @@ next if !create
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
           skipsnapshots = flags["skipsnapshots"]
           onlycloud = flags["onlycloud"]
 # XXX make damn sure MU.deploy_id is set

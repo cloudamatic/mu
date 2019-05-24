@@ -202,12 +202,16 @@ module MU
                       end
   
                     rescue ::Google::Apis::ClientError => e
+# XXX maybe see if the folder has disappeared already?
+# XXX look for child folders that haven't been deleted, that's what this tends
+# to mean
                       if e.message.match(/failedPrecondition/) and retries < max_retries
                         sleep 30
                         retries += 1
                         retry
                       else
-                        raise e
+                        MU.log "Got 'failedPrecondition' a bunch while trying to delete #{found.values.first.display_name} (#{found.keys.first})", MU::ERR
+                        break
                       end
                     end while !success
                   end

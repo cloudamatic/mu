@@ -188,6 +188,22 @@ module MU
           MU::Cloud::BETA
         end
 
+        # Check whether is in the +ACTIVE+ state and has billing enabled.
+        # @param project_id [String]
+        # @return [Boolean]
+        def self.isLive?(project_id, credentials = nil)
+          project = MU::Cloud::Google::Habitat.find(cloud_id: project_id).values.first
+          return false if project.nil? or project.lifecycle_state != "ACTIVE"
+
+          billing = MU::Cloud::Google.billing(credentials: credentials).get_project_billing_info("projects/"+project_id)
+          if !billing or !billing.billing_account_name or
+             billing.billing_account_name.empty?
+            return false
+          end
+
+          true
+        end
+
         # Remove all Google projects associated with the currently loaded deployment. Try to, anyway.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server

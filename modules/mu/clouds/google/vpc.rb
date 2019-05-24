@@ -526,6 +526,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           purge_subnets(noop, project: flags['project'], credentials: credentials)
           ["route", "network"].each { |type|
@@ -987,12 +988,16 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           regions.each { |r|
             regionthreads << Thread.new {
               MU.dupGlobals(parent_thread_id)
-              MU::Cloud::Google.compute(credentials: credentials).delete(
-                "subnetwork",
-                project,
-                r,
-                noop
-              )
+              begin
+                MU::Cloud::Google.compute(credentials: credentials).delete(
+                  "subnetwork",
+                  project,
+                  r,
+                  noop
+                )
+              rescue MU::Cloud::MuDefunctHabitat => e
+                Thread.exit
+              end
             }
           }
           regionthreads.each do |t|

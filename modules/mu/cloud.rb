@@ -39,6 +39,11 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
+    # Exception we throw when we attempt to make an API call against a project
+    # that is already deleted.
+    class MuDefunctHabitat < StandardError;
+    end
+
     # Methods which a cloud resource implementation, e.g. Server, must implement
     generic_class_methods = [:find, :cleanup, :validateConfig, :schema, :isGlobal?]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
@@ -161,7 +166,7 @@ module MU
         :interface => self.const_get("Habitat"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
-        :class => generic_class_methods,
+        :class => generic_class_methods + [:isLive?],
         :instance => generic_instance_methods + [:groom]
       },
       :Collection => {

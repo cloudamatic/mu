@@ -272,6 +272,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           if !flags["global"]
             ["region_autoscaler", "region_instance_group_manager"].each { |type|

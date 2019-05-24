@@ -103,6 +103,7 @@ module MU
 # XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
         creds.each_pair { |provider, credsets|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
+          habitatclass = Object.const_get("MU").const_get("Cloud").const_get(provider).const_get("Habitat")
           credsets.each_pair { |credset, regions|
             global_vs_region_semaphore = Mutex.new
             global_done = {}
@@ -131,6 +132,7 @@ module MU
                 # CloudFormation sometimes fails internally.
                 projectthreads = []
                 projects.each { |project|
+                  next if !habitatclass.isLive?(project, credset)
                   # cap our concurrency somewhere so we don't just grow to
                   # infinity and bonk against system thread limits
                   begin
@@ -139,8 +141,8 @@ module MU
                     end
                     projectthreads.reject! { |thr| !thr.alive? }
                     sleep 0.1
-# XXX this hack is stupid an inaccurate and we should have a real thread ceiling
-                  end while (@regionthreads.size * projectthreads.size) > 32
+
+                  end while (@regionthreads.size * projectthreads.size) > MU::MAXTHREADS
 
                   projectthreads << Thread.new {
                     MU.dupGlobals(parent_thread_id)
@@ -172,7 +174,7 @@ module MU
                           end
                         }
                         next if skipme
-                      rescue MU::Cloud::MuCloudResourceNotImplemented => e
+                      rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
                         next
                       rescue MU::MuError, NoMethodError => e
                         MU.log "While checking mu/clouds/#{provider.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
@@ -182,7 +184,11 @@ module MU
                         next
                       end
 
-                      self.call_cleanup(t, credset, provider, flags, r)
+                      begin
+                        self.call_cleanup(t, credset, provider, flags, r)
+                      rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
+                        next
+                      end
 
                     }
                   } # types_in_order.each { |t|

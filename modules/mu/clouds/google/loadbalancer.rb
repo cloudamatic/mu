@@ -177,6 +177,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: nil, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           if region
             ["forwarding_rule", "region_backend_service"].each { |type|
