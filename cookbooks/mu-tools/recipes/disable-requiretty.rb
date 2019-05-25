@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node['platform']
-when platform_family?('rhel')
+case node['platform_family']
+when "rhel", "amazon"
   execute "sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers" do
     not_if "grep '!requiretty' /etc/sudoers"
   end

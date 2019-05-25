@@ -37,6 +37,10 @@ module MU
         def create
           if @config['iam_policies']
             @config['iam_policies'].each { |policy|
+              policy.values.each { |p|
+                p["Version"] ||= "2012-10-17"
+              }
+
               policy_name = @mu_name+"-"+policy.keys.first.upcase
               MU.log "Creating IAM policy #{policy_name}"
               resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy(
@@ -111,6 +115,9 @@ module MU
 
             if @config['iam_policies']
               @config['iam_policies'].each { |policy|
+                policy.values.each { |p|
+                  p["Version"] ||= "2012-10-17"
+                }
                 policy_name = @mu_name+"-"+policy.keys.first.upcase
 
                 arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
@@ -232,6 +239,8 @@ module MU
                     )
 
                     target_string = sibling.cloudobj.arn
+                  elsif target.is_a? Hash
+                    target_string = target['identifier']
                   end
 
                   unless s["Resource"].include? target_string

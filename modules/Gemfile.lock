@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (2.0.2)
+    cloud-mu (2.0.3)
       addressable (~> 2.5)
       aws-sdk-core (< 3)
       bundler (~> 1.17)
@@ -42,7 +42,7 @@ GEM
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
     aws-eventstream (1.0.3)
-    aws-sdk-core (2.11.281)
+    aws-sdk-core (2.11.282)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.1.0)

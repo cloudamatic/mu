@@ -16,42 +16,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if !node['application_attributes']['skip_recipes'].include?('set_local_fw')
+  master_ips = get_mu_master_ips
+  case node['platform_family']
+  when 'rhel', 'amazon'
+    include_recipe 'mu-firewall'
 
-master_ips = get_mu_master_ips
-case node['platform']
-when platform_family?('rhel')
-  include_recipe 'mu-firewall'
-
-  if elversion >= 7 # Can use firewalld, but not if iptables is already rigged
-    package "firewall-config" do
-      not_if "/bin/systemctl list-units | grep iptables.service"
-    end
-    execute "restart FirewallD" do # ...but only if iptables isn't live
-      command "/bin/firewall-cmd --reload"
-      action :nothing
-      not_if "/bin/systemctl list-units | grep iptables.service"
-      only_if { ::File.exist?("/bin/firewall-cmd") }
-    end
-  end
-
-  if elversion <= 6
-    firewall_rule "Allow loopback in" do
-      raw "-A INPUT -i lo -j ACCEPT"
-    end
-
-    firewall_rule "Allow loopback out" do
-      raw "-A OUTPUT -o lo -j ACCEPT"
-    end
-  end
-
-  opento = master_ips.map { |x| "#{x}/32"}
-
-  opento.uniq.each { |src|
-    [:tcp, :udp, :icmp].each { |proto|
-      firewall_rule "allow all #{src} #{proto} traffic" do
-        source src
-        protocol proto
+    if elversion >= 7 and node['platform_family'] != "amazon" # Can use firewalld, but not if iptables is already rigged
+      package "firewall-config" do
+        not_if "/bin/systemctl list-units | grep iptables.service"
       end
+      execute "restart FirewallD" do # ...but only if iptables isn't live
+        command "/bin/firewall-cmd --reload"
+        action :nothing
+        not_if "/bin/systemctl list-units | grep iptables.service"
+        only_if { ::File.exist?("/bin/firewall-cmd") }
+      end
+    end
+
+    if elversion <= 6
+      firewall_rule "Allow loopback in" do
+        raw "-A INPUT -i lo -j ACCEPT"
+      end
+
+      firewall_rule "Allow loopback out" do
+        raw "-A OUTPUT -o lo -j ACCEPT"
+      end
+    end
+
+    firewall_rule "Allow eth0 out" do
+      raw "-A OUTPUT -o eth0 -j ACCEPT"
+    end
+
+    firewall_rule "Allow established connections" do
+      raw "-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT"
+    end
+
+    opento = master_ips.map { |x| "#{x}/32"}
+
+    opento.uniq.each { |src|
+      [:tcp, :udp, :icmp].each { |proto|
+        firewall_rule "allow all #{src} #{proto} traffic" do
+          source src
+          protocol proto
+        end
+      }
     }
-  }
+  end
 end

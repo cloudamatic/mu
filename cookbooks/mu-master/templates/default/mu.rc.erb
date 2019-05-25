@@ -4,6 +4,9 @@
 export PATH="<%= @installdir %>/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
 export MU_INSTALLDIR="<%= @installdir %>"
 export MU_DATADIR="<%= @installdir %>/var"
+<% if @repos %>
+export ADDTL_CHEF_REPOS="<%= @repos.join(" ") %>"
+<% end %>
 
 alias vi=vim
 export EDITOR=vim

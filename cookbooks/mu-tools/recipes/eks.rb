@@ -18,7 +18,7 @@
 # Client-side behavior for interfacing with Amazon Elastic File System
 
 if node['deployment'].has_key?('container_clusters')
-  cluster_short_name = node['service_name'].sub(/-workers$/, "")
+  cluster_short_name = node['service_name'].sub(/-?workers$/, "")
   region = node['deployment']['container_clusters'][cluster_short_name]['region']
   cluster = node['deployment']['container_clusters'][cluster_short_name]['name']
   max_pods = node['deployment']['container_clusters'][cluster_short_name]['max_pods']

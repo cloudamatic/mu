@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if platform_family?("rhel")
+if platform_family?("rhel") or platform_family?("amazon")
   if node['platform_version'].to_i >= 7
     yum_repository "google-cloud-sdk" do
       description 'Google Cloud SDK'

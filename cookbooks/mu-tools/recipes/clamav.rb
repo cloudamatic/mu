@@ -18,7 +18,7 @@
 
 
 if !node['application_attributes']['skip_recipes'].include?('clamav')
-  if platform_family?("rhel")
+  if platform_family?("rhel") or platform_family?("amazon")
     include_recipe "yum-epel"
     if node['platform_version'].to_i >= 7
       package "clamav-update"

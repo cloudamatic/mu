@@ -18,6 +18,6 @@
 
 chef_gem "aws-sdk-core" do
   compile_time true
-  version "2.6.50"
+  version "2.11.24"
   action :install
 end
