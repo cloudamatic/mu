@@ -217,7 +217,7 @@ module MU
                 version_id: p.default_version_id
               ).policy_version
 
-              doc = JSON.parse URI.decode(old.document)
+              doc = JSON.parse URI.decode_www_form_component old.document
               
               need_update = false
               
