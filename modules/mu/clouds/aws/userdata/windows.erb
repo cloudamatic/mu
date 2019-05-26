@@ -1,5 +1,6 @@
 <powershell>
 Set-ExecutionPolicy Unrestricted -Force -Scope CurrentUser
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $sshdUser = "sshd_service"
 $tmp = "$env:Temp\mu-userdata"

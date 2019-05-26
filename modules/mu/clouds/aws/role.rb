@@ -222,30 +222,35 @@ module MU
 
           my_policies = cloud_desc["policies"]
           my_policies ||= []
+          
           my_policies.each { |p|
             if p.policy_name == policy
               old = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy_version(
                 policy_arn: p.arn,
                 version_id: p.default_version_id
               ).policy_version
-              doc = JSON.parse(URI.decode(old.document))
+
+              doc = JSON.parse URI.decode_www_form_component old.document
+              
               need_update = false
+              
               doc["Statement"].each { |s|
                 targets.each { |target|
-                  targetstr = if target['type']
+                  target_string = target
+
+                  if target['type']
                     sibling = @deploy.findLitterMate(
                       name: target["identifier"],
                       type: target["type"]
                     )
-                    sibling.cloudobj.arn
-                  elsif target.is_a?(Hash)
-                    target['identifier']
-                  else
-                    target
+
+                    target_string = sibling.cloudobj.arn
+                  elsif target.is_a? Hash
+                    target_string = target['identifier']
                   end
 
-                  if targetstr and !s["Resource"].include?(targetstr)
-                    s["Resource"] << targetstr
+                  unless s["Resource"].include? target_string
+                    s["Resource"] << target_string
                     need_update = true
                   end
                 }

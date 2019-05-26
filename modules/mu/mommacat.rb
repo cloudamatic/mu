@@ -2328,7 +2328,7 @@ MESSAGE_END
           # Create a certificate request for this node
           csr = OpenSSL::X509::Request.new
           csr.version = 3
-          csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
+          csr.subject = OpenSSL::X509::Name.parse "/CN=#{data['cn']}/O=Mu/C=US"
           csr.public_key = key.public_key
           csr.sign key, OpenSSL::Digest::SHA256.new
           open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
