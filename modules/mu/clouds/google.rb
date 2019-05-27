@@ -173,6 +173,8 @@ module MU
         elsif MU::Cloud::Google.hosted?
           zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
           @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
+        else
+          @@myRegion_var = "us-east4"
         end
         @@myRegion_var
       end
@@ -530,7 +532,7 @@ module MU
       # "translate" machine types across cloud providers.
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
       # @return [Hash]
-      def self.listInstanceTypes(region = myRegion)
+      def self.listInstanceTypes(region = self.myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
         if !MU::Cloud::Google.defaultProject
           return {}
@@ -564,6 +566,7 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
+        region ||= self.myRegion
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
         raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
         @@regions[region]
