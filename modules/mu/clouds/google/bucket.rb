@@ -44,7 +44,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@project_id, bucket_descriptor)
           @cloud_id = @mu_name.downcase
         end

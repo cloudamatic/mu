@@ -30,6 +30,10 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+          cloud_desc if @cloud_id # XXX why don't I have this on regroom?
+          if !@cloud_id and cloud_desc and cloud_desc.project_id
+            @cloud_id = cloud_desc.project_id
+          end
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -199,9 +203,9 @@ module MU
           found = {}
           if cloud_id
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
-              filter: "name:#{cloud_id}"
+              filter: "id:#{cloud_id}"
             )
-            found[resp.projects.first.name] = resp.projects.first if resp and resp.projects
+            found[resp.projects.first.project_id] = resp.projects.first if resp and resp.projects
           else
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects().projects
             resp.each { |p|

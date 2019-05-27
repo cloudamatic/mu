@@ -81,7 +81,7 @@ module MU
       # @param sibling_only [Boolean]
       # @return [MU::Cloud::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
-        project_obj = deploy.findLitterMate(type: "habitats", name: name)
+        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
 
         if !project_obj and !sibling_only
           resp = MU::MommaCat.findStray(
@@ -92,7 +92,7 @@ module MU
             name: name,
             dummy_ok: true
           )
-          project_obj = resp.first if resp
+          project_obj = resp.first if resp and resp.size > 0
         end
 
         if (!project_obj or !project_obj.cloud_id) and raise_on_fail
@@ -360,7 +360,6 @@ module MU
           if cfg['project']
             @@enable_semaphores[cfg['project']] ||= Mutex.new
           end
-
           data = nil
           @@authorizers[credentials] ||= {}
   
@@ -567,6 +566,7 @@ module MU
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
         region ||= self.myRegion
+
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
         raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
         @@regions[region]
@@ -874,7 +874,6 @@ module MU
               wait_time = 90
               if retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
-                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
                 project = if arguments.size > 0 and !arguments.first.is_a?(Hash)
                   arguments.first.to_s
                 else

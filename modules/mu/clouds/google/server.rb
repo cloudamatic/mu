@@ -249,7 +249,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
@@ -724,7 +724,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           
