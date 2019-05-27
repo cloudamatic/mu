@@ -201,7 +201,7 @@ module MU
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
               filter: "name:#{cloud_id}"
             )
-            found[resp.name] = resp.projects.first if resp and resp.projects
+            found[resp.projects.first.name] = resp.projects.first if resp and resp.projects
           else
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects().projects
             resp.each { |p|

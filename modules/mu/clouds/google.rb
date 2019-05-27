@@ -356,11 +356,11 @@ module MU
 
         cfg = credConfig(credentials)
 
-        if cfg['project']
-          @@enable_semaphores[cfg['project']] ||= Mutex.new
-        end
-
         if cfg
+          if cfg['project']
+            @@enable_semaphores[cfg['project']] ||= Mutex.new
+          end
+
           data = nil
           @@authorizers[credentials] ||= {}
   
@@ -867,7 +867,7 @@ module MU
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
+#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
               @@enable_semaphores ||= {}
               max_retries = 3
@@ -875,6 +875,11 @@ module MU
               if retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
                 project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
+                project = if arguments.size > 0 and !arguments.first.is_a?(Hash)
+                  arguments.first.to_s
+                else
+                  MU::Cloud::Google.defaultProject(@credentials)
+                end
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project

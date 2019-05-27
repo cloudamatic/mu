@@ -1026,10 +1026,14 @@ module MU
       # @return [void]
       def self.openFirewallForClients
         MU::Cloud.loadCloudType("AWS", :FirewallRule)
-        if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-          ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+        begin
+          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          ::Chef::Config[:environment] = MU.environment
+        rescue LoadError
+          # XXX why is Chef here
         end
-        ::Chef::Config[:environment] = MU.environment
 
         # This is the set of (TCP) ports we're opening to clients. We assume that
         # we can and and remove these without impacting anything a human has
