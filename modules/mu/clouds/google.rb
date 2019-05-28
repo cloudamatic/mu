@@ -791,9 +791,9 @@ module MU
           resp = nil
           begin
             if region
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter)
+              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter, mu_gcp_enable_apis: false)
             else
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter)
+              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter, mu_gcp_enable_apis: false)
             end
 
           rescue ::Google::Apis::ClientError => e
@@ -852,6 +852,17 @@ module MU
         def method_missing(method_sym, *arguments)
           retries = 0
           actual_resource = nil
+
+          enable_on_fail = true
+          arguments.each { |arg|
+            if arg.is_a?(Hash) and arg.has_key?(:mu_gcp_enable_apis)
+              enable_on_fail = arg[:mu_gcp_enable_apis]
+              arg.delete(:mu_gcp_enable_apis)
+              
+            end
+          }
+          arguments.delete({})
+         
           begin
             MU.log "Calling #{method_sym}", MU::DEBUG, details: arguments
             retval = nil
@@ -890,7 +901,7 @@ module MU
               @@enable_semaphores ||= {}
               max_retries = 3
               wait_time = 90
-              if retries <= max_retries and e.message.match(/^accessNotConfigured/)
+              if enable_on_fail and retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
                 project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
                 if !MU::Cloud::Google::Habitat.isLive?(project, @credentials) and method_sym == :delete
@@ -898,6 +909,7 @@ module MU
                    
                   return
                 end
+
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project

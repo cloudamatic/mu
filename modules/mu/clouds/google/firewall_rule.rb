@@ -100,9 +100,9 @@ module MU
             end
 
             ["ingress", "egress"].each { |dir|
-              if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
+              if rule[dir] or (dir == "ingress" and !rule["egress"])
                 setname = @deploy.getResourceName(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"), max_length: 61).downcase
-                @cloud_id ||= setname
+                @cloud_id ||= setname # XXX wait this makes no damn sense we're really N distinct rules; maybe this is a has_multiple at the cloud level uuugh maybe the parser should have split us up uuuugh XXX
                 allrules[setname] ||= {
                   :name => setname,
                   :direction => dir.upcase,
@@ -111,7 +111,12 @@ module MU
                 if @deploy
                   allrules[setname][:description] = @deploy.deploy_id
                 end
-                ['source_service_accounts', 'source_tags', 'target_tags', 'target_service_accounts'].each { |filter|
+                filters = if dir == "ingress"
+                  ['source_service_accounts', 'source_tags']
+                else
+                  ['target_service_accounts', 'target_tags']
+                end
+                filters.each { |filter|
                   if config[filter] and config[filter].size > 0
                     allrules[setname][filter.to_sym] = config[filter].dup
                   end
@@ -123,6 +128,7 @@ module MU
                 allrules[setname][ipparam] ||= []
                 allrules[setname][ipparam].concat(srcs)
                 allrules[setname][:priority] = rule['weight'] if rule['weight']
+                break
               end
             }
           }
@@ -136,12 +142,12 @@ module MU
               MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
 begin
   resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
-rescue Exception => e
-  MU.log e.inspect, MU::ERR, details: fwobj
-  
-  raise e
+rescue ::Google::Apis::ClientError => e
+  MU.log @mu_name, MU::ERR, details: fwobj
+  MU.log @config['name'], MU::ERR, details: e.inspect
+  raise e if !e.message.match(/alreadyExists:/)
 end
-              @url = resp.self_link
+              @url = cloud_desc.self_link
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
             }
@@ -427,7 +433,10 @@ end
             acl['vpc']['project'] ||= acl['project']
           end
 
+
           if acl['rules']
+
+            # First, expand some of our protocol shorthand into a real list
             append = []
             delete = []
             acl['rules'].each { |r|
@@ -451,7 +460,53 @@ end
               acl['rules'].delete(r)
             }
             acl['rules'].concat(append)
+
+            # Next, bucket these by what combination of allow/deny and
+            # ingress/egress rule they are. If we have more than one
+            # classification
+            rules_by_class = {
+              "allow-ingress" => [],
+              "allow-egress" => [],
+              "deny-ingress" => [],
+              "deny-egress" => [],
+            }
+
+            acl['rules'].each { |rule|
+              if rule['deny']
+                if rule['egress']
+                  rules_by_class["deny-egress"] << rule
+                else
+                  rules_by_class["deny-ingress"] << rule
+                end
+              else
+                if rule['egress']
+                  rules_by_class["allow-egress"] << rule
+                else
+                  rules_by_class["allow-ingress"] << rule
+                end
+              end
+            }
+
+            rules_by_class.reject! { |k, v| v.size == 0 }
+
+            # Generate other firewall rule objects to cover the other behaviors
+            # we've requested, if indeed we've done so.
+            if rules_by_class.size > 1
+              keep = rules_by_class.keys.first
+              acl['rules'] = rules_by_class[keep]
+              rules_by_class.delete(keep)
+              rules_by_class.each_pair { |behaviors, rules|
+                newrule = acl.dup
+                newrule['name'] += "-"+behaviors
+                newrule['rules'] = rules
+                ok = false if !config.insertKitten(newrule, "firewall_rules")
+
+              }
+
+            end
           end
+
+          ok
         end
 
         private

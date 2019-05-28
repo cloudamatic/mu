@@ -71,8 +71,7 @@ module MU
               "type" => "string"
             },
             "ingress" => {
-              "type" => "boolean",
-              "default" => true
+              "type" => "boolean"
             },
             "egress" => {
               "type" => "boolean",

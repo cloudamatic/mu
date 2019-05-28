@@ -247,7 +247,7 @@ module MU
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_create_container")
-          Thread.abort_on_exception = true
+          Thread.abort_on_exception = false
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
@@ -261,7 +261,7 @@ module MU
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_groom_container")
-          Thread.abort_on_exception = true
+          Thread.abort_on_exception = false
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
@@ -592,11 +592,23 @@ MESSAGE_END
       services.uniq!
       services.each do |service|
         begin
+          # XXX This is problematic. In theory we can create a deploy where 
+          # this causes a deadlock, because the thread for a resource with a 
+          # dependency launches before the thing on which it's dependent, which
+          # then never gets to run because the queue is full...
+#          begin
+#            @my_threads.each do |thr|
+#              thr.join(0.1) if thr.object_id != Thread.current.object_id
+#            end
+#            @my_threads.reject! { |thr| !thr.alive? }
+#            sleep 0.1
+#          end while @my_threads.size > MU::MAXTHREADS
+
           @my_threads << Thread.new(service) { |myservice|
             MU.dupGlobals(parent_thread_id)
             threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
             Thread.current.thread_variable_set("name", threadname)
-            Thread.abort_on_exception = true
+            Thread.abort_on_exception = false
             waitOnThreadDependencies(threadname)
 
             if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !service['dependencies'].nil? and !service['dependencies'].size == 0

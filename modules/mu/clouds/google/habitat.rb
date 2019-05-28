@@ -165,7 +165,7 @@ module MU
         # Return the cloud descriptor for the Habitat
         def cloud_desc
           @cached_cloud_desc ||= MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
-          @project_id ||= @cached_cloud_desc.parent.id
+          @project_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
           @cached_cloud_desc
         end
 
