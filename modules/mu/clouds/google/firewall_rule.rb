@@ -74,13 +74,16 @@ module MU
         # Called by {MU::Deploy#createResources}
         def create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
+          @cloud_id = @deploy.getResourceName(@mu_name, max_length: 61).downcase
 
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
 
-          allrules = {}
-          # The set of rules might actually compose into multiple firewall
-          # objects, so figure that out.
+          params = {
+            :name => @cloud_id,
+            :network => vpc_id
+          }
+
           @config['rules'].each { |rule|
             srcs = []
             ruleobj = nil
@@ -99,64 +102,41 @@ module MU
               rule['hosts'].each { |cidr| srcs << cidr }
             end
 
-            ["ingress", "egress"].each { |dir|
-              if rule[dir] or (dir == "ingress" and !rule["egress"])
-                setname = @deploy.getResourceName(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"), max_length: 61).downcase
+            dir = (rule["ingress"] or !rule["egress"]) ? "INGRESS" : "EGRESS"
+            if params[:direction] and params[:direction] != dir
+              MU.log "Google Cloud firewalls cannot mix ingress and egress rules", MU::ERR, details: @config['rules']
+              raise MuError, "Google Cloud firewalls cannot mix ingress and egress rules"
+            end
 
-                @cloud_id ||= setname # XXX wait this makes no damn sense we're really N distinct rules; maybe this is a has_multiple at the cloud level uuugh maybe the parser should have split us up uuuugh XXX
-                allrules[setname] ||= {
-                  :name => setname,
-                  :direction => dir.upcase,
-                  :network => vpc_id
-                }
-                if @deploy
-                  allrules[setname][:description] = @deploy.deploy_id
-                end
-                filters = if dir == "ingress"
-                  ['source_service_accounts', 'source_tags']
-                else
-                  ['target_service_accounts', 'target_tags']
-                end
-                filters.each { |filter|
-                  if config[filter] and config[filter].size > 0
-                    allrules[setname][filter.to_sym] = config[filter].dup
-                  end
-                }
-                action = rule['deny'] ? :denied : :allowed
-                allrules[setname][action] ||= []
-                allrules[setname][action] << ruleobj
-                ipparam = dir == "ingress" ? :source_ranges : :destination_ranges
-                allrules[setname][ipparam] ||= []
-                allrules[setname][ipparam].concat(srcs)
-                allrules[setname][:priority] = rule['weight'] if rule['weight']
-                break
+            params[:direction] = dir
+
+            if @deploy
+              params[:description] = @deploy.deploy_id
+            end
+            filters = if dir == "INGRESS"
+              ['source_service_accounts', 'source_tags']
+            else
+              ['target_service_accounts', 'target_tags']
+            end
+            filters.each { |filter|
+              if config[filter] and config[filter].size > 0
+                params[filter.to_sym] = config[filter].dup
               end
             }
+            action = rule['deny'] ? :denied : :allowed
+            params[action] ||= []
+            params[action] << ruleobj
+            ipparam = dir == "INGRESS" ? :source_ranges : :destination_ranges
+            params[ipparam] ||= []
+            params[ipparam].concat(srcs)
+            params[:priority] = rule['weight'] if rule['weight']
           }
 
-          parent_thread_id = Thread.current.object_id
-          threads = []
-
-          allrules.each_value.uniq { |fwdesc|
-            threads << Thread.new { 
-              fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
-              MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
-begin
-  resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
-rescue ::Google::Apis::ClientError => e
-  MU.log @mu_name, MU::ERR, details: fwobj
-  MU.log @config['name'], MU::ERR, details: e.inspect
-  raise e if !e.message.match(/alreadyExists:/)
-end
-              @url = cloud_desc.self_link
+          fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
+          MU.log "Creating firewall #{@cloud_id} in project #{@project_id}", details: fwobj
+          MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
-            }
-          }
-
-          threads.each do |t|
-            t.join
-          end
         end
 
         # Called by {MU::Deploy#createResources}
@@ -429,7 +409,7 @@ end
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
-          
+
           if acl['vpc']
             acl['vpc']['project'] ||= acl['project']
           end
@@ -455,6 +435,18 @@ end
                   append << newrule
                 }
                 delete << r
+              end
+
+              if !r['egress']
+                if !r['source_tags'] and !r['source_service_accounts'] and
+                   (!r['hosts'] or r['hosts'].empty?)
+                  r['hosts'] = ['0.0.0.0/0']
+                end
+              else
+                if !r['destination_tags'] and !r['destination_service_accounts'] and
+                   (!r['hosts'] or r['hosts'].empty?)
+                  r['hosts'] = ['0.0.0.0/0']
+                end
               end
             }
             delete.each { |r|
