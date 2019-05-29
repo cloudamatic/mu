@@ -252,9 +252,6 @@ if !node['update_nagios_only']
    <a href='https://#{MU.mu_public_addr}/nagios/'>Nagios monitoring GUI</a>
   </p>
   <p>
-   <a href='https://#{MU.mu_public_addr}/jenkins/'>Jenkins interface GUI</a>
-  </p>
-  <p>
    <a href='#{(mubranch.nil? or mubranch == "master" or mubranch.match(/detached from/)) ? "https://cloudamatic.gitlab.io/mu/" : "http://"+MU.mu_public_addr+"/docs"}'>Mu API documentation</a>
   </p>
   "

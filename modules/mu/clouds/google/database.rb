@@ -59,7 +59,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           labels = {}
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             if !value.nil?
@@ -99,7 +99,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
         end
 
         # Register a description of this database instance with this deployment's metadata.

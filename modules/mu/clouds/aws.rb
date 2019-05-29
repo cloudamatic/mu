@@ -149,6 +149,41 @@ module MU
         MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
       end
 
+      # Tag a resource with all of our standard identifying tags.
+      #
+      # @param resource [String]: The cloud provider identifier of the resource to tag
+      # @param region [String]: The cloud provider region
+      # @return [void]
+      def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
+        tags = []
+        listStandardTags.each_pair { |name, value|
+          if !value.nil?
+            tags << {key: name, value: value}
+          end
+        }
+        if MU::Cloud::CloudFormation.emitCloudFormation
+          return tags
+        end
+
+        attempts = 0
+        begin
+          MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
+            resources: [resource],
+            tags: tags
+          )
+        rescue Aws::EC2::Errors::ServiceError => e
+          MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1
+          if attempts < 5
+            attempts = attempts + 1
+            sleep 15
+            retry
+          else
+            raise e
+          end
+        end
+        MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
+      end
+
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion
@@ -1036,10 +1071,14 @@ module MU
       # @return [void]
       def self.openFirewallForClients
         MU::Cloud.loadCloudType("AWS", :FirewallRule)
-        if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-          ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+        begin
+          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          ::Chef::Config[:environment] = MU.environment
+        rescue LoadError
+          # XXX why is Chef here
         end
-        ::Chef::Config[:environment] = MU.environment
 
         # This is the set of (TCP) ports we're opening to clients. We assume that
         # we can and and remove these without impacting anything a human has

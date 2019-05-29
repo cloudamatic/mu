@@ -93,7 +93,7 @@ EOH
     source "https://s3-us-west-2.amazonaws.com/amazon-eks/1.10.3/2018-06-05/eks-2017-11-01.normal.json"
   end
 
-  execute "aws configure add-model --service-model file://root/.aws/eks/eks-2017-11-01.normal.json --service-name eks"
+  execute "aws configure add-model --service-model file:///root/.aws/eks/eks-2017-11-01.normal.json --service-name eks"
 
   execute "systemctl daemon-reload" do
     action :nothing
@@ -112,10 +112,33 @@ EOH
     notifies :restart, "service[kubelet]", :delayed
   end
 
+  file "/etc/systemd/system/kubelet.service.d/10-kubelet-args.conf" do
+    content "[Service]
+Environment='KUBELET_ARGS=--node-ip=#{get_aws_metadata("meta-data/local-ipv4")} --pod-infra-container-image=602401143452.dkr.ecr.#{region}.amazonaws.com/eks/pause-amd64:3.1'"
+    notifies :run, "execute[systemctl daemon-reload]", :immediately
+    notifies :restart, "service[kubelet]", :delayed
+  end
+
+  template "/etc/kubernetes/kubelet/kubelet-config.json" do
+    source "kubelet-config.json.erb"
+    variables(
+      :dns => get_first_nameserver(),
+    )
+    notifies :restart, "service[kubelet]", :delayed
+  end
+
+  file "/etc/systemd/system/kubelet.service.d/30-kubelet-extra-args.conf" do
+    content "[Service]
+Environment='KUBELET_EXTRA_ARGS=$KUBELET_EXTRA_ARGS'
+"
+    notifies :restart, "service[kubelet]", :delayed
+    notifies :run, "execute[systemctl daemon-reload]", :immediately
+  end
+
   directory "/root/.kube"
 
   remote_file "/usr/bin/aws-iam-authenticator" do
-    source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator"
+    source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.12.7/2019-03-27/bin/linux/amd64/aws-iam-authenticator"
     mode 0755
     not_if "test -f /usr/bin/aws-iam-authenticator"
   end

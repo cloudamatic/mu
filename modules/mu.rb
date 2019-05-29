@@ -219,7 +219,8 @@ module MU
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir(for_user = MU.mu_user)
-    if for_user.nil? or for_user.empty? or for_user == "mu" or for_user == "root"
+    if (Process.uid == 0 and (for_user.nil? or for_user.empty?)) or
+       for_user == "mu" or for_user == "root"
       return @myDataDir
     else
       for_user ||= MU.mu_user
@@ -344,6 +345,18 @@ module MU
     end
   end
 
+  @@mommacat_port = 2260
+  if !$MU_CFG.nil? and !$MU_CFG['mommacat_port'].nil? and
+     !$MU_CFG['mommacat_port'].empty? and $MU_CFG['mommacat_port'].to_i > 0 and
+     $MU_CFG['mommacat_port'].to_i < 65536
+    @@mommacat_port = $MU_CFG['mommacat_port'].to_i
+  end
+  # The port on which the Momma Cat daemon should listen for requests
+  # @return [Integer]
+  def self.mommaCatPort
+    @@mommacat_port
+  end
+
   @@my_private_ip = nil
   @@my_public_ip = nil
   @@mu_public_addr = nil
@@ -354,7 +367,8 @@ module MU
     @@mu_public_addr = @@my_public_ip
     @@mu_public_ip = @@my_public_ip
   end
-  if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
+  if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and
+     !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
       resolver = Resolv::DNS.new

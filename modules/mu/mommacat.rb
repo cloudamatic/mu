@@ -778,9 +778,8 @@ raise "NAH"
       end
       MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       MU::MommaCat.syncMonitoringConfig(false)
-      MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
-      FileUtils.touch("/opt/mu/var/deployments/#{MU.deploy_id}/#{name}_done.txt")
+      FileUtils.touch(MU.dataDir+"/deployments/#{MU.deploy_id}/#{name}_done.txt")
       MU::MommaCat.unlockAll
       if first_groom
         sendAdminMail("Grooming complete for '#{name}' (#{mu_name}) on deploy \"#{MU.handle}\" (#{MU.deploy_id})", kitten: kitten)
@@ -1546,42 +1545,6 @@ raise "NAH"
       end
     end
 
-    # XXX this belongs in MU::Cloud::AWS
-    # Tag a resource with all of our standard identifying tags.
-    #
-    # @param resource [String]: The cloud provider identifier of the resource to tag
-    # @param region [String]: The cloud provider region
-    # @return [void]
-    def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
-      tags = []
-      listStandardTags.each_pair { |name, value|
-        if !value.nil?
-          tags << {key: name, value: value}
-        end
-      }
-      if MU::Cloud::CloudFormation.emitCloudFormation
-        return tags
-      end
-
-      attempts = 0
-      begin
-        MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
-          resources: [resource],
-          tags: tags
-        )
-      rescue Aws::EC2::Errors::ServiceError => e
-        MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1
-        if attempts < 5
-          attempts = attempts + 1
-          sleep 15
-          retry
-        else
-          raise e
-        end
-      end
-      MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
-    end
-
     # List the name/value pairs for our mandatory standard set of resource tags, which
     # should be applied to all taggable cloud provider resources.
     # @return [Hash<String,String>]
@@ -2343,6 +2306,30 @@ MESSAGE_END
       certs = {}
       results = {}
 
+      # If we are in a gem-only environment, use an internal SSL CA
+      if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
+        require 'mu/master/ssl'
+        MU::Master::SSL.bootstrap
+        sans = []
+        sans << canonical_ip if canonical_ip
+        key = MU::Master::SSL.getKey(cert_cn)
+        cert = MU::Master::SSL.getCert(cert_cn, "/CN=#{cert_cn}/O=Mu/C=US", sans: sans)
+
+#        if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
+#          if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
+#             File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
+#            results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
+#          else
+#            certs[cert_cn+"-winrm"] = {
+#              "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"],
+#              "cn" => resource.config['windows_admin_username']
+#            }
+#          end
+#        end
+
+        return [cert, key]
+      end
+
       @node_cert_semaphore.synchronize {
         if File.exists?("#{MU.mySSLDir}/#{cert_cn}.crt") and
            File.exists?("#{MU.mySSLDir}/#{cert_cn}.key")
@@ -2399,7 +2386,7 @@ MESSAGE_END
           # Create a certificate request for this node
           csr = OpenSSL::X509::Request.new
           csr.version = 3
-          csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
+          csr.subject = OpenSSL::X509::Name.parse "/CN=#{data['cn']}/O=Mu/C=US"
           csr.public_key = key.public_key
           csr.sign key, OpenSSL::Digest::SHA256.new
           open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
@@ -2413,7 +2400,7 @@ MESSAGE_END
 # XXX things that aren't servers
             res_type = "server"
             res_type = "server_pool" if !resource.config['basis'].nil?
-            uri = URI("https://#{MU.mu_public_addr}:2260/")
+            uri = URI("https://#{MU.mu_public_addr}:#{MU.mommaCatPort}/")
             req = Net::HTTP::Post.new(uri)
             req.set_form_data(
               "mu_id" => MU.deploy_id,
