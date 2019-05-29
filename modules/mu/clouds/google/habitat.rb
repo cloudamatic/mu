@@ -237,9 +237,10 @@ module MU
         # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
           found = {}
+
           args[:cloud_id] ||= args[:project]
 # XXX we probably want to cache this
-# XXX but why are we being called over and over
+# XXX but why are we being called over and over?
 
           if args[:cloud_id]
             resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects(

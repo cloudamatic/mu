@@ -251,7 +251,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
@@ -469,7 +469,7 @@ next if !create
           return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
 
-#          MU::MommaCat.createStandardTags(@cloud_id, region: @config['region'])
+#          MU::Cloud::AWS.createStandardTags(@cloud_id, region: @config['region'])
 #          MU::MommaCat.createTag(@cloud_id, "Name", node, region: @config['region'])
 #
 #          if @config['optional_tags']
@@ -726,7 +726,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           

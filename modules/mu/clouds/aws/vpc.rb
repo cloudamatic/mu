@@ -49,7 +49,7 @@ module MU
           resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc(cidr_block: @config['ip_block']).vpc
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
-          MU::MommaCat.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
           if @config['tags']
@@ -87,7 +87,7 @@ module MU
                 }
               end
 
-              MU::MommaCat.createStandardTags(rtb.route_table_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createStandardTags(rtb.route_table_id, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
@@ -104,7 +104,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_internet_gateway
             internet_gateway_id = resp.internet_gateway.internet_gateway_id
             sleep 5
-            MU::MommaCat.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
             MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             if @config['tags']
               @config['tags'].each { |tag|
@@ -202,7 +202,7 @@ module MU
                     availability_zone: az
                 ).subnet
                 subnet_id = subnet['subnet_id'] = resp.subnet_id
-                MU::MommaCat.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
                 MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
                 if @config['tags']
                   @config['tags'].each { |tag|
@@ -448,7 +448,7 @@ module MU
                 dhcp_configurations: dhcpopts
             )
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
-            MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
             MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
             if @config['tags']
@@ -564,7 +564,7 @@ module MU
               peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['vpc_id'])
 
               peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
-              MU::MommaCat.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
@@ -1545,7 +1545,7 @@ module MU
             }
           end
 
-          MU::MommaCat.createStandardTags(route_table_id, credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(route_table_id, credentials: @config['credentials'])
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?
               route_config = {

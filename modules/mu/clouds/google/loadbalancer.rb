@@ -53,7 +53,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           parent_thread_id = Thread.current.object_id
 

@@ -60,6 +60,14 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
         file "/etc/hostname" do
           content $hostname
         end
+      elsif node['platform'] == "amazon"
+        file "/etc/hostname" do
+          content $hostname
+        end
+        execute "set hostname" do
+          command "hostname #{$hostname}"
+          not_if "test \"`hostname`\" = \"#{$hostname}\" "
+        end
       else
         execute "set hostname" do
           command "hostname #{$hostname}"
