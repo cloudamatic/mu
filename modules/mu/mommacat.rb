@@ -2236,8 +2236,6 @@ MESSAGE_END
       results = {}
 
       # If we are in a gem-only environment, use an internal SSL CA
-      puts Gem.paths.home
-      puts File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
       if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
         require 'mu/master/ssl'
         MU::Master::SSL.bootstrap
