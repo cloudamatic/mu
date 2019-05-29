@@ -1015,8 +1015,10 @@ module MU
     def insertKitten(descriptor, type, delay_validation = false)
       append = false
 
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+
       @kittencfg_semaphore.synchronize {
-        append = !@kittens[type].include?(descriptor)
+        append = !@kittens[cfg_plural].include?(descriptor)
 
         # Skip if this kitten has already been validated and appended
         if !append and descriptor["#MU_VALIDATED"]
@@ -1025,7 +1027,6 @@ module MU
       }
       ok = true
 
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
 
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
