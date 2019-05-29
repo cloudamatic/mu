@@ -59,13 +59,15 @@ module MU
         # Called by {MU::Deploy#createResources}
         def create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
+          @cloud_id = @deploy.getResourceName(@mu_name, max_length: 61).downcase
 
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
 
-          allrules = {}
-          # The set of rules might actually compose into multiple firewall
-          # objects, so figure that out.
+          ruleconfig = {}
+
+# XXX throw a nutty if we get a mismatch on direction or allow/deny, which the
+# parser should in theory prevent us ever seeing
           @config['rules'].each { |rule|
             srcs = []
             ruleobj = nil
@@ -85,16 +87,13 @@ module MU
 
             ["ingress", "egress"].each { |dir|
               if rule[dir] or (dir == "ingress" and !rule["egress"])
-                setname = @deploy.getResourceName(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"), max_length: 61).downcase
-
-                @cloud_id ||= setname # XXX wait this makes no damn sense we're really N distinct rules; maybe this is a has_multiple at the cloud level uuugh maybe the parser should have split us up uuuugh XXX
-                allrules[setname] ||= {
-                  :name => setname,
+                ruleconfig ||= {
+                  :name => @cloud_id,
                   :direction => dir.upcase,
                   :network => vpc_id
                 }
                 if @deploy
-                  allrules[setname][:description] = @deploy.deploy_id
+                  ruleconfig[:description] = @deploy.deploy_id
                 end
                 filters = if dir == "ingress"
                   ['source_service_accounts', 'source_tags']
@@ -103,36 +102,26 @@ module MU
                 end
                 filters.each { |filter|
                   if config[filter] and config[filter].size > 0
-                    allrules[setname][filter.to_sym] = config[filter].dup
+                    ruleconfig[filter.to_sym] = config[filter].dup
                   end
                 }
                 action = rule['deny'] ? :denied : :allowed
-                allrules[setname][action] ||= []
-                allrules[setname][action] << ruleobj
+                ruleconfig[action] ||= []
+                ruleconfig[action] << ruleobj
                 ipparam = dir == "ingress" ? :source_ranges : :destination_ranges
-                allrules[setname][ipparam] ||= []
-                allrules[setname][ipparam].concat(srcs)
-                allrules[setname][:priority] = rule['weight'] if rule['weight']
+                ruleconfig[ipparam] ||= []
+                ruleconfig[ipparam].concat(srcs)
+                ruleconfig[:priority] = rule['weight'] if rule['weight']
               end
             }
           }
 
-          parent_thread_id = Thread.current.object_id
-          threads = []
-
-          allrules.each_value.uniq { |fwdesc|
-            threads << Thread.new { 
-              fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
-              MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
-              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+          fwobj = MU::Cloud::Google.compute(:Firewall).new(ruleconfig)
+          MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
+          resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
             }
-          }
-
-          threads.each do |t|
-            t.join
-          end
         end
 
         # Called by {MU::Deploy#createResources}
@@ -223,6 +212,15 @@ module MU
             "rules" => {
               "items" => {
                 "properties" => {
+                  "weight" => {
+                    "type" => "integer",
+                    "description" => "Explicitly set a priority for this firewall rule, between 0 and 65535, with lower numbered priority rules having greater precedence."
+                  },
+                  "deny" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "Set this rule to +DENY+ traffic instead of +ALLOW+"
+                  },
                   "proto" => {
                     "enum" => ["udp", "tcp", "icmp", "all"]
                   },
@@ -271,6 +269,85 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
+
+          if acl['vpc']
+            acl['vpc']['project'] ||= acl['project']
+          end
+
+
+          if acl['rules']
+
+            # First, expand some of our protocol shorthand into a real list
+            append = []
+            delete = []
+            acl['rules'].each { |r|
+              if r['proto'] == "standard"
+                STD_PROTOS.each { |p|
+                  newrule = r.dup
+                  newrule['proto'] = p
+                  append << newrule
+                }
+                delete << r
+              elsif r['proto'] == "all"
+                PROTOS.each { |p|
+                  newrule = r.dup
+                  newrule['proto'] = p
+                  append << newrule
+                }
+                delete << r
+              end
+            }
+            delete.each { |r|
+              acl['rules'].delete(r)
+            }
+            acl['rules'].concat(append)
+
+            # Next, bucket these by what combination of allow/deny and
+            # ingress/egress rule they are. If we have more than one
+            # classification
+            rules_by_class = {
+              "allow-ingress" => [],
+              "allow-egress" => [],
+              "deny-ingress" => [],
+              "deny-egress" => [],
+            }
+
+            acl['rules'].each { |rule|
+              if rule['deny']
+                if rule['egress']
+                  rules_by_class["deny-egress"] << rule
+                else
+                  rules_by_class["deny-ingress"] << rule
+                end
+              else
+                if rule['egress']
+                  rules_by_class["allow-egress"] << rule
+                else
+                  rules_by_class["allow-ingress"] << rule
+                end
+              end
+            }
+
+            rules_by_class.reject! { |k, v| v.size == 0 }
+
+            # Generate other firewall rule objects to cover the other behaviors
+            # we've requested, if indeed we've done so.
+            if rules_by_class.size > 1
+              keep = rules_by_class.keys.first
+              acl['rules'] = rules_by_class[keep]
+              rules_by_class.delete(keep)
+              rules_by_class.each_pair { |behaviors, rules|
+                newrule = acl.dup
+                newrule['name'] += "-"+behaviors
+                newrule['rules'] = rules
+                ok = false if !config.insertKitten(newrule, "firewall_rules")
+
+              }
+
+            end
+          end
+
+          ok
         end
 
         private
