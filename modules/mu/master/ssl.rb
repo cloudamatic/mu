@@ -18,6 +18,8 @@ module MU
     # Create and manage our own internal SSL signing authority
     class SSL
 
+      # List of Mu services for which we'll generate SSL certs signed by our
+      # authority.
       SERVICES = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
 
       # Exception class for when we can't find the +openssl+ command
