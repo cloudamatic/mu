@@ -84,9 +84,10 @@ module MU
             end
 
             ["ingress", "egress"].each { |dir|
-              if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
+              if rule[dir] or (dir == "ingress" and !rule["egress"])
                 setname = @deploy.getResourceName(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"), max_length: 61).downcase
-                @cloud_id ||= setname
+
+                @cloud_id ||= setname # XXX wait this makes no damn sense we're really N distinct rules; maybe this is a has_multiple at the cloud level uuugh maybe the parser should have split us up uuuugh XXX
                 allrules[setname] ||= {
                   :name => setname,
                   :direction => dir.upcase,
@@ -95,7 +96,12 @@ module MU
                 if @deploy
                   allrules[setname][:description] = @deploy.deploy_id
                 end
-                ['source_service_accounts', 'source_tags', 'target_tags', 'target_service_accounts'].each { |filter|
+                filters = if dir == "ingress"
+                  ['source_service_accounts', 'source_tags']
+                else
+                  ['target_service_accounts', 'target_tags']
+                end
+                filters.each { |filter|
                   if config[filter] and config[filter].size > 0
                     allrules[setname][filter.to_sym] = config[filter].dup
                   end
@@ -114,7 +120,7 @@ module MU
           parent_thread_id = Thread.current.object_id
           threads = []
 
-          allrules.each_value { |fwdesc|
+          allrules.each_value.uniq { |fwdesc|
             threads << Thread.new { 
               fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
               MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj

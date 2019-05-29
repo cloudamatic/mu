@@ -467,7 +467,7 @@ next if !create
           return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
 
-#          MU::MommaCat.createStandardTags(@cloud_id, region: @config['region'])
+#          MU::Cloud::AWS.createStandardTags(@cloud_id, region: @config['region'])
 #          MU::MommaCat.createTag(@cloud_id, "Name", node, region: @config['region'])
 #
 #          if @config['optional_tags']

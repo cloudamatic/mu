@@ -27,8 +27,8 @@
   AllowEncodedSlashes off
   
   # Scratchpad, the Mu secret-sharer
-  ProxyPass /scratchpad https://localhost:2260/scratchpad
-  ProxyPassReverse /scratchpad https://localhost:2260/scratchpad
+  ProxyPass /scratchpad https://localhost:<%= MU.mommaCatPort.to_s %>/scratchpad
+  ProxyPassReverse /scratchpad https://localhost:<%= MU.mommaCatPort.to_s %>/scratchpad
 
   # Nagios web UI
   ProxyPass /nagios/ https://localhost:8443/nagios/

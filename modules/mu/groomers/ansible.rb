@@ -20,8 +20,13 @@ module MU
     # Support for Ansible as a host configuration management layer.
     class Ansible
 
+      # Failure to load or create a deploy
+      class NoAnsibleExecError < MuError;
+      end
 
-      # Location in which we'll find our Ansible executables
+      # Location in which we'll find our Ansible executables. This only applies
+      # to full-grown Mu masters; minimalist gem installs will have to make do
+      # with whatever Ansible executables they can find in $PATH.
       BINDIR = "/usr/local/python-current/bin"
       @@pwfile_semaphore = Mutex.new
 
@@ -32,6 +37,27 @@ module MU
         @inventory = Inventory.new(node.deploy)
         @mu_user = node.deploy.mu_user
         @ansible_path = node.deploy.deploy_dir+"/ansible"
+
+        if File.exists?(BINDIR+"/ansible-playbook")
+          @ansible_execs = BINDIR
+        else
+          ENV['PATH'].split(/:/).each { |bindir|
+            if File.exists?(bindir+"/ansible-playbook")
+              @ansible_execs = bindir
+              if !File.exists?(bindir+"/ansible-vault")
+                MU.log "Found ansible-playbook executable in #{bindir}, but no ansible-vault. Vault functionality will not work!", MU::WARN
+              end
+              if !File.exists?(bindir+"/ansible-galaxy")
+                MU.log "Found ansible-playbook executable in #{bindir}, but no ansible-galaxy. Automatic community role fetch will not work!", MU::WARN
+              end
+              break
+            end
+          }
+        end
+
+        if !@ansible_execs
+          raise NoAnsibleExecError, "No Ansible executables found in visible paths"
+        end
 
         [@ansible_path, @ansible_path+"/roles", @ansible_path+"/vars", @ansible_path+"/group_vars", @ansible_path+"/vaults"].each { |dir|
           if !Dir.exists?(dir)
@@ -87,7 +113,7 @@ module MU
         File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
           f.write data
         }
-        cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-id #{pwfile}}
+        cmd = %Q{#{@ansible_execs}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
         MU.log cmd
         system(cmd)
       end
@@ -120,7 +146,7 @@ module MU
           if !File.exists?(itempath)
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
-          cmd = %Q{#{BINDIR}/ansible-vault view #{itempath} --vault-id #{pwfile}}
+          cmd = %Q{#{@ansible_execs}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
           MU.log cmd
           a = `#{cmd}`
           # If we happen to have stored recognizeable JSON, return it as parsed,
@@ -192,7 +218,7 @@ module MU
         pwfile = MU::Groomer::Ansible.vaultPasswordFile
         stashHostSSLCertSecret
 
-        cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-id #{pwfile} --vault-id #{@ansible_path}/.vault_pw}
+        cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --vault-password-file #{@ansible_path}/.vault_pw}
 
         MU.log cmd
         system(cmd)
@@ -312,8 +338,8 @@ module MU
       # @param for_user [String]: Encrypt using the Vault password of the specified Mu user
       def self.encryptString(name, string, for_user = nil)
         pwfile = vaultPasswordFile
-        cmd = %Q{#{BINDIR}/ansible-vault}
-        system(cmd, "encrypt_string", string, "--name", name, "--vault-id", pwfile)
+        cmd = %Q{#{@ansible_execs}/ansible-vault}
+        system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
       end
 
       private
@@ -411,7 +437,7 @@ module MU
             found = false
             if !File.exists?(roledir+"/"+role)
               if role.match(/[^\.]\.[^\.]/) and @server.config['groomer_autofetch']
-                system(%Q{#{BINDIR}/ansible-galaxy}, "--roles-path", roledir, "install", role)
+                system(%Q{#{@ansible_execs}/ansible-galaxy}, "--roles-path", roledir, "install", role)
                 found = true
 # XXX check return value
               else
