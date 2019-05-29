@@ -64,10 +64,11 @@ module MU
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
 
-          ruleconfig = {}
+          params = {
+            :name => @cloud_id,
+            :network => vpc_id
+          }
 
-# XXX throw a nutty if we get a mismatch on direction or allow/deny, which the
-# parser should in theory prevent us ever seeing
           @config['rules'].each { |rule|
             srcs = []
             ruleobj = nil
@@ -85,43 +86,41 @@ module MU
               rule['hosts'].each { |cidr| srcs << cidr }
             end
 
-            ["ingress", "egress"].each { |dir|
-              if rule[dir] or (dir == "ingress" and !rule["egress"])
-                ruleconfig ||= {
-                  :name => @cloud_id,
-                  :direction => dir.upcase,
-                  :network => vpc_id
-                }
-                if @deploy
-                  ruleconfig[:description] = @deploy.deploy_id
-                end
-                filters = if dir == "ingress"
-                  ['source_service_accounts', 'source_tags']
-                else
-                  ['target_service_accounts', 'target_tags']
-                end
-                filters.each { |filter|
-                  if config[filter] and config[filter].size > 0
-                    ruleconfig[filter.to_sym] = config[filter].dup
-                  end
-                }
-                action = rule['deny'] ? :denied : :allowed
-                ruleconfig[action] ||= []
-                ruleconfig[action] << ruleobj
-                ipparam = dir == "ingress" ? :source_ranges : :destination_ranges
-                ruleconfig[ipparam] ||= []
-                ruleconfig[ipparam].concat(srcs)
-                ruleconfig[:priority] = rule['weight'] if rule['weight']
+            dir = (rule["ingress"] or !rule["egress"]) ? "INGRESS" : "EGRESS"
+            if params[:direction] and params[:direction] != dir
+              MU.log "Google Cloud firewalls cannot mix ingress and egress rules", MU::ERR, details: @config['rules']
+              raise MuError, "Google Cloud firewalls cannot mix ingress and egress rules"
+            end
+
+            params[:direction] = dir
+
+            if @deploy
+              params[:description] = @deploy.deploy_id
+            end
+            filters = if dir == "INGRESS"
+              ['source_service_accounts', 'source_tags']
+            else
+              ['target_service_accounts', 'target_tags']
+            end
+            filters.each { |filter|
+              if config[filter] and config[filter].size > 0
+                params[filter.to_sym] = config[filter].dup
               end
             }
+            action = rule['deny'] ? :denied : :allowed
+            params[action] ||= []
+            params[action] << ruleobj
+            ipparam = dir == "INGRESS" ? :source_ranges : :destination_ranges
+            params[ipparam] ||= []
+            params[ipparam].concat(srcs)
+            params[:priority] = rule['weight'] if rule['weight']
           }
 
-          fwobj = MU::Cloud::Google.compute(:Firewall).new(ruleconfig)
-          MU.log "Creating firewall #{fwdesc[:name]} in project #{@project_id}", details: fwobj
-          resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+          fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
+          MU.log "Creating firewall #{@cloud_id} in project #{@project_id}", details: fwobj
+          MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
-            }
         end
 
         # Called by {MU::Deploy#createResources}
@@ -295,6 +294,18 @@ module MU
                   append << newrule
                 }
                 delete << r
+              end
+
+              if !r['egress']
+                if !r['source_tags'] and !r['source_service_accounts'] and
+                   (!r['hosts'] or r['hosts'].empty?)
+                  r['hosts'] = ['0.0.0.0/0']
+                end
+              else
+                if !r['destination_tags'] and !r['destination_service_accounts'] and
+                   (!r['hosts'] or r['hosts'].empty?)
+                  r['hosts'] = ['0.0.0.0/0']
+                end
               end
             }
             delete.each { |r|
