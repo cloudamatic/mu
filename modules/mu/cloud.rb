@@ -940,7 +940,7 @@ module MU
         # resources in this deployment), as well as for certain config stanzas
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
-        def dependencies(use_cache: false)
+        def dependencies(use_cache: false, debug: false)
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?
@@ -951,6 +951,8 @@ module MU
           end
           @config['dependencies'] = [] if @config['dependencies'].nil?
 
+          loglevel = debug ? MU::NOTICE : MU::DEBUG
+
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
@@ -958,7 +960,7 @@ module MU
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
-              MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::DEBUG
+              MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", loglevel
               @dependencies[dep['type']][dep['name']] = handle
             else
               # XXX yell under circumstances where we should expect to have
@@ -968,16 +970,18 @@ module MU
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
-            MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
             if !@config['vpc']["name"].nil? and @deploy
-              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true)
+              MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
+              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
               if sib_by_name.is_a?(Array)
                 if sib_by_name.size == 1
                   @vpc = matches.first
+                  MU.log "Single VPC match for #{self}", loglevel, details: @vpc.to_s
                 else
 # XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
                   # we got multiple matches, try to pick one by preferred subnet
                   # behavior
+                  MU.log "Sorting a bunch of VPC matches for #{self}", loglevel, details: sib_by_name.map { |s| s.to_s }.join(", ")
                   sib_by_name.each { |sibling|
                     all_private = sibling.subnets.map { |s| s.private? }.all?(true)
                     all_public = sibling.subnets.map { |s| s.private? }.all?(false)
@@ -996,12 +1000,16 @@ module MU
                 end
               else
                 @vpc = sib_by_name
+                MU.log "Found exact VPC match for #{self}", loglevel, details: sib_by_name.to_s
               end
+            else
+              MU.log "Not sure how to fetch VPC for #{self}", loglevel, details: @config['vpc']
             end
 
             if !@vpc and !@config['vpc']["name"].nil? and
                 @dependencies.has_key?("vpc") and
                 @dependencies["vpc"].has_key?(@config['vpc']["name"])
+              MU.log "Grabbing VPC I see in @dependencies['vpc']['#{@config['vpc']["name"]}'] for #{self}", loglevel, details: @config['vpc']
               @vpc = @dependencies["vpc"][@config['vpc']["name"]]
             elsif !@vpc
               tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
@@ -1009,6 +1017,7 @@ module MU
                   !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
                 @config['vpc']["deploy_id"] = @deploy.deploy_id
               end
+              MU.log "Doing findStray for VPC for #{self}", loglevel, details: @config['vpc']
               vpcs = MU::MommaCat.findStray(
                 @config['cloud'],
                 "vpc",
@@ -1017,9 +1026,11 @@ module MU
                 name: @config['vpc']["name"],
                 tag_key: tag_key,
                 tag_value: tag_value,
+                flags: { "project" => @config['vpc']['project'] },
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
-                dummy_ok: true
+                dummy_ok: true,
+                debug: debug
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end

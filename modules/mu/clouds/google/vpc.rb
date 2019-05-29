@@ -74,7 +74,6 @@ module MU
         def create
           #@project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true).cloud_id
           myproject = MU::Cloud::Google.projectLookup(@config['project'], @deploy)
-
           @project_id = myproject.cloud_id
 
           networkobj = MU::Cloud::Google.compute(:Network).new(
@@ -106,7 +105,14 @@ module MU
                   network: @url,
                   region: subnet['availability_zone']
                 )
-                resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_subnetwork(@project_id, subnet['availability_zone'], subnetobj)
+                MU::Cloud::Google.compute(credentials: @config['credentials']).insert_subnetwork(@project_id, subnet['availability_zone'], subnetobj)
+
+                # make sure the subnet we created exists, before moving on
+                subnetdesc = nil
+                begin 
+                  subnetdesc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_subnetwork(@project_id, subnet['availability_zone'], subnet_mu_name)
+                  sleep 1
+                end while subnetdesc.nil?
   
               }
             }
@@ -190,26 +196,32 @@ module MU
           if !@config['peers'].nil?
             count = 0
             @config['peers'].each { |peer|
-              if peer['vpc']['vpc_name']
-                peer_obj = @deploy.findLitterMate(name: peer['vpc']['vpc_name'], type: "vpcs")
+              if peer['vpc']['name']
+                peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs", habitat: peer['vpc']['project'])
               else
                 tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-                if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
+                if peer['vpc']['deploy_id'].nil? and peer['vpc']['id'].nil? and tag_key.nil?
                   peer['vpc']['deploy_id'] = @deploy.deploy_id
                 end
 
                 peer_obj = MU::MommaCat.findStray(
-                    "Google",
-                    "vpcs",
-                    deploy_id: peer['vpc']['deploy_id'],
-                    cloud_id: peer['vpc']['vpc_id'],
-                    name: peer['vpc']['vpc_name'],
-                    tag_key: tag_key,
-                    tag_value: tag_value,
-                    dummy_ok: true
+                  "Google",
+                  "vpcs",
+                  deploy_id: peer['vpc']['deploy_id'],
+                  cloud_id: peer['vpc']['id'],
+                  name: peer['vpc']['name'],
+# XXX project flag tho
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  dummy_ok: true
                 ).first
               end
+if peer_obj.nil?
+  MU.log "Failed VPC peer lookup on behalf of #{@cloud_id}", MU::WARN, details: peer
+  pr = peer['vpc']['project'] || @project_id
+  MU.log "all the VPCs I can see", MU::WARN, details: MU::Cloud::Google.compute(credentials: @config['credentials']).list_networks(pr)
 
+end
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil?
 
               url = if peer_obj.cloudobj.url

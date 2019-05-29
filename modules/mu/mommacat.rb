@@ -1346,19 +1346,22 @@ raise "NAH"
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false)
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
+
+      loglevel = debug ? MU::NOTICE : MU::DEBUG
 
       @kitten_semaphore.synchronize {
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", MU::DEBUG, details: @kittens[type].keys.map { |k| k.to_s+": "+@kittens[type][k].keys.join(", ") }
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}, habitat: #{habitat}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", loglevel, details: @kittens[type].keys.map { |k| k.to_s+": "+@kittens[type][k].keys.join(", ") }
         matches = []
 
-        @kittens[type].each { |habitat, sib_classes|
+        @kittens[type].each { |habitat_group, sib_classes|
+          next if habitat and habitat_group != habitat
           sib_classes.each_pair { |sib_class, data|
           virtual_name = nil
 

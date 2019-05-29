@@ -78,6 +78,9 @@ module MU
 
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
+          if vpc_id and @config['vpc']['project'] and !vpc_id.match(/#{Regexp.quote(@config['vpc']['project'])}/)
+
+          end
 
           params = {
             :name => @cloud_id,
@@ -134,9 +137,23 @@ module MU
 
           fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
           MU.log "Creating firewall #{@cloud_id} in project #{@project_id}", details: fwobj
-          MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
-# XXX Check for empty (no hosts) sets
-#  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
+begin
+  MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+rescue ::Google::Apis::ClientError => e
+  MU.log @config['project']+"/"+@config['name']+": "+@cloud_id, MU::ERR, details: @config['vpc']
+  MU.log e.inspect, MU::ERR, details: fwobj
+  if e.message.match(/Invalid value for field/)
+    dependencies(use_cache: false, debug: true)
+  end
+  raise e
+end
+          # Make sure it actually got made before we move on
+          desc = nil
+          begin
+            desc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_firewall(@project_id, @cloud_id)
+            sleep 1
+          end while desc.nil?
+          desc
         end
 
         # Called by {MU::Deploy#createResources}
@@ -180,12 +197,15 @@ module MU
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           found = {}
-          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project])
+          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project], max_results: 100)
           if resp and resp.items
             resp.items.each { |fw|
               next if !args[:cloud_id].nil? and fw.name != args[:cloud_id]
               found[fw.name] = fw
             }
+            if resp.items.size >= 99
+              MU.log "BIG-ASS LIST_FIREWALLS RESULT FROM #{args[:project]}", MU::WARN, resp
+            end
           end
 
           found
