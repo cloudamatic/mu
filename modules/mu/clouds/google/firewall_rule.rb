@@ -434,6 +434,18 @@ end
             acl['vpc']['project'] ||= acl['project']
           end
 
+          acl['rules'] ||= []
+
+          # Firewall entries without rules are illegal in GCP, so insert a
+          # default-deny placeholder.
+          if acl['rules'].empty?
+            acl['rules'] << {
+              "deny" => true,
+              "proto" => "all",
+              "hosts" => ["0.0.0.0/0"],
+              "weight" => 65535
+            }
+          end
 
           if acl['rules']
 
