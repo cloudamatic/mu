@@ -309,35 +309,40 @@ module MU
   require 'mu/groomer'
 
   # Little hack to initialize library-only environments' config files
+  def self.detectCloudProviders
+    MU.log "Auto-detecting cloud providers"
+    new_cfg = $MU_CFG.dup
+    examples = {}
+    MU::Cloud.supportedClouds.each { |cloud|
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      begin
+        if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
+          cfg_blob = cloudclass.hosted_config
+          if cfg_blob
+            new_cfg[cloud.downcase] = cfg_blob
+            MU.log "Adding auto-detected #{cloud} stanza", MU::NOTICE
+          end
+        elsif !$MU_CFG[cloud.downcase] and !cloudclass.config_example.nil?
+          examples[cloud.downcase] = cloudclass.config_example
+        end
+      rescue NoMethodError => e
+        # missing .hosted? is normal for dummy layers like CloudFormation
+        MU.log e.message, MU::WARN
+      end
+    }
+    new_cfg['auto_detection_done'] = true
+    if new_cfg != $MU_CFG or !cfgExists?
+      MU.log "Generating #{cfgPath}"
+      saveMuConfig(new_cfg, examples) # XXX and reload it
+    end
+    new_cfg
+  end
+
   if !$MU_CFG
     require "#{@@myRoot}/bin/mu-load-config.rb"
-
     if !$MU_CFG['auto_detection_done'] and (!$MU_CFG['multiuser'] or !cfgExists?)
-      MU.log "Auto-detecting cloud providers"
-      new_cfg = $MU_CFG.dup
-      examples = {}
-      MU::Cloud.supportedClouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-        begin
-          if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
-            cfg_blob = cloudclass.hosted_config
-            if cfg_blob
-              new_cfg[cloud.downcase] = cfg_blob
-              MU.log "Adding #{cloud} stanza to #{cfgPath}", MU::NOTICE
-            end
-          elsif !$MU_CFG[cloud.downcase] and !cloudclass.config_example.nil?
-            examples[cloud.downcase] = cloudclass.config_example
-          end
-        rescue NoMethodError => e
-          # missing .hosted? is normal for dummy layers like CloudFormation
-          MU.log e.message, MU::WARN
-        end
-      }
-      new_cfg['auto_detection_done'] = true
-      if new_cfg != $MU_CFG or !cfgExists?
-        MU.log "Generating #{cfgPath}"
-        saveMuConfig(new_cfg, examples) # XXX and reload it
-      end
+    MU.log "INLINE LOGIC SAID TO DETECT PROVIDERS"
+      detectCloudProviders
     end
   end
 
