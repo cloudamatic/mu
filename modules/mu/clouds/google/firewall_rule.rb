@@ -25,6 +25,10 @@ module MU
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
 
+        PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
+        STD_PROTOS = ["icmp", "tcp", "udp"]
+
+
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
@@ -221,7 +225,8 @@ module MU
                     "description" => "Set this rule to +DENY+ traffic instead of +ALLOW+"
                   },
                   "proto" => {
-                    "enum" => ["udp", "tcp", "icmp", "all"]
+                    "description" => "The protocol to allow with this rule. The +standard+ keyword will expand to a series of identical rules covering +icmp+, +tcp+, and +udp; the +all+ keyword will expand to a series of identical rules for all supported protocols.",
+                    "enum" => PROTOS + ["all", "standard"]
                   },
                   "source_tags" => {
                     "type" => "array",
@@ -273,89 +278,97 @@ module MU
             acl['vpc']['project'] ||= acl['project']
           end
 
-
-          if acl['rules']
-
-            # First, expand some of our protocol shorthand into a real list
-            append = []
-            delete = []
-            acl['rules'].each { |r|
-              if r['proto'] == "standard"
-                STD_PROTOS.each { |p|
-                  newrule = r.dup
-                  newrule['proto'] = p
-                  append << newrule
-                }
-                delete << r
-              elsif r['proto'] == "all"
-                PROTOS.each { |p|
-                  newrule = r.dup
-                  newrule['proto'] = p
-                  append << newrule
-                }
-                delete << r
-              end
-
-              if !r['egress']
-                if !r['source_tags'] and !r['source_service_accounts'] and
-                   (!r['hosts'] or r['hosts'].empty?)
-                  r['hosts'] = ['0.0.0.0/0']
-                end
-              else
-                if !r['destination_tags'] and !r['destination_service_accounts'] and
-                   (!r['hosts'] or r['hosts'].empty?)
-                  r['hosts'] = ['0.0.0.0/0']
-                end
-              end
+          acl['rules'] ||= []
+          
+          # Firewall entries without rules are illegal in GCP, so insert a
+          # default-deny placeholder.
+          if acl['rules'].empty?
+            acl['rules'] << {
+              "deny" => true,
+              "proto" => "all",
+              "hosts" => ["0.0.0.0/0"],
+              "weight" => 65535
             }
-            delete.each { |r|
-              acl['rules'].delete(r)
-            }
-            acl['rules'].concat(append)
+          end
 
-            # Next, bucket these by what combination of allow/deny and
-            # ingress/egress rule they are. If we have more than one
-            # classification
-            rules_by_class = {
-              "allow-ingress" => [],
-              "allow-egress" => [],
-              "deny-ingress" => [],
-              "deny-egress" => [],
-            }
-
-            acl['rules'].each { |rule|
-              if rule['deny']
-                if rule['egress']
-                  rules_by_class["deny-egress"] << rule
-                else
-                  rules_by_class["deny-ingress"] << rule
-                end
-              else
-                if rule['egress']
-                  rules_by_class["allow-egress"] << rule
-                else
-                  rules_by_class["allow-ingress"] << rule
-                end
-              end
-            }
-
-            rules_by_class.reject! { |k, v| v.size == 0 }
-
-            # Generate other firewall rule objects to cover the other behaviors
-            # we've requested, if indeed we've done so.
-            if rules_by_class.size > 1
-              keep = rules_by_class.keys.first
-              acl['rules'] = rules_by_class[keep]
-              rules_by_class.delete(keep)
-              rules_by_class.each_pair { |behaviors, rules|
-                newrule = acl.dup
-                newrule['name'] += "-"+behaviors
-                newrule['rules'] = rules
-                ok = false if !config.insertKitten(newrule, "firewall_rules")
-
+          # First, expand some of our protocol shorthand into a real list
+          append = []
+          delete = []
+          acl['rules'].each { |r|
+            if r['proto'] == "standard"
+              STD_PROTOS.each { |p|
+                newrule = r.dup
+                newrule['proto'] = p
+                append << newrule
               }
-
+              delete << r
+            elsif r['proto'] == "all"
+              PROTOS.each { |p|
+                newrule = r.dup
+                newrule['proto'] = p
+                append << newrule
+              }
+              delete << r
             end
+
+            if !r['egress']
+              if !r['source_tags'] and !r['source_service_accounts'] and
+                 (!r['hosts'] or r['hosts'].empty?)
+                r['hosts'] = ['0.0.0.0/0']
+              end
+            else
+              if !r['destination_tags'] and !r['destination_service_accounts'] and
+                 (!r['hosts'] or r['hosts'].empty?)
+                r['hosts'] = ['0.0.0.0/0']
+              end
+            end
+          }
+          delete.each { |r|
+            acl['rules'].delete(r)
+          }
+          acl['rules'].concat(append)
+
+          # Next, bucket these by what combination of allow/deny and
+          # ingress/egress rule they are. If we have more than one
+          # classification
+          rules_by_class = {
+            "allow-ingress" => [],
+            "allow-egress" => [],
+            "deny-ingress" => [],
+            "deny-egress" => [],
+          }
+
+          acl['rules'].each { |rule|
+            if rule['deny']
+              if rule['egress']
+                rules_by_class["deny-egress"] << rule
+              else
+                rules_by_class["deny-ingress"] << rule
+              end
+            else
+              if rule['egress']
+                rules_by_class["allow-egress"] << rule
+              else
+                rules_by_class["allow-ingress"] << rule
+              end
+            end
+          }
+
+          rules_by_class.reject! { |k, v| v.size == 0 }
+
+          # Generate other firewall rule objects to cover the other behaviors
+          # we've requested, if indeed we've done so.
+          if rules_by_class.size > 1
+            keep = rules_by_class.keys.first
+            acl['rules'] = rules_by_class[keep]
+            rules_by_class.delete(keep)
+            rules_by_class.each_pair { |behaviors, rules|
+              newrule = acl.dup
+              newrule['name'] += "-"+behaviors
+              newrule['rules'] = rules
+              ok = false if !config.insertKitten(newrule, "firewall_rules")
+
+            }
           end
 
           ok

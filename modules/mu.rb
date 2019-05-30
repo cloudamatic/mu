@@ -348,7 +348,7 @@ module MU
 
   @@mommacat_port = 2260
   if !$MU_CFG.nil? and !$MU_CFG['mommacat_port'].nil? and
-     !$MU_CFG['mommacat_port'].empty? and $MU_CFG['mommacat_port'].to_i > 0 and
+     !$MU_CFG['mommacat_port'] != "" and $MU_CFG['mommacat_port'].to_i > 0 and
      $MU_CFG['mommacat_port'].to_i < 65536
     @@mommacat_port = $MU_CFG['mommacat_port'].to_i
   end

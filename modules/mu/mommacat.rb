@@ -2379,6 +2379,99 @@ MESSAGE_END
       MU::MommaCat.deploy_dir(@deploy_id)
     end
 
+    # Path to the log file used by the Momma Cat daemon
+    # @return [String]
+    def self.daemonLogFile
+      base = Process.uid == 0 ? "/var" : MU.dataDir
+      "#{base}/log/mu-momma-cat.log"
+    end
+
+    # Path to the PID file used by the Momma Cat daemon
+    # @return [String]
+    def self.daemonPidFile
+      base = Process.uid == 0 ? "/var" : MU.dataDir
+      "#{base}/run/mommacat.pid"
+    end
+
+		# Start the Momma Cat daemon and return the exit status of the command used
+    # @return [Integer]
+    def self.start
+      base = Process.uid == 0 ? "/var" : MU.dataDir
+      [base, "#{base}/log", "#{base}/run"].each { |dir|
+       if !Dir.exists?(dir)
+          MU.log "Creating #{dir}"
+          Dir.mkdir(dir)
+        end
+      }
+      return 0 if status
+    
+      MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}"
+      origdir = Dir.getwd
+      Dir.chdir(MU.myRoot+"/modules")
+
+      # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
+      cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      MU.log cmd, MU::DEBUG
+      %x{#{cmd}}
+      Dir.chdir(origdir)
+
+      begin
+        sleep 1
+      end while !status
+    
+      if $?.exitstatus != 0
+        exit 1
+      end
+
+      return $?.exitstatus
+    end
+
+    # Return true if the Momma Cat daemon appears to be running
+    # @return [Boolean]
+    def self.status
+      if File.exists?(daemonPidFile)
+        pid = File.read(daemonPidFile).chomp.to_i
+        begin
+          Process.getpgid(pid)
+          MU.log "Momma Cat running with pid #{pid.to_s}"
+          return true
+        rescue Errno::ESRC
+        end
+      end
+      MU.log "Momma Cat daemon not running", MU::NOTICE
+      false
+    end
+    
+		# Stop the Momma Cat daemon, if it's running
+    def self.stop
+      if File.exists?(daemonPidFile)
+        pid = File.read(daemonPidFile).chomp.to_i
+        MU.log "Stopping Momma Cat with pid #{pid.to_s}"
+        Process.kill("INT", pid)
+        killed = false
+        begin
+          Process.getpgid(pid)
+          sleep 1
+        rescue Errno::ESRC
+          killed = true
+        end while killed
+        MU.log "Momma Cat with pid #{pid.to_s} stopped", MU::DEBUG
+    
+        begin
+          File.unlink(daemonPidFile)
+        rescue Errno::ENOENT
+        end
+      end
+    end
+
+		# (Re)start the Momma Cat daemon and return the exit status of the start command
+    # @return [Integer]
+    def self.restart
+      stop
+      start
+    end
+
+
     private
 
     # Check to see whether a given resource name is unique across all

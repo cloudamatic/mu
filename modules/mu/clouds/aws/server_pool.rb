@@ -148,8 +148,6 @@ module MU
             setScaleInProtection(need_instances)
           end
 
-          MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
-
           return asg
         end
 

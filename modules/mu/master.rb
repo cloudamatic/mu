@@ -292,7 +292,7 @@ module MU
 
     # Remove Scratchpad entries which have exceeded their maximum age.
     def self.cleanExpiredScratchpads
-      return if !$MU_CFG['scratchpad'].has_key?('max_age') or $MU_CFG['scratchpad']['max_age'] < 1
+      return if !$MU_CFG['scratchpad'] or !$MU_CFG['scratchpad'].has_key?('max_age') or $MU_CFG['scratchpad']['max_age'] < 1
       @scratchpad_semaphore.synchronize {
         entries = MU::Groomer::Chef.getSecret(vault: "scratchpad")
         entries.each { |pad|

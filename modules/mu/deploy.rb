@@ -238,6 +238,9 @@ module MU
         @admins.each { |admin|
           @mommacat.notify("admins", admin['name'], admin)
         }
+        if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
+          MU::MommaCat.start
+        end
 
         @deploy_semaphore = Mutex.new
         parent_thread_id = Thread.current.object_id
