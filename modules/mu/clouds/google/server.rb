@@ -87,7 +87,7 @@ module MU
 
             @config['instance_secret'] = Password.random(50)
           end
-          @config['ssh_user'] ||= "mu"
+          @config['ssh_user'] ||= "muadmin"
           @groomer = MU::Groomer.new(self)
 
         end
@@ -1111,6 +1111,11 @@ next if !create
             "image_id" => {
               "type" => "string",
               "description" => "The Google Cloud Platform Image on which to base this instance. Will use the default appropriate for the platform, if not specified."
+            },
+            "ssh_user" => {
+              "type" => "string",
+              "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
+              "default" => "muadmin"
             },
             "routes" => {
               "type" => "array",
