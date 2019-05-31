@@ -76,37 +76,101 @@ module MU
         cur
       end
 
+
+      # Given a Certificate Signing Request, sign it with our internal CA and
+      # write the resulting signed certificate. Only works on local files.
+      # @param csr_path [String]: The CSR to sign, as a file.
+      def self.sign(csr_path, sans = [], for_user: MU.mu_user)
+        certdir = File.dirname(csr_path)
+        certname = File.basename(csr_path, ".csr")
+        if File.exists?("#{certdir}/#{certname}.crt")
+          MU.log "Not re-signing SSL certificate request #{csr_path}, #{certdir}/#{certname}.crt already exists", MU::DEBUG
+          return
+        end
+        MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
+
+        begin
+          csr = OpenSSL::X509::Request.new File.read csr_path
+        rescue Exception => e
+          MU.log e.message, MU::ERR, details: File.read(csr_path)
+          raise e
+        end
+
+        cakey = getKey("Mu_CA")
+        cacert = getCert("Mu_CA", ca: true).first
+
+        cert = OpenSSL::X509::Certificate.new
+        cert.serial = incrementCASerial(for_user: for_user)
+        cert.version = 0x2
+        cert.not_before = Time.now
+        cert.not_after = Time.now + 180000000
+        cert.subject = csr.subject
+        cert.public_key = csr.public_key
+        cert.issuer = cacert.subject
+        ef = OpenSSL::X509::ExtensionFactory.new
+        ef.issuer_certificate = cacert
+        ef.subject_certificate = cert
+        ef.subject_request = csr
+        cert.add_extension(ef.create_extension("subjectAltName",formatSANS(sans),false))
+        cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
+        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
+        cert.sign cakey, OpenSSL::Digest::SHA256.new
+
+        File.open("#{certdir}/#{certname}.crt", 'w', 0644) { |f|
+          f.write cert.to_pem
+        }
+
+        cert
+      end
+
       # @param name [String]
       # @param cn_str [String]
       # @param sans [Array<String>]
       # @param ca [Array<String>]
       # @param for_user [String]
       # @return [OpenSSL::X509::Certificate]
-      def self.getCert(name, cn_str = nil, sans: [], ca: false, for_user: MU.mu_user)
-        ssldir = MU.dataDir(for_user)+"/ssl"
+      def self.getReq(name, cn_str = nil, sans: [], ca: false, for_user: MU.mu_user)
+      end
 
-        if File.exists?("#{ssldir}/#{name}.pem")
-          return OpenSSL::X509::Certificate.new(File.read("#{ssldir}/#{name}.pem"))
+      # @param name [String]
+      # @param cn_str [String]
+      # @param sans [Array<String>]
+      # @param ca [Array<String>]
+      # @param for_user [String]
+      # @param pfx [Boolean]
+      # @return [OpenSSL::X509::Certificate]
+      def self.getCert(name, cn_str = nil, sans: [], ca: false, for_user: MU.mu_user, pfx: false)
+        ssldir = MU.dataDir(for_user)+"/ssl"
+        filename = ca ? "#{ssldir}/#{name}.pem" : "#{ssldir}/#{name}.crt"
+        keyfile = "#{ssldir}/#{name}.key"
+        pfxfile = "#{ssldir}/#{name}.pfx"
+        pfx_cert = nil
+
+        if File.exists?(filename)
+          pfx_cert = toPfx(filename, keyfile, pfxfile) if pfx
+          cert = OpenSSL::X509::Certificate.new(File.read(filename))
+          return [cert, pfx_cert]
         end
 
         if cn_str.nil?
-          raise MuError, "Can't generate an SSL cert without a CN"
+          raise MuError, "Can't generate an SSL cert for #{name} without a CN"
         end
 
         key = getKey(name, for_user: for_user)
 
+puts cn_str
         cn = OpenSSL::X509::Name.parse(cn_str)
 
         # If we're generating our local CA, we're not really doing a CSR, but
         # the operation is close to identical.
         csr = if ca
-          MU.log "Generating Mu CA certificate", MU::NOTICE, details: "#{ssldir}/#{name}.pem"
+          MU.log "Generating Mu CA certificate", MU::NOTICE, details: filename
           csr = OpenSSL::X509::Certificate.new
           csr.not_before = Time.now
           csr.not_after = Time.now + 180000000
           csr 
         else
-          MU.log "Generating Mu-signed certificate for #{name}", MU::NOTICE, details: "#{ssldir}/#{name}.pem"
+          MU.log "Generating Mu-signed certificate for #{name}", MU::NOTICE, details: filename
           OpenSSL::X509::Request.new
         end
 
@@ -114,23 +178,16 @@ module MU
         csr.subject = cn
         csr.public_key = key.public_key
 
-        ef = OpenSSL::X509::ExtensionFactory.new
-        sans_parsed = sans.map { |s|
-          if s.match(/^\d+\.\d+\.\d+\.\d+$/)
-            "IP:"+s
-          else
-            "DNS:"+s
-          end
-        }.join(",")
 
         # If we're the CA certificate, declare ourselves our own issuer and
         # write, instead of going through the rest of the motions.
         if ca
           csr.issuer = csr.subject
+          ef = OpenSSL::X509::ExtensionFactory.new
           csr.serial = 1
           ef.subject_certificate = csr
           ef.issuer_certificate = csr
-          csr.add_extension(ef.create_extension("subjectAltName",sans_parsed,false))
+          csr.add_extension(ef.create_extension("subjectAltName",formatSANS(sans),false))
           csr.add_extension(ef.create_extension("basicConstraints", "CA:TRUE", true))
           csr.add_extension(ef.create_extension("keyUsage","keyCertSign, cRLSign", true))
           csr.add_extension(ef.create_extension("subjectKeyIdentifier", "hash", false))
@@ -143,33 +200,47 @@ module MU
           File.open("#{ssldir}/#{name}.csr", 'w', 0644) { |f|
             f.write csr.to_pem
           }
-          cakey = getKey("Mu_CA")
-          cacert = getCert("Mu_CA")
-          cert = OpenSSL::X509::Certificate.new
-          cert.serial = incrementCASerial(for_user: for_user)
-          cert.version = 0x2
-          cert.not_before = Time.now
-          cert.not_after = Time.now + 180000000
-          cert.subject = csr.subject
-          cert.public_key = csr.public_key
-          cert.issuer = cacert.subject
-					ef.issuer_certificate = cacert
-          ef.subject_certificate = cert
-          ef.subject_request = csr
-          cert.add_extension(ef.create_extension("subjectAltName",sans_parsed,false))
-          cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
-          cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
-          cert.sign cakey, OpenSSL::Digest::SHA256.new
-          cert
+					sign("#{ssldir}/#{name}.csr", sans, for_user: for_user)
         else
           csr
         end
 
-        File.open("#{ssldir}/#{name}.pem", 'w', 0644) { |f|
+        File.open(filename, 'w', 0644) { |f|
           f.write cert.to_pem
         }
+        pfx_cert = toPfx(filename, keyfile, pfxfile) if pfx
 
-        cert
+        if MU.mu_user != "mu" and Process.uid == 0
+          owner_uid = Etc.getpwnam(for_user).uid
+          File.chown(owner_uid, nil, filename)
+          File.chown(owner_uid, nil, pfxfile)
+        end
+
+
+        [cert, pfx_cert]
+      end
+
+      private
+
+      def self.toPfx(certfile, keyfile, pfxfile)
+        cacert = getCert("Mu_CA", ca: true).first
+        cert = OpenSSL::X509::Certificate.new(File.read(certfile))
+        key = OpenSSL::PKey::RSA.new(File.read(keyfile))
+        pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
+        File.open(pfxfile, 'w', 0644) { |f|
+          f.write pfx.to_der
+        }
+        pfx
+      end
+
+      def self.formatSANS(sans)
+        sans.map { |s|
+          if s.match(/^\d+\.\d+\.\d+\.\d+$/)
+            "IP:"+s
+          else
+            "DNS:"+s
+          end
+        }.join(",")
       end
 
     end

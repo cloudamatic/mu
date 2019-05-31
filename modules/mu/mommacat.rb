@@ -2047,72 +2047,10 @@ MESSAGE_END
     end
 
     # Given a Certificate Signing Request, sign it with our internal CA and
-    # writers the resulting signed certificate. Only works on local files.
+    # write the resulting signed certificate. Only works on local files.
     # @param csr_path [String]: The CSR to sign, as a file.
     def signSSLCert(csr_path, sans = [])
-      # XXX more sanity here, this feels unsafe
-      certdir = File.dirname(csr_path)
-      certname = File.basename(csr_path, ".csr")
-      if File.exists?("#{certdir}/#{certname}.crt")
-        MU.log "Not re-signing SSL certificate request #{csr_path}, #{certdir}/#{certname}.crt already exists", MU::WARN
-        return
-      end
-      MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
-
-      begin
-        csr = OpenSSL::X509::Request.new File.read csr_path
-      rescue Exception => e
-        MU.log e.message, MU::ERR, details: File.read(csr_path)
-        raise e
-      end
-      key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
-
-      # Load up the Mu Certificate Authority
-      cakey = OpenSSL::PKey::RSA.new File.read "#{MU.mySSLDir}/Mu_CA.key"
-      cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-      cur_serial = 0
-      File.open("#{MU.mySSLDir}/serial", File::CREAT|File::RDWR, 0600) { |f|
-        f.flock(File::LOCK_EX)
-        cur_serial = f.read.chomp!.to_i
-        cur_serial = cur_serial + 1
-        f.rewind
-        f.truncate(0)
-        f.puts cur_serial
-        f.flush
-        f.flock(File::LOCK_UN)
-      }
-
-      # Create a certificate from our CSR, signed by the Mu CA
-      cert = OpenSSL::X509::Certificate.new
-      cert.serial = cur_serial
-      cert.version = 3
-      cert.not_before = Time.now
-      cert.not_after = Time.now + 180000000
-      cert.subject = csr.subject
-      cert.public_key = csr.public_key
-      cert.issuer = cacert.subject
-      if !sans.nil? and sans.size > 0
-        MU.log "Incorporting Subject Alternative Names: #{sans.join(",")}"
-        ef = OpenSSL::X509::ExtensionFactory.new
-        ef.issuer_certificate = cacert
-#v3_req_client 
-        ef.subject_certificate = cert
-        ef.subject_request = csr
-        cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
-        cert.add_extension(ef.create_extension("subjectAltName",sans.join(","),false))
-# XXX only do this if we see the otherName thinger in the san list
-        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
-      end
-      cert.sign cakey, OpenSSL::Digest::SHA256.new
-
-      open("#{certdir}/#{certname}.crt", 'w', 0644) { |io|
-        io.write cert.to_pem
-      }
-      if MU.mu_user != "mu"
-        owner_uid = Etc.getpwnam(MU.mu_user).uid
-        File.chown(owner_uid, nil, "#{certdir}/#{certname}.crt")
-      end
-
+      MU::Master::SSL.sign(csr_path, sans, for_user: MU.mu_user)
     end
 
     # Make sure deployment data is synchronized to/from each node in the
@@ -2235,140 +2173,35 @@ MESSAGE_END
       certs = {}
       results = {}
 
-      # If we are in a gem-only environment, use an internal SSL CA
-      if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
-        require 'mu/master/ssl'
+      is_windows = ([MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?)
+      is_windows = true
+
+      @node_cert_semaphore.synchronize {
         MU::Master::SSL.bootstrap
         sans = []
         sans << canonical_ip if canonical_ip
+        # XXX were there other names we wanted to include?
         key = MU::Master::SSL.getKey(cert_cn)
-        cert = MU::Master::SSL.getCert(cert_cn, "/CN=#{cert_cn}/O=Mu/C=US", sans: sans)
+        cert, pfx_cert = MU::Master::SSL.getCert(cert_cn, "/CN=#{cert_cn}/O=Mu/C=US", sans: sans, pfx: is_windows)
+        results[cert_cn] = [key, cert]
 
-#        if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
-#          if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
-#             File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
-#            results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
-#          else
-#            certs[cert_cn+"-winrm"] = {
-#              "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"],
-#              "cn" => resource.config['windows_admin_username']
-#            }
-#          end
-#        end
+        winrm_cert = nil
+        if is_windows
+          winrm_key = MU::Master::SSL.getKey(cert_cn+"-winrm")
+          winrm_cert = MU::Master::SSL.getCert(cert_cn+"-winrm", "/CN=#{resource.config['windows_admin_username']}/O=Mu/C=US", sans: ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"], pfx: true)
+          results[cert_cn+"-winrm"] = [winrm_key, winrm_cert]
+        end
 
-        return [cert, key]
-      end
+        if resource and resource.config and resource.config['cloud']
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource.config['cloud'])
 
-      @node_cert_semaphore.synchronize {
-        if File.exists?("#{MU.mySSLDir}/#{cert_cn}.crt") and
-           File.exists?("#{MU.mySSLDir}/#{cert_cn}.key")
-          ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{cert_cn}.crt"))
-          if ext_cert.not_after < Time.now
-            MU.log "Node certificate for #{cert_cn} is expired, regenerating", MU::WARN
-            ["crt", "key", "csr"].each { |suffix|
-              if File.exists?("#{MU.mySSLDir}/#{cert_cn}.#{suffix}")
-                File.unlink("#{MU.mySSLDir}/#{cert_cn}.#{suffix}")
-              end
-            }
-          else
-            results[cert_cn] = [
-              OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{cert_cn}.crt")),
-              OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{cert_cn}.key"))
-            ]
+          cloudclass.writeDeploySecret(@deploy_id, cert.to_pem, cert_cn+".crt")
+          cloudclass.writeDeploySecret(@deploy_id, key.to_pem, cert_cn+".key")
+          if pfx_cert
+            cloudclass.writeDeploySecret(@deploy_id, pfx_cert.to_der, cert_cn+".pfx")
           end
         end
 
-        if results.size == 0
-          certs[cert_cn] = {
-#            "sans" => ["IP:#{canonical_ip}"],
-            "cn" => cert_cn
-          }
-          if canonical_ip
-            certs[cert_cn]["sans"] = ["IP:#{canonical_ip}"]
-          end
-        end
-
-        if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
-          if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
-             File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
-            results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
-          else
-            certs[cert_cn+"-winrm"] = {
-              "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"],
-              "cn" => resource.config['windows_admin_username']
-            }
-          end
-        end
-
-        certs.each { |certname, data|
-          MU.log "Generating SSL certificate #{certname} for #{resource} with key size #{keysize.to_s}"
-
-          # Create and save a key
-          key = OpenSSL::PKey::RSA.new keysize
-          if !Dir.exist?(MU.mySSLDir)
-            Dir.mkdir(MU.mySSLDir, 0700)
-          end
-
-          open("#{MU.mySSLDir}/#{certname}.key", 'w', 0600) { |io|
-            io.write key.to_pem
-          }
-          # Create a certificate request for this node
-          csr = OpenSSL::X509::Request.new
-          csr.version = 3
-          csr.subject = OpenSSL::X509::Name.parse "/CN=#{data['cn']}/O=Mu/C=US"
-          csr.public_key = key.public_key
-          csr.sign key, OpenSSL::Digest::SHA256.new
-          open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
-            io.write csr.to_pem
-          }
-          if MU.chef_user == "mu"
-            signSSLCert("#{MU.mySSLDir}/#{certname}.csr", data['sans'])
-          else
-            deploykey = OpenSSL::PKey::RSA.new(public_key)
-            deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
-# XXX things that aren't servers
-            res_type = "server"
-            res_type = "server_pool" if !resource.config['basis'].nil?
-            uri = URI("https://#{MU.mu_public_addr}:#{MU.mommaCatPort}/")
-            req = Net::HTTP::Post.new(uri)
-            req.set_form_data(
-              "mu_id" => MU.deploy_id,
-              "mu_resource_name" => resource.config['name'],
-              "mu_resource_type" => res_type,
-              "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
-              "mu_ssl_sans" => data["sans"].join(","),
-              "mu_user" => MU.mu_user,
-              "mu_deploy_secret" => deploysecret
-            )
-            http = Net::HTTP.new(uri.hostname, uri.port)
-            http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
-            http.use_ssl = true
-            http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
-            response = http.request(req)
-            MU.log "Got error back on signing request for #{MU.mySSLDir}/#{certname}.csr", MU::ERR if response.code != "200"
-          end
-
-          pfx = nil
-          cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
-          if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
-            cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-            pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
-            open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
-              io.write pfx.to_der
-            }
-          end
-
-          results[certname] = [cert, key]
-
-          if resource.config['cloud'] == "AWS"
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
-            if pfx
-              MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
-            end
-# XXX add google logic, or better yet abstract this method
-          end
-        }
       }
 
       results[cert_cn]
