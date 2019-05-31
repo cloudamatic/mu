@@ -23,6 +23,7 @@ module MU
     require 'fileutils'
     autoload :Chef, 'mu/master/chef'
     autoload :LDAP, 'mu/master/ldap'
+    autoload :SSL, 'mu/master/ssl'
 
     # @param users [Hash]: User metadata of the type returned by listUsers
     def self.printUsersToTerminal(users = MU::Master.listUsers)

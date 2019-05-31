@@ -184,6 +184,11 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "ssh_user" => {
+              "type" => "string",
+              "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
+              "default" => "muadmin"
+            },
             "named_ports" => {
               "type" => "array",
               "items" => {
