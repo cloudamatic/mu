@@ -120,6 +120,10 @@ module MU
       def self.common_properties
         {
           "name" => {"type" => "string"},
+          "ansible_vars" => {
+            "type" => "object",
+            "description" => "When using Ansible as a groomer, this will insert a +vars+ tree into the playbook for this node."
+          },
           "scrub_mu_isms" => {
               "type" => "boolean",
               "default" => false,
