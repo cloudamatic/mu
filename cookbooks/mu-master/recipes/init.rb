@@ -171,7 +171,7 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node['platform_version'].split('.')[0].to_i
+elversion = node['platform_version'].split('.')[0]
 
 rhelbase = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 
@@ -180,16 +180,16 @@ when 'rhel'
 
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0].to_i
-  when 6
+  case node['platform_version'].split('.')[0]
+  when '6'
     basepackages.concat(["mysql-devel"])
     removepackages = ["nagios"]
 
-  when 7
+  when '7'
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
     removepackages = ['nagios', 'firewalld']
 
-  when 8
+  when '8'
     raise "Mu currently does not suport RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
   else
     raise "Mu does not suport RHEL #{node['platform_version']}"
@@ -199,19 +199,19 @@ when 'amazon'
   basepackages = rhelbase
   rpms.delete('epel-release')
   
-  case node['platform_version'].split('.')[0].to_i
-  when 1, 6 #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
+  case node['platform_version'].split('.')[0]
+  when '1', '6' #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
     basepackages.concat(['mysql-devel', 'libffi-devel'])
     basepackages.delete('tk')
     removepackages = ["nagios"]
 
-  when 2
+  when '2'
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
     removepackages = ['nagios', 'firewalld']
     elversion = 7 #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
 
   else
-    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{elversion})"
+    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0]})"
   end
 else
   raise "Mu Masters are currently only supported on RHEL and Amazon family hosts (got #{node['platform_family']})."

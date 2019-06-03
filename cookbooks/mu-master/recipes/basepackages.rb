@@ -34,7 +34,7 @@ case node['platform_family']
 when 'rhel'
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0].to_i
+  case node['platform_version'].split('.')[0]
   when 6
     basepackages.concat(["java-1.5.0-gcj", "mysql-server", "autoconf"])
 
