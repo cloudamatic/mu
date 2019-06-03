@@ -171,7 +171,7 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node['platform_version'].split('.')[0]
+elversion = node['platform_version'].split('.')[0].to_i
 
 rhelbase = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 
@@ -180,7 +180,7 @@ when 'rhel'
 
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0]
+  case node['platform_version'].split('.')[0].to_i
   when 6
     basepackages.concat(["mysql-devel"])
     removepackages = ["nagios"]
@@ -199,7 +199,7 @@ when 'amazon'
   basepackages = rhelbase
   rpms.delete('epel-release')
   
-  case node['platform_version'].split('.')[0]
+  case node['platform_version'].split('.')[0].to_i
   when 1, 6 #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
     basepackages.concat(['mysql-devel', 'libffi-devel'])
     basepackages.delete('tk')

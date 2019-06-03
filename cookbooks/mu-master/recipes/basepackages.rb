@@ -34,7 +34,7 @@ case node['platform_family']
 when 'rhel'
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0]
+  case node['platform_version'].split('.')[0].to_i
   when 6
     basepackages.concat(["java-1.5.0-gcj", "mysql-server", "autoconf"])
 
@@ -50,7 +50,7 @@ when 'rhel'
 when 'amazon'
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0]
+  case node['platform_version'].split('.')[0].to_i
   when 1, 6
     basepackages.concat(['java-1.5.0-gcj', 'mysql-server', 'autoconf', 'gecode-devel'])
 
