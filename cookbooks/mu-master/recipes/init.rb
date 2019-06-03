@@ -208,10 +208,10 @@ when 'amazon'
   when '2'
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
     removepackages = ['nagios', 'firewalld']
-    elversion = 7 #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
+    elversion = '7' #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
 
   else
-    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0].class})"
+    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0]})"
   end
 else
   raise "Mu Masters are currently only supported on RHEL and Amazon family hosts (got #{node['platform_family']})."
