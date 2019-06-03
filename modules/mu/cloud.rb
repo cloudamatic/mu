@@ -1603,12 +1603,14 @@ module MU
             if (method == :create or method == :groom or method == :postBoot) and
                (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
+              @deploydata ||= deploydata # XXX I don't remember why we're not just doing this from the get-go; maybe because we prefer some mangling occurring in @deploy.notify?
               if deploydata.nil? or !deploydata.is_a?(Hash)
                 MU.log "#{self} notify method did not return a Hash of deployment data", MU::WARN
                 deploydata = MU.structToHash(@cloudobj.cloud_desc)
               end
               deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
+              deploydata['nodename'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             elsif method == :notify
               retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
