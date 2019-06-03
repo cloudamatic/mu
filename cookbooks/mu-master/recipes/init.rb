@@ -171,38 +171,45 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
+elversion = node['platform_version'].split('.')[0]
 
-basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
+rhelbase = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 
 case node['platform_family']
 when 'rhel'
-  case elversion
+
+  basepackages = rhelbase
+
+  case node['platform_version'].split('.')[0]
   when 6
     basepackages.concat(["mysql-devel"])
     removepackages = ["nagios"]
+
   when 7
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
     removepackages = ['nagios', 'firewalld']
+
   when 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
-    #TODO Support for RHEL8
+    raise "Mu currently does not suport RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
   else
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
+    raise "Mu does not suport RHEL #{node['platform_version']}"
   end
 
 when 'amazon'
-
+  basepackages = rhelbase
   rpms.delete('epel-release')
-  case elversion
+  
+  case node['platform_version'].split('.')[0]
   when 1, 6 #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
     basepackages.concat(['mysql-devel', 'libffi-devel'])
     basepackages.delete('tk')
     removepackages = ["nagios"]
+
   when 2
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
     removepackages = ['nagios', 'firewalld']
     elversion = 7 #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
+
   else
     raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{elversion})"
   end
