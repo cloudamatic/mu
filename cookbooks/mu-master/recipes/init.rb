@@ -211,7 +211,7 @@ when 'amazon'
     elversion = 7 #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
 
   else
-    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0]})"
+    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0].class})"
   end
 else
   raise "Mu Masters are currently only supported on RHEL and Amazon family hosts (got #{node['platform_family']})."
