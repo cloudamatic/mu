@@ -33,7 +33,34 @@ if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.h
   $IN_GEM = true
 end
 
+$possible_addresses = []
+$impossible_addresses = ['127.0.0.1', 'localhost']
+begin
+  sys_name = Socket.gethostname
+  official, aliases = Socket.gethostbyname(sys_name)
+  $possible_addresses << sys_name
+  $possible_addresses << official
+  $possible_addresses.concat(aliases)
+rescue SocketError
+  # don't let them use the default hostname if it doesn't resolve
+  $impossible_addresses << sys_name
+end
+Socket.getifaddrs.each { |iface|
+  if iface.addr and iface.addr.ipv4?
+    $possible_addresses << iface.addr.ip_address
+    begin
+      addrinfo = Socket.gethostbyaddr(iface.addr.ip_address)
+      $possible_addresses << addrinfo.first if !addrinfo.first.nil?
+    rescue SocketError
+      # usually no name to look up; that's ok
+    end
+  end
+}
+$possible_addresses.uniq!
+$possible_addresses.reject! { |i| i.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/)}
+
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
@@ -42,7 +69,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
-    "pattern" => /^(localhost|127\.0\.0\.1|#{Socket.gethostname})$/,
+    "pattern" => /^(#{$impossible_addresses.map { |a| Regexp.quote(a) }.join("|") })$/,
     "negate_pattern" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
@@ -108,6 +135,11 @@ $CONFIGURABLES = {
     "title" => "Invade Foreign VPCs?",
     "desc" => "If set to true, Mu will be allowed to modify routing and peering behavior of VPCs which it did not create, but for which it has permissions.",
     "boolean" => true
+  },
+  "ansible_dir" => {
+    "title" => "Ansible directory",
+    "desc" => "Intended for use with minimal installs which use Ansible as a groomer and which do not store Ansible artifacts in a dedicated git repository. This allows simply pointing to a local directory.",
+    "required" => false
   },
   "aws" => {
     "title" => "Amazon Web Services",
@@ -336,7 +368,7 @@ end
 $INITIALIZE = (!File.size?(cfgPath) or $opts[:force])
 
 $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM
+if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM and Dir.exists?("/opt/mu/lib")
   puts "Global configuration has not been initialized or is missing. Must run as root to correct."
   exit 1
 end
@@ -621,10 +653,9 @@ def setDefaults
     end
   end
 
-  ips.concat(Socket.ip_address_list.delete_if { |i| !i.ipv4? or i.ip_address.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/) }.map { |a| a.ip_address })
 
   $CONFIGURABLES["allow_invade_foreign_vpcs"]["default"] = false
-  $CONFIGURABLES["public_address"]["default"] = ips.first
+  $CONFIGURABLES["public_address"]["default"] = $possible_addresses.first
   $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
   $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
   if $IN_AWS
