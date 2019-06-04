@@ -101,7 +101,8 @@ module MU
           found = false
           retries = 0
           begin
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects()
+# can... can we filter this?
+            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(filter: "id:#{name_string.downcase.gsub(/[^0-9a-z\-]/, "-")}")
             if resp and resp.projects
               resp.projects.each { |p|
                 if p.project_id ==  name_string.downcase.gsub(/[^0-9a-z\-]/, "-")
@@ -233,6 +234,8 @@ module MU
           end
         end
 
+        @@list_projects_cache = nil
+
         # Locate an existing project
         # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
@@ -259,11 +262,13 @@ module MU
               }
             end
           else
-            resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects().projects
-            resp.each { |p|
+            return @@list_projects_cache if @@list_projects_cache # XXX decide on stale-ness after time or something
+            resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects#(page_token: page_token)
+            resp.projects.each { |p|
               next if p.lifecycle_state == "DELETE_REQUESTED"
               found[p.project_id] = p
             }
+            @@list_projects_cache = found
           end
 
           found

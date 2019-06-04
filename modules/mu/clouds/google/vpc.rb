@@ -611,7 +611,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 # XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
               bok['peers'] << { "vpc" => MU::Config::Ref.new(
                 id: vpc_id,
-                name: vpc_name,
+                name: vpc_name, # XXX skip if "default" maybe
                 cloud: "Google",
                 project: vpc_project,
                 credentials: @config['credentials'],

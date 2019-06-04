@@ -27,10 +27,6 @@ module MU
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
-        PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
-        STD_PROTOS = ["icmp", "tcp", "udp"]
-
-
         attr_reader :mu_name
         attr_reader :project_id
         attr_reader :config
@@ -141,16 +137,16 @@ module MU
 
           fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
           MU.log "Creating firewall #{@cloud_id} in project #{@project_id}", details: fwobj
-begin
+#begin
   MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
-rescue ::Google::Apis::ClientError => e
-  MU.log @config['project']+"/"+@config['name']+": "+@cloud_id, MU::ERR, details: @config['vpc']
-  MU.log e.inspect, MU::ERR, details: fwobj
-  if e.message.match(/Invalid value for field/)
-    dependencies(use_cache: false, debug: true)
-  end
-  raise e
-end
+#rescue ::Google::Apis::ClientError => e
+#  MU.log @config['project']+"/"+@config['name']+": "+@cloud_id, MU::ERR, details: @config['vpc']
+#  MU.log e.inspect, MU::ERR, details: fwobj
+#  if e.message.match(/Invalid value for field/)
+#    dependencies(use_cache: false, debug: true)
+#  end
+#  raise e
+#end
           # Make sure it actually got made before we move on
           desc = nil
           begin
@@ -276,9 +272,6 @@ end
           if bok['name'] == "default-allow-icmp" or bok['name'] == "default-allow-http"
             MU.log "MY VPC REFERENCE #{@project_id}/#{bok['name']}", MU::WARN, details: bok['vpc']
           end
-#          if bok['vpc'].name == "default"
-#            bok['vpc'] = { "id" => "default" }
-#          end
 
 
           byport = {}

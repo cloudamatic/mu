@@ -839,6 +839,8 @@ module MU
 # TODO validate that the resource actually went away, because it seems not to do so very reliably
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/(^notFound: |operation in progress)/)
+                  rescue MU::Cloud::MuDefunctHabitat => e
+                    # this is ok- it's already deleted
                   end while failed and retries < 6
                 end
               }
@@ -866,12 +868,17 @@ module MU
             end
           }
           arguments.delete({})
-         
+          next_page_token = nil
+          overall_retval = nil
+
           begin
             MU.log "Calling #{method_sym}", MU::DEBUG, details: arguments
             retval = nil
             retries = 0
             wait_backoff = 5
+            if next_page_token
+              arguments << { :page_token => next_page_token }
+            end
             begin
               if !arguments.nil? and arguments.size == 1
                 retval = @api.method(method_sym).call(arguments[0])
@@ -1035,7 +1042,36 @@ module MU
                 return actual_resource
               end
             end
-            return retval
+
+            # This atrocity appends the pages of list_* results
+            if overall_retval
+              if method_sym.to_s.match(/^list_(.*)/)
+                what = Regexp.last_match[1].to_sym
+                whatassign = (Regexp.last_match[1]+"=").to_sym
+                if retval.respond_to?(what) and retval.respond_to?(whatassign)
+                  newarray = retval.public_send(what) + overall_retval.public_send(what)
+                  overall_retval.public_send(whatassign, newarray)
+                else
+                  MU.log "Not sure how to paginate #{method_sym.to_s} results, returning first page only", MU::WARN, details: retval
+                  return retval
+                end
+              else
+                MU.log "Not sure how to paginate #{method_sym.to_s} results, returning first page only", MU::WARN, details: retval
+                return retval
+              end
+            else
+              overall_retval = retval
+            end
+
+            arguments.delete({ :page_token => next_page_token })
+            next_page_token = nil
+
+            if retval.respond_to?(:next_page_token) and !retval.next_page_token.nil?
+              next_page_token = retval.next_page_token
+              MU.log "Getting another page of #{method_sym.to_s}", MU::NOTICE, details: next_page_token
+            else
+              return overall_retval
+            end
           rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError, ::Google::Apis::TransmissionError => e
             if e.class.name == "Google::Apis::ClientError" and
                (!method_sym.to_s.match(/^insert_/) or !e.message.match(/^notFound: /) or
@@ -1075,7 +1111,7 @@ module MU
             sleep interval
             MU.log method_sym.to_s.bold+" "+e.inspect, MU::WARN, details: arguments
             retry
-          end
+          end while !next_page_token.nil?
         end
       end
 

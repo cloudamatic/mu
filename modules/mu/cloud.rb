@@ -972,6 +972,7 @@ module MU
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
             if !@config['vpc']["name"].nil? and @deploy
               MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
+
               sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
               if sib_by_name.is_a?(Array)
                 if sib_by_name.size == 1

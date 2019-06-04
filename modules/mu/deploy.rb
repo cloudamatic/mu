@@ -250,7 +250,7 @@ module MU
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_create_container")
-          Thread.abort_on_exception = false
+#          Thread.abort_on_exception = false
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
@@ -264,7 +264,7 @@ module MU
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_groom_container")
-          Thread.abort_on_exception = false
+#          Thread.abort_on_exception = false
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
@@ -611,7 +611,7 @@ MESSAGE_END
             MU.dupGlobals(parent_thread_id)
             threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
             Thread.current.thread_variable_set("name", threadname)
-            Thread.abort_on_exception = false
+#            Thread.abort_on_exception = false
             waitOnThreadDependencies(threadname)
 
             if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !service['dependencies'].nil? and !service['dependencies'].size == 0

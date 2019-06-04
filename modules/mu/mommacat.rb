@@ -1346,18 +1346,42 @@ raise "NAH"
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false, indent: "")
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
 
       loglevel = debug ? MU::NOTICE : MU::DEBUG
 
+      argstring = [:type, :name, :mu_name, :cloud_id, :created_only, :credentials, :habitat, :has_multiples].reject { |a|
+        binding.local_variable_get(a).nil?
+      }.map { |v|
+        v.to_s+": "+binding.local_variable_get(v).to_s
+      }.join(", ")
+
+      # Fun times: if we specified a habitat, which we may also have done by
+      # its shorthand sibling name, let's... call ourselves first to make sure
+      # we're fishing for the right thing.
+      if habitat
+        MU.log indent+"findLitterMate(#{argstring}): Attempting to resolve habitat name #{habitat}", loglevel
+        realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials, indent: indent+"  ")
+        if realhabitat and realhabitat.mu_name
+          MU.log indent+"findLitterMate: Resolved habitat name #{habitat} to #{realhabitat.mu_name}", loglevel, details: [realhabitat.mu_name, realhabitat.cloud_id, realhabitat.config.keys]
+          habitat = realhabitat.cloud_id
+        elsif debug
+          MU.log indent+"findLitterMate(#{argstring}): Failed to resolve habitat name #{habitat}", MU::WARN
+        end
+      end
+
+
       @kitten_semaphore.synchronize {
         if !@kittens.has_key?(type)
+          if debug
+            MU.log indent+"NO SUCH KEY #{type} findLitterMate(#{argstring})", MU::WARN
+          end
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}, credentials: #{credentials}, habitat: #{habitat}). has_multiples is #{attrs[:has_multiples].to_s}. Caller: #{caller[2]}", loglevel, details: @kittens[type].keys.map { |k| k.to_s+": "+@kittens[type][k].keys.join(", ") }
+        MU.log indent+"START findLitterMate(#{argstring}), caller: #{caller[2]}", loglevel, details: @kittens[type].keys.map { |k| k.to_s+": "+@kittens[type][k].keys.join(", ") }
         matches = []
 
         @kittens[type].each { |habitat_group, sib_classes|
@@ -1373,6 +1397,7 @@ raise "NAH"
           if has_multiples
             if !name.nil?
               if return_all
+                MU.log indent+"MULTI-MATCH RETURN_ALL findLitterMate(#{argstring})", loglevel, details: data.keys
                 return data.dup
               end
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
@@ -1380,7 +1405,7 @@ raise "NAH"
                 return obj
               elsif mu_name.nil? and cloud_id.nil?
                 obj = data.values.first
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[2]}", MU::WARN, details: data.keys
+                MU.log indent+"#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[2]}", MU::WARN, details: data.keys
                 return data.values.first
               end
             end
@@ -1390,8 +1415,10 @@ raise "NAH"
                   (!credentials.nil? and credentials == obj.credentials)
                 if !created_only or !obj.cloud_id.nil?
                   if return_all
+                    MU.log indent+"MULTI-MATCH RETURN_ALL findLitterMate(#{argstring})", loglevel, details: data.keys
                     return data.dup
                   else
+                    MU.log indent+"MULTI-MATCH findLitterMate(#{argstring})", loglevel, details: data.keys
                     return obj
                   end
                 end
@@ -1401,7 +1428,10 @@ raise "NAH"
             if (name.nil? or sib_class == name or virtual_name == name) and
                 (cloud_id.nil? or cloud_id == data.cloud_id) and
                 (credentials.nil? or data.credentials.nil? or credentials == data.credentials)
-              matches << data if !created_only or !data.cloud_id.nil?
+              if !created_only or !data.cloud_id.nil?
+                MU.log indent+"SINGLE MATCH findLitterMate(#{argstring})", loglevel, details: [data.mu_name, data.cloud_id, data.config.keys]
+                matches << data
+              end
             end
           end
           }
@@ -1413,6 +1443,7 @@ raise "NAH"
         end
       }
 
+      MU.log indent+"NO MATCH findLitterMate(#{argstring})", loglevel
 
       return nil
     end
@@ -2744,9 +2775,10 @@ MESSAGE_END
       }
     end
 
-    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty}
-    @catnouns = %w{bastet biscuits bobcat catnip cheetah chonk dot felix jaguar kitty leopard lion lynx maru mittens moggy neko nip ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew quat eek ziggy}
-    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline furever fumbs havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal}
+    # 2019-06-03 adding things from https://aiweirdness.com/post/185339301987/once-again-a-neural-net-tries-to-name-cats
+    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty chonky norty slonky floofy}
+    @catnouns = %w{bastet biscuits bobcat catnip cheetah chonk dot felix hamb jaguar kitty leopard lion lynx maru mittens moggy neko nip ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba slonk mew quat eek ziggy whiskeridoo cromch monch screm}
+    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline furever fumbs havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal chewie-bean chicken-whiskey fish-especially thelonious-monsieur tom-glitter serendipitous-kill sparky-buttons}
     @catwords = @catadjs + @catnouns + @catmixed
 
     @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}

@@ -400,9 +400,11 @@ module MU
             @id ||= @obj.cloud_id
             if !@name
               if @obj.config and @obj.config['name']
-                @name = @obj.config['name']
+MU.log "would assign name #{@obj.config['name']}", MU::WARN, details: self.to_h
+#                @name = @obj.config['name']
               elsif @obj.mu_name
-                @name = @obj.mu_name
+MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
+#                @name = @obj.mu_name
               end
             end
             return @obj

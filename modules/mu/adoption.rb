@@ -56,7 +56,6 @@ module MU
           end
 
           @types.each { |type|
-      
             found = MU::MommaCat.findStray(
               cloud,
               type,
@@ -65,6 +64,7 @@ module MU
               dummy_ok: true,
 #              debug: true
             )
+
 
             if found and found.size > 0
               @scraped[type] ||= {}
@@ -198,11 +198,18 @@ end
 
       if cfg.is_a?(MU::Config::Ref)
         if cfg.kitten(deploy)
-          cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id)
+          cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.project)
             { "type" => cfg.type, "name" => cfg.name }
-          # XXX other common cases: deploy_id, project, etc
+          # XXX other common cases: deploy_id, etc
           else
-            cfg.to_h
+# XXX grotesque hack, fix this in the VPC layer
+            if cfg.id == "default"  and cfg.type == "vpcs"
+              derp = cfg.to_h
+              derp.delete("name")
+              derp
+            else
+              cfg.to_h
+            end
           end
         else
           pp parent.cloud_desc
