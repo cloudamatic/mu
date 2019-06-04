@@ -206,7 +206,7 @@ when 'amazon'
     removepackages = ["nagios"]
 
   when '2'
-    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs'])
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services'])
     removepackages = ['nagios', 'firewalld']
     elversion = '7' #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
 
