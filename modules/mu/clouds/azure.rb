@@ -24,17 +24,15 @@ module MU
       @@metadata = nil
       @@acct_to_profile_map = nil #WHAT EVEN IS THIS? 
       @@myRegion_var = nil
+      @@default_subscription = nil
 
-      # Alias for #{MU::Cloud::AWS.hosted?}
-      def self.hosted
-        MU::Cloud::Azure.hosted?
-      end
 
+# UTILITY METHODS
       # Determine whether we (the Mu master, presumably) are hosted in Azure.
       # @return [Boolean]
       def self.hosted?
         if $MU_CFG and $MU_CFG.has_key?("azure_is_hosted")
-          @@is_in_aws = $MU_CFG["azure_is_hosted"]
+          @@is_in_azure = $MU_CFG["azure_is_hosted"]
           return $MU_CFG["azure_is_hosted"]
         end
 
@@ -59,6 +57,11 @@ module MU
         false
       end
 
+      # Alias for #{MU::Cloud::AWS.hosted?}
+      def self.hosted
+        return MU::Cloud::Azure.hosted?
+      end
+
       def self.hosted_config
         return nil if !hosted?
         region = get_metadata()['compute']['location']
@@ -78,23 +81,74 @@ module MU
       # Method that returns the default Azure region for this Mu Master
       # @return [string]
       def self.myRegion
-        cfg = credConfig() #Get Azure configuration from the config file
 
-        if cfg and cfg['region'] 
-          @@myRegion_var = cfg['region'] # If region is defined in the config, return it
+        if $MU_CFG['azure']['Azure']['default_region']
+          # MU.log "Found default region in mu.yml. Using that..."
+          @@myRegion_var = $MU_CFG['azure']['Azure']['default_region']
 
-        elsif MU::Cloud::Azure.hosted? # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
+        elsif MU::Cloud::Azure.hosted?
+          # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
           metadata = get_metadata()
           zone = metadata['compute']['location']
           @@myRegion_var = zone
+
+          # TODO: PERHAPS I SHOULD DEFAULT TO SOMETHING SENSIBLE?
+        else
+          raise MuError, "Default Region was not found. Please run mu-configure to setup a region"
         end
 
         return @@myRegion_var
       end
 
-      def self.listRegions(credentials = nil)
-        #subscriptions_client = Azure::Subscriptions::Profiles::Latest::Mgmt::Client.new(options)
-        []
+      # lookup the default subscription that will be used by methods
+      def self.default_subscription
+        if @@default_subscription.nil?
+          if $MU_CFG['azure']['Azure']['subscription']
+            # MU.log "Found default subscription in mu.yml. Using that..."
+            @@default_subscription = $MU_CFG['azure']['Azure']['subscription']
+
+          elsif list_subscriptions().length == 1
+            #MU.log "Found a single subscription on your account. Using that... (This may be incorrect)", MU::WARN, details: e.message
+            @@default_subscription = list_subscriptions()[0]
+
+          elsif MU::Cloud::Azure.hosted?
+            #MU.log "Found a subscriptionID in my metadata. Using that... (This may be incorrect)", MU::WARN, details: e.message
+            @@default_subscription = get_metadata()['compute']['subscriptionId']
+
+          else
+            raise MuError, "Default Subscription was not found. Please run mu-configure to setup a default subscription"
+          end
+        end
+
+        return @@default_subscription
+      end
+
+      # LIST THE REGIONS FROM AZURE
+      def self.listRegions(subscription: default_subscription())
+        regions = []
+        
+        begin
+          sdk_response = MU::Cloud::Azure.subscriptions().list_locations(subscription).value
+        rescue
+          #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
+          return regions
+        end
+
+        sdk_response.each do | region |
+          regions.push(region.name)
+        end
+
+        return regions
+      end
+
+      def self.list_subscriptions()
+        subscriptions = []
+        sdk_response = MU::Cloud::Azure.subscriptions().list
+
+        sdk_response.each do |subscription|
+          subscriptions.push(subscription.subscription_id)
+        end
+        return subscriptions
       end
 
       def self.listAZs(region = nil)
@@ -105,7 +159,7 @@ module MU
         sample = hosted_config
         sample ||= {
           "region" => "eastus",
-          "subscriptionId" => "b8f6ed82-98b5-4249-8d2f-681f636cd787",
+          "subscriptionId" => "99999999-9999-9999-9999-999999999999",
         }
 
         sample["credentials_file"] = "~/.azure/credentials"
@@ -193,6 +247,80 @@ module MU
         end
       end
 
+      def self.getSDKOptions
+        file = File.open $MU_CFG['azure']['Azure']['credentials_file']
+        credentials = JSON.load file
+        options = {
+          tenant_id: $MU_CFG['azure']['Azure']['directory_id'], #Really Directory ID
+          client_id: credentials['client_id'], # Application ID in App Registrations
+          client_secret: credentials['client_secret'], # Generated in App Registrations
+          subscription_id: default_subscription()
+        }
+        pp options
+        return options
+      end
+
+# SDK STUBS
+      def self.subscriptions()
+        require 'azure_mgmt_subscriptions'
+
+        @@subscriptions_api ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions")
+
+        return @@subscriptions_api.subscriptions
+      end
+
+      def self.compute(api: "Compute")
+        require 'azure_mgmt_compute'
+
+        @@compute_api ||= MU::Cloud::Azure::SDKClient.new(api: "Compute")
+
+        return @@compute_api
+      end
+
+
+      
+      private
+
+      class SDKClient
+        @api = nil
+        @credentials = nil
+
+        @@subscriptions_api = {}
+        @@compute_api = {}
+        @@container_api = {}
+        @@storage_api = {}
+        @@sql_api = {}
+        @@iam_api = {}
+        @@logging_api = {}
+        @@resource_api = {}
+        @@resource2_api = {}
+        @@service_api = {}
+        @@firestore_api = {}
+        @@admin_directory_api = {}
+
+        attr_reader :issuer
+
+        def initialize(api: "Compute")
+
+          @credentials = MU::Cloud::Azure.getSDKOptions()
+
+          @api = Object.const_get("::Azure::#{api}::Profiles::Latest::Mgmt::Client").new(@credentials)
+          
+        end
+
+        def method_missing(method_sym, *arguments)
+
+          if !arguments.nil? and arguments.size == 1
+            retval = @api.method(method_sym).call(arguments[0])
+          elsif !arguments.nil? and arguments.size > 0
+            retval = @api.method(method_sym).call(*arguments)
+          else
+            retval = @api.method(method_sym).call
+          end
+
+          return retval
+        end
+      end
     end
   end
 end

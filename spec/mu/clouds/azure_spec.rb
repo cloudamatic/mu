@@ -3,13 +3,13 @@ require 'mu/clouds/azure'
 
 describe MU::Cloud::Azure do
 
+	before(:all) do
+		$MU_CFG = YAML.load(File.read("spec/mu.yml"))
+	end
+
 	is_azure_for_rizzle = MU::Cloud::Azure.hosted?
 
 	p "It is #{is_azure_for_rizzle} that I am hosted in Azure I will test accordingly"
-
-	# 	before(:all) do
-	# 		@azure = MU::Cloud::Azure.new
-	# 	end
 
 	describe ".hosted?" do
 		
@@ -34,19 +34,23 @@ describe MU::Cloud::Azure do
 		end
 	end
 
-	describe ".listRegions" do
-		listRegions = MU::Cloud::Azure.listRegions
-		it "responds with an array" do
-			expect(listRegions.class).to eql(Array)
+	describe ".default_subscription" do
+		it "returns a subscription string" do
+			expect(MU::Cloud::Azure.default_subscription()).to be_a(String)
 		end
-		if is_azure_for_rizzle
-			it "responds with TODO" do
-				expect(listRegions).to eql(["TODO"])
-			end
-		else
-			it "responds with empty array" do
-				expect(listRegions).to eql([])
-			end
+	end
+
+	describe ".listRegions" do
+		before(:all) do
+			@regionList = MU::Cloud::Azure.listRegions()
+		end
+
+		it "responds with an array" do
+			expect(@regionList.class).to eql(Array)
+		end
+
+		it "responds with an array of strings" do
+			expect(@regionList).to all( be_a(String) )
 		end
 	end
 
@@ -97,7 +101,7 @@ describe MU::Cloud::Azure do
 				expect(example['region']).to eql(MU::Cloud::Azure.myRegion())
 			end
 		else
-			default_sample = {"credentials_file"=>"~/.azure/credentials", "log_bucket_name"=>"my-mu-s3-bucket", "region"=>"eastus", "subscriptionId"=>"b8f6ed82-98b5-4249-8d2f-681f636cd787"}
+			default_sample = {"credentials_file"=>"~/.azure/credentials", "log_bucket_name"=>"my-mu-s3-bucket", "region"=>"eastus", "subscriptionId"=>"99999999-9999-9999-9999-999999999999"}
 			
 			it "example matches sample" do
 				expect(MU::Cloud::Azure.config_example).to eql(default_sample)
@@ -117,17 +121,17 @@ describe MU::Cloud::Azure do
 		end
 	end
 
-	describe ".credConfig" do
-		if is_azure_for_rizzle
-			it "responds with TODO" do
-				expect(MU::Cloud::Azure.credConfig).to eql({"TODO":"TODO"})
-			end
-		else
-			it "returns nil because no credentials are configured" do
-				expect(MU::Cloud::Azure.credConfig).to be_nil
-			end
-		end
-	end
+	# describe ".credConfig" do
+	# 	if is_azure_for_rizzle
+	# 		it "responds with TODO" do
+	# 			expect(MU::Cloud::Azure.credConfig).to eql({"TODO":"TODO"})
+	# 		end
+	# 	else
+	# 		it "returns nil because no credentials are configured" do
+	# 			expect(MU::Cloud::Azure.credConfig).to be_nil
+	# 		end
+	# 	end
+	# end
 	
 	describe ".listInstanceTypes" do
 		it "responds with TODO" do
@@ -154,15 +158,16 @@ describe MU::Cloud::Azure do
 		end
 	end
 
-	describe ".myRegion" do
-		if is_azure_for_rizzle
-			it "responds with a valid region" do
-				expect(MU::Cloud::Azure.myRegion).to eql('westus') #TODO Provide a valid list of regions
-			end
-		else
-			it "responds with nil if not hosted in azure" do
-				expect(MU::Cloud::Azure.myRegion).to be_nil
-			end
+	describe ".list_subscriptions" do
+		subscriptions = MU::Cloud::Azure.list_subscriptions
+
+		it "responds with an array" do
+			expect(subscriptions.class).to eql(Array)
+		end
+
+		it "responds with an array of strings" do
+			expect(subscriptions).to all( be_a(String) )
 		end
 	end
+
 end
