@@ -21,14 +21,12 @@ module MU
 
         @deploy = nil
         @config = nil
-        @project_id = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
         attr_reader :mu_name
-        attr_reader :project_id
         attr_reader :config
         attr_reader :url
         attr_reader :cloud_id
@@ -40,25 +38,16 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
 
-          if !@project_id
-            project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-            @project_id = project.nil? ? @config['project'] : project.cloud_id
-          end
-
-          if @cloud_id
-            desc = cloud_desc
-            @url = desc.self_link if desc and desc.self_link
-          end
+#          if @cloud_id
+#            desc = cloud_desc
+#            @url = desc.self_link if desc and desc.self_link
+#          end
 
           if !mu_name.nil?
             @mu_name = mu_name
             # This is really a placeholder, since we "own" multiple rule sets
             @cloud_id ||= MU::Cloud::Google.nameStr(@mu_name+"-ingress-allow")
             @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloud_id
-            end
           else
             if !@vpc.nil?
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true, max_length: 61)
@@ -73,7 +62,6 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           @cloud_id = @deploy.getResourceName(@mu_name, max_length: 61).downcase
 
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
@@ -136,9 +124,9 @@ module MU
           }
 
           fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
-          MU.log "Creating firewall #{@cloud_id} in project #{@project_id}", details: fwobj
+          MU.log "Creating firewall #{@cloud_id} in project #{habitat_id}", details: fwobj
 #begin
-  MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
+  MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(habitat_id, fwobj)
 #rescue ::Google::Apis::ClientError => e
 #  MU.log @config['project']+"/"+@config['name']+": "+@cloud_id, MU::ERR, details: @config['vpc']
 #  MU.log e.inspect, MU::ERR, details: fwobj
@@ -150,7 +138,7 @@ module MU
           # Make sure it actually got made before we move on
           desc = nil
           begin
-            desc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_firewall(@project_id, @cloud_id)
+            desc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_firewall(habitat_id, @cloud_id)
             sleep 1
           end while desc.nil?
           desc
@@ -158,7 +146,6 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
         end
 
         # Log metadata about this ruleset to the currently running deployment
@@ -168,7 +155,7 @@ module MU
           )
           sg_data ||= {}
           sg_data["group_id"] = @cloud_id
-          sg_data["project_id"] = @project_id
+          sg_data["project_id"] = habitat_id
           sg_data["cloud_id"] = @cloud_id
 
           return sg_data
@@ -194,6 +181,7 @@ module MU
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
 #        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
         def self.find(**args)
+#MU.log "firewall_rule.find called by #{caller[0]}", MU::WARN, details: args
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           found = {}
@@ -270,7 +258,7 @@ module MU
             type: "vpcs"
           )
           if bok['name'] == "default-allow-icmp" or bok['name'] == "default-allow-http"
-            MU.log "MY VPC REFERENCE #{@project_id}/#{bok['name']}", MU::WARN, details: bok['vpc']
+            MU.log "MY VPC REFERENCE #{habitat_id}/#{bok['name']}", MU::WARN, details: bok['vpc']
           end
 
 

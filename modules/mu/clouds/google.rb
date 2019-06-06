@@ -36,17 +36,9 @@ module MU
       # {MU::Cloud}
       # @return [Array<Symbol>]
       def self.required_instance_methods
-        [:url, :project_id]
+        [:url]
       end
 
-      # Return what we think of as a cloud object's habitat. In GCP, this means
-      # the +project_id+ in which is resident. If this is not applicable, such
-      # as for a {Habitat} or {Folder}, returns nil.
-      # @param cloudobj [MU::Cloud::Google]: The resource from which to extract the habitat id
-      # @return [String,nil]
-      def self.habitat(cloudobj)
-        cloudobj.respond_to?(:project_id) ? cloudobj.project_id : nil
-      end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
       # describe this environment as our target one.
@@ -82,6 +74,77 @@ module MU
         $MU_CFG['google'].keys
       end
 
+      @@habmap = {}
+
+      # Return what we think of as a cloud object's habitat. In GCP, this means
+      # the +project_id+ in which is resident. If this is not applicable, such
+      # as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::Google]: The resource from which to extract the habitat id
+      # @return [String,nil]
+      def self.habitat(cloudobj, nolookup: false, deploy: nil)
+        @@habmap ||= {}
+# XXX whaddabout config['habitat'] HNNNGH
+        if cloudobj.config and cloudobj.config['project']
+          if nolookup
+            return cloudobj.config['project']
+          end
+          if @@habmap[cloudobj.config['project']]
+            return @@habmap[cloudobj.config['project']]
+          end
+          deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
+
+          projectobj = projectLookup(cloudobj.config['project'], deploy, raise_on_fail: false)
+
+          if projectobj
+            @@habmap[cloudobj.config['project']] = projectobj.cloud_id
+            return projectobj.cloud_id
+          end
+        end
+        
+        nil
+      end
+
+      # Take a plain string that might be a reference to sibling project
+      # declared elsewhere in the active stack, or the project id of a live
+      # cloud resource, and return a {MU::Config::Ref} object
+      # @param project [String]: The name of a sibling project, or project id of an active project in GCP
+      # @param config [MU::Config]: A {MU::Config} object containing sibling resources, typically what we'd pass if we're calling during configuration parsing
+      # @param credentials [String]: 
+      # @return [MU::Config::Ref]
+      def self.projectToRef(project, config: nil, credentials: nil)
+        return nil if !project
+
+        if config and config.haveLitterMate?(project, "habitat")
+          ref = MU::Config::Ref.new(
+            name: project,
+            cloud: "Google",
+            credentials: credentials,
+            type: "habitats"
+          )
+        end
+        
+        if !ref
+          resp = MU::MommaCat.findStray(
+            "Google",
+            "habitats",
+            cloud_id: project,
+            credentials: credentials,
+            dummy_ok: true
+          )
+          if resp and resp.size > 0
+            project_obj = resp.first
+            ref = MU::Config::Ref.new(
+              id: project_obj.cloud_id,
+              cloud: "Google",
+              credentials: credentials,
+              type: "habitats"
+            )
+          end
+        end
+
+        ref
+      end
+
       # A shortcut for {MU::MommaCat.findStray} to resolve a shorthand project
       # name into a cloud object, whether it refers to a sibling by internal
       # name or by cloud identifier.
@@ -89,7 +152,7 @@ module MU
       # @param deploy [String]
       # @param raise_on_fail [Boolean]
       # @param sibling_only [Boolean]
-      # @return [MU::Cloud::Habitat,nil]
+      # @return [MU::Config::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
         project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
 
@@ -1068,7 +1131,7 @@ module MU
 
             if retval.respond_to?(:next_page_token) and !retval.next_page_token.nil?
               next_page_token = retval.next_page_token
-              MU.log "Getting another page of #{method_sym.to_s}", MU::NOTICE, details: next_page_token
+              MU.log "Getting another page of #{method_sym.to_s}", MU::DEBUG, details: next_page_token
             else
               return overall_retval
             end

@@ -78,12 +78,16 @@ module MU
             MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject { |item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
             MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
           end
-          @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user)
+          @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user, delay_descriptor_load: true)
         rescue Exception => e
           MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
           MU.setVar("deploy_id", deploy_id)
+
         end
       end
+
+      regionsused = @mommacat.regionsUsed if @mommacat
+      credsused = @mommacat.credsUsed if @mommacat
 
       if !@skipcloud
         creds = {}
@@ -100,15 +104,23 @@ module MU
         deleted_nodes = 0
         @regionthreads = []
         keyname = "deploy-#{MU.deploy_id}"
-# XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
+
         creds.each_pair { |provider, credsets|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
           habitatclass = Object.const_get("MU").const_get("Cloud").const_get(provider).const_get("Habitat")
           credsets.each_pair { |credset, regions|
+            next if credsused and !credsused.include?(credset)
             global_vs_region_semaphore = Mutex.new
             global_done = {}
             habitats_done = {}
             regions.each { |r|
+              if regionsused
+                if regionsused.size > 0
+                  next if !regionsused.include?(r)
+                else
+                  next if r != cloudclass.myRegion(credset)
+                end
+              end
               @regionthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
                 MU.setVar("curRegion", r)
@@ -210,13 +222,6 @@ module MU
               } # @regionthreads << Thread.new {
             } # regions.each { |r|
 
-            ["Habitat", "Folder"].each { |t|
-              flags = {
-                "onlycloud" => @onlycloud,
-                "skipsnapshots" => @skipsnapshots
-              }
-              self.call_cleanup(t, credset, provider, flags, nil)
-            }
 
           } # credsets.each_pair { |credset, regions|
         } # creds.each_pair { |provider, credsets|
@@ -230,6 +235,21 @@ module MU
         @projectthreads.each do |t|
           t.join
         end
+
+        # Knock habitats and folders, which would contain the above resources,
+        # once they're all done.
+        creds.each_pair { |provider, credsets|
+          credsets.each_pair { |credset, regions|
+            next if credsused and !credsused.include?(credset)
+            ["Habitat", "Folder"].each { |t|
+              flags = {
+                "onlycloud" => @onlycloud,
+                "skipsnapshots" => @skipsnapshots
+              }
+              self.call_cleanup(t, credset, provider, flags, nil)
+            }
+          }
+        }
 
         MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper

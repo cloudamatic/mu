@@ -22,8 +22,8 @@ module MU
         @parent = nil
 
         attr_reader :mu_name
-        attr_reader :project_id # should always be nil
         attr_reader :config
+        attr_reader :habitat_id # misnomer- it's really a parent folder, which may or may not exist
         attr_reader :cloud_id
         attr_reader :url
 
@@ -86,7 +86,7 @@ module MU
             end
           end while found.size == 0
 
-          @project_id = parent
+          @habitat = parent
 
         end
 
@@ -134,7 +134,7 @@ module MU
         # Return the cloud descriptor for the Folder
         def cloud_desc
           @cached_cloud_desc ||= MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first
-          @project_id ||= @cached_cloud_desc.parent.sub(/^(folders|organizations)\//, "")
+          @habitat_id ||= @cached_cloud_desc.parent.sub(/^(folders|organizations)\//, "")
           @cached_cloud_desc
         end
 
@@ -230,6 +230,7 @@ module MU
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
 #        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
         def self.find(**args)
+#MU.log "folder.find called by #{caller[0]}", MU::WARN, details: args
           found = {}
 
           # Recursively search a GCP folder hierarchy for a folder matching our

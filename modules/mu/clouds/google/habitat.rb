@@ -21,7 +21,7 @@ module MU
         @config = nil
 
         attr_reader :mu_name
-        attr_reader :project_id # should always be nil
+        attr_reader :habitat_id # misnomer- it's really a parent folder, which may or may not exist
         attr_reader :config
         attr_reader :cloud_id
         attr_reader :url
@@ -124,7 +124,7 @@ module MU
 
 
           @cloud_id = params[:project_id]
-          @project_id = parent_id
+          @habitat_id = parent_id
           setProjectBilling
           MU.log "Project #{params[:project_id]} (#{params[:name]}) created"
         end
@@ -166,7 +166,7 @@ module MU
         # Return the cloud descriptor for the Habitat
         def cloud_desc
           @cached_cloud_desc ||= MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
-          @project_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
+          @habitat_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
           @cached_cloud_desc
         end
 
@@ -239,6 +239,7 @@ module MU
         # Locate an existing project
         # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
+#MU.log "habitat.find called by #{caller[0]}", MU::WARN, details: args
           found = {}
 
           args[:cloud_id] ||= args[:project]

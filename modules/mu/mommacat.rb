@@ -161,6 +161,7 @@ module MU
                    skip_resource_objects: false,
                    no_artifacts: false,
                    deployment_data: {},
+                   delay_descriptor_load: false,
                    mu_user: Etc.getpwuid(Process.uid).name
     )
       if deploy_id.nil? or deploy_id.empty?
@@ -218,16 +219,20 @@ module MU
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
         credsets = {}
+
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
             @original_config[data[:cfg_plural]].each { |resource|
+
               credsets[resource['cloud']] ||= []
               credsets[resource['cloud']] << resource['credentials']
               @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
               @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
+
             }
           end
         }
+
         @ssh_key_name, @ssh_private_key, @ssh_public_key = self.SSHKey
         if !File.exist?(deploy_dir+"/private_key")
           @private_key, @public_key = createDeployKey
@@ -246,9 +251,10 @@ module MU
         if set_context_to_me
           MU::MommaCat.setThreadContext(self)
         end
-        save!
-      end
 
+        save!
+
+      end
 
       loadDeploy(set_context_to_me: set_context_to_me)
       if !deploy_secret.nil?
@@ -256,6 +262,7 @@ module MU
           raise DeployInitializeError, "Invalid or incorrect deploy key."
         end
       end
+
       @appname ||= MU.appname
       @timestamp ||= MU.timestamp
       @appname ||= appname
@@ -268,6 +275,7 @@ module MU
         MU::Cloud.resource_types.each_pair { |res_type, attrs|
           type = attrs[:cfg_plural]
           if @deployment.has_key?(type)
+
             @deployment[type].each_pair { |res_name, data|
               orig_cfg = nil
               if @original_config.has_key?(type)
@@ -299,7 +307,7 @@ module MU
                 orig_cfg['environment'] = @environment # not always set in old deploys
                 if attrs[:has_multiples]
                   data.each_pair { |mu_name, actual_data|
-                    attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
+                    attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load)
                   }
                 else
                   # XXX hack for old deployments, this can go away some day
@@ -324,6 +332,7 @@ module MU
                 MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
               end
             }
+
           end
         }
       end
@@ -334,6 +343,34 @@ module MU
 #         @@litters[@deploy_id] = self
 #       }
 #     end
+    end
+
+    def credsUsed
+      creds = []
+      @kittens.each_pair { |type, habitat_group|
+        habitat_group.each_pair { |habitat, sib_classes|
+          sib_classes.each_pair { |sib_class, data|
+            if data and data.config and data.config["credentials"]
+              creds << data.config["credentials"]
+            end
+          }
+        }
+      }
+      creds.uniq
+    end
+
+    def regionsUsed
+      regions = []
+      @kittens.each_pair { |type, habitat_group|
+        habitat_group.each_pair { |habitat, sib_classes|
+          sib_classes.each_pair { |sib_class, data|
+            if data and data.config and data.config["region"]
+              regions << data.config["region"]
+            end
+          }
+        }
+      }
+      regions.uniq
     end
 
     # Tell us the number of first-class resources we've configured, optionally
@@ -1104,7 +1141,8 @@ raise "NAH"
         end
         loglevel = debug ? MU::NOTICE : MU::DEBUG
 
-        MU.log "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials})", loglevel, details: flags
+        MU.log "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, flags: #{flags.to_s}) from #{caller[0]}", loglevel, details: caller
+
 
         # See if the thing we're looking for is a member of the deploy that's
         # asking after it.

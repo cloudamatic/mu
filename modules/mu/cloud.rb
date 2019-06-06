@@ -694,7 +694,6 @@ module MU
           return fullname
         end
 
-
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
         # @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
@@ -703,6 +702,7 @@ module MU
                        mu_name: nil,
                        cloud_id: nil,
                        credentials: nil,
+                       delay_descriptor_load: nil,
                        kitten_cfg: nil,
                        delayed_save: false)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
@@ -746,7 +746,7 @@ module MU
 
 # If we just loaded an existing object, go ahead and prepopulate the
 # describe() cache
-          if !cloud_id.nil? or !mu_name.nil?
+          if !cloud_id.nil? or !mu_name.nil? and !delay_descriptor_load
             @cloudobj.describe(cloud_id: cloud_id)
             @cloud_id ||= @cloudobj.cloud_id
           end
@@ -778,7 +778,7 @@ module MU
 
           # Register us with our parent deploy so that we can be found by our
           # littermates if needed.
-          if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+          if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty? and !delay_descriptor_load
             describe # XXX is this actually safe here?
             @deploy.addKitten(self.class.cfg_name, @config['name'], self)
           elsif !@deploy.nil?
@@ -802,14 +802,6 @@ module MU
           end
         end
 
-        # Return the cloud object's idea of where it lives (project, account,
-        # etc). If not applicable for this object, we expect to return +nil+.
-        # @return [String,nil]
-        def habitat
-          @cloudobj ||= self
-          parent_class = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-          parent_class.habitat(@cloudobj)
-        end
 
         # Remove all metadata and cloud resources associated with this object
         def destroy
@@ -839,21 +831,35 @@ module MU
             end
           end
         end
+
+        # Return the cloud object's idea of where it lives (project, account,
+        # etc) in the form of an identifier. If not applicable for this object,
+        # we expect to return +nil+.
+        # @return [String,nil]
+        def habitat(nolookup: true)
+          return nil if ["folder", "habitat"].include?(self.class.cfg_name)
+          @cloudobj ||= self
+          parent_cloud_class = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          parent_cloud_class.habitat(@cloudobj, nolookup: nolookup, deploy: @deploy)
+        end
+
+        def habitat_id(nolookup: false)
+          habitat(nolookup: nolookup)
+        end
         
         def cloud_desc
+MU.log "cloud_desc called on #{self}", MU::WARN, details: caller
           describe
           if !@cloudobj.nil?
             @cloud_desc_cache ||= @cloudobj.cloud_desc
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
             @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
-            @project_id = @cloudobj.project_id if @cloudobj.respond_to?(:project_id)
           end
           if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
-
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: @config['project'])
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: habitat_id)
               if !matches.nil? and matches.is_a?(Hash) and matches[@cloud_id]
 #                puts matches[@cloud_id][:self_link]
 #                puts matches[@cloud_id][:url]
@@ -866,7 +872,7 @@ module MU
 #                end
                 @cloud_desc_cache = matches[@cloud_id]
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }", MU::WARN, details: caller
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }.\nCalled by #{caller[0]}", MU::WARN
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN

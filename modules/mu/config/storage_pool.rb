@@ -93,7 +93,7 @@ module MU
                 siblingvpc = configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs")
                 if !MU::Config::VPC.processReference(mp['vpc'],
                                         "storage_pools",
-                                        "storagepool '#{pool['name']}'",
+                                        pool,
                                         configurator,
                                         dflt_region: pool['region'],
                                         credentials: pool['credentials'],
@@ -104,7 +104,7 @@ module MU
               else
                 if !MU::Config::VPC.processReference(mp["vpc"],
                                         "storage_pools",
-                                        "storagepool #{pool['name']}",
+                                        pool,
                                         configurator,
                                         dflt_region: pool['region'],
                                         credentials: pool['credentials'])

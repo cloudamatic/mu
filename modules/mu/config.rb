@@ -274,6 +274,7 @@ module MU
       attr_reader :region 
       attr_reader :credentials 
       attr_reader :project
+      attr_reader :mommacat
       attr_reader :tag_key 
       attr_reader :tag_value
       attr_reader :obj 
@@ -282,10 +283,10 @@ module MU
       # lookup information for a cloud object
       def initialize(cfg)
 
-        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'project', 'credentials'].each { |field|
-          if !cfg[field].nil? and !cfg[field].empty?
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'project', 'credentials', 'mommacat'].each { |field|
+          if !cfg[field].nil?
             self.instance_variable_set("@#{field}".to_sym, cfg[field])
-          elsif !cfg[field.to_sym].nil? and !cfg[field.to_sym].empty?
+          elsif !cfg[field.to_sym].nil?
             self.instance_variable_set("@#{field.to_s}".to_sym, cfg[field.to_sym])
           end
         }
@@ -294,6 +295,8 @@ module MU
           @tag_key = cfg['tag']['key']
           @tag_value = cfg['tag']['value']
         end
+
+        kitten if @mommacat # try to populate the actual cloud object for this
 
       end
 
@@ -315,10 +318,6 @@ module MU
             "name" => {
               "type" => "string",
               "description" => "The short (internal Mu) name of a resource we're attempting to reference. Typically used when referring to a sibling resource elsewhere in the same deploy, or in another known Mu deploy in conjunction with +deploy_id+."
-            },
-            "project" => {
-              "type" => "string",
-              "description" => "*GOOGLE ONLY* - +GOOGLE+: The project in which this resource should be found"
             },
             "type" => {
               "type" => "string",
@@ -348,6 +347,9 @@ module MU
             }
           }
         }
+        if !["folders", "habitats"].include?(type)
+          schema["properties"]["habitat"] = MU::Config::Habitat.reference
+        end
 
         if !type.nil?
           schema["required"] = ["type"]
@@ -391,7 +393,7 @@ module MU
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
-      def kitten(mommacat = nil)
+      def kitten(mommacat = @mommacat)
         return @obj if @obj
 
         if mommacat
@@ -1115,7 +1117,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
-                                  shortclass.to_s+" '#{descriptor['name']}'",
+                                  descriptor,
                                   self,
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
@@ -1130,7 +1132,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
           # don't have to work so hard.
         else
           if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
-                                  "#{shortclass} #{descriptor['name']}",
+                                  descriptor,
                                   self,
                                   credentials: descriptor['credentials'],
                                   dflt_project: descriptor['project'],
