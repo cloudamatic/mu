@@ -710,7 +710,7 @@ module MU
 
         if subclass.nil?
 #          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects', 'https://www.googleapis.com/auth/cloudplatformorganizations'], credentials: credentials)
+          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects', 'https://www.googleapis.com/auth/cloudplatformorganizations', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -814,7 +814,6 @@ module MU
       # @return [Array<OpenStruct>],nil]
       def self.getOrg(credentials = nil)
         resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
-#MU.log "ORG CHECK WITH CREDS #{credentials}", MU::WARN, details: resp
         if resp and resp.organizations
           # XXX no idea if it's possible to be a member of multiple orgs
           return resp.organizations.first
