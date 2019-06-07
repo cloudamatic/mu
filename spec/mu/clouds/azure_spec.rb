@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'yaml'
 require 'mu/clouds/azure'
 
 

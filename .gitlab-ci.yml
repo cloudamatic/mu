@@ -49,7 +49,7 @@ Rspec:
   script:
     - cd modules
     - bundle install
-    - gem install rspec simplecov simplecov-console yaml
+    - gem install rspec simplecov simplecov-console
     - cd ../
     - rspec
 
