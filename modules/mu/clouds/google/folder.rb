@@ -348,7 +348,7 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
           ok = true
 
           if !MU::Cloud::Google.getOrg(folder['credentials'])
-            MU.log "Cannot manage Google Cloud projects in environments without an organization. See also: https://cloud.google.com/resource-manager/docs/creating-managing-organization", MU::ERR
+            MU.log "Cannot manage Google Cloud projects in environments without an organization.", MU::ERR, details: ["https://cloud.google.com/resource-manager/docs/creating-managing-organization", "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"]
             ok = false
           end
 
