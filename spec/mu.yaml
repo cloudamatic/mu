@@ -43,8 +43,8 @@ repos:
 - https://github.com/cloudamatic/mu_demo_platform
 azure:
   Azure:
-    directory_id: 99999999-9999-9999-9999-999999999999
-    subscription: 99999999-9999-9999-9999-999999999999
+    directory_id: __AZURE_DIRECTORY_ID__
+    subscription: __AZURE_SUBSCIPTION_ID__
     credentials_file: "spec/azure_creds"
     default: true
     default_region: eastus

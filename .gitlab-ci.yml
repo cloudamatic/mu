@@ -47,11 +47,14 @@ ChefSpec:
 Rspec:
   stage: Test
   script:
+    - cat spec/azure_creds | sed -e "s/AZURE_CLIENT_ID/${AZURE_CLIENT_ID}/"
+    - cat spec/azure_creds | sed -e "s/AZURE_CLIENT_SECRET/${AZURE_CLIENT_SECRET}/"
     - cd modules
     - bundle install
     - gem install rspec simplecov simplecov-console
     - cd ../
     - rspec
+    - shred -u spec/azure_creds
 
 New_Berks:
   stage: Test
