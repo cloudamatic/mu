@@ -1,10 +1,10 @@
 require 'spec_helper'
 require 'mu/clouds/azure'
 
-describe MU::Cloud::Azure do
 
+describe MU::Cloud::Azure do
 	before(:all) do
-		$MU_CFG = YAML.load(File.read("spec/mu.yml"))
+		$MU_CFG = YAML.load(File.read("spec/mu.yaml"))
 	end
 
 	is_azure_for_rizzle = MU::Cloud::Azure.hosted?
@@ -47,26 +47,12 @@ describe MU::Cloud::Azure do
 
 		it "responds with an array" do
 			expect(@regionList.class).to eql(Array)
+			expect(MU::Cloud::Azure.listRegions().class).to eql(Array)
 		end
 
 		it "responds with an array of strings" do
 			expect(@regionList).to all( be_a(String) )
-		end
-	end
-
-	describe ".listAZs" do
-		listAZs = MU::Cloud::Azure.listAZs
-		it "responds with an array" do
-			expect(listAZs.class).to eql(Array)
-		end
-		if is_azure_for_rizzle
-			it "responds with TODO" do
-				expect(listAZs).to eql(["TODO"])
-			end
-		else
-			it "responds with empty array" do
-				expect(listAZs).to eql([])
-			end
+			expect(MU::Cloud::Azure.listRegions()).to all( be_a(String) )
 		end
 	end
 
@@ -133,11 +119,11 @@ describe MU::Cloud::Azure do
 	# 	end
 	# end
 	
-	describe ".listInstanceTypes" do
-		it "responds with TODO" do
-			expect(MU::Cloud::Azure.listInstanceTypes).to eql("TODO")
-		end
-	end
+	# describe ".listInstanceTypes" do
+	# 	it "responds with TODO" do
+	# 		expect(MU::Cloud::Azure.listInstanceTypes).to eql("TODO")
+	# 	end
+	# end
 
 	describe ".get_metadata" do
 		if is_azure_for_rizzle
@@ -159,15 +145,70 @@ describe MU::Cloud::Azure do
 	end
 
 	describe ".list_subscriptions" do
-		subscriptions = MU::Cloud::Azure.list_subscriptions
-
+		before(:all) do
+			@subscriptions = MU::Cloud::Azure.list_subscriptions()
+		end
+		
 		it "responds with an array" do
-			expect(subscriptions.class).to eql(Array)
+			expect(@subscriptions.class).to eql(Array)
 		end
 
 		it "responds with an array of strings" do
-			expect(subscriptions).to all( be_a(String) )
+			expect(@subscriptions).to all( be_a(String) )
 		end
+	end
+
+	describe ".listAZs" do
+		before(:all) do
+			@azs = MU::Cloud::Azure.listAZs('eastus')
+		end
+		
+		it "responds with an array" do
+			expect(@azs.class).to eql(Array)
+		end
+
+		it "responds with an array of strings" do
+			expect(@azs).to all( be_a(String) )
+		end
+
+		it "responds with valid array of AZs if region is passed" do
+			expect(MU::Cloud::Azure.listAZs('eastus')).to eql(['1', '2', '3'])
+		end
+
+		it "responds with empty array of AZs if invalid region is passed" do
+			expect(MU::Cloud::Azure.listAZs('westus')).to eql([])
+		end
+
+		it "responds with empty array of AZs if no region is passed" do
+			expect(MU::Cloud::Azure.listAZs()).to eql([])
+		end
+	end
+
+	describe ".myRegion" do
+		before(:each) do
+			MU::Cloud::Azure.class_variable_set :@@myRegion_var, nil
+		end
+		
+		after(:each) do
+			$MU_CFG = YAML.load(File.read("spec/mu.yaml"))
+		end
+
+		if !is_azure_for_rizzle
+			it "responds with nil" do
+				$MU_CFG['azure']['Azure'].delete('default_region')
+
+				expect( MU::Cloud::Azure.myRegion()).to eql(nil)
+			end
+		end
+
+		it "responds with a string" do
+			expect( MU::Cloud::Azure.myRegion().class).to eql(String)
+
+			$MU_CFG['azure']['Azure'].delete('default_region')
+
+			expect( MU::Cloud::Azure.myRegion().class).to eql(String)
+		end
+
 	end
 
 end

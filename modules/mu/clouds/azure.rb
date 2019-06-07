@@ -25,6 +25,7 @@ module MU
       @@acct_to_profile_map = nil #WHAT EVEN IS THIS? 
       @@myRegion_var = nil
       @@default_subscription = nil
+      @@regions = []
 
 
 # UTILITY METHODS
@@ -81,7 +82,10 @@ module MU
       # Method that returns the default Azure region for this Mu Master
       # @return [string]
       def self.myRegion
-
+        if  @@myRegion_var
+          return @@myRegion_var
+        end
+        
         if $MU_CFG['azure']['Azure']['default_region']
           # MU.log "Found default region in mu.yml. Using that..."
           @@myRegion_var = $MU_CFG['azure']['Azure']['default_region']
@@ -89,12 +93,11 @@ module MU
         elsif MU::Cloud::Azure.hosted?
           # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
           metadata = get_metadata()
-          zone = metadata['compute']['location']
-          @@myRegion_var = zone
+          @@myRegion_var = metadata['compute']['location']
 
           # TODO: PERHAPS I SHOULD DEFAULT TO SOMETHING SENSIBLE?
         else
-          raise MuError, "Default Region was not found. Please run mu-configure to setup a region"
+          #raise MuError, "Default Region was not found. Please run mu-configure to setup a region"
         end
 
         return @@myRegion_var
@@ -125,34 +128,47 @@ module MU
 
       # LIST THE REGIONS FROM AZURE
       def self.listRegions(subscription: default_subscription())
-        regions = []
+        if  @@regions.length() > 0 && subscription == default_subscription()
+          return @@regions
+        end
         
         begin
           sdk_response = MU::Cloud::Azure.subscriptions().list_locations(subscription).value
         rescue
           #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
-          return regions
+          return @@regions
         end
 
         sdk_response.each do | region |
-          regions.push(region.name)
+          @@regions.push(region.name)
         end
 
-        return regions
+        return @@regions
       end
 
       def self.list_subscriptions()
         subscriptions = []
+
         sdk_response = MU::Cloud::Azure.subscriptions().list
 
         sdk_response.each do |subscription|
           subscriptions.push(subscription.subscription_id)
         end
+
         return subscriptions
       end
 
       def self.listAZs(region = nil)
-        []
+        az_list = ['1', '2', '3']
+
+        # Pulled from this chart: https://docs.microsoft.com/en-us/azure/availability-zones/az-overview#services-support-by-region
+        az_enabled_regions = ['centralus', 'eastus', 'eastus2', 'westus2', 'francecentral', 'northeurope', 'uksouth', 'westeurope', 'japaneast', 'southeastasia'] 
+
+        if not az_enabled_regions.include?(region)
+          az_list = []
+        end
+
+        return az_list
       end
 
       def self.config_example
@@ -176,43 +192,29 @@ module MU
       end
 
       def self.credConfig (name = nil, name_only: false)
-        # If there's nothing in mu.yaml (which is wrong), but we're running on a machine hosted in Azure, fake it with that machine's service account and hope for the best.
-#         if !$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0
-#           return @@my_hosted_cfg if @@my_hosted_cfg
-
-#           if hosted?
-#             begin
-# #              iam_data = JSON.parse(getAWSMetaData("iam/info"))
-# #              if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
-#                 @@my_hosted_cfg = hosted_config
-#                 return name_only ? "#default" : @@my_hosted_cfg
-# #              end
-#             rescue JSON::ParserError => e
-#             end
-#           end
-
-#           return nil
-#         end
-
-        if name.nil?
-          $MU_CFG['azure'].each_pair { |name, cfg|
-            if cfg['azure']
-              return name_only ? name : cfg
-            end
-          }
-        else
-          if $MU_CFG['azure'][name]
-            return name_only ? name : $MU_CFG['azure'][name]
-          elsif @@acct_to_profile_map[name.to_s]
-            return name_only ? name : @@acct_to_profile_map[name.to_s]
-          end
-# XXX whatever process might lead us to populate @@acct_to_profile_map with some mappings, like projectname -> account profile, goes here
-          return nil
-        end
+        "TODO"
       end
 
       def self.listInstanceTypes
-        "TODO"
+        return @@instance_types if @@instance_types and @@instance_types[region]
+        if !MU::Cloud::Azure.default_subscription()
+          return {}
+        end
+
+        @@instance_types ||= {}
+        @@instance_types[region] ||= {}
+        result = MU::Cloud::Google.compute.list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
+        result.items.each { |type|
+          @@instance_types[region][type.name] ||= {}
+          @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
+          @@instance_types[region][type.name]["vcpu"] = type.guest_cpus.to_f
+          if type.is_shared_cpu
+            @@instance_types[region][type.name]["ecu"] = "Variable"
+          else
+            @@instance_types[region][type.name]["ecu"] = type.guest_cpus
+          end
+        }
+        @@instance_types
       end
       
       def self.adminBucketName(credentials = nil)
@@ -251,16 +253,15 @@ module MU
         file = File.open $MU_CFG['azure']['Azure']['credentials_file']
         credentials = JSON.load file
         options = {
-          tenant_id: $MU_CFG['azure']['Azure']['directory_id'], #Really Directory ID
+          tenant_id: $MU_CFG['azure']['Azure']['directory_id'], # Really Directory ID
           client_id: credentials['client_id'], # Application ID in App Registrations
           client_secret: credentials['client_secret'], # Generated in App Registrations
           subscription_id: default_subscription()
         }
-        pp options
         return options
       end
 
-# SDK STUBS
+# BEGIN SDK STUBS
       def self.subscriptions()
         require 'azure_mgmt_subscriptions'
 
@@ -277,8 +278,25 @@ module MU
         return @@compute_api
       end
 
+      def self.network(api: "Network")
+        require 'azure_mgmt_network'
 
-      
+        @@network_api ||= MU::Cloud::Azure::SDKClient.new(api: "Network")
+
+        return @@network_api
+      end
+
+      def self.storage(api: "Storage")
+        require 'azure_mgmt_storage'
+
+        @@storage_api ||= MU::Cloud::Azure::SDKClient.new(api: "Storage")
+
+        return @@storage_api
+      end
+
+# END SDK STUBS
+
+# BEGIN SDK CLIENT
       private
 
       class SDKClient
@@ -321,6 +339,7 @@ module MU
           return retval
         end
       end
+# END SDK CLIENT
     end
   end
 end
