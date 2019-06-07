@@ -848,7 +848,6 @@ module MU
         end
         
         def cloud_desc
-MU.log "cloud_desc called on #{self}", MU::WARN, details: caller
           describe
           if !@cloudobj.nil?
             @cloud_desc_cache ||= @cloudobj.cloud_desc

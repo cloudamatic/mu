@@ -402,10 +402,11 @@ module MU
             @id ||= @obj.cloud_id
             if !@name
               if @obj.config and @obj.config['name']
-MU.log "would assign name #{@obj.config['name']}", MU::WARN, details: self.to_h
-#                @name = @obj.config['name']
+                @name = @obj.config['name']
               elsif @obj.mu_name
+if @type == "folders"
 MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
+end
 #                @name = @obj.mu_name
               end
             end
@@ -830,12 +831,12 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
         if @config[type]
           @config[type].each { |k|
-            inheritDefaults(k, type)
+            applyInheritedDefaults(k, type)
           }
         end
       }
 
-      set_schema_defaults(@config, MU::Config.schema)
+      applySchemaDefaults(@config, MU::Config.schema)
       validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
 #      XXX but now we're not validating top-level keys, argh
 #pp @config
@@ -1047,7 +1048,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
 
       descriptor["#MU_CLOUDCLASS"] = classname
 
-      inheritDefaults(descriptor, cfg_plural)
+      applyInheritedDefaults(descriptor, cfg_plural)
 
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
 
@@ -1298,7 +1299,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
-          set_schema_defaults(descriptor, myschema, type: shortclass)
+          applySchemaDefaults(descriptor, myschema, type: shortclass)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
@@ -1425,7 +1426,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
     def self.cloud_primitive
       {
         "type" => "string",
-#        "default" => MU::Config.defaultCloud, # inheritDefaults does this better
+#        "default" => MU::Config.defaultCloud, # applyInheritedDefaults does this better
         "enum" => MU::Cloud.supportedClouds
       }
     end
@@ -1671,7 +1672,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
       binding
     end
 
-    def set_schema_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
+    def applySchemaDefaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
       return if schema_chunk.nil?
 
       if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
@@ -1686,7 +1687,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
               nil
             end
 
-            new_val = set_schema_defaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+            new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
 
             conf_chunk[key] = new_val if new_val != nil
           }
@@ -1707,7 +1708,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
             schema_chunk["items"]
           end
 
-          set_schema_defaults(item, realschema, depth+1, conf_chunk)
+          applySchemaDefaults(item, realschema, depth+1, conf_chunk)
         }
       else
         if conf_chunk.nil? and !schema_chunk["default_if"].nil? and !siblings.nil?
@@ -1840,10 +1841,10 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
 
     
     # Given a bare hash describing a resource, insert default values which can
-    # be inherited from the current live parent configuration.
+    # be inherited from its parent or from the root of the BoK.
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
-    def inheritDefaults(kitten, type)
+    def applyInheritedDefaults(kitten, type)
       kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
 
@@ -1851,7 +1852,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
 
-      schema_fields = ["us_only", "scrub_mu_isms", "credentials"]
+      schema_fields = ["us_only", "scrub_mu_isms", "credentials", "billing_acct"]
       if !resclass.isGlobal?
         kitten['cloud'] ||= @config['region']
         schema_fields << "region"
@@ -1910,7 +1911,7 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
         @kittens[type] = config[type]
         @kittens[type] ||= []
         @kittens[type].each { |k|
-          inheritDefaults(k, type)
+          applyInheritedDefaults(k, type)
         }
         count = count + @kittens[type].size
       }
@@ -2260,7 +2261,11 @@ MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
         },
         "project" => {
           "type" => "string",
-          "description" => "GOOGLE: The project into which to deploy resources"
+          "description" => "**GOOGLE ONLY**: The project into which to deploy resources"
+        },
+        "billing_acct" => {
+          "type" => "string",
+          "description" => "**GOOGLE ONLY**: Billing account ID to associate with a newly-created Google Project. If not specified, will attempt to locate a billing account associated with the default project for our credentials.",
         },
         "region" => MU::Config.region_primitive,
         "credentials" => MU::Config.credentials_primitive,

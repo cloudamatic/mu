@@ -233,6 +233,7 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         def toKitten(rootparent: nil, billing: nil)
+
           bok = {
             "cloud" => "Google",
             "project" => @config['project'],
@@ -250,15 +251,19 @@ module MU
             raise MuError, "FirewallRule toKitten: I'm in 'default' VPC but can't figure out what project I'm in"
           end
 
-          bok['vpc'] = MU::Config::Ref.new(
-            id: vpc_id,
-            project: @config['project'],
-            cloud: "Google",
-            credentials: @config['credentials'],
-            type: "vpcs"
-          )
-          if bok['name'] == "default-allow-icmp" or bok['name'] == "default-allow-http"
-            MU.log "MY VPC REFERENCE #{habitat_id}/#{bok['name']}", MU::WARN, details: bok['vpc']
+          # XXX make sure this is sane (that these rules come with default VPCs)
+          if vpc_id == "default" and ["default-allow-icmp", "default-allow-http"].include?(cloud_desc.name)
+            return nil
+          end
+
+          if vpc_id != "default"
+            bok['vpc'] = MU::Config::Ref.new(
+              id: vpc_id,
+              project: @config['project'],
+              cloud: "Google",
+              credentials: @config['credentials'],
+              type: "vpcs"
+            )
           end
 
 

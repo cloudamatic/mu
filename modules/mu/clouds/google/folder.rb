@@ -305,9 +305,11 @@ end
             "credentials" => @config['credentials']
           }
 
-          bok['name'] = cloud_desc.display_name
+          bok['display_name'] = cloud_desc.display_name
           bok['cloud_id'] = cloud_desc.name.sub(/^folders\//, "")
+          bok['name'] = cloud_desc.display_name+bok['cloud_id'] # only way to guarantee uniqueness
           if cloud_desc.parent.match(/^folders\/(.*)/)
+MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_desc.parent
             bok['parent'] = MU::Config::Ref.new(
               id: Regexp.last_match[1],
               cloud: "Google",
@@ -319,9 +321,7 @@ end
           else
             bok['parent'] = { 'id' => cloud_desc.parent }
           end
-#if @cloud_id == "455213018804" or cloud_desc.parent == "folders/455213018804"
-#  MU.log "FOLDER TOKITTEN MENTIONS MY MIA ONE #{caller[1]}", MU::WARN, details: bok
-#`end
+#  MU.log "FOLDER TOKITTEN #{bok['display_name']}", MU::WARN, details: bok
 
           bok
         end
@@ -332,6 +332,10 @@ end
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "display_name" => {
+              "type" => "string",
+              "description" => "The +display_name+ field of this folder, specified only if we want it to be something other than the automatically-generated string derived from the +name+ field.",
+            }
           }
           [toplevel_required, schema]
         end

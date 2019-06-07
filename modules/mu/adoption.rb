@@ -118,6 +118,9 @@ end
               bok[res_class.cfg_plural] << resource_bok
               count += 1
             end
+            # it's ok if we got a nil back- that's what happens when we've
+            # discovered an object we shouldn't explicitly try to replicate,
+            # such as the 'default' VPC in a Google project
           }
         }
       }
@@ -153,6 +156,8 @@ end
         'cloud' => {},
         'credentials' => {},
         'region' => {},
+        'billing_acct' => {},
+        'us_only' => {},
       }
       clouds = {}
       credentials = {}
@@ -199,17 +204,13 @@ end
       if cfg.is_a?(MU::Config::Ref)
         if cfg.kitten(deploy)
           cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.project)
+if !cfg.name
+MU.log "FAILED TO GET A NAME FROM REFERENCE", MU::WARN, details: cfg
+end
             { "type" => cfg.type, "name" => cfg.name }
           # XXX other common cases: deploy_id, etc
           else
-# XXX grotesque hack, fix this in the VPC layer
-            if cfg.id == "default"  and cfg.type == "vpcs"
-              derp = cfg.to_h
-              derp.delete("name")
-              derp
-            else
-              cfg.to_h
-            end
+            cfg.to_h
           end
         else
           pp parent.cloud_desc

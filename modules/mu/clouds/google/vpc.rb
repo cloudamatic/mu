@@ -254,7 +254,7 @@ end
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(**args)
-MU.log "vpc.find called by #{caller[0]}", MU::WARN, details: args
+#MU.log "vpc.find called by #{caller[0]}", MU::WARN, details: args
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
           resp = {}
           if args[:cloud_id] and args[:project]
@@ -303,7 +303,6 @@ MU.log "vpc.find called by #{caller[0]}", MU::WARN, details: args
         # @param use_cache [Boolean]: If available, use saved deployment metadata to describe subnets, instead of querying the cloud API
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets(use_cache: false)
-start = Time.now
           network = cloud_desc
 
           if network.nil?
@@ -312,7 +311,8 @@ start = Time.now
           end
           found = []
 
-          if use_cache and @deploy.deployment and @deploy.deployment["vpcs"] and
+          if use_cache and @deploy and @deploy.deployment and
+             @deploy.deployment["vpcs"] and
              @deploy.deployment["vpcs"][@config['name']] and
              @deploy.deployment["vpcs"][@config['name']]["subnets"]
             @deploy.deployment["vpcs"][@config['name']]["subnets"].each { |desc|
@@ -566,6 +566,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
         def toKitten(rootparent: nil, billing: nil)
+          return nil if cloud_desc.name == "default" # parent project builds these
           bok = {
             "cloud" => "Google",
             "project" => @config['project'],
