@@ -3,11 +3,15 @@ require 'mu/clouds/azure'
 
 
 describe MU::Cloud::Azure do
-	before(:all) do
-		$MU_CFG = YAML.load(File.read("spec/mu.yaml"))
-	end
-
 	is_azure_for_rizzle = MU::Cloud::Azure.hosted?
+
+	before(:all) do
+		if File.file?("/opt/mu/lib/mu.yaml")
+			$MU_CFG = YAML.load(File.read("/opt/mu/lib/mu.yaml"))
+		else
+			$MU_CFG = YAML.load(File.read("spec/mu.yaml"))
+		end
+	end
 
 	p "It is #{is_azure_for_rizzle} that I am hosted in Azure I will test accordingly"
 
@@ -188,7 +192,7 @@ describe MU::Cloud::Azure do
 		before(:each) do
 			MU::Cloud::Azure.class_variable_set :@@myRegion_var, nil
 		end
-		
+
 		after(:each) do
 			$MU_CFG = YAML.load(File.read("spec/mu.yaml"))
 		end
