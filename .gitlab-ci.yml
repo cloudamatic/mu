@@ -46,17 +46,26 @@ ChefSpec:
 
 Rspec:
   stage: Test
+  before_script:
+    - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_ID__/${AZURE_CLIENT_ID}/" > spec/azure_creds.tmp
+    - cp spec/azure_creds.tmp spec/azure_creds
+    - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/azure_creds.tmp
+    - cp spec/azure_creds.tmp spec/azure_creds
+    - cat spec/mu.yaml | sed -e "s/__AZURE_DIRECTORY_ID__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
+    - cp spec/mu.yaml.tmp spec/mu.yaml
+    - cat spec/mu.yaml | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
+    - cp spec/mu.yaml.tmp spec/mu.yaml
   script:
-    - cat spec/azure_creds | sed -e "s/AZURE_CLIENT_ID/${AZURE_CLIENT_ID}/" > spec/azure_creds
-    - cat spec/azure_creds | sed -e "s/AZURE_CLIENT_SECRET/${AZURE_CLIENT_SECRET}/" > spec/azure_creds
-    - cat spec/mu.yaml | sed -e "s/AZURE_DIRECTORY_ID/${AZURE_CLIENT_SECRET}/" > spec/azure_creds
-    - cat spec/mu.yaml | sed -e "s/AZURE_CLIENT_SECRET/${AZURE_CLIENT_SECRET}/" > spec/azure_creds
     - cd modules
     - bundle install
     - gem install rspec simplecov simplecov-console
     - cd ../
     - rspec
+  after_script:
     - shred -u spec/azure_creds
+    - shred -u spec/azure_creds.tmp
+    - shred -u spec/mu.yaml
+    - shred -u spec/mu.yaml.tmp
 
 New_Berks:
   stage: Test
