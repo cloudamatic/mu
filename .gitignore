@@ -12,3 +12,5 @@ bin/vault
 Berksfile.lock
 cloud-mu-*.gem
 coverage
+spec/mu.yaml
+spec/azure_creds
