@@ -6,8 +6,8 @@ describe MU::Cloud::Azure do
 	is_azure_for_rizzle = MU::Cloud::Azure.hosted?
 
 	before(:all) do
-		if File.file?("/opt/mu/lib/mu.yaml")
-			$MU_CFG = YAML.load(File.read("/opt/mu/lib/mu.yaml"))
+		if File.file?("/opt/mu/etc/mu.yaml")
+			$MU_CFG = YAML.load(File.read("/opt/mu/etc/mu.yaml"))
 		else
 			$MU_CFG = YAML.load(File.read("spec/mu.yaml"))
 		end
