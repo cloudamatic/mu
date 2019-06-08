@@ -292,14 +292,16 @@ module MU
 
           if cloud_desc.parent and cloud_desc.parent.id
             if cloud_desc.parent.type == "folder"
-              bok['parent'] = MU::Config::Ref.new(
+              bok['parent'] = MU::Config::Ref.get(
                 id: cloud_desc.parent.id,
                 cloud: "Google",
                 credentials: @config['credentials'],
                 type: "folders"
               )
             elsif rootparent
-              bok['parent'] = { 'id' => rootparent.cloud_desc.name }
+              bok['parent'] = {
+                'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+              }
             else
               # org parent is *probably* safe to infer from credentials
             end
@@ -343,7 +345,7 @@ module MU
           ok = true
 
           if !MU::Cloud::Google.getOrg(habitat['credentials'])
-            MU.log "Cannot manage Google Cloud projects in environments without an organization.", MU::ERR, details: ["https://cloud.google.com/resource-manager/docs/creating-managing-organization", "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"]
+            MU.log "Cannot manage Google Cloud folders in environments without an organization", MU::ERR
             ok = false
           end
 

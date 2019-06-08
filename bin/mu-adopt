@@ -36,6 +36,8 @@ $opt = Optimist::options do
   opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => available_clouds
   opt :parent, "Where applicable, resources which reside in the root folder or organization are configured with the specified parent in our target BoK", :required => false, :type => :string
   opt :billing, "Force-set this billing entity on created resources, instead of copying from the live resources", :required => false, :type => :string
+  opt :sources, "One or more sets of credentials to use when importing resources. By default we will search and import from all sets of available credentials for each cloud provider specified with --clouds", :required => false, :type => :strings
+  opt :destination, "Override the 'credentials' value in our generated Baskets of Kittens to target a single, specific account. Our default behavior is to set each resource to deploy into the account from which it was sourced.", :required => false, :type => :string
 end
 
 ok = true
@@ -85,7 +87,7 @@ if !ok
   exit 1
 end
 
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], destination: $opt[:destination])
 adoption.scrapeClouds
 MU.log "Generating basket"
 bok = adoption.generateBasket

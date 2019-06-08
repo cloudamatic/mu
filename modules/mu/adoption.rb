@@ -19,13 +19,15 @@ module MU
 
     class Incomplete < MU::MuNonFatal; end
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, destination: nil)
       @scraped = {}
       @clouds = clouds
       @types = types
       @parent = parent
       @billing = billing
       @reference_map = {}
+      @sources = sources
+      @destination = destination
     end
 
     def scrapeClouds()
@@ -34,9 +36,18 @@ module MU
       @clouds.each { |cloud|
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         next if cloudclass.listCredentials.nil?
+
+        if cloud == "Google" and !@parent and @destination
+          dest_org = MU::Cloud::Google.getOrg(@destination)
+          if dest_org
+            @default_parent = dest_org.name
+          end
+        end
+
         cloudclass.listCredentials.each { |credset|
+          next if @sources and !@sources.include?(credset)
           puts cloud+" "+credset
-          puts @parent
+
           if @parent
 # TODO handle different inputs (cloud_id, etc)
 # TODO do something about vague matches
@@ -92,6 +103,9 @@ end
 
     def generateBasket(appname: "mu")
       bok = { "appname" => appname }
+      if @destination
+        bok["credentials"] = @destination
+      end
 
       count = 0
 
@@ -108,22 +122,35 @@ end
           bok[res_class.cfg_plural] ||= []
 
           resources.each_pair { |cloud_id, obj|
-#          puts obj.mu_name
-#          puts obj.config['name']
-#          puts obj.url
-#          puts obj.arn
             resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
-#            pp resource_bok
+
             if resource_bok
+              resource_bok.delete("credentials") if @destination
+              # If we've got duplicate names in here, try to deal with it
+puts "\n#{resource_bok['name']} vs:"
+              bok[res_class.cfg_plural].each { |sibling|
+puts "\t#{sibling['name']}"
+                if sibling['name'] == resource_bok['name']
+                  MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
+                  if resource_bok['cloud_id']
+                    resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id']
+                  elsif resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
+                    resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
+                  else
+                    raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
+                  end
+                  MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
+                  break
+                end
+              }
               bok[res_class.cfg_plural] << resource_bok
               count += 1
             end
-            # it's ok if we got a nil back- that's what happens when we've
-            # discovered an object we shouldn't explicitly try to replicate,
-            # such as the 'default' VPC in a Google project
+
           }
         }
       }
+      pp bok["folders"].map { |f| f['name'] }
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
@@ -203,12 +230,21 @@ end
 
       if cfg.is_a?(MU::Config::Ref)
         if cfg.kitten(deploy)
-          cfg = if deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.project)
-if !cfg.name
+          littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
+          cfg = if littermate
+if !littermate.config['name']
 MU.log "FAILED TO GET A NAME FROM REFERENCE", MU::WARN, details: cfg
 end
-            { "type" => cfg.type, "name" => cfg.name }
-          # XXX other common cases: deploy_id, etc
+            { "type" => cfg.type, "name" => littermate.config['name'] }
+          elsif cfg.id
+            littermate = deploy.findLitterMate(type: cfg.type, cloud_id: cfg.id, habitat: cfg.habitat)
+            if littermate
+MU.log "ID LITTERMATE MATCH => #{littermate.config['name']}", MU::WARN, details: {type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat}
+              { "type" => cfg.type, "name" => littermate.config['name'] }
+            else
+MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat}
+              cfg.to_h
+            end
           else
             cfg.to_h
           end
@@ -295,7 +331,11 @@ end
               MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR
               next
             end
-            MU.log "Inserting #{attrs[:cfg_name]} #{kitten['name']} (#{kitten['cloud_id']}) into stub deploy"
+
+            MU.log "Inserting #{attrs[:cfg_name]} #{kitten['name']} (#{kitten['cloud_id']}) into stub deploy", MU::DEBUG, details: @scraped[typename][kitten['cloud_id']]
+
+            @scraped[typename][kitten['cloud_id']].config!(kitten)
+
             deploy.addKitten(
               attrs[:cfg_plural],
               kitten['name'],

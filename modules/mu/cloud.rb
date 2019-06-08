@@ -846,6 +846,15 @@ module MU
         def habitat_id(nolookup: false)
           habitat(nolookup: nolookup)
         end
+
+        # Merge the passed hash into the existing configuration hash of this
+        # cloud object. Currently this is only used by the {MU::Adoption}
+        # module. I don't love exposing this to the whole internal API, but I'm
+        # probably overthinking that.
+        # @param newcfg [Hash]
+        def config!(newcfg)
+          @config.merge!(newcfg)
+        end
         
         def cloud_desc
           describe

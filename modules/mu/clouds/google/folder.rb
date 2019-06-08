@@ -97,9 +97,9 @@ module MU
         # @return [String]
         def self.resolveParent(parentblock, credentials: nil)
           my_org = MU::Cloud::Google.getOrg(credentials)
-          if !parentblock or parentblock['id'] == my_org.name or
+          if my_org and (!parentblock or parentblock['id'] == my_org.name or
              parentblock['name'] == my_org.display_name or (parentblock['id'] and
-             "organizations/"+parentblock['id'] == my_org.name)
+             "organizations/"+parentblock['id'] == my_org.name))
             return my_org.name
           end
 
@@ -255,6 +255,7 @@ module MU
           parent = if args[:flags] and args[:flags]['parent_id']
             args[:flags]['parent_id']
           else
+# XXX handle lack of org correctly? or wait, can folders even exist without one?
             my_org = MU::Cloud::Google.getOrg(args[:credentials])
             my_org.name
           end
@@ -307,21 +308,22 @@ end
 
           bok['display_name'] = cloud_desc.display_name
           bok['cloud_id'] = cloud_desc.name.sub(/^folders\//, "")
-          bok['name'] = cloud_desc.display_name+bok['cloud_id'] # only way to guarantee uniqueness
+          bok['name'] = cloud_desc.display_name#+bok['cloud_id'] # only way to guarantee uniqueness
           if cloud_desc.parent.match(/^folders\/(.*)/)
 MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_desc.parent
-            bok['parent'] = MU::Config::Ref.new(
+            bok['parent'] = MU::Config::Ref.get(
               id: Regexp.last_match[1],
               cloud: "Google",
               credentials: @config['credentials'],
               type: "folders"
             )
           elsif rootparent
-            bok['parent'] = { 'id' => rootparent.cloud_desc.name }
+            bok['parent'] = {
+              'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+            }
           else
             bok['parent'] = { 'id' => cloud_desc.parent }
           end
-#  MU.log "FOLDER TOKITTEN #{bok['display_name']}", MU::WARN, details: bok
 
           bok
         end
@@ -348,7 +350,7 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
           ok = true
 
           if !MU::Cloud::Google.getOrg(folder['credentials'])
-            MU.log "Cannot manage Google Cloud projects in environments without an organization.", MU::ERR, details: ["https://cloud.google.com/resource-manager/docs/creating-managing-organization", "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"]
+            MU.log "Cannot manage Google Cloud folders in environments without an organization", MU::ERR
             ok = false
           end
 

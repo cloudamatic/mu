@@ -257,9 +257,9 @@ module MU
           end
 
           if vpc_id != "default"
-            bok['vpc'] = MU::Config::Ref.new(
+            bok['vpc'] = MU::Config::Ref.get(
               id: vpc_id,
-              project: @config['project'],
+              habitat: @config['project'],
               cloud: "Google",
               credentials: @config['credentials'],
               type: "vpcs"

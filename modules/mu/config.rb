@@ -28,6 +28,9 @@ module MU
     # Exception class for BoK parse or validation errors
     class ValidationError < MU::MuError
     end
+    # Exception class for duplicate resource names
+    class DuplicateNameError < MU::MuError
+    end
     # Exception class for deploy parameter (mu-deploy -p foo=bar) errors
     class DeployParamError < MuError
     end
@@ -273,17 +276,54 @@ module MU
       attr_reader :deploy_id 
       attr_reader :region 
       attr_reader :credentials 
-      attr_reader :project
+      attr_reader :habitat
       attr_reader :mommacat
       attr_reader :tag_key 
       attr_reader :tag_value
       attr_reader :obj 
 
+      @@refs = []
+      @@ref_semaphore = Mutex.new
+
+      # Little bit of a factory pattern... given a hash of options for a {MU::Config::Ref} objects, first see if we have an existing one that matches our more immutable attributes (+cloud+, +id+, etc). If we do, return that. If we do not, create one, add that to our inventory, and return that instead.
+      # @param cfg [Hash]: 
+      # @return [MU::Config::Ref]
+      def self.get(cfg)
+        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat]
+        required = [:id, :type]
+
+        @@ref_semaphore.synchronize {
+          match = nil
+          @@refs.each { |ref|
+            saw_mismatch = false
+            saw_match = false
+            checkfields.each { |field|
+              next if !cfg[field]
+              ext_value = ref.instance_variable_get("@#{field.to_s}".to_sym)
+              next if !ext_value
+              if cfg[field] != ext_value
+                saw_mismatch = true
+              elsif required.include?(field) and cfg[field] == ext_value
+                saw_match = true
+              end
+            }
+            if saw_match and !saw_mismatch
+              return ref
+            end
+          }
+
+          # if we get here, there was no match
+          newref = MU::Config::Ref.new(cfg)
+          @@refs << newref
+          return newref
+        }
+      end
+
       # @param cfg [Hash]: A Basket of Kittens configuration hash containing
       # lookup information for a cloud object
       def initialize(cfg)
 
-        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'project', 'credentials', 'mommacat'].each { |field|
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'habitat', 'credentials', 'mommacat'].each { |field|
           if !cfg[field].nil?
             self.instance_variable_set("@#{field}".to_sym, cfg[field])
           elsif !cfg[field.to_sym].nil?
@@ -297,8 +337,8 @@ module MU
         end
 
         kitten if @mommacat # try to populate the actual cloud object for this
-
       end
+
 
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
@@ -376,7 +416,7 @@ module MU
       # first place.
       def to_h
         me = { }
-        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'credentials', 'project'].each { |field|
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'credentials', 'habitat'].each { |field|
           val = self.instance_variable_get("@#{field}".to_sym)
           if val
             me[field] = val
@@ -412,7 +452,7 @@ end
             end
             return @obj
           else
-            MU.log "Failed to find a live '#{@type.to_s}' object named #{@name}#{@id ? " (#{@id})" : "" }#{ @project ? " in project #{@project}" : "" }", MU::WARN, details: self
+#            MU.log "Failed to find a live '#{@type.to_s}' object named #{@name}#{@id ? " (#{@id})" : "" }#{ @habitat ? " in habitat #{@habitat}" : "" }", MU::WARN, details: self
           end
         end
 
@@ -1030,10 +1070,15 @@ end
     # @param descriptor [Hash]: The configuration description, as from a Basket of Kittens
     # @param type [String]: The type of resource being added
     # @param delay_validation [Boolean]: Whether to hold off on calling the resource's validateConfig method
-    def insertKitten(descriptor, type, delay_validation = false)
+    # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
+    def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false)
       append = false
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+
+      if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
+#        raise DuplicateNameError, "A #{shortclass} named #{descriptor['name']} has already been inserted into this configuration"
+      end
 
       @kittencfg_semaphore.synchronize {
         append = !@kittens[cfg_plural].include?(descriptor)
@@ -1871,7 +1916,7 @@ end
           end
           kitten['region'] ||= MU::Cloud::Google.myRegion
         end
-      elsif kitten["cloud"] == "AWS" and !resclass.isGlobal?
+      elsif kitten["cloud"] == "AWS" and !resclass.isGlobal? and !kitten['region']
         if MU::Cloud::AWS.myRegion.nil?
           raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end
@@ -1883,6 +1928,8 @@ end
 
       kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
       kitten['scrub_mu_isms'] ||= false
+
+      kitten['billing_acct'] ||= @config['billing_acct'] if @config['billing_acct']
 
       kitten['credentials'] ||= @config['credentials']
       kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
