@@ -561,7 +561,7 @@ module MU
       def self.listProjects(credentials = nil)
         cfg = credConfig(credentials)
         return [] if !cfg or !cfg['project']
-        result = MU::Cloud::Google.resource_manager.list_projects
+        result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
         result.projects.map { |p| p.project_id }
       end
@@ -727,7 +727,7 @@ module MU
         require 'google/apis/cloudresourcemanager_v2'
 
         if subclass.nil?
-          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials)
+          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials,  masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource2_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2").const_get(subclass)
@@ -805,7 +805,7 @@ module MU
         require 'google/apis/cloudbilling_v1'
 
         if subclass.nil?
-          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloud-billing'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@billing_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudbillingV1").const_get(subclass)
@@ -843,6 +843,8 @@ module MU
       class GoogleEndpoint
         @api = nil
         @credentials = nil
+        @scopes = nil
+        @masquerade = nil
         attr_reader :issuer
 
         # Create a Google Cloud Platform API client
@@ -850,10 +852,12 @@ module MU
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
         def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
           @credentials = credentials
+          @scopes = scopes
+          @masquerade = masquerade
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes, credentials: credentials)
-          if masquerade
-            @api.authorization.sub = masquerade
+          if @masquerade
+            @api.authorization.sub = @masquerade
             @api.authorization.fetch_access_token!
           end
           @issuer = @api.authorization.issuer
@@ -983,7 +987,8 @@ module MU
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
+                MU.log "#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? " Scopes: #{@scopes.join(", ")}" : "" }", MU::ERR, details: arguments
+                raise e
               end
               @@enable_semaphores ||= {}
               max_retries = 3

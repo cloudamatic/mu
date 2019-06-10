@@ -41,7 +41,7 @@ module MU
     # @param web [Boolean]: Generate web-friendly output.
     # @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
     # @return [void]
-    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil)
+    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil, credsets: nil, regions: nil)
       MU.setLogging(verbosity, web)
       @noop = noop
       @skipsnapshots = skipsnapshots
@@ -96,10 +96,13 @@ module MU
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds[cloud] ||= {}
             cloudclass.listCredentials.each { |credset|
+              next if credsets and credsets.size > 0 and !credsets.include?(credset)
+              MU.log "Will scan #{cloud} with credentials #{credset}"
               creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
             }
           end
         }
+
         parent_thread_id = Thread.current.object_id
         deleted_nodes = 0
         @regionthreads = []
@@ -108,18 +111,22 @@ module MU
         creds.each_pair { |provider, credsets|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
           habitatclass = Object.const_get("MU").const_get("Cloud").const_get(provider).const_get("Habitat")
-          credsets.each_pair { |credset, regions|
+          credsets.each_pair { |credset, acct_regions|
             next if credsused and !credsused.include?(credset)
             global_vs_region_semaphore = Mutex.new
             global_done = {}
             habitats_done = {}
-            regions.each { |r|
+            acct_regions.each { |r|
               if regionsused
                 if regionsused.size > 0
                   next if !regionsused.include?(r)
                 else
                   next if r != cloudclass.myRegion(credset)
                 end
+              end
+              if regions and !regions.empty?
+                next if !regions.include?(r)
+                MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
               end
               @regionthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
@@ -220,10 +227,10 @@ module MU
                   }
                 end
               } # @regionthreads << Thread.new {
-            } # regions.each { |r|
+            } # acct_regions.each { |r|
 
 
-          } # credsets.each_pair { |credset, regions|
+          } # credsets.each_pair { |credset, acct_regions|
         } # creds.each_pair { |provider, credsets|
 
         @regionthreads.each do |t|

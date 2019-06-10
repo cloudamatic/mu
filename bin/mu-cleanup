@@ -23,6 +23,14 @@ require 'optimist'
 require 'mu'
 Dir.chdir(MU.installDir)
 
+credentials = []
+MU::Cloud.supportedClouds.each { |cloud|
+  cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+  next if cloudclass.listCredentials.nil? or cloudclass.listCredentials.size == 0
+  credentials.concat(cloudclass.listCredentials)
+}
+credentials.uniq!
+
 $opts = Optimist::options do
   banner <<-EOS
 Usage:
@@ -35,6 +43,8 @@ Usage:
   opt :skipcloud, "Only purge Mu master deployment metadata, and skip all cloud resources.", :require => false, :default => false, :type => :boolean
   opt :web, "Generate web-friendly (HTML) output.", :require => false, :default => false, :type => :boolean
   opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
+  opt :credentials, "Restrict to operating on a subset of available credential sets, instead of all that we know about.", :require => false, :default => credentials, :type => :strings
+  opt :regions, "Restrict to operating on a subset of available regions, instead of all that we know about.", :require => false, :type => :strings
   opt :quiet, "Display minimal output.", :require => false, :default => false, :type => :boolean
 end
 verbosity = MU::Logger::NORMAL
@@ -57,12 +67,14 @@ end
 
 
 MU::Cleanup.run(
-    $opts[:deploy],
-    noop: $opts[:noop],
-    skipsnapshots: $opts[:skipsnapshots],
-    onlycloud: $opts[:onlycloud],
-    verbosity: verbosity,
-    web: $opts[:web],
-    skipcloud: $opts[:skipcloud],
-    ignoremaster: $opts[:ignoremaster]
+  $opts[:deploy],
+  noop: $opts[:noop],
+  skipsnapshots: $opts[:skipsnapshots],
+  onlycloud: $opts[:onlycloud],
+  verbosity: verbosity,
+  web: $opts[:web],
+  skipcloud: $opts[:skipcloud],
+  ignoremaster: $opts[:ignoremaster],
+  credsets: $opts[:credentials],
+  regions: $opts[:regions]
 )

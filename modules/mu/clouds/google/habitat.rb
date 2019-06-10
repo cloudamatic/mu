@@ -89,10 +89,10 @@ module MU
 
           project_obj = MU::Cloud::Google.resource_manager(:Project).new(params)
 
-          MU.log "Creating project #{params[:project_id]} (#{params[:name]}) under #{parent}", details: project_obj
+          MU.log "Creating project #{params[:project_id]} (#{params[:name]}) under #{parent} (#{@config['credentials']})", details: project_obj
 
           begin
-            MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+            pp MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
           rescue ::Google::Apis::ClientError => e
             MU.log "Got #{e.message} attempting to create #{params[:project_id]}", MU::ERR, details: project_obj
           end
@@ -125,7 +125,13 @@ module MU
 
           @cloud_id = params[:project_id]
           @habitat_id = parent_id
-          setProjectBilling
+          begin
+            setProjectBilling
+          rescue Exception => e
+            MU.log "Failed to set billing account #{@config['billing_acct']} on project #{@cloud_id}: #{e.message}", MU::ERR
+            MU::Cloud::Google.resource_manager(credentials: @config['credentials']).delete_project(@cloud_id)
+            raise e
+          end
           MU.log "Project #{params[:project_id]} (#{params[:name]}) created"
         end
 
@@ -196,9 +202,13 @@ module MU
           project = MU::Cloud::Google::Habitat.find(cloud_id: project_id).values.first
           return false if project.nil? or project.lifecycle_state != "ACTIVE"
 
-          billing = MU::Cloud::Google.billing(credentials: credentials).get_project_billing_info("projects/"+project_id)
-          if !billing or !billing.billing_account_name or
-             billing.billing_account_name.empty?
+          begin
+            billing = MU::Cloud::Google.billing(credentials: credentials).get_project_billing_info("projects/"+project_id)
+            if !billing or !billing.billing_account_name or
+               billing.billing_account_name.empty?
+              return false
+            end
+          rescue ::Google::Apis::ClientError => e
             return false
           end
 

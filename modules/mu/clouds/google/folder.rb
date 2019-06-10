@@ -133,7 +133,7 @@ module MU
 
         # Return the cloud descriptor for the Folder
         def cloud_desc
-          @cached_cloud_desc ||= MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first
+          @cached_cloud_desc ||= MU::Cloud::Google::Folder.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
           @habitat_id ||= @cached_cloud_desc.parent.sub(/^(folders|organizations)\//, "")
           @cached_cloud_desc
         end
