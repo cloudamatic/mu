@@ -156,7 +156,7 @@ module MU
       # @return [void]
       def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
         tags = []
-        listStandardTags.each_pair { |name, value|
+        MU::MommaCat.listStandardTags.each_pair { |name, value|
           if !value.nil?
             tags << {key: name, value: value}
           end
