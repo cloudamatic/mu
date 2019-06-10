@@ -9,7 +9,7 @@ issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
 version '0.9.5'
 
-%w( centos amazon rhel ).each do |os|
+%w( centos amazon redhat ).each do |os|
 	supports os
 end
 
