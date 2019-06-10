@@ -655,8 +655,8 @@ module MU
               }
 
               @config['vpc'] = {
-                  "vpc_id" => vpc_id,
-                  "subnets" => mu_subnets
+                "vpc_id" => vpc_id,
+                "subnets" => mu_subnets
               }
               # Default VPC has only public subnets by default so setting publicly_accessible = true
               @config["publicly_accessible"] = true
@@ -1505,6 +1505,13 @@ module MU
         def self.validateConfig(db, configurator)
           ok = true
 
+          if db['creation_style'] == "existing_snapshot" and
+             !db['create_cluster'] and
+             db['identifier'] and db['identifier'].match(/:cluster-snapshot:/)
+            MU.log "Existing snapshot #{db['identifier']} looks like a cluster snapshot, setting create_cluster to true", MU::WARN
+            db['create_cluster'] = true
+          end
+
           if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
@@ -1605,7 +1612,7 @@ module MU
           end
 
           if db["vpc"]
-            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible'] and (db["vpc"]['subnets'].nil? or db["vpc"]['subnets'].empty?)
               MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
