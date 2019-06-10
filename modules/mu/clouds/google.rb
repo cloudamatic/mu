@@ -394,7 +394,7 @@ module MU
             begin
               vault, item = cfg["credentials"].split(/:/)
               data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
-            rescue MU::Groomer::Chef::MuNoSuchSecret
+            rescue MU::Groomer::MuNoSuchSecret
               if !MU::Cloud::Google.hosted?
                 raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
               end

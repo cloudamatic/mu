@@ -257,7 +257,7 @@ app = proc do |env|
             [page]
           ]
         end
-      rescue MU::Groomer::Chef::MuNoSuchSecret
+      rescue MU::Groomer::MuNoSuchSecret
         page = nil
         if $MU_CFG.has_key?('scratchpad') and
            $MU_CFG['scratchpad'].has_key?("template_path") and
