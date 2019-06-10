@@ -1012,7 +1012,7 @@ def set389DSCreds
         data = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: creds)
         MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "mu_ldap", creds)
       end
-    rescue MU::Groomer::Chef::MuNoSuchSecret
+    rescue MU::Groomer::MuNoSuchSecret
       user = cfg["user"]
       pw = Password.pronounceable(14..16)
       if $MU_CFG["ldap"].has_key?(creds)
@@ -1227,7 +1227,7 @@ end
 
 begin
   MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
-rescue MU::Groomer::Chef::MuNoSuchSecret
+rescue MU::Groomer::MuNoSuchSecret
   data = {
     "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
     "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
