@@ -21,8 +21,10 @@ module MU
         @config = nil
 
         attr_reader :mu_name
+        attr_reader :habitat_id # misnomer- it's really a parent folder, which may or may not exist
         attr_reader :config
         attr_reader :cloud_id
+        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::habitats}
@@ -51,12 +53,13 @@ module MU
           name_string = if @config['scrub_mu_isms']
             @config["name"]
           else
-            @deploy.getResourceName(@config["name"], max_length: 30).downcase
+            @deploy.getResourceName(@config["name"], max_length: 30)
           end
+          display_name = @config['display_name'] || name_string.gsub(/[^a-z0-9\-'"\s!]/i, "-")
 
           params = {
-            name: name_string,
-            project_id: name_string,
+            name: display_name,
+            project_id: name_string.downcase.gsub(/[^0-9a-z\-]/, "-")
           }
 
           MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -69,6 +72,9 @@ module MU
             params[:labels] = labels
           end
 
+          if @config['parent']['name'] and !@config['parent']['id']
+            @config['parent']['deploy_id'] = @deploy.deploy_id
+          end
           parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
           if !parent
             MU.log "Unable to resolve parent resource of Google Project #{@config['name']}", MU::ERR, details: @config['parent']
@@ -83,22 +89,31 @@ module MU
 
           project_obj = MU::Cloud::Google.resource_manager(:Project).new(params)
 
-          MU.log "Creating project #{name_string} under #{parent}", details: project_obj
-          MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+          MU.log "Creating project #{params[:project_id]} (#{params[:name]}) under #{parent} (#{@config['credentials']})", details: project_obj
+
+          begin
+            pp MU::Cloud::Google.resource_manager(credentials: @config['credentials']).create_project(project_obj)
+          rescue ::Google::Apis::ClientError => e
+            MU.log "Got #{e.message} attempting to create #{params[:project_id]}", MU::ERR, details: project_obj
+          end
 
 
           found = false
           retries = 0
           begin
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+# can... can we filter this?
+            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(filter: "id:#{name_string.downcase.gsub(/[^0-9a-z\-]/, "-")}")
             if resp and resp.projects
               resp.projects.each { |p|
-                if p.name == name_string.downcase
+                if p.project_id ==  name_string.downcase.gsub(/[^0-9a-z\-]/, "-")
                   found = true
                 end
               }
             end
             if !found
+              if retries > 30
+                raise MuError, "Project #{name_string} never showed up in list_projects after I created it!"
+              end
               if retries > 0 and (retries % 3) == 0
                 MU.log "Waiting for Google Cloud project #{name_string} to appear in list_projects results...", MU::NOTICE
               end
@@ -108,8 +123,16 @@ module MU
           end while !found
 
 
-          @cloud_id = name_string.downcase
-          setProjectBilling
+          @cloud_id = params[:project_id]
+          @habitat_id = parent_id
+          begin
+            setProjectBilling
+          rescue Exception => e
+            MU.log "Failed to set billing account #{@config['billing_acct']} on project #{@cloud_id}: #{e.message}", MU::ERR
+            MU::Cloud::Google.resource_manager(credentials: @config['credentials']).delete_project(@cloud_id)
+            raise e
+          end
+          MU.log "Project #{params[:project_id]} (#{params[:name]}) created"
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -134,17 +157,23 @@ module MU
               project_id: @cloud_id
             )
             MU.log "Associating project #{@cloud_id} with billing account #{@config['billing_acct']}"
-            MU::Cloud::Google.billing(credentials: credentials).update_project_billing_info(
-              "projects/"+@cloud_id,
-              billing_obj
-            )
+            begin
+              MU::Cloud::Google.billing(credentials: credentials).update_project_billing_info(
+                "projects/"+@cloud_id,
+                billing_obj
+              )
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Error setting billing for #{@cloud_id}: "+e.message, MU::ERR, details: billing_obj
+            end
 
           end
         end
 
         # Return the cloud descriptor for the Habitat
         def cloud_desc
-          MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
+          @cached_cloud_desc ||= MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
+          @habitat_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
+          @cached_cloud_desc
         end
 
         # Return the metadata for this project's configuration
@@ -166,6 +195,26 @@ module MU
           MU::Cloud::BETA
         end
 
+        # Check whether is in the +ACTIVE+ state and has billing enabled.
+        # @param project_id [String]
+        # @return [Boolean]
+        def self.isLive?(project_id, credentials = nil)
+          project = MU::Cloud::Google::Habitat.find(cloud_id: project_id).values.first
+          return false if project.nil? or project.lifecycle_state != "ACTIVE"
+
+          begin
+            billing = MU::Cloud::Google.billing(credentials: credentials).get_project_billing_info("projects/"+project_id)
+            if !billing or !billing.billing_account_name or
+               billing.billing_account_name.empty?
+              return false
+            end
+          rescue ::Google::Apis::ClientError => e
+            return false
+          end
+
+          true
+        end
+
         # Remove all Google projects associated with the currently loaded deployment. Try to, anyway.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -177,15 +226,16 @@ module MU
             resp.projects.each { |p|
               if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase and
                  p.lifecycle_state == "ACTIVE"
-                MU.log "Deleting project #{p.name}", details: p
+                MU.log "Deleting project #{p.project_id} (#{p.name})", details: p
                 if !noop
                   begin
-                    MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.name)
+                    MU::Cloud::Google.resource_manager(credentials: credentials).delete_project(p.project_id)
                   rescue ::Google::Apis::ClientError => e
                     if e.message.match(/Cannot delete an inactive project/)
                       # this is fine
                     else
-                      raise e
+                      MU.log "Got #{e.message} trying to delete project #{p.project_id} (#{p.name})", MU::ERR
+                      next
                     end
                   end
                 end
@@ -194,26 +244,89 @@ module MU
           end
         end
 
+        @@list_projects_cache = nil
+
         # Locate an existing project
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
+        # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
+        def self.find(**args)
+#MU.log "habitat.find called by #{caller[0]}", MU::WARN, details: args
           found = {}
-          if cloud_id
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects(
-              filter: "id:#{cloud_id}"
+
+          args[:cloud_id] ||= args[:project]
+# XXX we probably want to cache this
+# XXX but why are we being called over and over?
+
+          if args[:cloud_id]
+            resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects(
+              filter: "id:#{args[:cloud_id]}"
             )
-            found[resp.projects.first.project_id] = resp.projects.first if resp and resp.projects
+            if resp and resp.projects and resp.projects.size == 1
+              found[args[:cloud_id]] = resp.projects.first if resp and resp.projects
+            else
+              # it's loony that there's no filter for project_number
+              resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects
+              resp.projects.each { |p|
+                if p.project_number.to_s == args[:cloud_id].to_s
+                  found[args[:cloud_id]] = p
+                  break
+                end
+              }
+            end
           else
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects().projects
-            resp.each { |p|
-              found[p.name] = p
+            return @@list_projects_cache if @@list_projects_cache # XXX decide on stale-ness after time or something
+            resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects#(page_token: page_token)
+            resp.projects.each { |p|
+              next if p.lifecycle_state == "DELETE_REQUESTED"
+              found[p.project_id] = p
             }
+            @@list_projects_cache = found
           end
-          
+
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials']
+          }
+
+          bok['name'] = cloud_desc.project_id
+          bok['cloud_id'] = cloud_desc.project_id
+#          if cloud_desc.name != cloud_desc.project_id
+            bok['display_name'] = cloud_desc.name
+#          end
+
+          if cloud_desc.parent and cloud_desc.parent.id
+            if cloud_desc.parent.type == "folder"
+              bok['parent'] = MU::Config::Ref.get(
+                id: cloud_desc.parent.id,
+                cloud: "Google",
+                credentials: @config['credentials'],
+                type: "folders"
+              )
+            elsif rootparent
+              bok['parent'] = {
+                'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+              }
+            else
+              # org parent is *probably* safe to infer from credentials
+            end
+          end
+
+          if billing
+            bok['billing_acct'] = billing
+          else
+            cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
+            if cur_billing and cur_billing.billing_account_name
+              bok['billing_acct'] = cur_billing.billing_account_name.sub(/^billingAccounts\//, '')
+            end
+          end
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -225,6 +338,10 @@ module MU
             "billing_acct" => {
               "type" => "string",
               "description" => "Billing account ID to associate with a newly-created Google Project. If not specified, will attempt to locate a billing account associated with the default project for our credentials."
+            },
+            "display_name" => {
+              "type" => "string",
+              "description" => "A human readable name for this project. If not specified, will default to our long-form deploy-generated name."
             }
           }
           [toplevel_required, schema]
@@ -238,7 +355,7 @@ module MU
           ok = true
 
           if !MU::Cloud::Google.getOrg(habitat['credentials'])
-            MU.log "Cannot manage Google Cloud projects in environments without an organization. See also: https://cloud.google.com/resource-manager/docs/creating-managing-organization", MU::ERR
+            MU.log "Cannot manage Google Cloud folders in environments without an organization", MU::ERR
             ok = false
           end
 

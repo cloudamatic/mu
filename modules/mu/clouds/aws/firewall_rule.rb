@@ -18,6 +18,7 @@ module MU
     class AWS
       # A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
       class FirewallRule < MU::Cloud::FirewallRule
+        require "mu/clouds/aws/vpc"
 
         @deploy = nil
         @config = nil

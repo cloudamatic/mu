@@ -104,6 +104,7 @@ module MU
 
       msg = msg.first if msg.is_a?(Array)
       msg = "" if msg == nil
+      msg = msg.to_s if !msg.is_a?(String) and msg.respond_to?(:to_s)
 
       @@log_semaphere.synchronize {
         case level

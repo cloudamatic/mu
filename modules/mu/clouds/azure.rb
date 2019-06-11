@@ -204,6 +204,10 @@ module MU
         $MU_CFG['azure'].keys
       end
 
+      def self.habitat
+        nil
+      end
+
       # Return the $MU_CFG data associated with a particular profile/name/set of
       # credentials. If no account name is specified, will return one flagged as
       # default. Returns nil if Azure is not configured. Throws an exception if

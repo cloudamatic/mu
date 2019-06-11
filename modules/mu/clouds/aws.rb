@@ -419,6 +419,16 @@ module MU
         sample
       end
 
+      # Return what we think of as a cloud object's habitat. In AWS, this means
+      # the +account_number+ in which it's resident. If this is not applicable,
+      # such as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::AWS]: The resource from which to extract the habitat id
+      # @return [String,nil]
+      def self.habitat(cloudobj)
+        cloudobj.respond_to?(:account_number) ? cloudobj.account_number : nil
+      end
+
+
       @@my_acct_num = nil
       @@my_hosted_cfg = nil
       @@acct_to_profile_map = {}

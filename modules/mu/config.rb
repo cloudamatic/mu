@@ -28,6 +28,9 @@ module MU
     # Exception class for BoK parse or validation errors
     class ValidationError < MU::MuError
     end
+    # Exception class for duplicate resource names
+    class DuplicateNameError < MU::MuError
+    end
     # Exception class for deploy parameter (mu-deploy -p foo=bar) errors
     class DeployParamError < MuError
     end
@@ -260,6 +263,203 @@ module MU
         return config.to_s
       end
       return config
+    end
+
+    # A wrapper class for resources to refer to other resources, whether they
+    # be a sibling object in the current deploy, an object in another deploy,
+    # or a plain cloud id from outside of Mu.
+    class Ref
+      attr_reader :id 
+      attr_reader :name 
+      attr_reader :type 
+      attr_reader :cloud 
+      attr_reader :deploy_id 
+      attr_reader :region 
+      attr_reader :credentials 
+      attr_reader :habitat
+      attr_reader :mommacat
+      attr_reader :tag_key 
+      attr_reader :tag_value
+      attr_reader :obj 
+
+      @@refs = []
+      @@ref_semaphore = Mutex.new
+
+      # Little bit of a factory pattern... given a hash of options for a {MU::Config::Ref} objects, first see if we have an existing one that matches our more immutable attributes (+cloud+, +id+, etc). If we do, return that. If we do not, create one, add that to our inventory, and return that instead.
+      # @param cfg [Hash]: 
+      # @return [MU::Config::Ref]
+      def self.get(cfg)
+        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat]
+        required = [:id, :type]
+
+        @@ref_semaphore.synchronize {
+          match = nil
+          @@refs.each { |ref|
+            saw_mismatch = false
+            saw_match = false
+            checkfields.each { |field|
+              next if !cfg[field]
+              ext_value = ref.instance_variable_get("@#{field.to_s}".to_sym)
+              next if !ext_value
+              if cfg[field] != ext_value
+                saw_mismatch = true
+              elsif required.include?(field) and cfg[field] == ext_value
+                saw_match = true
+              end
+            }
+            if saw_match and !saw_mismatch
+              return ref
+            end
+          }
+
+          # if we get here, there was no match
+          newref = MU::Config::Ref.new(cfg)
+          @@refs << newref
+          return newref
+        }
+      end
+
+      # @param cfg [Hash]: A Basket of Kittens configuration hash containing
+      # lookup information for a cloud object
+      def initialize(cfg)
+
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'habitat', 'credentials', 'mommacat'].each { |field|
+          if !cfg[field].nil?
+            self.instance_variable_set("@#{field}".to_sym, cfg[field])
+          elsif !cfg[field.to_sym].nil?
+            self.instance_variable_set("@#{field.to_s}".to_sym, cfg[field.to_sym])
+          end
+        }
+        if cfg['tag'] and cfg['tag']['key'] and
+           !cfg['tag']['key'].empty? and cfg['tag']['value']
+          @tag_key = cfg['tag']['key']
+          @tag_value = cfg['tag']['value']
+        end
+
+        kitten if @mommacat # try to populate the actual cloud object for this
+      end
+
+
+      # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
+      # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
+      # @return [Hash]
+      def self.schema(aliases = [], type: nil, parent_obj: nil)
+        parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
+        schema = {
+          "type" => "object",
+          "#MU_REFERENCE" => true,
+          "minProperties" => 1,
+          "description" => "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource",
+          "properties" => {
+            "id" => {
+              "type" => "string",
+              "description" => "Cloud identifier of a resource we want to reference, typically used when leveraging resources not managed by MU"
+            },
+            "name" => {
+              "type" => "string",
+              "description" => "The short (internal Mu) name of a resource we're attempting to reference. Typically used when referring to a sibling resource elsewhere in the same deploy, or in another known Mu deploy in conjunction with +deploy_id+."
+            },
+            "type" => {
+              "type" => "string",
+              "description" => "The resource type we're attempting to reference.",
+              "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }
+            },
+            "deploy_id" => {
+              "type" => "string",
+              "description" => "Our target resource should be found in this Mu deploy."
+            },
+            "credentials" => MU::Config.credentials_primitive,
+            "region" => MU::Config.region_primitive,
+            "cloud" => MU::Config.cloud_primitive,
+            "tag" => {
+              "type" => "object",
+              "description" => "If the target resource supports tagging and our resource implementations +find+ method supports it, we can attempt to locate it by tag.",
+              "properties" => {
+                "key" => {
+                  "type" => "string",
+                  "description" => "The tag or label key to search against"
+                },
+                "value" => {
+                  "type" => "string",
+                  "description" => "The tag or label value to match"
+                }
+              }
+            }
+          }
+        }
+        if !["folders", "habitats"].include?(type)
+          schema["properties"]["habitat"] = MU::Config::Habitat.reference
+        end
+
+        if !type.nil?
+          schema["required"] = ["type"]
+          schema["properties"]["type"]["default"] = type
+          schema["properties"]["type"]["enum"] = [type]
+        end
+
+        aliases.each { |a|
+          a.each_pair { |k, v|
+            if schema["properties"][v]
+              schema["properties"][k] = schema["properties"][v].dup
+              schema["properties"][k]["description"] = "Alias for <tt>#{v}</tt>"
+            else
+              MU.log "Reference schema alias #{k} wants to alias #{v}, but no such attribute exists", MU::WARN, details: caller[4]
+            end
+          }
+        }
+
+        schema
+      end
+
+      # Decompose into a plain-jane {MU::Config::BasketOfKittens} hash fragment,
+      # of the sort that would have been used to declare this reference in the
+      # first place.
+      def to_h
+        me = { }
+        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'credentials', 'habitat'].each { |field|
+          val = self.instance_variable_get("@#{field}".to_sym)
+          if val
+            me[field] = val
+          end
+        }
+        if @tag_key and !@tag_key.empty?
+          m['tag']['key'] = @tag_key
+          m['tag']['value'] = @tag_value
+        end
+        me
+      end
+
+      # Return a {MU::Cloud} object for this reference. This is only meant to be
+      # called in a live deploy, which is to say that if called during initial
+      # configuration parsing, results may be incorrect.
+      # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
+      def kitten(mommacat = @mommacat)
+        return @obj if @obj
+
+        if mommacat
+          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials)
+          if @obj # initialize missing attributes, if we can
+            @id ||= @obj.cloud_id
+            if !@name
+              if @obj.config and @obj.config['name']
+                @name = @obj.config['name']
+              elsif @obj.mu_name
+if @type == "folders"
+MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
+end
+#                @name = @obj.mu_name
+              end
+            end
+            return @obj
+          else
+#            MU.log "Failed to find a live '#{@type.to_s}' object named #{@name}#{@id ? " (#{@id})" : "" }#{ @habitat ? " in habitat #{@habitat}" : "" }", MU::WARN, details: self
+          end
+        end
+
+        # XXX findStray this mess
+        @obj
+      end
+
     end
 
     # A wrapper for config leaves that came from ERB parameters instead of raw
@@ -634,7 +834,7 @@ module MU
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
 
       # Convert parameter entries that constitute whole config keys into
-      # MU::Config::Tail objects.
+      # {MU::Config::Tail} objects.
       def resolveTails(tree, indent= "")
         if tree.is_a?(Hash)
           tree.each_pair { |key, val|
@@ -671,12 +871,12 @@ module MU
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
         if @config[type]
           @config[type].each { |k|
-            inheritDefaults(k, type)
+            applyInheritedDefaults(k, type)
           }
         end
       }
 
-      set_schema_defaults(@config, MU::Config.schema)
+      applySchemaDefaults(@config, MU::Config.schema)
       validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
 #      XXX but now we're not validating top-level keys, argh
 #pp @config
@@ -870,11 +1070,18 @@ module MU
     # @param descriptor [Hash]: The configuration description, as from a Basket of Kittens
     # @param type [String]: The type of resource being added
     # @param delay_validation [Boolean]: Whether to hold off on calling the resource's validateConfig method
-    def insertKitten(descriptor, type, delay_validation = false)
+    # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
+    def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false)
       append = false
 
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+
+      if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
+#        raise DuplicateNameError, "A #{shortclass} named #{descriptor['name']} has already been inserted into this configuration"
+      end
+
       @kittencfg_semaphore.synchronize {
-        append = !@kittens[type].include?(descriptor)
+        append = !@kittens[cfg_plural].include?(descriptor)
 
         # Skip if this kitten has already been validated and appended
         if !append and descriptor["#MU_VALIDATED"]
@@ -883,10 +1090,10 @@ module MU
       }
       ok = true
 
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+
       descriptor["#MU_CLOUDCLASS"] = classname
 
-      inheritDefaults(descriptor, cfg_plural)
+      applyInheritedDefaults(descriptor, cfg_plural)
 
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
 
@@ -917,6 +1124,17 @@ module MU
 
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
+
+        # Quietly fix old vpc reference style
+        if descriptor['vpc']['vpc_id']
+          descriptor['vpc']['id'] ||= descriptor['vpc']['vpc_id']
+          descriptor['vpc'].delete('vpc_id')
+        end
+        if descriptor['vpc']['vpc_name']
+          descriptor['vpc']['name'] = descriptor['vpc']['vpc_name']
+          descriptor['vpc'].delete('vpc_name')
+        end
+
         descriptor['vpc']['cloud'] = descriptor['cloud']
         if descriptor['credentials']
           descriptor['vpc']['credentials'] ||= descriptor['credentials']
@@ -926,16 +1144,16 @@ module MU
         end
 
         # If we're using a VPC in this deploy, set it as a dependency
-        if !descriptor["vpc"]["vpc_name"].nil? and
-           haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs") and
+        if !descriptor["vpc"]["name"].nil? and
+           haveLitterMate?(descriptor["vpc"]["name"], "vpcs") and
            descriptor["vpc"]['deploy_id'].nil? and
-           descriptor["vpc"]['vpc_id'].nil?
+           descriptor["vpc"]['id'].nil?
           descriptor["dependencies"] << {
             "type" => "vpc",
-            "name" => descriptor["vpc"]["vpc_name"]
+            "name" => descriptor["vpc"]["name"]
           }
 
-          siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
+          siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
           # things that live in subnets need their VPCs to be fully
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
@@ -945,11 +1163,12 @@ module MU
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
-                                  shortclass.to_s+" '#{descriptor['name']}'",
+                                  descriptor,
                                   self,
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
                                   credentials: descriptor['credentials'],
+                                  dflt_project: descriptor['project'],
                                   sibling_vpcs: @kittens['vpcs'])
             ok = false
           end
@@ -959,9 +1178,10 @@ module MU
           # don't have to work so hard.
         else
           if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
-                                  "#{shortclass} #{descriptor['name']}",
+                                  descriptor,
                                   self,
                                   credentials: descriptor['credentials'],
+                                  dflt_project: descriptor['project'],
                                   dflt_region: descriptor['region'])
             MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
@@ -1124,7 +1344,7 @@ module MU
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
-          set_schema_defaults(descriptor, myschema, type: shortclass)
+          applySchemaDefaults(descriptor, myschema, type: shortclass)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
@@ -1251,7 +1471,7 @@ module MU
     def self.cloud_primitive
       {
         "type" => "string",
-        "default" => MU::Config.defaultCloud,
+#        "default" => MU::Config.defaultCloud, # applyInheritedDefaults does this better
         "enum" => MU::Cloud.supportedClouds
       }
     end
@@ -1281,17 +1501,23 @@ module MU
 
       if vpc
         realvpc = {}
-        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
-        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
+        ['vpc_name', 'vpc_id'].each { |p|
+          if vpc[p]
+            vpc[p.sub(/^vpc_/, '')] = vpc[p] 
+            vpc.delete(p)
+          end
+        }
+        realvpc['id'] = vpc['id'] if !vpc['id'].nil?
+        realvpc['name'] = vpc['name'] if !vpc['name'].nil?
         realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
-        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
+        if !realvpc['id'].nil? and !realvpc['id'].empty?
           # Stupid kludge for Google cloud_ids which are sometimes URLs and
           # sometimes not. Requirements are inconsistent from scenario to
           # scenario.
-          name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
-          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
-        elsif !realvpc['vpc_name'].nil?
-          name = name + "-" + realvpc['vpc_name']
+          name = name + "-" + realvpc['id'].gsub(/.*\//, "")
+          realvpc['id'] = getTail("id", value: realvpc['id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["id"].is_a?(String)
+        elsif !realvpc['name'].nil?
+          name = name + "-" + realvpc['name']
         end
       end
 
@@ -1491,7 +1717,7 @@ module MU
       binding
     end
 
-    def set_schema_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
+    def applySchemaDefaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
       return if schema_chunk.nil?
 
       if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
@@ -1506,7 +1732,7 @@ module MU
               nil
             end
 
-            new_val = set_schema_defaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+            new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
 
             conf_chunk[key] = new_val if new_val != nil
           }
@@ -1527,7 +1753,7 @@ module MU
             schema_chunk["items"]
           end
 
-          set_schema_defaults(item, realschema, depth+1, conf_chunk)
+          applySchemaDefaults(item, realschema, depth+1, conf_chunk)
         }
       else
         if conf_chunk.nil? and !schema_chunk["default_if"].nil? and !siblings.nil?
@@ -1660,23 +1886,28 @@ module MU
 
     
     # Given a bare hash describing a resource, insert default values which can
-    # be inherited from the current live parent configuration.
+    # be inherited from its parent or from the root of the BoK.
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
-    def inheritDefaults(kitten, type)
+    def applyInheritedDefaults(kitten, type)
+      kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
+
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
 
-      schema_fields = ["us_only", "scrub_mu_isms", "credentials"]
+      schema_fields = ["us_only", "scrub_mu_isms", "credentials", "billing_acct"]
       if !resclass.isGlobal?
+        kitten['cloud'] ||= @config['region']
         schema_fields << "region"
       end
 
       if kitten['cloud'] == "Google"
-        kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
-        schema_fields << "project"
+        if cfg_name != "habitat"
+          kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
+          schema_fields << "project"
+        end
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            !resclass.isGlobal? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
@@ -1685,7 +1916,7 @@ module MU
           end
           kitten['region'] ||= MU::Cloud::Google.myRegion
         end
-      elsif kitten["cloud"] == "AWS" and !resclass.isGlobal?
+      elsif kitten["cloud"] == "AWS" and !resclass.isGlobal? and !kitten['region']
         if MU::Cloud::AWS.myRegion.nil?
           raise ValidationError, "AWS resource declared without a region, but no default AWS region found"
         end
@@ -1697,6 +1928,8 @@ module MU
 
       kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
       kitten['scrub_mu_isms'] ||= false
+
+      kitten['billing_acct'] ||= @config['billing_acct'] if @config['billing_acct']
 
       kitten['credentials'] ||= @config['credentials']
       kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
@@ -1725,7 +1958,7 @@ module MU
         @kittens[type] = config[type]
         @kittens[type] ||= []
         @kittens[type].each { |k|
-          inheritDefaults(k, type)
+          applyInheritedDefaults(k, type)
         }
         count = count + @kittens[type].size
       }
@@ -2007,6 +2240,57 @@ module MU
       end
     end
 
+    # Load and validate the schema for an individual resource class, optionally
+    # merging cloud-specific schema components.
+    # @param type [String]: The resource type to load
+    # @param cloud [String]: A specific cloud, whose implementation's schema of this resource we will merge
+    # @return [Hash]
+    def self.loadResourceSchema(type, cloud: nil)
+      valid = true
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
+
+      [:schema, :validate].each { |method|
+        if !schemaclass.respond_to?(method)
+          MU.log "MU::Config::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
+          return [nil, false] if method == :schema
+          valid = false
+        end
+      }
+
+      schema = schemaclass.schema.dup
+
+      schema["properties"]["virtual_name"] = {
+        "description" => "Internal use.",
+        "type" => "string"
+      }
+      schema["properties"]["dependencies"] = MU::Config.dependencies_primitive
+      schema["properties"]["cloud"] = MU::Config.cloud_primitive
+      schema["properties"]["credentials"] = MU::Config.credentials_primitive
+      schema["title"] = type.to_s
+
+      if cloud
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
+
+        if cloudclass.respond_to?(:schema)
+          reqd, cloudschema = cloudclass.schema
+          cloudschema.each { |key, cfg|
+            if schema["properties"][key]
+              schemaMerge(schema["properties"][key], cfg, cloud)
+            else
+              schema["properties"][key] = cfg.dup
+            end
+          }
+        else
+          MU.log "MU::Cloud::#{cloud}::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
+          valid = false
+        end
+
+      end
+
+      return [schema, valid]
+    end
+
     @@schema = {
       "$schema" => "http://json-schema.org/draft-04/schema#",
       "title" => "MU Application",
@@ -2024,7 +2308,11 @@ module MU
         },
         "project" => {
           "type" => "string",
-          "description" => "GOOGLE: The project into which to deploy resources"
+          "description" => "**GOOGLE ONLY**: The project into which to deploy resources"
+        },
+        "billing_acct" => {
+          "type" => "string",
+          "description" => "**GOOGLE ONLY**: Billing account ID to associate with a newly-created Google Project. If not specified, will attempt to locate a billing account associated with the default project for our credentials.",
         },
         "region" => MU::Config.region_primitive,
         "credentials" => MU::Config.credentials_primitive,
@@ -2122,28 +2410,16 @@ module MU
       end
     }
 
+
     MU::Cloud.resource_types.each_pair { |type, cfg|
       begin
-        schemaclass = Object.const_get("MU").const_get("Config").const_get(type)
-        [:schema, :validate].each { |method|
-          if !schemaclass.respond_to?(method)
-            MU.log "MU::Config::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
-            failed << type
-          end
-        }
+        schema, valid = loadResourceSchema(type)
+        failed << type if !valid
         next if failed.include?(type)
         @@schema["properties"][cfg[:cfg_plural]] = {
           "type" => "array",
-          "items" => schemaclass.schema
+          "items" => schema
         }
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["virtual_name"] = {
-          "description" => "Internal use.",
-          "type" => "string"
-        }
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["credentials"] = MU::Config.credentials_primitive
-        @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
       rescue NameError => e
         failed << type
         MU.log "Error loading #{type} schema from mu/config/#{cfg[:cfg_name]}", MU::ERR, details: "\t"+e.inspect+"\n\t"+e.backtrace[0]

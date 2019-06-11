@@ -21,8 +21,10 @@ module MU
         @config = nil
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :project_id
         attr_reader :config
         attr_reader :groomer    
+        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
@@ -218,13 +220,17 @@ puts @config['credentials']
           skipsnapshots = flags["skipsnapshots"]
 
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+
           MU::Cloud::Google.listAZs(region).each { |az|
             found = MU::Cloud::Google.container(credentials: credentials).list_zone_clusters(flags["project"], az)
             if found and found.clusters
               found.clusters.each { |cluster|
 
-                if !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
-                   cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                if !cluster.resource_labels or (
+                     !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
+                     cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                   )
                   next
                 end
                 MU.log "Deleting GKE cluster #{cluster.name}"

@@ -41,6 +41,10 @@ ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 require 'mu/logger'
 module MU
 
+  # The maximum number of concurrent threads that {MU::Deploy} or {MU::Cleanup}
+  # will try to run concurrently.
+  MAXTHREADS = 32
+
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
@@ -483,6 +487,7 @@ module MU
   end
 
   require 'mu/config'
+  require 'mu/adoption'
 
   # Figure out what cloud provider we're in, if any.
   # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.
@@ -712,6 +717,8 @@ module MU
         hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return hash
+    elsif struct.is_a?(MU::Config::Ref)
+      struct = struct.to_h
     elsif struct.is_a?(Hash)
       if stringify_keys
         newhash = {}

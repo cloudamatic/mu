@@ -39,12 +39,17 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
+    # Exception we throw when we attempt to make an API call against a project
+    # that is already deleted.
+    class MuDefunctHabitat < StandardError;
+    end
+
     # Methods which a cloud resource implementation, e.g. Server, must implement
     generic_class_methods = [:find, :cleanup, :validateConfig, :schema, :isGlobal?]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -161,7 +166,7 @@ module MU
         :interface => self.const_get("Habitat"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
-        :class => generic_class_methods,
+        :class => generic_class_methods + [:isLive?],
         :instance => generic_instance_methods + [:groom]
       },
       :Collection => {
@@ -590,12 +595,12 @@ module MU
         }
         @@resource_types[type.to_sym][:instance].each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
         cloudclass.required_instance_methods.each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
 
@@ -603,7 +608,7 @@ module MU
         return myclass
       rescue NameError => e
         @cloud_class_cache[cloud][type] = nil
-        raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
+        raise MuCloudResourceNotImplemented, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
       end
     end
 
@@ -632,6 +637,7 @@ module MU
         attr_reader :mu_name
         attr_reader :cloud_id
         attr_reader :credentials
+        attr_reader :habitat
         attr_reader :url
         attr_reader :config
         attr_reader :deploydata
@@ -688,7 +694,6 @@ module MU
           return fullname
         end
 
-
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
         # @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
@@ -697,6 +702,7 @@ module MU
                        mu_name: nil,
                        cloud_id: nil,
                        credentials: nil,
+                       delay_descriptor_load: nil,
                        kitten_cfg: nil,
                        delayed_save: false)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
@@ -707,6 +713,14 @@ module MU
           @cloud_id = cloud_id
           @credentials = credentials
           @credentials ||= kitten_cfg['credentials']
+
+          # It's probably fairly easy to contrive a generic .habitat method
+          # implemented by the cloud provider, instead of this
+          @habitat ||= if @config['cloud'] == "AWS"
+            MU::Cloud::AWS.credToAcct(@credentials)
+          elsif @config['cloud'] == "Google"
+            @config['project'] || MU::Cloud::Google.defaultProject(@credentials)
+          end
 
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
@@ -732,7 +746,7 @@ module MU
 
 # If we just loaded an existing object, go ahead and prepopulate the
 # describe() cache
-          if !cloud_id.nil? or !mu_name.nil?
+          if !cloud_id.nil? or !mu_name.nil? and !delay_descriptor_load
             @cloudobj.describe(cloud_id: cloud_id)
             @cloud_id ||= @cloudobj.cloud_id
           end
@@ -757,9 +771,14 @@ module MU
             end
           end
 
+          # XXX might just want to make a list of interesting symbols in each
+          # cloud provider, and attrib-ify them programmatically
+          @url = @cloudobj.url if @cloudobj.respond_to?(:url)
+          @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
+
           # Register us with our parent deploy so that we can be found by our
           # littermates if needed.
-          if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+          if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty? and !delay_descriptor_load
             describe # XXX is this actually safe here?
             @deploy.addKitten(self.class.cfg_name, @config['name'], self)
           elsif !@deploy.nil?
@@ -767,6 +786,22 @@ module MU
           end
 
         end
+
+        def cloud
+          if @cloud
+            @cloud
+          elsif self.class.name.match(/^MU::Cloud::([^:]+)::.+/)
+            cloudclass_name = Regexp.last_match[1]
+            if MU::Cloud.supportedClouds.include?(cloudclass_name)
+              cloudclass_name
+            else
+              nil
+            end
+          else
+            nil
+          end
+        end
+
 
         # Remove all metadata and cloud resources associated with this object
         def destroy
@@ -796,23 +831,56 @@ module MU
             end
           end
         end
+
+        # Return the cloud object's idea of where it lives (project, account,
+        # etc) in the form of an identifier. If not applicable for this object,
+        # we expect to return +nil+.
+        # @return [String,nil]
+        def habitat(nolookup: true)
+          return nil if ["folder", "habitat"].include?(self.class.cfg_name)
+          @cloudobj ||= self
+          parent_cloud_class = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          parent_cloud_class.habitat(@cloudobj, nolookup: nolookup, deploy: @deploy)
+        end
+
+        def habitat_id(nolookup: false)
+          habitat(nolookup: nolookup)
+        end
+
+        # Merge the passed hash into the existing configuration hash of this
+        # cloud object. Currently this is only used by the {MU::Adoption}
+        # module. I don't love exposing this to the whole internal API, but I'm
+        # probably overthinking that.
+        # @param newcfg [Hash]
+        def config!(newcfg)
+          @config.merge!(newcfg)
+        end
         
-        def cloud_desc()
+        def cloud_desc
           describe
           if !@cloudobj.nil?
             @cloud_desc_cache ||= @cloudobj.cloud_desc
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
+            @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
           end
           if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
-
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials)
-              if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: habitat_id)
+              if !matches.nil? and matches.is_a?(Hash) and matches[@cloud_id]
+#                puts matches[@cloud_id][:self_link]
+#                puts matches[@cloud_id][:url]
+#                if matches[@cloud_id][:self_link]
+#                  @url ||= matches[@cloud_id][:self_link]
+#                elsif matches[@cloud_id][:url]
+#                  @url ||= matches[@cloud_id][:url]
+#                elsif matches[@cloud_id][:arn]
+#                  @arn ||= matches[@cloud_id][:arn]
+#                end
                 @cloud_desc_cache = matches[@cloud_id]
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}/#{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }.\nCalled by #{caller[0]}", MU::WARN
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
@@ -886,7 +954,7 @@ module MU
         # resources in this deployment), as well as for certain config stanzas
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
-        def dependencies(use_cache: false)
+        def dependencies(use_cache: false, debug: false)
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?
@@ -897,6 +965,8 @@ module MU
           end
           @config['dependencies'] = [] if @config['dependencies'].nil?
 
+          loglevel = debug ? MU::NOTICE : MU::DEBUG
+
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
@@ -904,7 +974,7 @@ module MU
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
-              MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::DEBUG
+              MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", loglevel
               @dependencies[dep['type']][dep['name']] = handle
             else
               # XXX yell under circumstances where we should expect to have
@@ -914,16 +984,19 @@ module MU
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
-            MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
-            if !@config['vpc']["vpc_name"].nil? and @deploy
-              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs", return_all: true)
+            if !@config['vpc']["name"].nil? and @deploy
+              MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
+
+              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
               if sib_by_name.is_a?(Array)
                 if sib_by_name.size == 1
                   @vpc = matches.first
+                  MU.log "Single VPC match for #{self}", loglevel, details: @vpc.to_s
                 else
 # XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
                   # we got multiple matches, try to pick one by preferred subnet
                   # behavior
+                  MU.log "Sorting a bunch of VPC matches for #{self}", loglevel, details: sib_by_name.map { |s| s.to_s }.join(", ")
                   sib_by_name.each { |sibling|
                     all_private = sibling.subnets.map { |s| s.private? }.all?(true)
                     all_public = sibling.subnets.map { |s| s.private? }.all?(false)
@@ -942,30 +1015,37 @@ module MU
                 end
               else
                 @vpc = sib_by_name
+                MU.log "Found exact VPC match for #{self}", loglevel, details: sib_by_name.to_s
               end
+            else
+              MU.log "Not sure how to fetch VPC for #{self}", loglevel, details: @config['vpc']
             end
 
-            if !@vpc and !@config['vpc']["vpc_name"].nil? and
+            if !@vpc and !@config['vpc']["name"].nil? and
                 @dependencies.has_key?("vpc") and
-                @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
-              @vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
+                @dependencies["vpc"].has_key?(@config['vpc']["name"])
+              MU.log "Grabbing VPC I see in @dependencies['vpc']['#{@config['vpc']["name"]}'] for #{self}", loglevel, details: @config['vpc']
+              @vpc = @dependencies["vpc"][@config['vpc']["name"]]
             elsif !@vpc
               tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-              if !@config['vpc'].has_key?("vpc_id") and
+              if !@config['vpc'].has_key?("id") and
                   !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
                 @config['vpc']["deploy_id"] = @deploy.deploy_id
               end
+              MU.log "Doing findStray for VPC for #{self}", loglevel, details: @config['vpc']
               vpcs = MU::MommaCat.findStray(
                 @config['cloud'],
                 "vpc",
                 deploy_id: @config['vpc']["deploy_id"],
-                cloud_id: @config['vpc']["vpc_id"],
-                name: @config['vpc']["vpc_name"],
+                cloud_id: @config['vpc']["id"],
+                name: @config['vpc']["name"],
                 tag_key: tag_key,
                 tag_value: tag_value,
+                flags: { "project" => @config['vpc']['project'] },
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
-                dummy_ok: true
+                dummy_ok: true,
+                debug: debug
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end

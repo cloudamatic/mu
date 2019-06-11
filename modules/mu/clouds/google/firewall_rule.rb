@@ -21,16 +21,14 @@ module MU
 
         @deploy = nil
         @config = nil
-        @project_id = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
-
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
-
         attr_reader :mu_name
         attr_reader :config
+        attr_reader :url
         attr_reader :cloud_id
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -39,15 +37,17 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+
+#          if @cloud_id
+#            desc = cloud_desc
+#            @url = desc.self_link if desc and desc.self_link
+#          end
+
           if !mu_name.nil?
             @mu_name = mu_name
             # This is really a placeholder, since we "own" multiple rule sets
             @cloud_id ||= MU::Cloud::Google.nameStr(@mu_name+"-ingress-allow")
             @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloud_id
-            end
           else
             if !@vpc.nil?
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true, max_length: 61)
@@ -62,11 +62,13 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           @cloud_id = @deploy.getResourceName(@mu_name, max_length: 61).downcase
 
           vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
+          if vpc_id and @config['vpc']['project'] and !vpc_id.match(/#{Regexp.quote(@config['vpc']['project'])}/)
+
+          end
 
           params = {
             :name => @cloud_id,
@@ -76,6 +78,7 @@ module MU
           @config['rules'].each { |rule|
             srcs = []
             ruleobj = nil
+# XXX 'all' and 'standard' keywords
             if ["tcp", "udp"].include?(rule['proto']) and (rule['port_range'] or rule['port'])
               ruleobj = MU::Cloud::Google.compute(:Firewall)::Allowed.new(
                 ip_protocol: rule['proto'],
@@ -121,15 +124,28 @@ module MU
           }
 
           fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
-          MU.log "Creating firewall #{@cloud_id} in project #{@project_id}", details: fwobj
-          MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@project_id, fwobj)
-# XXX Check for empty (no hosts) sets
-#  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
+          MU.log "Creating firewall #{@cloud_id} in project #{habitat_id}", details: fwobj
+#begin
+  MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(habitat_id, fwobj)
+#rescue ::Google::Apis::ClientError => e
+#  MU.log @config['project']+"/"+@config['name']+": "+@cloud_id, MU::ERR, details: @config['vpc']
+#  MU.log e.inspect, MU::ERR, details: fwobj
+#  if e.message.match(/Invalid value for field/)
+#    dependencies(use_cache: false, debug: true)
+#  end
+#  raise e
+#end
+          # Make sure it actually got made before we move on
+          desc = nil
+          begin
+            desc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_firewall(habitat_id, @cloud_id)
+            sleep 1
+          end while desc.nil?
+          desc
         end
 
         # Called by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
         end
 
         # Log metadata about this ruleset to the currently running deployment
@@ -139,7 +155,7 @@ module MU
           )
           sg_data ||= {}
           sg_data["group_id"] = @cloud_id
-          sg_data["project_id"] = @project_id
+          sg_data["project_id"] = habitat_id
           sg_data["cloud_id"] = @cloud_id
 
           return sg_data
@@ -163,17 +179,23 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+        def self.find(**args)
+#MU.log "firewall_rule.find called by #{caller[0]}", MU::WARN, details: args
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           found = {}
-          resp = MU::Cloud::Google.compute(credentials: credentials).list_firewalls(flags["project"])
+          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project], max_results: 100)
           if resp and resp.items
             resp.items.each { |fw|
-              next if !cloud_id.nil? and fw.name != cloud_id
+              next if !args[:cloud_id].nil? and fw.name != args[:cloud_id]
               found[fw.name] = fw
             }
+            if resp.items.size >= 99
+              MU.log "BIG-ASS LIST_FIREWALLS RESULT FROM #{args[:project]}", MU::WARN, resp
+            end
           end
+
           found
         end
 
@@ -197,6 +219,8 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+
           MU::Cloud::Google.compute(credentials: credentials).delete(
             "firewall",
             flags["project"],
@@ -205,12 +229,134 @@ module MU
           )
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil)
+
+          bok = {
+            "cloud" => "Google",
+            "project" => @config['project'],
+            "credentials" => @config['credentials']
+          }
+
+          bok['rules'] = []
+          bok['name'] = cloud_desc.name.dup
+          bok['cloud_id'] = cloud_desc.name.dup
+
+          cloud_desc.network.match(/\/networks\/([^\/]+)(?:$|\/)/)
+          vpc_id = Regexp.last_match[1]
+
+          if vpc_id == "default" and !@config['project']
+            raise MuError, "FirewallRule toKitten: I'm in 'default' VPC but can't figure out what project I'm in"
+          end
+
+          # XXX make sure this is sane (that these rules come with default VPCs)
+          if vpc_id == "default" and ["default-allow-icmp", "default-allow-http"].include?(cloud_desc.name)
+            return nil
+          end
+
+          if vpc_id != "default"
+            bok['vpc'] = MU::Config::Ref.get(
+              id: vpc_id,
+              habitat: @config['project'],
+              cloud: "Google",
+              credentials: @config['credentials'],
+              type: "vpcs"
+            )
+          end
+
+
+          byport = {}
+
+          rule_list = []
+          is_deny = false
+          if cloud_desc.denied
+            rule_list = cloud_desc.denied
+            is_deny = true
+          else
+            rule_list = cloud_desc.allowed
+          end
+
+          rule_list.each { |rule|
+            hosts = if cloud_desc.direction == "INGRESS"
+              cloud_desc.source_ranges ? cloud_desc.source_ranges : ["0.0.0.0/0"]
+            else
+              cloud_desc.destination_ranges ? cloud_desc.destination_ranges : ["0.0.0.0/0"]
+            end
+            hosts.map! { |h|
+              h = h+"/32" if h.match(/^\d+\.\d+\.\d+\.\d+$/)
+              h
+            }
+            proto = rule.ip_protocol ? rule.ip_protocol : "all"
+
+            if rule.ports
+              rule.ports.each { |ports|
+                ports = "0-65535" if ["1-65535", "1-65536", "0-65536"].include?(ports)
+                byport[ports] ||= {}
+                byport[ports][hosts] ||= []
+                byport[ports][hosts] << proto
+              }
+            else
+              byport["0-65535"] ||= {}
+              byport["0-65535"][hosts] ||= []
+              byport["0-65535"][hosts] << proto
+            end
+
+          }
+
+          byport.each_pair { |ports, hostlist|
+            hostlist.each_pair { |hostlist, protos|
+              protolist = if protos.sort.uniq == PROTOS.sort.uniq
+                ["all"]
+              elsif protos.sort.uniq == ["icmp", "tcp", "udp"]
+                ["standard"]
+              else
+                protos
+              end
+              protolist.each { |proto|
+                rule = {
+                  "proto" => proto,
+                  "hosts" => hostlist
+                }
+                rule["deny"] = true if is_deny
+                if cloud_desc.priority and cloud_desc.priority != 1000
+                  rule["weight"] = cloud_desc.priority
+                end
+                if ports.match(/-/)
+                  rule["port_range"] = ports
+                else
+                  rule["port"] = ports.to_i
+                end
+                if cloud_desc.source_service_accounts
+                  rule["source_service_accounts"] = cloud_desc.source_service_accounts
+                end
+                if cloud_desc.source_tags
+                  rule["source_tags"] = cloud_desc.source_tags
+                end
+                if cloud_desc.target_service_accounts
+                  rule["target_service_accounts"] = cloud_desc.target_service_accounts
+                end
+                if cloud_desc.target_tags
+                  rule["target_tags"] = cloud_desc.target_tags
+                end
+                if cloud_desc.direction == "EGRESS"
+                  rule['egress'] = true
+                  rule['ingress'] = false
+                end
+                bok['rules'] << rule
+              }
+            }
+          }
+
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(config = nil)
           toplevel_required = []
-#                ['source_ranges', 'source_service_accounts', 'source_tags', 'target_ranges', 'target_service_accounts'].each { |filter|
           schema = {
             "rules" => {
               "items" => {
@@ -279,7 +425,7 @@ module MU
           end
 
           acl['rules'] ||= []
-          
+
           # Firewall entries without rules are illegal in GCP, so insert a
           # default-deny placeholder.
           if acl['rules'].empty?

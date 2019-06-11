@@ -25,6 +25,8 @@ module MU
         attr_reader :config
         attr_reader :cloud_id
         attr_reader :targetgroups
+        attr_reader :url
+        attr_reader :project_id
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
@@ -175,6 +177,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: nil, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           if region
             ["forwarding_rule", "region_backend_service"].each { |type|
@@ -192,6 +195,7 @@ module MU
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["project"],
+                nil,
                 noop
               )
             }

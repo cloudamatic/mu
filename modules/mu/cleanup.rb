@@ -41,7 +41,7 @@ module MU
     # @param web [Boolean]: Generate web-friendly output.
     # @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
     # @return [void]
-    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil)
+    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil, credsets: nil, regions: nil)
       MU.setLogging(verbosity, web)
       @noop = noop
       @skipsnapshots = skipsnapshots
@@ -61,7 +61,7 @@ module MU
       end
 
 
-      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection", "Habitat", "Folder"]
+      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -78,12 +78,16 @@ module MU
             MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject { |item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
             MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
           end
-          @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user)
+          @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user, delay_descriptor_load: true)
         rescue Exception => e
           MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
           MU.setVar("deploy_id", deploy_id)
+
         end
       end
+
+      regionsused = @mommacat.regionsUsed if @mommacat
+      credsused = @mommacat.credsUsed if @mommacat
 
       if !@skipcloud
         creds = {}
@@ -92,20 +96,38 @@ module MU
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds[cloud] ||= {}
             cloudclass.listCredentials.each { |credset|
+              next if credsets and credsets.size > 0 and !credsets.include?(credset)
+              MU.log "Will scan #{cloud} with credentials #{credset}"
               creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
             }
           end
         }
+
         parent_thread_id = Thread.current.object_id
         deleted_nodes = 0
         @regionthreads = []
         keyname = "deploy-#{MU.deploy_id}"
-# XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
+
         creds.each_pair { |provider, credsets|
-          credsets.each_pair { |credset, regions|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
+          habitatclass = Object.const_get("MU").const_get("Cloud").const_get(provider).const_get("Habitat")
+          credsets.each_pair { |credset, acct_regions|
+            next if credsused and !credsused.include?(credset)
             global_vs_region_semaphore = Mutex.new
-            global_done = []
-            regions.each { |r|
+            global_done = {}
+            habitats_done = {}
+            acct_regions.each { |r|
+              if regionsused
+                if regionsused.size > 0
+                  next if !regionsused.include?(r)
+                else
+                  next if r != cloudclass.myRegion(credset)
+                end
+              end
+              if regions and !regions.empty?
+                next if !regions.include?(r)
+                MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
+              end
               @regionthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
                 MU.setVar("curRegion", r)
@@ -114,10 +136,14 @@ module MU
 # XXX GCP credential schema needs an array for projects
                   projects << $MU_CFG[provider.downcase][credset]["project"]
                 end
+                begin
+                  projects.concat(cloudclass.listProjects(credset))
+                rescue NoMethodError
+                end
 
                 if projects == []
                   projects << "" # dummy
-                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE, details: projects
                 end
 
                 # We do these in an order that unrolls dependent resources
@@ -125,6 +151,18 @@ module MU
                 # CloudFormation sometimes fails internally.
                 projectthreads = []
                 projects.each { |project|
+                  next if !habitatclass.isLive?(project, credset)
+                  # cap our concurrency somewhere so we don't just grow to
+                  # infinity and bonk against system thread limits
+                  begin
+                    projectthreads.each do |thr|
+                      thr.join(0.1)
+                    end
+                    projectthreads.reject! { |thr| !thr.alive? }
+                    sleep 0.1
+
+                  end while (@regionthreads.size * projectthreads.size) > MU::MAXTHREADS
+
                   projectthreads << Thread.new {
                     MU.dupGlobals(parent_thread_id)
                     MU.setVar("curRegion", r)
@@ -142,9 +180,12 @@ module MU
                       begin
                         skipme = false
                         global_vs_region_semaphore.synchronize {
+                          MU::Cloud.loadCloudType(provider, t)
+                          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
                           if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
-                            if !global_done.include?(t)
-                              global_done << t
+                            global_done[project] ||= []
+                            if !global_done[project].include?(t)
+                              global_done[project] << t
                               flags['global'] = true
                             else
                               skipme = true
@@ -152,48 +193,25 @@ module MU
                           end
                         }
                         next if skipme
-                      rescue MU::Cloud::MuCloudResourceNotImplemented => e
+                      rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
                         next
                       rescue MU::MuError, NoMethodError => e
-                        MU.log e.message, MU::WARN
+                        MU.log "While checking mu/clouds/#{provider.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
                         next
-                      rescue ::Aws::EC2::Errors::AuthFailure => e
-                        # AWS has been having transient auth problems with ap-east-1 lately
+                      rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
                         MU.log e.message+" in "+r, MU::ERR
                         next
                       end
 
-                      if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
-                        if @mommacat
-                          found = @mommacat.findLitterMate(type: t, return_all: true, credentials: credset)
-                          flags['known'] ||= []
-                          if found.is_a?(Array)
-                            found.each { |k|
-                              flags['known'] << k.cloud_id
-                            }
-                          elsif found and found.is_a?(Hash)
-                            flags['known'] << found['cloud_id']
-                          elsif found
-                            flags['known'] << found.cloud_id                            
-                          end
-                        end
-                        begin
-                          resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
-                          resclass.cleanup(
-                            noop: @noop,
-                            ignoremaster: @ignoremaster,
-                            region: r,
-                            cloud: provider,
-                            flags: flags,
-                            credentials: credset
-                          )
-                        rescue Seahorse::Client::NetworkingError => e
-                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
-                        end
+                      begin
+                        self.call_cleanup(t, credset, provider, flags, r)
+                      rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
+                        next
                       end
+
                     }
-                  }
-                }
+                  } # types_in_order.each { |t|
+                } # projects.each { |project|
                 projectthreads.each do |t|
                   t.join
                 end
@@ -208,10 +226,12 @@ module MU
                     MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
                   }
                 end
-              }
-            }
-          }
-        }
+              } # @regionthreads << Thread.new {
+            } # acct_regions.each { |r|
+
+
+          } # credsets.each_pair { |credset, acct_regions|
+        } # creds.each_pair { |provider, credsets|
 
         @regionthreads.each do |t|
           t.join
@@ -223,12 +243,27 @@ module MU
           t.join
         end
 
+        # Knock habitats and folders, which would contain the above resources,
+        # once they're all done.
+        creds.each_pair { |provider, credsets|
+          credsets.each_pair { |credset, regions|
+            next if credsused and !credsused.include?(credset)
+            ["Habitat", "Folder"].each { |t|
+              flags = {
+                "onlycloud" => @onlycloud,
+                "skipsnapshots" => @skipsnapshots
+              }
+              self.call_cleanup(t, credset, provider, flags, nil)
+            }
+          }
+        }
+
         MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
       end
 
-      # Scrub any residual Chef records with matching tags. If we have Chef.
-      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
+      # Scrub any residual Chef records with matching tags
+      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exists?("/opt/mu/lib"))
         begin
           MU::Groomer::Chef.loadChefLib
           if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
@@ -356,6 +391,39 @@ module MU
 #        MU::MommaCat.syncMonitoringConfig
       end
 
+    end
+
+    private
+
+    def self.call_cleanup(type, credset, provider, flags, region)
+      if @mommacat.nil? or @mommacat.numKittens(types: [type]) > 0
+        if @mommacat
+          found = @mommacat.findLitterMate(type: type, return_all: true, credentials: credset)
+          flags['known'] ||= []
+          if found.is_a?(Array)
+            found.each { |k|
+              flags['known'] << k.cloud_id
+            }
+          elsif found and found.is_a?(Hash)
+            flags['known'] << found['cloud_id']
+          elsif found
+            flags['known'] << found.cloud_id                            
+          end
+        end
+#        begin
+          resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
+          resclass.cleanup(
+            noop: @noop,
+            ignoremaster: @ignoremaster,
+            region: region,
+            cloud: provider,
+            flags: flags,
+            credentials: credset
+          )
+#                        rescue ::Seahorse::Client::NetworkingError => e
+#                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
+#                        end
+      end
     end
   end #class
 end #module

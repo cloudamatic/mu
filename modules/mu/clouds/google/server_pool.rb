@@ -24,6 +24,8 @@ module MU
         attr_reader :mu_name
         attr_reader :cloud_id
         attr_reader :config
+        attr_reader :url
+        attr_reader :project_id
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
@@ -275,6 +277,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           if !flags["global"]
             ["region_autoscaler", "region_instance_group_manager"].each { |type|

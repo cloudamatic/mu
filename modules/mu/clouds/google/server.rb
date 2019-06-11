@@ -34,8 +34,10 @@ module MU
         attr_reader :config
         attr_reader :deploy
         attr_reader :cloud_id
+        attr_reader :project_id
         attr_reader :cloud_desc
         attr_reader :groomer
+        attr_reader :url
         attr_accessor :mu_windows_name
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -73,7 +75,7 @@ module MU
             @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
             if !@project_id
               project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+              @project_id = project.nil? ? @config['project'] : project.cloud_id
             end
           else
             if kitten_cfg.has_key?("basis")
@@ -1048,6 +1050,7 @@ next if !create
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
           skipsnapshots = flags["skipsnapshots"]
           onlycloud = flags["onlycloud"]
 # XXX make damn sure MU.deploy_id is set
