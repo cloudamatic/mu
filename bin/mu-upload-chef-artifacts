@@ -30,6 +30,9 @@ if [ -z $MU_CHEF_CACHE ];then
 fi
 manifest="$MU_CHEF_CACHE/mu_manifest"
 berksdir="$HOMEDIR/.berkshelf"
+
+rm -rf "${berksdir}/" # Just... don't trust it to check cache correctly
+
 if [ -z $MU_INSTALLDIR ];then
     MU_INSTALLDIR=/opt/mu
 fi

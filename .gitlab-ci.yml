@@ -29,13 +29,13 @@ Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
+    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
 
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15
+    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
 
 ChefSpec:
   stage: Test
@@ -44,7 +44,7 @@ ChefSpec:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
 
-Rspec:
+.Rspec:
   stage: Test
   before_script:
     - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_ID__/${AZURE_CLIENT_ID}/" > spec/azure_creds.tmp
@@ -73,9 +73,9 @@ New_Berks:
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
-    - for d in ./cookbooks/*/ ; do (echo && echo "Installing $d" && cd "$d" && berks install); done
-    - for d in ./cookbooks/*/ ; do (echo && echo "Verifying $d" && cd "$d" && berks verify); done
-    - for d in ./cookbooks/*/ ; do (echo && echo "Analyzing $d" && cd "$d" && berks outdated); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Installing $d" && cd "cookbooks/$d" && berks install); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "cookbooks/$d" && berks verify); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "cookbooks/$d" && berks outdated); done
   
 Berks:
   stage: Test
@@ -92,16 +92,17 @@ Gem Build:
   stage: Build
   script:
     - gem build cloud-mu.gemspec
-    - echo "Upload me places? Pehaps to rubygems?"
   only:
     - master
     - development
     - gen_docs
+    - /^gem-.*$/
+    - /^cicd-.*$/
   artifacts:
     paths:
     - cloud-mu-*.gem
 
-Muby Build:
+.Muby Build:
   stage: Build
   image: centos
   script: 
@@ -127,6 +128,8 @@ Gem Parser Test:
   only:
     - master
     - development
+    - /^gem-.*$/
+    - /^cicd-.*$/
   allow_failure: true
 
 Smoke Test:
@@ -188,6 +191,36 @@ Gen Docs:
   - master
   - gen_docs
   allow_failure: true
+
+Upload Gem:
+  stage: Deploy
+  script:
+  - mkdir ~/.gem
+  - cat .gitlab-ci/gem_credentials | sed -e "s/__RUBYGEMS_API_KEY__/${RUBYGEMS_API_KEY}/" > ~/.gem/credentials
+  - chmod 0600 ~/.gem/credentials
+  - gem push cloud-mu-*.gem
+  - shred -u ~/.gem/credentials
+  when: on_success
+  dependencies:
+  - Gem Build
+  only:
+  - master
+
+Upload Gem Manual:
+  stage: Deploy
+  script:
+  - mkdir ~/.gem
+  - cat .gitlab-ci/gem_credentials | sed -e "s/__RUBYGEMS_API_KEY__/${RUBYGEMS_API_KEY}/" > ~/.gem/credentials
+  - chmod 0600 ~/.gem/credentials
+  - gem push cloud-mu-*.gem
+  - shred -u ~/.gem/credentials
+  dependencies:
+  - Gem Build
+  when: manual
+  only:
+  - development
+  - /^gem-.*$/
+  - /^cicd-.*$/
 
 pages:
   stage: Deploy

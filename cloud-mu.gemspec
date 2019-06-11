@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '2.0.0-beta2'
-  s.date        = '2019-03-01'
+  s.version     = '2.0.3'
+  s.date        = '2019-05-25'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -27,7 +27,8 @@ The eGTLabs Mu toolkit for unified cloud deployments. This gem contains a minima
 
 It will attempt to autodetect when it's being run in a virtual machine on a known cloud provider and activate the appropriate API with machine-based credentials. Installing this gem on an Amazon Web Service instance, for example, should automatically enable the MU::Cloud::AWS layer and attempt to use the machine's IAM Profile to communicate with the AWS API.
 
-require 'mu'
+
+require 'cloud-mu'
 
 
 EOF
@@ -57,7 +58,7 @@ EOF
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
   s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
   s.add_runtime_dependency 'googleauth', "~> 0.6"
-  s.add_runtime_dependency 'google-api-client', "~> 0.25"
+  s.add_runtime_dependency 'google-api-client', "~> 0.28.4"
   s.add_runtime_dependency 'rubocop', '~> 0.58'
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"

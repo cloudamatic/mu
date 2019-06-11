@@ -142,6 +142,48 @@ module MU
         [:arn]
       end
 
+      # Given an AWS region, check the API to make sure it's a valid one
+      # @param r [String]
+      # @return [String]
+      def self.validate_region(r)
+        MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+      end
+
+      # Tag a resource with all of our standard identifying tags.
+      #
+      # @param resource [String]: The cloud provider identifier of the resource to tag
+      # @param region [String]: The cloud provider region
+      # @return [void]
+      def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
+        tags = []
+        MU::MommaCat.listStandardTags.each_pair { |name, value|
+          if !value.nil?
+            tags << {key: name, value: value}
+          end
+        }
+        if MU::Cloud::CloudFormation.emitCloudFormation
+          return tags
+        end
+
+        attempts = 0
+        begin
+          MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
+            resources: [resource],
+            tags: tags
+          )
+        rescue Aws::EC2::Errors::ServiceError => e
+          MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1
+          if attempts < 5
+            attempts = attempts + 1
+            sleep 15
+            retry
+          else
+            raise e
+          end
+        end
+        MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
+      end
+
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion
@@ -151,12 +193,6 @@ module MU
           return nil
         end
 
-        # Given an AWS region, check the API to make sure it's a valid one
-        # @param r [String]
-        # @return [String]
-        def self.validate_region(r)
-          MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
-        end
 
         if $MU_CFG and $MU_CFG['aws']
           $MU_CFG['aws'].each_pair { |credset, cfg|
@@ -537,6 +573,7 @@ module MU
       end
 
       @@regions = {}
+      @@regions_semaphore = Mutex.new
       # List the Amazon Web Services region names available to this account. The
       # region that is local to this Mu server will be listed first.
       # @param us_only [Boolean]: Restrict results to United States only
@@ -547,12 +584,19 @@ module MU
           return [] if credConfig.nil?
           result = MU::Cloud::AWS.ec2(region: myRegion, credentials: credentials).describe_regions.regions
           regions = []
-          result.each { |r|
-            @@regions[r.region_name] = Proc.new {
-              listAZs(region: r.region_name, credentials: credentials)
-            }
+          @@regions_semaphore.synchronize {
+            begin
+              result.each { |r|
+                @@regions[r.region_name] = Proc.new {
+                  listAZs(region: r.region_name, credentials: credentials)
+                }
+              }
+            rescue ::Aws::EC2::Errors::AuthFailure => e
+              MU.log "Region #{r.region_name} throws #{e.message}, ignoring it", MU::ERR
+            end
           }
         end
+
 
         regions = if us_only
           @@regions.keys.delete_if { |r| !r.match(/^us\-/) }.uniq
@@ -589,10 +633,17 @@ module MU
         if !MU::Cloud::CloudFormation.emitCloudFormation
           MU::Cloud::AWS.listRegions.each { |region|
             MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
-            MU::Cloud::AWS.ec2(region: region, credentials: credentials).import_key_pair(
-              key_name: keyname,
-              public_key_material: public_key
-            )
+            begin
+              MU::Cloud::AWS.ec2(region: region, credentials: credentials).import_key_pair(
+                key_name: keyname,
+                public_key_material: public_key
+              )
+            rescue ::Aws::EC2::Errors::AuthFailure => e
+              @@regions_semaphore.synchronize {
+                @@regions.delete(region)
+              }
+              MU.log "#{region} threw #{e.message}, skipping", MU::ERR
+            end
           }
         end
       end
@@ -1010,10 +1061,14 @@ module MU
       # @return [void]
       def self.openFirewallForClients
         MU::Cloud.loadCloudType("AWS", :FirewallRule)
-        if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-          ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+        begin
+          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          ::Chef::Config[:environment] = MU.environment
+        rescue LoadError
+          # XXX why is Chef here
         end
-        ::Chef::Config[:environment] = MU.environment
 
         # This is the set of (TCP) ports we're opening to clients. We assume that
         # we can and and remove these without impacting anything a human has
@@ -1223,7 +1278,7 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException => e
             if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
               MU.log e.inspect, MU::ERR
               raise e

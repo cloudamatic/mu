@@ -191,13 +191,14 @@ module MU
 
         # Return the cloud descriptor for the Log Group
         def cloud_desc
-          MU::Cloud::AWS::Log.find(cloud_id: @cloud_id).values.first
+          found = MU::Cloud::AWS::Log.find(cloud_id: @cloud_id)
+          found ? found.values.first : nil
         end
 
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          cloud_desc.arn
+          cloud_desc ? cloud_desc.arn : nil
         end
 
         # Return the metadata for this log configuration
@@ -214,6 +215,12 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::BETA
         end
 
         # Remove all logs associated with the currently loaded deployment.

@@ -36,7 +36,7 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.17.15-1"
-CHEF_CLIENT_VERSION="14.4.56"
+CHEF_CLIENT_VERSION="14.11.21"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
@@ -65,6 +65,9 @@ else
     notifies :restart, "service[sshd]", :immediately
   end
   SSH_USER="root"
+  execute "/sbin/service sshd start" do # ~FC004
+    ignore_failure true # the service restart often fails to leave sshd alive
+  end
 end
 RUNNING_STANDALONE=node['application_attributes'].nil?
 
@@ -130,7 +133,9 @@ execute "reconfigure Chef server" do
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
@@ -141,7 +146,9 @@ execute "upgrade Chef server" do
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 service "chef-server" do
@@ -153,7 +160,9 @@ service "chef-server" do
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
 #  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :stop, "service[iptables]", :before
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 
@@ -164,7 +173,7 @@ dpkgs = {}
 
 elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
 if platform_family?("rhel")
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
 
   rpms = {
@@ -180,13 +189,15 @@ if platform_family?("rhel")
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
     rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
+    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el6.x86_64.rpm"
     
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif elversion < 8
-    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel", "cryptsetup"])
+    basepackages.concat(["libX11", "mariadb-devel", "cryptsetup"])
     rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
+    rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el7.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
@@ -275,20 +286,19 @@ end
 # REMOVE OLD RUBYs
 execute "clean up old Ruby 2.1.6" do
   command "rm -rf /opt/rubies/ruby-2.1.6"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.1.6") }
 end
 
-yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
-  action :purge
-end
-
 execute "Kill ruby-2.3.1" do
-  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y"
+  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y; rpm -e ruby23"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
 execute "clean up old ruby-2.3.1" do
   command "rm -rf /opt/rubies/ruby-2.3.1"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
@@ -299,16 +309,20 @@ rpms.each_pair { |pkg, src|
     if pkg == "ruby25" 
       options '--prefix=/opt/rubies/'
     end
-    if pkg == "chef-server-core" and File.size?("/etc/opscode/chef-server.rb")
-      # On a normal install this will execute when we set up chef-server.rb,
-      # but on a reinstall or an install on an image where that file already
-      # exists, we need to invoke this some other way.
-      notifies :run, "execute[reconfigure Chef server]", :immediately
-      only_if { RUNNING_STANDALONE }
+    if pkg == "chef-server-core"
+      notifies :stop, "service[iptables]", :before
+      if File.size?("/etc/opscode/chef-server.rb")
+        # On a normal install this will execute when we set up chef-server.rb,
+        # but on a reinstall or an install on an image where that file already
+        # exists, we need to invoke this some other way.
+        notifies :run, "execute[reconfigure Chef server]", :immediately
+        only_if { RUNNING_STANDALONE }
+      end
     end
   end
 }
-package "jq" do
+
+package ["jq"] do
   ignore_failure true # sometimes we can't see EPEL immediately
 end
 package removepackages do
@@ -368,6 +382,12 @@ end
 remote_file "#{MU_BASE}/bin/mu-self-update" do
   source "file://#{MU_BASE}/lib/bin/mu-self-update"
   mode 0755
+end
+
+bash "install modules for our built-in Python" do
+  code <<-EOH
+    /usr/local/python-current/bin/pip install -r #{MU_BASE}/lib/requirements.txt
+  EOH
 end
 
 ["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
@@ -443,7 +463,9 @@ execute "initial Chef artifact upload" do
   action :nothing
   notifies :stop, "service[iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
-  notifies :start, "service[iptables]", :immediately
+  if !RUNNING_STANDALONE
+    notifies :start, "service[iptables]", :immediately
+  end
   only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do
@@ -529,11 +551,12 @@ end
 
 file "#{MU_BASE}/etc/mu.rc" do
   content %Q{export MU_INSTALLDIR="#{MU_BASE}"
-  export MU_DATADIR="#{MU_BASE}/var"
-  export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+export MU_DATADIR="#{MU_BASE}/var"
+export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:/usr/local/python-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
   action :create_if_missing
+  not_if { ::File.size?("#{MU_BASE}/etc/mu.rc") }
 end
 
 # Community cookbooks keep touching gems, and none of them are smart about our

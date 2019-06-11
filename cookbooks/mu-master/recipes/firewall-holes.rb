@@ -20,7 +20,7 @@ include_recipe 'mu-firewall'
 
 # TODO Move all mu firewall rules to a mu specific chain
 firewall_rule "MU Master default ports" do
-  port [2260, 7443, 8443, 9443, 10514, 443, 80, 25]
+  port [MU.mommaCatPort, 7443, 8443, 9443, 10514, 443, 80, 25]
 end
 
 local_chef_ports = [4321, 9463, 9583, 16379, 8983, 8000, 9680, 9683, 9090, 5432]

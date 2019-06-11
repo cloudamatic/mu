@@ -110,6 +110,12 @@ module MU
           true
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::ALPHA
+        end
+
         # Remove all users associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -142,7 +148,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           found = nil
           resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(

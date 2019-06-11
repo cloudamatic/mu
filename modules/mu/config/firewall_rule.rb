@@ -71,12 +71,15 @@ module MU
               "type" => "string"
             },
             "ingress" => {
-              "type" => "boolean",
-              "default" => true
+              "type" => "boolean"
             },
             "egress" => {
               "type" => "boolean",
               "default" => false
+            },
+            "comment" => {
+              "type" => "string",
+              "description" => "String description of this firewall rule, where supported"
             },
             "hosts" => {
               "type" => "array",

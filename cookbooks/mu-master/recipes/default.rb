@@ -252,9 +252,6 @@ if !node['update_nagios_only']
    <a href='https://#{MU.mu_public_addr}/nagios/'>Nagios monitoring GUI</a>
   </p>
   <p>
-   <a href='https://#{MU.mu_public_addr}/jenkins/'>Jenkins interface GUI</a>
-  </p>
-  <p>
    <a href='#{(mubranch.nil? or mubranch == "master" or mubranch.match(/detached from/)) ? "https://cloudamatic.gitlab.io/mu/" : "http://"+MU.mu_public_addr+"/docs"}'>Mu API documentation</a>
   </p>
   "
@@ -329,10 +326,12 @@ if !node['update_nagios_only']
     mode 0644
     owner "root"
     variables(
-      :installdir => MU.installDir
+      :installdir => MU.installDir,
+      :repos => MU.muCfg['repos']
     )
     not_if { ::File.size?("#{MU.etcDir}/mu.rc") }
   end
+
   execute "source #{MU.etcDir}/mu.rc from root dotfiles" do
     command "echo 'source #{MU.etcDir}/mu.rc' >> #{Etc.getpwnam("root").dir}/.bashrc"
     not_if "test -f #{Etc.getpwnam("root").dir}/.bashrc && grep '^source #{MU.etcDir}/mu.rc$' #{Etc.getpwnam("root").dir}/.bashrc"

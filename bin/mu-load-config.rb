@@ -64,6 +64,7 @@ end
 # into the Ruby $LOAD_PATH.
 # @return [Hash]
 def loadMuConfig(default_cfg_overrides = nil)
+
   # Start with sane defaults
   default_cfg = {
     "installdir" => "/opt/mu",
@@ -109,6 +110,17 @@ def loadMuConfig(default_cfg_overrides = nil)
       "dcs" => ["127.0.0.1"]
     }
   }
+
+  in_gem = (Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/))
+
+  if in_gem
+    default_cfg.delete("ldap")
+    default_cfg.delete("ssl")
+    default_cfg.delete("scratchpad")
+    default_cfg.delete("libdir")
+    default_cfg.delete("installdir")
+  end
+
   default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides
 
   if !File.exists?(cfgPath) and Process.uid == 0
@@ -133,27 +145,30 @@ def loadMuConfig(default_cfg_overrides = nil)
   if !global_cfg.has_key?("installdir")
     if ENV['MU_INSTALLDIR']
       global_cfg["installdir"] = ENV['MU_INSTALLDIR']
-    elsif Gem.paths and Gem.paths.home and !Dir.exists?("/opt/mu/lib")
-      global_cfg["installdir"] = File.realpath(File.expand_path(File.dirname(Gem.paths.home))+"/../../../")
-    else
+    elsif !in_gem
       global_cfg["installdir"] = "/opt/mu"
     end
   end
   if !global_cfg.has_key?("libdir")
     if ENV['MU_INSTALLDIR']
       global_cfg["libdir"] = ENV['MU_INSTALLDIR']+"/lib"
-    else
+    elsif !in_gem
       global_cfg["libdir"] = File.realpath(File.expand_path(File.dirname(__FILE__))+"/..")
     end
   end
   if !global_cfg.has_key?("datadir")
     if username != "root"
-      global_cfg["datadir"] = home+"/.mu"
+      global_cfg["datadir"] = home+"/.mu/var"
     elsif global_cfg.has_key?("installdir")
       global_cfg["datadir"] = global_cfg["installdir"]+"/var"
     else
       global_cfg["datadir"] = "/opt/mu/var"
     end
+    default_cfg["ssl"] = {
+      "cert" => global_cfg["datadir"]+"/ssl/mommacat.crt",
+      "key" => global_cfg["datadir"]+"/ssl/mommacat.key",
+      "chain" => global_cfg["datadir"]+"/ssl/Mu_CA.pem"
+    }
   end
 
   exit 1 if !validateClouds(global_cfg)

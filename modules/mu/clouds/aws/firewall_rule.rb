@@ -86,7 +86,7 @@ module MU
             retry
           end
 
-          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(secgroup.group_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
@@ -106,10 +106,10 @@ module MU
           # XXX the egress logic here is a crude hack, this really needs to be
           # done at config level
           setRules(
-              [],
-              add_to_self: @config['self_referencing'],
-              ingress: true,
-              egress: egress
+            [],
+            add_to_self: @config['self_referencing'],
+            ingress: true,
+            egress: egress
           )
 
           MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
@@ -124,10 +124,10 @@ module MU
             # XXX the egress logic here is a crude hack, this really needs to be
             # done at config level
             setRules(
-                @config['rules'],
-                add_to_self: @config['self_referencing'],
-                ingress: true,
-                egress: egress
+              @config['rules'],
+              add_to_self: @config['self_referencing'],
+              ingress: true,
+              egress: egress
             )
           end
         end
@@ -150,36 +150,58 @@ module MU
         # @param egress [Boolean]: Whether this is an egress ruleset, instead of ingress.
         # @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
         # @return [void]
-        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535")
+        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535", comment: nil)
           rule = Hash.new
           rule["proto"] = proto
-          if hosts.is_a?(String)
-            rule["hosts"] = [hosts]
-          else
-            rule["hosts"] = hosts
-          end
+          sgs = []
+          hosts = [hosts] if hosts.is_a?(String)
+          hosts.each { |h|
+            if h.match(/^sg-/)
+              sgs << h
+            end
+          }
+          rule["sgs"] = sgs if sgs.size > 0
+          hosts = hosts - sgs
+          rule["hosts"] = hosts if hosts.size > 0
+
           if port != nil
             port = port.to_s if !port.is_a?(String)
             rule["port"] = port
           else
             rule["port_range"] = port_range
           end
+          rule["description"] = comment if comment
           ec2_rule = convertToEc2([rule])
 
           begin
             if egress
               MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
-                  group_id: @cloud_id,
-                  ip_permissions: ec2_rule
+                group_id: @cloud_id,
+                ip_permissions: ec2_rule
               )
             else
               MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
-                  group_id: @cloud_id,
-                  ip_permissions: ec2_rule
+                group_id: @cloud_id,
+                ip_permissions: ec2_rule
               )
             end
           rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
             MU.log "Attempt to add duplicate rule to #{@cloud_id}", MU::DEBUG, details: ec2_rule
+            # Ensure that, at least, the description field gets updated on
+            # existing rules
+            if comment
+              if egress
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).update_security_group_rule_descriptions_egress(
+                  group_id: @cloud_id,
+                  ip_permissions: ec2_rule
+                )
+              else
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).update_security_group_rule_descriptions_ingress(
+                  group_id: @cloud_id,
+                  ip_permissions: ec2_rule
+                )
+              end
+            end
           end
         end
 
@@ -233,6 +255,12 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
         end
 
         # Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
@@ -548,7 +576,11 @@ module MU
                 rule['hosts'].each { |cidr|
                   next if cidr.nil? # XXX where is that coming from?
                   cidr = cidr + "/32" if cidr.match(/^\d+\.\d+\.\d+\.\d+$/)
-                  ec2_rule[:ip_ranges] << {cidr_ip: cidr}
+                  if rule['description']
+                    ec2_rule[:ip_ranges] << {cidr_ip: cidr, description: rule['description']}
+                  else
+                    ec2_rule[:ip_ranges] << {cidr_ip: cidr}
+                  end
                 }
               end
 

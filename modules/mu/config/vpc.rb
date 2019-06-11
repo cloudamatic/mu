@@ -456,6 +456,7 @@ module MU
           delete.each { |delete_me|
             vpc["peers"].delete(delete_me)
           }
+          vpc["peers"].uniq!
         end
         ok
       end

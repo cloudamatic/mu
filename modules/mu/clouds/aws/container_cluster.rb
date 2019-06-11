@@ -61,16 +61,28 @@ module MU
 
             resp = nil
             begin
-              MU.log "Creating EKS cluster #{@mu_name}"
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(
-                name: @mu_name,
-                version: @config['kubernetes']['version'],
-                role_arn: role_arn,
-                resources_vpc_config: {
-                  security_group_ids: security_groups,
-                  subnet_ids: subnet_ids
+              params = {
+                :name => @mu_name,
+                :version => @config['kubernetes']['version'],
+                :role_arn => role_arn,
+                :resources_vpc_config => {
+                  :security_group_ids => security_groups,
+                  :subnet_ids => subnet_ids
                 }
-              )
+              }
+              if @config['logging'] and @config['logging'].size > 0
+                params[:logging] = {
+                  :cluster_logging => [
+                    {
+                      :types => @config['logging'],
+                      :enabled => true
+                    }
+                  ]
+                }
+              end
+
+              MU.log "Creating EKS cluster #{@mu_name}", details: params
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(params)
             rescue Aws::EKS::Errors::UnsupportedAvailabilityZoneException => e
               # this isn't the dumbest thing we've ever done, but it's up there
               if e.message.match(/because (#{Regexp.quote(@config['region'])}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
@@ -130,6 +142,7 @@ module MU
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
               cluster_name: @mu_name
             )
+
           end
           @cloud_id = @mu_name
         end
@@ -181,14 +194,14 @@ module MU
             }
 
             authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
-            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", details: authmap_cmd
+            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
             %x{#{authmap_cmd}}
 
 # and this one
             admin_user_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
             admin_role_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
-            MU.log "Configuring Kubernetes admin-user and role", details: admin_user_cmd+"\n"+admin_role_cmd
+            MU.log "Configuring Kubernetes admin-user and role", MU::NOTICE, details: admin_user_cmd+"\n"+admin_role_cmd
             %x{#{admin_user_cmd}}
             %x{#{admin_role_cmd}}
 
@@ -213,8 +226,8 @@ module MU
               }
             end
 
-            MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml}, MU::SUMMARY
-          else
+            MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+          elsif @config['flavor'] != "Fargate"
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
               cluster: @mu_name
             })
@@ -281,7 +294,323 @@ module MU
               }
             }
           end
-# launch_type: "EC2" only option in GovCloud
+
+          if @config['flavor'] != "EKS" and @config['containers']
+
+            security_groups = []
+            if @dependencies.has_key?("firewall_rule")
+              @dependencies['firewall_rule'].values.each { |sg|
+                security_groups << sg.cloud_id
+              }
+            end
+
+            tasks_registered = 0
+            retries = 0
+            svc_resp = begin
+              MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
+                cluster: arn
+              )
+            rescue Aws::ECS::Errors::ClusterNotFoundException => e
+              if retries < 10
+                sleep 5
+                retries += 1
+                retry
+              else
+                raise e
+              end
+            end
+            existing_svcs = svc_resp.service_arns.map { |s|
+              s.gsub(/.*?:service\/(.*)/, '\1')
+            }
+
+            # Reorganize things so that we have services and task definitions
+            # mapped to the set of containers they must contain
+            tasks = {}
+            created_generic_loggroup = false
+
+            @config['containers'].each { |c|
+              service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name+"-"+c['name'].upcase
+              tasks[service_name] ||= []
+              tasks[service_name] << c
+            }
+
+            tasks.each_pair { |service_name, containers|
+              launch_type = @config['flavor'] == "ECS" ? "EC2" : "FARGATE"
+              cpu_total = 0
+              mem_total = 0
+              role_arn = nil
+
+              container_definitions = containers.map { |c|
+                cpu_total += c['cpu']
+                mem_total += c['memory']
+
+                if c["role"] and !role_arn
+                  found = MU::MommaCat.findStray(
+                    @config['cloud'],
+                    "role",
+                    cloud_id: c["role"]["id"],
+                    name: c["role"]["name"],
+                    deploy_id: c["role"]["deploy_id"] || @deploy.deploy_id,
+                    dummy_ok: false
+                  )
+                  if found
+                    found = found.first
+                    if found and found.cloudobj
+                      role_arn = found.cloudobj.arn
+                    end
+                  else
+                    raise MuError, "Unable to find execution role from #{c["role"]}"
+                  end
+                end
+
+                params = {
+                  name: @mu_name+"-"+c['name'].upcase,
+                  image: c['image'],
+                  memory: c['memory'],
+                  cpu: c['cpu']
+                }
+                if !@config['vpc']
+                  c['hostname'] ||= @mu_name+"-"+c['name'].upcase
+                end
+                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options, :port_mappings, :repository_credentials, :mount_points, :environment, :volumes_from, :secrets, :depends_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check, :resource_requirements].each { |param|
+                  if c.has_key?(param.to_s)
+                    params[param] = if !c[param.to_s].nil? and (c[param.to_s].is_a?(Hash) or c[param.to_s].is_a?(Array))
+                      MU.strToSym(c[param.to_s])
+                    else
+                      c[param.to_s]
+                    end
+                  end
+                }
+                if @config['vpc']
+                  [:hostname, :dns_servers, :dns_search_domains, :links].each { |param|
+                    if params[param]
+                      MU.log "Container parameter #{param.to_s} not supported in VPC clusters, ignoring", MU::WARN
+                      params.delete(param)
+                    end
+                  }
+                end
+                if @config['flavor'] == "Fargate"
+                  [:privileged, :docker_security_options].each { |param|
+                    if params[param]
+                      MU.log "Container parameter #{param.to_s} not supported in Fargate clusters, ignoring", MU::WARN
+                      params.delete(param)
+                    end
+                  }
+                end
+                if c['log_configuration']
+                  log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
+                  if log_obj
+                    c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
+                  end
+                  params[:log_configuration] = MU.strToSym(c['log_configuration'])
+                end
+                params
+              }
+
+              cpu_total = 2 if cpu_total == 0
+              mem_total = 2 if mem_total == 0
+
+              task_params = {
+                family: @deploy.deploy_id,
+                container_definitions: container_definitions,
+                requires_compatibilities: [launch_type]
+              }
+
+              if @config['volumes']
+                task_params[:volumes] = []
+                @config['volumes'].each { |v|
+                  vol = { :name => v['name'] }
+                  if v['type'] == "host"
+                    vol[:host] = {}
+                    if v['host_volume_source_path']
+                      vol[:host][:source_path] = v['host_volume_source_path']
+                    end
+                  elsif v['type'] == "docker"
+                    vol[:docker_volume_configuration] = MU.strToSym(v['docker_volume_configuration'])
+                  else
+                    raise MuError, "Invalid volume type '#{v['type']}' specified in ContainerCluster '#{@mu_name}'"
+                  end
+                  task_params[:volumes] << vol
+                }
+              end
+
+              if role_arn
+                task_params[:execution_role_arn] = role_arn
+                task_params[:task_role_arn] = role_arn
+              end
+              if @config['flavor'] == "Fargate"
+                task_params[:network_mode] = "awsvpc"
+                task_params[:cpu] = cpu_total.to_i.to_s
+                task_params[:memory] = mem_total.to_i.to_s
+              end
+
+              tasks_registered += 1
+              MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
+
+# XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
+              resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
+
+              task_def = resp.task_definition.task_definition_arn
+
+              service_params = {
+                :cluster => @mu_name,
+                :desired_count => @config['instance_count'], # XXX this makes no sense
+                :service_name => service_name,
+                :launch_type => launch_type,
+                :task_definition => task_def
+              }
+              if @config['vpc']
+                subnet_ids = []
+                all_public = true
+                subnet_names = @config['vpc']['subnets'].map { |s| s.values.first }
+                @vpc.subnets.each { |subnet_obj|
+                  next if !subnet_names.include?(subnet_obj.config['name'])
+                  subnet_ids << subnet_obj.cloud_id
+                  all_public = false if subnet_obj.private?
+                }
+                service_params[:network_configuration] = {
+                  :awsvpc_configuration => {
+                    :subnets => subnet_ids,
+                    :security_groups => security_groups,
+                    :assign_public_ip => all_public ? "ENABLED" : "DISABLED"
+                  }
+                }
+              end
+
+              if !existing_svcs.include?(service_name)
+                MU.log "Creating Service #{service_name}"
+
+                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
+              else
+                service_params[:service] = service_params[:service_name].dup
+                service_params.delete(:service_name)
+                service_params.delete(:launch_type)
+                MU.log "Updating Service #{service_name}", MU::NOTICE, details: service_params
+
+                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
+              end
+              existing_svcs << service_name 
+            }
+
+            max_retries = 10
+            retries = 0
+            if tasks_registered > 0
+              retry_me = false
+              begin
+                retry_me = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @config['region'], credentials: @config['credentials'])
+                retries += 1
+                sleep 15 if retry_me
+              end while retry_me and retries < max_retries
+              tasks = nil
+
+              if retry_me
+                MU.log "Not all tasks successfully launched in cluster #{@mu_name}", MU::WARN
+              end
+            end
+
+          end
+
+        end
+
+        # Returns true if all tasks in the given ECS/Fargate cluster are in the
+        # RUNNING state.
+        # @param cluster [String]: The cluster to check
+        # @param log [Boolean]: Output the state of each task to Mu's logger facility
+        # @param region [String]
+        # @param credentials [String]
+        # @return [Boolean]
+        def self.tasksRunning?(cluster, log: true, region: MU.myRegion, credentials: nil)
+          services = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
+            cluster: cluster
+          ).service_arns.map { |s| s.sub(/.*?:service\/([^\/:]+?)$/, '\1') }
+          
+          tasks_defined = []
+
+          begin
+            listme = services.slice!(0, (services.length >= 10 ? 10 : services.length))
+            if services.size > 0
+              tasks_defined.concat(
+                tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_services(
+                  cluster: cluster,
+                  services: listme
+                ).services.map { |s| s.task_definition }
+              )
+            end
+          end while services.size > 0
+
+          containers = {}
+
+          tasks_defined.each { |t|
+            taskdef = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_task_definition(
+              task_definition: t.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
+            )
+            taskdef.task_definition.container_definitions.each { |c|
+              containers[c.name] = {}
+            }
+          }
+
+          tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
+            cluster: cluster,
+            desired_status: "RUNNING"
+          ).task_arns
+
+          tasks.concat(MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_tasks(
+            cluster: cluster,
+            desired_status: "STOPPED"
+          ).task_arns)
+
+          begin
+            sample = tasks.slice!(0, (tasks.length >= 100 ? 100 : tasks.length))
+            break if sample.size == 0
+            task_ids = sample.map { |task_arn|
+              task_arn.sub(/^.*?:task\/([a-f0-9\-]+)$/, '\1')
+            }
+
+            MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_tasks(
+              cluster: cluster,
+              tasks: task_ids
+            ).tasks.each { |t|
+              task_name = t.task_definition_arn.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
+              t.containers.each { |c|
+                containers[c.name] ||= {}
+                containers[c.name][t.desired_status] ||= {
+                  "reasons" => []
+                }
+                [t.stopped_reason, c.reason].each { |r|
+                  next if r.nil?
+                  containers[c.name][t.desired_status]["reasons"] << r
+                }
+                containers[c.name][t.desired_status]["reasons"].uniq!
+                if !containers[c.name][t.desired_status]['time'] or
+                   t.created_at > containers[c.name][t.desired_status]['time']
+MU.log c.name, MU::NOTICE, details: t
+                  containers[c.name][t.desired_status] = {
+                    "time" => t.created_at,
+                    "status" => c.last_status,
+                    "reasons" => containers[c.name][t.desired_status]["reasons"]
+                  }
+                end
+              }
+            }
+          end while tasks.size > 0
+
+          to_return = true
+          containers.each_pair { |name, states|
+            if !states["RUNNING"] or states["RUNNING"]["status"] != "RUNNING"
+              to_return = false
+              if states["STOPPED"] and states["STOPPED"]["status"]
+                MU.log "Container #{name} has failures", MU::WARN, details: states["STOPPED"] if log
+              elsif states["RUNNING"] and states["RUNNING"]["status"]
+                MU.log "Container #{name} not currently running", MU::NOTICE, details: states["RUNNING"] if log
+              else
+                MU.log "Container #{name} in unknown state", MU::WARN, details: states["STOPPED"] if log
+              end
+            else
+              MU.log "Container #{name} running", details: states["RUNNING"] if log
+            end
+          }
+
+          to_return
         end
 
         # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
@@ -337,7 +666,19 @@ module MU
           elsif flavor == "EKS"
             # XXX this is absurd, but these don't appear to be available from an API anywhere
             # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
-            amis = { "us-east-1" => "ami-0440e4f6b9713faf6", "us-west-2" => "ami-0a54c984b9f908c81", "eu-west-1" => "ami-0c7a4976cb6fafd3a" }
+            amis = {
+              "us-east-1" => "ami-0abcb9f9190e867ab",
+              "us-east-2" => "ami-04ea7cb66af82ae4a",
+              "us-west-2" => "ami-0923e4b35a30a5f53",
+              "eu-west-1" => "ami-08716b70cac884aaa",
+              "eu-west-2" => "ami-0c7388116d474ee10",
+              "eu-west-3" => "ami-0560aea042fec8b12",
+              "ap-northeast-1" => "ami-0bfedee6a7845c26d",
+              "ap-northeast-2" => "ami-0a904348b703e620c",
+              "ap-south-1" => "ami-09c3eb35bb3be46a4",
+              "ap-southeast-1" => "ami-07b922b9b94d9a6d2",
+              "ap-southeast-2" => "ami-0f0121e9e64ebd3dc"
+            }
             return amis[region]
           end
           nil
@@ -363,6 +704,12 @@ module MU
           false
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
+        end
+
         # Remove all container_clusters associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -375,6 +722,24 @@ module MU
             resp.cluster_arns.each { |arn|
               if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
                 cluster = Regexp.last_match[1]
+
+                svc_resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
+                  cluster: arn
+                )
+                if svc_resp and svc_resp.service_arns
+                  svc_resp.service_arns.each { |svc_arn|
+                    svc_name = svc_arn.gsub(/.*?:service\/(.*)/, '\1')
+                    MU.log "Deleting Service #{svc_name} from ECS Cluster #{cluster}"
+                    if !noop
+                      MU::Cloud::AWS.ecs(region: region, credentials: credentials).delete_service(
+                        cluster: arn,
+                        service: svc_name,
+                        force: true # man forget scaling up and down if we're just deleting the cluster
+                      )
+                    end
+                  }
+                end
+
                 instances = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_container_instances({
                   cluster: cluster
                 })
@@ -394,13 +759,33 @@ module MU
                 MU.log "Deleting ECS Cluster #{cluster}"
                 if !noop
 # TODO de-register container instances
+                  begin
                   deletion = MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
                     cluster: cluster
                   )
+                  rescue Aws::ECS::Errors::ClusterContainsTasksException => e
+                    sleep 5
+                    retry
+                  end
                 end
               end
             }
           end
+
+          tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
+            family_prefix: MU.deploy_id
+          )
+          if tasks and tasks.task_definition_arns
+            tasks.task_definition_arns.each { |arn|
+              MU.log "Deregistering Fargate task definition #{arn}"
+              if !noop
+                MU::Cloud::AWS.ecs(region: region, credentials: credentials).deregister_task_definition(
+                  task_definition: arn
+                )
+              end
+            }
+          end
+
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
 
 
@@ -485,19 +870,553 @@ module MU
               "enum" => ["ECS", "EKS", "Fargate"],
               "default" => "ECS"
             },
+            "kubernetes" => {
+              "default" => { "version" => "1.11" }
+            },
             "platform" => {
-              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else",
+              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else. Only valid for EKS and ECS flavors.",
               "default" => "centos7"
             },
             "ami_id" => {
               "type" => "string",
-              "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified."
+              "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified. Only valid for EKS and ECS flavors."
             },
             "run_list" => {
               "type" => "array",
               "items" => {
                   "type" => "string",
-                  "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes."
+                  "description" => "An extra Chef run list entry, e.g. role[rolename] or recipe[recipename]s, to be run on worker nodes. Only valid for EKS and ECS flavors."
+              }
+            },
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.ruleschema,
+              "default" => [
+                {
+                  "egress" => true,
+                  "port" => 443,
+                  "hosts" => [ "0.0.0.0/0" ]
+                }
+              ]
+            },
+            "logging" => {
+              "type" => "array",
+              "default" => ["authenticator", "api"],
+              "items" => {
+                "type" => "string",
+                "description" => "Cluster CloudWatch logs to enable for EKS clusters.",
+                "enum" => ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+              }
+            },
+            "volumes" => {
+              "type" => "array",
+              "items" => {
+                "description" => "Define one or more volumes which can then be referenced by the +mount_points+ parameter inside +containers+. +docker+ volumes are not valid for Fargate clusters. See also https://docs.aws.amazon.com/AmazonECS/latest/developerguide/using_data_volumes.html",
+                "type" => "object",
+                "required" => ["name", "type"],
+                "properties" => {
+                  "name" => {
+                    "type" => "string",
+                    "description" => "Name this volume so it can be referenced by containers."
+                  },
+                  "type" => {
+                    "type" => "string",
+                    "enum" => ["docker", "host"]
+                  },
+                  "docker_volume_configuration" => {
+                    "type" => "object",
+                    "default" => {
+                      "autoprovision" => true,
+                      "driver" => "local"
+                    },
+                    "description" => "This parameter is specified when you are using +docker+ volumes. Docker volumes are only supported when you are using the EC2 launch type. To use bind mounts, specify a +host+ volume instead.",
+                    "properties" => {
+                      "autoprovision" => {
+                        "type" => "boolean",
+                        "description" => "Create the Docker volume if it does not already exist.",
+                        "default" => true
+                      },
+                      "driver" => {
+                        "type" => "string",
+                        "description" => "The Docker volume driver to use. Note that Windows containers can only use the +local+ driver. This parameter maps to +Driver+ in the Create a volume section of the Docker Remote API and the +xxdriver+ option to docker volume create."
+                      },
+                      "labels" => {
+                        "description" => "Custom metadata to add to your Docker volume.",
+                        "type" => "object"
+                      },
+                      "driver_opts" => {
+                        "description" => "A map of Docker driver-specific options passed through. This parameter maps to +DriverOpts+ in the Create a volume section of the Docker Remote API and the +xxopt+ option to docker volume create .",
+                        "type" => "object"
+                      },
+                    }
+                  },
+                  "host_volume_source_path" => {
+                    "type" => "string",
+                    "description" => "If specified, and the +type+ of this volume is +host+, data will be stored in the container host in this location and will persist after containers associated with it stop running."
+                  }
+                }
+              }
+            },
+            "containers" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "A container image to run on this cluster.",
+                "required" => ["name", "image"],
+                "properties" => {
+                  "name" => {
+                    "type" => "string",
+                    "description" => "The name of a container. If you are linking multiple containers together in a task definition, the name of one container can be entered in the +links+ of another container to connect the containers. This parameter maps to +name+ in the Create a container section of the Docker Remote API and the +--name+ option to docker run."
+                  },
+                  "service" => {
+                    "type" => "string",
+                    "description" => "The Service of which this container will be a component. Default behavior, if unspecified, is to create a service with the name of this container definition and assume they map 1:1."
+                  },
+                  "image" => {
+                    "type" => "string",
+                    "description" => "A Docker image to run, as a shorthand name for a public Dockerhub image or a full URL to a private container repository (+repository-url/image:tag+ or <tt>repository-url/image@digest</tt>). See +repository_credentials+ to specify authentication for a container repository.",
+                  },
+                  "cpu" => {
+                    "type" => "integer",
+                    "default" => 256,
+                    "description" => "CPU to allocate for this container/task. This parameter maps to +CpuShares+ in the Create a container section of the Docker Remote API and the +--cpu-shares+ option to docker run. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                  },
+                  "memory" => {
+                    "type" => "integer",
+                    "default" => 512,
+                    "description" => "Hard limit of memory to allocate for this container/task. Not all +cpu+ and +memory+ combinations are valid, particularly when using Fargate, see https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+                  },
+                  "memory_reservation" => {
+                    "type" => "integer",
+                    "default" => 512,
+                    "description" => "Soft limit of memory to allocate for this container/task. This parameter maps to +MemoryReservation+ in the Create a container section of the Docker Remote API and the +--memory-reservation+ option to docker run."
+                  },
+                  "role" => MU::Config::Role.reference,
+                  "essential" => {
+                    "type" => "boolean",
+                    "description" => "Flag this container as essential or non-essential to its parent task. If the container fails and is marked essential, the parent task will also be marked as failed.",
+                    "default" => true
+                  },
+                  "hostname" => {
+                    "type" => "string",
+                    "description" => "Set this container's local hostname. If not specified, will inherit the name of the parent task. Not valid for Fargate clusters. This parameter maps to +Hostname+ in the Create a container section of the Docker Remote API and the +--hostname+ option to docker run."
+                  },
+                  "user" => {
+                    "type" => "string",
+                    "description" => "The system-level user to use when executing commands inside this container"
+                  },
+                  "working_directory" => {
+                    "type" => "string",
+                    "description" => "The working directory in which to run commands inside the container."
+                  },
+                  "disable_networking" => {
+                    "type" => "boolean",
+                    "description" => "This parameter maps to +NetworkDisabled+ in the Create a container section of the Docker Remote API."
+                  },
+                  "privileged" => {
+                    "type" => "boolean",
+                    "description" => "When this parameter is true, the container is given elevated privileges on the host container instance (similar to the root user). This parameter maps to +Privileged+ in the Create a container section of the Docker Remote API and the +--privileged+ option to docker run. Not valid for Fargate clusters."
+                  },
+                  "readonly_root_filesystem" => {
+                    "type" => "boolean",
+                    "description" => "This parameter maps to +ReadonlyRootfs+ in the Create a container section of the Docker Remote API and the +--read-only+ option to docker run."
+                  },
+                  "interactive" => {
+                    "type" => "boolean",
+                    "description" => "When this parameter is +true+, this allows you to deploy containerized applications that require +stdin+ or a +tty+ to be allocated. This parameter maps to +OpenStdin+ in the Create a container section of the Docker Remote API and the +--interactive+ option to docker run."
+                  },
+                  "pseudo_terminal" => {
+                    "type" => "boolean",
+                    "description" => "When this parameter is true, a TTY is allocated. This parameter maps to +Tty+ in the Create a container section of the Docker Remote API and the +--tty+ option to docker run."
+                  },
+                  "start_timeout" => {
+                    "type" => "integer",
+                    "description" => "Time duration to wait before giving up on containers which have been specified with +depends_on+ for this one."
+                  },
+                  "stop_timeout" => {
+                    "type" => "integer",
+                    "description" => "Time duration to wait before the container is forcefully killed if it doesn't exit normally on its own."
+                  },
+                  "links" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "The +link+ parameter allows containers to communicate with each other without the need for port mappings. Only supported if the network mode of a task definition is set to +bridge+. The +name:internalName+ construct is analogous to +name:alias+ in Docker links.",
+                      "type" => "string"
+                    }
+                  },
+                  "entry_point" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "The entry point that is passed to the container. This parameter maps to +Entrypoint+ in the Create a container section of the Docker Remote API and the +--entrypoint+ option to docker run."
+                    }
+                  },
+                  "command" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "This parameter maps to +Cmd+ in the Create a container section of the Docker Remote API and the +COMMAND+ parameter to docker run."
+                    }
+                  },
+                  "dns_servers" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "A list of DNS servers that are presented to the container. This parameter maps to +Dns+ in the Create a container section of the Docker Remote API and the +--dns+ option to docker run."
+                    }
+                  },
+                  "dns_search_domains" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "A list of DNS search domains that are presented to the container. This parameter maps to +DnsSearch+ in the Create a container section of the Docker Remote API and the +--dns-search+ option to docker run."
+                    }
+                  },
+                  "linux_parameters" => {
+                    "type" => "object",
+                    "description" => "Linux-specific options that are applied to the container, such as Linux KernelCapabilities.",
+                    "properties" => {
+                      "init_process_enabled" => {
+                        "type" => "boolean",
+                        "description" => "Run an +init+ process inside the container that forwards signals and reaps processes. This parameter maps to the +--init+ option to docker run."
+                      },
+                      "shared_memory_size" => {
+                        "type" => "integer",
+                        "description" => "The value for the size (in MiB) of the +/dev/shm+ volume. This parameter maps to the +--shm-size+ option to docker run. Not valid for Fargate clusters."
+                      },
+                      "capabilities" => {
+                        "type" => "object",
+                        "description" => "The Linux capabilities for the container that are added to or dropped from the default configuration provided by Docker.",
+                        "properties" => {
+                          "add" => {
+                            "type" => "array",
+                            "items" => {
+                              "type" => "string",
+                              "description" => "This parameter maps to +CapAdd+ in the Create a container section of the Docker Remote API and the +--cap-add+ option to docker run. Not valid for Fargate clusters.",
+                              "enum" => ["ALL", "AUDIT_CONTROL", "AUDIT_WRITE", "BLOCK_SUSPEND", "CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID", "IPC_LOCK", "IPC_OWNER", "KILL", "LEASE", "LINUX_IMMUTABLE", "MAC_ADMIN", "MAC_OVERRIDE", "MKNOD", "NET_ADMIN", "NET_BIND_SERVICE", "NET_BROADCAST", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_ADMIN", "SYS_BOOT", "SYS_CHROOT", "SYS_MODULE", "SYS_NICE", "SYS_PACCT", "SYS_PTRACE", "SYS_RAWIO", "SYS_RESOURCE", "SYS_TIME", "SYS_TTY_CONFIG", "SYSLOG", "WAKE_ALARM"]
+                            }
+                          },
+                          "drop" => {
+                            "type" => "array",
+                            "items" => {
+                              "type" => "string",
+                              "description" => "This parameter maps to +CapDrop+ in the Create a container section of the Docker Remote API and the +--cap-drop+ option to docker run.",
+                              "enum" => ["ALL", "AUDIT_CONTROL", "AUDIT_WRITE", "BLOCK_SUSPEND", "CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID", "IPC_LOCK", "IPC_OWNER", "KILL", "LEASE", "LINUX_IMMUTABLE", "MAC_ADMIN", "MAC_OVERRIDE", "MKNOD", "NET_ADMIN", "NET_BIND_SERVICE", "NET_BROADCAST", "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_ADMIN", "SYS_BOOT", "SYS_CHROOT", "SYS_MODULE", "SYS_NICE", "SYS_PACCT", "SYS_PTRACE", "SYS_RAWIO", "SYS_RESOURCE", "SYS_TIME", "SYS_TTY_CONFIG", "SYSLOG", "WAKE_ALARM"]
+                            }
+                          }
+                        }
+                      },
+                      "devices" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "object",
+                          "description" => "Host devices to expose to the container.",
+                          "properties" => {
+                            "host_path" => {
+                              "type" => "string",
+                              "description" => "The path for the device on the host container instance."
+                            },
+                            "container_path" => {
+                              "type" => "string",
+                              "description" => "The path inside the container at which to expose the host device."
+                            },
+                            "permissions" => {
+                              "type" => "array",
+                              "items" => {
+                                "description" => "The explicit permissions to provide to the container for the device. By default, the container has permissions for +read+, +write+, and +mknod+ for the device.",
+                                "type" => "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "tmpfs" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "object",
+                          "description" => "A tmpfs device to expost to the container. This parameter maps to the +--tmpfs+ option to docker run. Not valid for Fargate clusters.",
+                          "properties" => {
+                            "container_path" => {
+                              "type" => "string",
+                              "description" => "The absolute file path where the tmpfs volume is to be mounted."
+                            },
+                            "size" => {
+                              "type" => "integer",
+                              "description" => "The size (in MiB) of the tmpfs volume."
+                            },
+                            "mount_options" => {
+                              "type" => "array",
+                              "items" => {
+                                "description" => "tmpfs volume mount options",
+                                "type" => "string",
+                                "enum" => ["defaults", "ro", "rw", "suid", "nosuid", "dev", "nodev", "exec", "noexec", "sync", "async", "dirsync", "remount", "mand", "nomand", "atime", "noatime", "diratime", "nodiratime", "bind", "rbind", "unbindable", "runbindable", "private", "rprivate", "shared", "rshared", "slave", "rslave", "relatime", "norelatime", "strictatime", "nostrictatime", "mode", "uid", "gid", "nr_inodes", "nr_blocks", "mpol"]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "docker_labels" => {
+                    "type" => "object",
+                    "description" => "A key/value map of labels to add to the container. This parameter maps to +Labels+ in the Create a container section of the Docker Remote API and the +--label+ option to docker run."
+                  },
+                  "docker_security_options" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "A list of strings to provide custom labels for SELinux and AppArmor multi-level security systems. This field is not valid for containers in tasks using the Fargate launch type. This parameter maps to +SecurityOpt+ in the Create a container section of the Docker Remote API and the +--security-opt+ option to docker run."
+                    }
+                  },
+                  "health_check" => {
+                    "type" => "object",
+                    "required" => ["command"],
+                    "description" => "The health check command and associated configuration parameters for the container. This parameter maps to +HealthCheck+ in the Create a container section of the Docker Remote API and the +HEALTHCHECK+ parameter of docker run.",
+                    "properties" => {
+                      "command" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "string",
+                          "description" => "A string array representing the command that the container runs to determine if it is healthy."
+                        }
+                      },
+                      "interval" => {
+                        "type" => "integer",
+                        "description" => "The time period in seconds between each health check execution."
+                      },
+                      "timeout" => {
+                        "type" => "integer",
+                        "description" => "The time period in seconds to wait for a health check to succeed before it is considered a failure."
+                      },
+                      "retries" => {
+                        "type" => "integer",
+                        "description" => "The number of times to retry a failed health check before the container is considered unhealthy."
+                      },
+                      "start_period" => {
+                        "type" => "integer",
+                        "description" => "The optional grace period within which to provide containers time to bootstrap before failed health checks count towards the maximum number of retries."
+                      }
+                    }
+                  },
+                  "environment" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "The environment variables to pass to a container. This parameter maps to +Env+ in the Create a container section of the Docker Remote API and the +--env+ option to docker run.",
+                      "properties" => {
+                        "name" => {
+                          "type" => "string"
+                        },
+                        "value" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "resource_requirements" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "Special requirements for this container. As of this writing, +GPU+ is the only valid option.",
+                      "required" => ["type", "value"],
+                      "properties" => {
+                        "type" => {
+                          "type" => "string",
+                          "enum" => ["GPU"],
+                          "description" => "Special requirements for this container. As of this writing, +GPU+ is the only valid option."
+                        },
+                        "value" => {
+                          "type" => "string",
+                          "description" => "The number of physical GPUs the Amazon ECS container agent will reserve for the container."
+                        }
+                      }
+                    }
+                  },
+                  "system_controls" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "A list of namespaced kernel parameters to set in the container. This parameter maps to +Sysctls+ in the Create a container section of the Docker Remote API and the +--sysctl+ option to docker run.",
+                      "properties" => {
+                        "namespace" => {
+                          "type" => "string",
+                          "description" => "The namespaced kernel parameter for which to set a +value+."
+                        },
+                        "value" => {
+                          "type" => "string",
+                          "description" => "The value for the namespaced kernel parameter specified in +namespace+."
+                        }
+                      }
+                    }
+                  },
+                  "ulimits" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "This parameter maps to +Ulimits+ in the Create a container section of the Docker Remote API and the +--ulimit+ option to docker run.",
+                      "required" => ["name", "soft_limit", "hard_limit"],
+                      "properties" => {
+                        "name" => {
+                          "type" => "string",
+                          "description" => "The ulimit parameter to set.",
+                          "enum" => ["core", "cpu", "data", "fsize", "locks", "memlock", "msgqueue", "nice", "nofile", "nproc", "rss", "rtprio", "rttime", "sigpending", "stack"]
+                        },
+                        "soft_limit" => {
+                          "type" => "integer",
+                          "description" => "The soft limit for the ulimit type."
+                        },
+                        "hard_limit" => {
+                          "type" => "integer",
+                          "description" => "The hard limit for the ulimit type."
+                        },
+                      }
+                    }
+                  },
+                  "extra_hosts" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "A list of hostnames and IP address mappings to append to the +/etc/hosts+ file on the container. This parameter maps to ExtraHosts in the +Create+ a container section of the Docker Remote API and the +--add-host+ option to docker run.",
+                      "required" => ["hostname", "ip_address"],
+                      "properties" => {
+                        "hostname" => {
+                          "type" => "string"
+                        },
+                        "ip_address" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  },
+                  "secrets" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "See https://docs.aws.amazon.com/AmazonECS/latest/developerguide/specifying-sensitive-data.html",
+                      "required" => ["name", "value_from"],
+                      "properties" => {
+                        "name" => {
+                          "type" => "string",
+                          "description" => "The value to set as the environment variable on the container."
+                        },
+                        "value_from" => {
+                          "type" => "string",
+                          "description" => "The secret to expose to the container."
+                        }
+                      }
+                    }
+                  },
+                  "depends_on" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["container_name", "condition"],
+                      "description" => "The dependencies defined for container startup and shutdown. A container can contain multiple dependencies. When a dependency is defined for container startup, for container shutdown it is reversed.",
+                      "properties" => {
+                        "container_name" => {
+                          "type" => "string"
+                        },
+                        "condition" => {
+                          "type" => "string",
+                          "enum" => ["START", "COMPLETE", "SUCCESS", "HEALTHY"]
+                        }
+                      }
+                    }
+                  },
+                  "mount_points" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "The mount points for data volumes in your container. This parameter maps to +Volumes+ in the Create a container section of the Docker Remote API and the +--volume+ option to docker run.",
+                      "properties" => {
+                        "source_volume" => {
+                          "type" => "string",
+                          "description" => "The name of the +volume+ to mount, defined under the +volumes+ section of our parent +container_cluster+ (if the volume is not defined, an ephemeral bind host volume will be allocated)."
+                        },
+                        "container_path" => {
+                          "type" => "string",
+                          "description" => "The container-side path where this volume must be mounted"
+                        },
+                        "read_only" => {
+                          "type" => "boolean",
+                          "default" => false,
+                          "description" => "Mount the volume read-only"
+                        }
+                      }
+                    }
+                  },
+                  "volumes_from" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "Data volumes to mount from another container. This parameter maps to +VolumesFrom+ in the Create a container section of the Docker Remote API and the +--volumes-from+ option to docker run.",
+                      "properties" => {
+                        "source_container" => {
+                          "type" => "string",
+                          "description" => "The name of another container within the same task definition from which to mount volumes."
+                        },
+                        "read_only" => {
+                          "type" => "boolean",
+                          "default" => false,
+                          "description" => "If this value is +true+, the container has read-only access to the volume."
+                        }
+                      }
+                    }
+                  },
+                  "repository_credentials" => {
+                    "type" => "object",
+                    "description" => "The Amazon Resource Name (ARN) of a secret containing the private repository credentials.",
+                    "properties" => {
+                      "credentials_parameter" => {
+                        "type" => "string",
+                        # XXX KMS? Secrets Manager? This documentation is vague.
+                        "description" => "The Amazon Resource Name (ARN) of a secret containing the private repository credentials."
+                      }
+                    }
+                  },
+                  "port_mappings" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Mappings of ports between the container instance and the host instance. This parameter maps to +PortBindings+ in the Create a container section of the Docker Remote API and the +--publish+ option to docker run.",
+                      "type" => "object",
+                      "properties" => {
+                        "container_port" => {
+                          "type" => "integer",
+                          "description" => "The port number on the container that is bound to the user-specified or automatically assigned host port."
+                        },
+                        "host_port" => {
+                          "type" => "integer",
+                          "description" => "The port number on the container instance to reserve for your container. This should not be specified for Fargate clusters, nor for ECS clusters deployed into VPCs."
+                        },
+                        "protocol" => {
+                          "type" => "string",
+                          "description" => "The protocol used for the port mapping.",
+                          "enum" => ["tcp", "udp"],
+                          "default" => "tcp"
+                        },
+                      }
+                    }
+                  },
+                  "log_configuration" => {
+                    "type" => "object",
+                    "description" => "Where to send container logs. If not specified, Mu will create a CloudWatch Logs output channel. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method",
+                    "default" => {
+                      "log_driver" => "awslogs"
+                    },
+                    "required" => ["log_driver"],
+                    "properties" => {
+                      "log_driver" => {
+                        "type" => "string",
+                        "description" => "Type of logging facility to use for container logs.",
+                        "enum" => ["json-file", "syslog", "journald", "gelf", "fluentd", "awslogs", "splunk"]
+                      },
+                      "options" => {
+                        "type" => "object",
+                        "description" => "Per-driver configuration options. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method"
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -514,7 +1433,6 @@ module MU
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
-
           if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
@@ -525,8 +1443,101 @@ module MU
             ok = false
           end
 
-          if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] != "ECS"
-            MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet, just ECS", MU::ERR
+          if cluster["volumes"]
+            cluster["volumes"].each { |v|
+              if v["type"] == "docker"
+                if cluster["flavor"] == "Fargate"
+                  MU.log "ContainerCluster #{cluster['name']}: Docker volumes are not supported in Fargate clusters (volume '#{v['name']}' is not valid)", MU::ERR
+                  ok = false
+                end
+              end
+            }
+          end
+
+          if cluster["flavor"] != "EKS" and cluster["containers"]
+            created_generic_loggroup = false
+            cluster['containers'].each { |c|
+              if c['log_configuration'] and
+                 c['log_configuration']['log_driver'] == "awslogs" and
+                 (!c['log_configuration']['options'] or !c['log_configuration']['options']['awslogs-group'])
+
+                logname = cluster["name"]+"-svclogs"
+                rolename = cluster["name"]+"-logrole"
+                c['log_configuration']['options'] ||= {}
+                c['log_configuration']['options']['awslogs-group'] = logname
+                c['log_configuration']['options']['awslogs-region'] = cluster["region"]
+                c['log_configuration']['options']['awslogs-stream-prefix'] ||= c['name']
+                if c['mount_points']
+                  cluster['volumes'] ||= []
+                  volnames = cluster['volumes'].map { |v| v['name'] }
+                  c['mount_points'].each { |m|
+                    if !volnames.include?(m['source_volume'])
+                      cluster['volumes'] << {
+                        "name" => m['source_volume'],
+                        "type" => "host"
+                      }
+                    end
+                  }
+                end
+
+                if !created_generic_loggroup
+                  cluster["dependencies"] << { "type" => "log", "name" => logname }
+                  logdesc = {
+                    "name" => logname,
+                    "region" => cluster["region"],
+                    "cloud" => cluster["cloud"]
+                  }
+                  configurator.insertKitten(logdesc, "logs")
+
+                  if !c['role']
+                    roledesc = {
+                      "name" => rolename,
+                      "cloud" => cluster["cloud"],
+                      "can_assume" => [
+                        {
+                          "entity_id" => "ecs-tasks.amazonaws.com",
+                          "entity_type" => "service"
+                        }
+                      ],
+                      "policies" => [
+                        {
+                          "name" => "ECSTaskLogPerms",
+                          "permissions" => [
+                            "logs:CreateLogStream",
+                            "logs:DescribeLogGroups",
+                            "logs:DescribeLogStreams",
+                            "logs:PutLogEvents"
+                          ],
+                          "import" => [
+                            ""
+                          ],
+                          "targets" => [
+                            {
+                              "type" => "log",
+                              "identifier" => logname
+                            }
+                          ]
+                        }
+                      ],
+                      "dependencies" => [{ "type" => "log", "name" => logname }]
+                    }
+                    configurator.insertKitten(roledesc, "roles")
+
+                    cluster["dependencies"] << {
+                      "type" => "role",
+                      "name" => rolename
+                    }
+                  end
+
+                  created_generic_loggroup = true
+                end
+                c['role'] ||= { 'name' => rolename }
+              end
+            }
+          end
+
+          if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] == "EKS"
+            MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet", MU::ERR
             ok = false
           end
 
@@ -557,6 +1568,46 @@ module MU
             end
           end
 
+          if cluster["flavor"] == "Fargate" and !cluster['vpc']
+            if MU.myVPC
+              cluster["vpc"] = {
+                "vpc_id" => MU.myVPC,
+                "subnet_pref" => "all_private"
+              }
+              MU.log "Fargate cluster #{cluster['name']} did not specify a VPC, inserting into private subnets of #{MU.myVPC}", MU::NOTICE
+            else
+              MU.log "Fargate cluster #{cluster['name']} must specify a VPC", MU::ERR
+              ok = false
+            end
+
+          end
+
+          cluster['ingress_rules'] ||= []
+          if cluster['flavor'] == "ECS"
+            cluster['ingress_rules'] << {
+              "sgs" => ["server_pool#{cluster['name']}workers"],
+              "port" => 443
+            }
+          end
+          fwname = "container_cluster#{cluster['name']}"
+
+          acl = {
+            "name" => fwname,
+            "credentials" => cluster["credentials"],
+            "rules" => cluster['ingress_rules'],
+            "region" => cluster['region'],
+            "optional_tags" => cluster['optional_tags']
+          }
+          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
+          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+
+          ok = false if !configurator.insertKitten(acl, "firewall_rules")
+          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
+          cluster["add_firewall_rules"] << {"rule_name" => fwname}
+          cluster["dependencies"] << {
+            "name" => fwname,
+            "type" => "firewall_rule",
+          }
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
 
@@ -568,6 +1619,7 @@ module MU
               "max_size" => cluster["instance_count"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
+              "role_strip_path" => true,
               "basis" => {
                 "launch_config" => {
                   "name" => cluster["name"]+"workers",
@@ -580,12 +1632,16 @@ module MU
                 "sgs" => ["container_cluster#{cluster['name']}"],
                 "port_range" => "1-65535"
               ]
+              worker_pool["application_attributes"] ||= {}
+              worker_pool["application_attributes"]["skip_recipes"] ||= []
+              worker_pool["application_attributes"]["skip_recipes"] << "set_local_fw"
             end
             if cluster["vpc"]
               worker_pool["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
-            end
+           end
+
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
             end
@@ -619,32 +1675,9 @@ module MU
                 "name" => cluster["name"]+"workers",
                 "type" => "server_pool",
               }
-            elsif cluster["flavor"] == "EKS"
-              cluster['ingress_rules'] ||= []
-              cluster['ingress_rules'] << {
-                "sgs" => ["server_pool#{cluster['name']}workers"],
-                "port" => 443
-              }
-              fwname = "container_cluster#{cluster['name']}"
+            end
 
-              acl = {
-                "name" => fwname,
-                "credentials" => cluster["credentials"],
-                "rules" => cluster['ingress_rules'],
-                "region" => cluster['region'],
-                "optional_tags" => cluster['optional_tags']
-              }
-              acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
-              acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-
-              ok = false if !configurator.insertKitten(acl, "firewall_rules")
-              cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
-              cluster["add_firewall_rules"] << {"rule_name" => fwname}
-              cluster["dependencies"] << {
-                "name" => fwname,
-                "type" => "firewall_rule",
-              }
-
+            if cluster["flavor"] == "EKS"
               role = {
                 "name" => cluster["name"]+"controlplane",
                 "credentials" => cluster["credentials"],

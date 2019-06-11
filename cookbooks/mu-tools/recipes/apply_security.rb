@@ -18,8 +18,8 @@
 # Apply security patterns for hardening
 
 if !node['application_attributes']['skip_recipes'].include?('apply_security')
-  case node['platform']
-    when platform_family?('rhel')
+  case node['platform_family']
+    when "rhel", "amazon"
       include_recipe "mu-tools::aws_api"
       include_recipe "mu-tools::google_api"
   

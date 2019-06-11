@@ -19,6 +19,7 @@ module MU
       class Bucket < MU::Cloud::Bucket
         @deploy = nil
         @config = nil
+        @project_id = nil
 
         attr_reader :mu_name
         attr_reader :config
@@ -30,17 +31,28 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
+          if mu_name
+            @mu_name = mu_name
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
+          end
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@config['project'], bucket_descriptor)
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
+          MU::Cloud::Google.storage(credentials: credentials).insert_bucket(@project_id, bucket_descriptor)
           @cloud_id = @mu_name.downcase
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+
           current = cloud_desc
           changed = false
 
@@ -63,6 +75,52 @@ module MU
           if changed
             MU::Cloud::Google.storage(credentials: credentials).patch_bucket(@cloud_id, bucket_descriptor)
           end
+
+          if @config['policies']
+            @config['policies'].each { |pol|
+              pol['grant_to'].each { |grantee|
+                entity = if grantee["type"]
+                  sibling = deploy_obj.findLitterMate(
+                    name: grantee["identifier"],
+                    type: grantee["type"]
+                  )
+                  if sibling
+                    sibling.cloudobj.cloud_id
+                  else
+                    raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating Cloud Storage access policy"
+                  end
+                else
+                  pol['grant_to'].first['identifier']
+                end
+
+                if entity.match(/@/) and !entity.match(/^(group|user)\-/)
+                  entity = "user-"+entity if entity.match(/@/)
+                end
+
+                bucket_acl_obj = MU::Cloud::Google.storage(:BucketAccessControl).new(
+                  bucket: @cloud_id,
+                  role: pol['permissions'].first,
+                  entity: entity
+                )
+                MU.log "Adding Cloud Storage policy to bucket #{@cloud_id}", MU::NOTICE, details: bucket_acl_obj
+                MU::Cloud::Google.storage(credentials: credentials).insert_bucket_access_control(
+                  @cloud_id,
+                  bucket_acl_obj
+                )
+
+                acl_obj = MU::Cloud::Google.storage(:ObjectAccessControl).new(
+                  bucket: @cloud_id,
+                  role: pol['permissions'].first,
+                  entity: entity
+                )
+                MU::Cloud::Google.storage(credentials: credentials).insert_default_object_access_control(
+                  @cloud_id,
+                  acl_obj
+                )
+              }
+            }
+
+          end
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -70,6 +128,12 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           true
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::BETA
         end
 
         # Remove all buckets associated with the currently loaded deployment.
@@ -96,7 +160,9 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          MU.structToHash(cloud_desc)
+          desc = MU.structToHash(cloud_desc)
+          desc["project_id"] = @project_id
+          desc
         end
 
         # Locate an existing bucket.
@@ -104,7 +170,7 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
           found = {}
           if cloud_id
             found[cloud_id] = MU::Cloud::Google.storage(credentials: credentials).get_bucket(cloud_id)
@@ -134,6 +200,15 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(bucket, configurator)
           ok = true
+
+          if bucket['policies']
+            bucket['policies'].each { |pol|
+              if !pol['permissions'] or pol['permissions'].empty?
+                pol['permissions'] = ["READER"]
+              end
+            }
+# XXX validate READER OWNER EDITOR w/e
+          end
 
           ok
         end

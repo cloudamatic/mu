@@ -16,7 +16,7 @@
 
 if !node['application_attributes']['skip_recipes'].include?('nrpe')
   case node['platform_family']
-    when "rhel"
+    when "rhel", "amazon"
     package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
     master_ips = get_mu_master_ips
     master_ips << "127.0.0.1"
@@ -82,7 +82,12 @@ if !node['application_attributes']['skip_recipes'].include?('nrpe')
     service "nrpe" do
       action [:enable, :start]
     end
-  
+
+    # Workaround for Amazon Linux/Chef 14 problem in nrpe cookbook
+    # https://github.com/sous-chefs/nrpe/issues/96
+    node.normal['nrpe']['plugin_dir'] = "/usr/lib64/nagios/plugins"
+    node.save
+
     nrpe_check "check_disk" do
       command "#{node['nrpe']['plugin_dir']}/check_disk"
       warning_condition '15%'

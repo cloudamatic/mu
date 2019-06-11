@@ -61,7 +61,7 @@ module MU
       end
 
 
-      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection", "Habitat"]
+      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection", "Habitat", "Folder"]
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -157,9 +157,26 @@ module MU
                       rescue MU::MuError, NoMethodError => e
                         MU.log e.message, MU::WARN
                         next
+                      rescue ::Aws::EC2::Errors::AuthFailure => e
+                        # AWS has been having transient auth problems with ap-east-1 lately
+                        MU.log e.message+" in "+r, MU::ERR
+                        next
                       end
 
                       if @mommacat.nil? or @mommacat.numKittens(types: [t]) > 0
+                        if @mommacat
+                          found = @mommacat.findLitterMate(type: t, return_all: true, credentials: credset)
+                          flags['known'] ||= []
+                          if found.is_a?(Array)
+                            found.each { |k|
+                              flags['known'] << k.cloud_id
+                            }
+                          elsif found and found.is_a?(Hash)
+                            flags['known'] << found['cloud_id']
+                          elsif found
+                            flags['known'] << found.cloud_id                            
+                          end
+                        end
                         begin
                           resclass = Object.const_get("MU").const_get("Cloud").const_get(t)
                           resclass.cleanup(
@@ -210,38 +227,41 @@ module MU
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
       end
 
-      # Scrub any residual Chef records with matching tags
+      # Scrub any residual Chef records with matching tags. If we have Chef.
       if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
-        MU::Groomer::Chef.loadChefLib
-        if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-          Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-        end
-        deadnodes = []
-        Chef::Config[:environment] = MU.environment
-        q = Chef::Search::Query.new
         begin
-          q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-            next if item.is_a?(Integer)
-            item.each { |node|
-              deadnodes << node.name
+          MU::Groomer::Chef.loadChefLib
+          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          deadnodes = []
+          Chef::Config[:environment] = MU.environment
+          q = Chef::Search::Query.new
+          begin
+            q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
             }
-          }
-        rescue Net::HTTPServerException
-        end
+          rescue Net::HTTPServerException
+          end
 
-        begin
-          q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-            next if item.is_a?(Integer)
-            item.each { |node|
-              deadnodes << node.name
+          begin
+            q.search("node", "name:#{MU.deploy_id}-*").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
             }
+          rescue Net::HTTPServerException
+          end
+          MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
+          deadnodes.uniq.each { |node|
+            MU::Groomer::Chef.cleanup(node, [], noop)
           }
-        rescue Net::HTTPServerException
+        rescue LoadError
         end
-        MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
-        deadnodes.uniq.each { |node|
-          MU::Groomer::Chef.cleanup(node, [], noop)
-        }
       end
 
       if !@onlycloud and !@noop and @mommacat

@@ -80,6 +80,16 @@ module MU
     @@myRoot
   end
 
+  # Front our global $MU_CFG hash with a read-only copy
+  def self.muCfg
+    Marshal.load(Marshal.dump($MU_CFG)).freeze
+  end
+
+  # Returns true if we're running without a full systemwide Mu Master install,
+  # typically as a gem.
+  def self.localOnly
+    ((Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
+  end
 
   # The main (root) Mu user's data directory.
   @@mainDataDir = File.expand_path(@@myRoot+"/../var")
@@ -210,11 +220,13 @@ module MU
   @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key?("MU_DATADIR")
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
-  def self.dataDir
-    if MU.mu_user.nil? or MU.mu_user.empty? or MU.mu_user == "mu" or MU.mu_user == "root"
+  def self.dataDir(for_user = MU.mu_user)
+    if (Process.uid == 0 and (for_user.nil? or for_user.empty?)) or
+       for_user == "mu" or for_user == "root"
       return @myDataDir
     else
-      basepath = Etc.getpwnam(MU.mu_user).dir+"/.mu"
+      for_user ||= MU.mu_user
+      basepath = Etc.getpwnam(for_user).dir+"/.mu"
       Dir.mkdir(basepath, 0755) if !Dir.exists?(basepath)
       Dir.mkdir(basepath+"/var", 0755) if !Dir.exists?(basepath+"/var")
       return basepath+"/var"
@@ -303,36 +315,53 @@ module MU
   require 'mu/groomer'
 
   # Little hack to initialize library-only environments' config files
+  def self.detectCloudProviders
+    MU.log "Auto-detecting cloud providers"
+    new_cfg = $MU_CFG.dup
+    examples = {}
+    MU::Cloud.supportedClouds.each { |cloud|
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      begin
+        if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
+          cfg_blob = cloudclass.hosted_config
+          if cfg_blob
+            new_cfg[cloud.downcase] = cfg_blob
+            MU.log "Adding auto-detected #{cloud} stanza", MU::NOTICE
+          end
+        elsif !$MU_CFG[cloud.downcase] and !cloudclass.config_example.nil?
+          examples[cloud.downcase] = cloudclass.config_example
+        end
+      rescue NoMethodError => e
+        # missing .hosted? is normal for dummy layers like CloudFormation
+        MU.log e.message, MU::WARN
+      end
+    }
+    new_cfg['auto_detection_done'] = true
+    if new_cfg != $MU_CFG or !cfgExists?
+      MU.log "Generating #{cfgPath}"
+      saveMuConfig(new_cfg, examples) # XXX and reload it
+    end
+    new_cfg
+  end
+
   if !$MU_CFG
     require "#{@@myRoot}/bin/mu-load-config.rb"
-
     if !$MU_CFG['auto_detection_done'] and (!$MU_CFG['multiuser'] or !cfgExists?)
-      MU.log "Auto-detecting cloud providers"
-      new_cfg = $MU_CFG.dup
-      examples = {}
-      MU::Cloud.supportedClouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-        begin
-          if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
-            cfg_blob = cloudclass.hosted_config
-            if cfg_blob
-              new_cfg[cloud.downcase] = cfg_blob
-              MU.log "Adding #{cloud} stanza to #{cfgPath}", MU::NOTICE
-            end
-          elsif !$MU_CFG[cloud.downcase] and !cloudclass.config_example.nil?
-            examples[cloud.downcase] = cloudclass.config_example
-          end
-        rescue NoMethodError => e
-          # missing .hosted? is normal for dummy layers like CloudFormation
-          MU.log e.message, MU::WARN
-        end
-      }
-      new_cfg['auto_detection_done'] = true
-      if new_cfg != $MU_CFG or !cfgExists?
-        MU.log "Generating #{cfgPath}"
-        saveMuConfig(new_cfg, examples) # XXX and reload it
-      end
+    MU.log "INLINE LOGIC SAID TO DETECT PROVIDERS"
+      detectCloudProviders
     end
+  end
+
+  @@mommacat_port = 2260
+  if !$MU_CFG.nil? and !$MU_CFG['mommacat_port'].nil? and
+     !$MU_CFG['mommacat_port'] != "" and $MU_CFG['mommacat_port'].to_i > 0 and
+     $MU_CFG['mommacat_port'].to_i < 65536
+    @@mommacat_port = $MU_CFG['mommacat_port'].to_i
+  end
+  # The port on which the Momma Cat daemon should listen for requests
+  # @return [Integer]
+  def self.mommaCatPort
+    @@mommacat_port
   end
 
   @@my_private_ip = nil
@@ -345,7 +374,8 @@ module MU
     @@mu_public_addr = @@my_public_ip
     @@mu_public_ip = @@my_public_ip
   end
-  if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
+  if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and
+     !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
       resolver = Resolv::DNS.new
@@ -422,7 +452,7 @@ module MU
   # XXX these guys to move into mu/groomer
   # List of known/supported grooming agents (configuration management tools)
   def self.supportedGroomers
-    ["Chef"]
+    ["Chef", "Ansible"]
   end
 
   MU.supportedGroomers.each { |groomer|
@@ -622,10 +652,38 @@ module MU
     true
   end
 
+  # Given a hash, or an array that might contain a hash, change all of the keys
+  # to symbols. Useful for formatting option parameters to some APIs.
+  def self.strToSym(obj)
+    if obj.is_a?(Hash)
+      newhash = {}
+      obj.each_pair { |k, v|
+        if v.is_a?(Hash) or v.is_a?(Array)
+          newhash[k.to_sym] = MU.strToSym(v)
+        else
+          newhash[k.to_sym] = v
+        end
+      }
+      newhash
+    elsif obj.is_a?(Array)
+      newarr = []
+      obj.each { |v|
+        if v.is_a?(Hash) or v.is_a?(Array)
+          newarr << MU.strToSym(v)
+        else
+          newarr << v
+        end
+      }
+      newarr
+    end
+  end
+
+
   # Recursively turn a Ruby OpenStruct into a Hash
   # @param struct [OpenStruct]
+  # @param stringify_keys [Boolean]
   # @return [Hash]
-  def self.structToHash(struct)
+  def self.structToHash(struct, stringify_keys: false)
     google_struct = false
     begin
       google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
@@ -642,18 +700,33 @@ module MU
        google_struct or aws_struct
 
       hash = struct.to_h
+      if stringify_keys
+        newhash = {}
+        hash.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        hash = newhash 
+      end
+
       hash.each_pair { |key, value|
-        hash[key] = self.structToHash(value)
+        hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return hash
     elsif struct.is_a?(Hash)
+      if stringify_keys
+        newhash = {}
+        struct.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        struct = newhash 
+      end
       struct.each_pair { |key, value|
-        struct[key] = self.structToHash(value)
+        struct[key] = self.structToHash(value, stringify_keys: stringify_keys)
       }
       return struct
     elsif struct.is_a?(Array)
       struct.map! { |elt|
-        self.structToHash(elt)
+        self.structToHash(elt, stringify_keys: stringify_keys)
       }
     else
       return struct

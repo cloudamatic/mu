@@ -246,7 +246,7 @@ module MU
               end
               MU::MommaCat.unlock(instance.instance_id+"-create")
             else
-              MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             end
             done = true
@@ -424,7 +424,10 @@ module MU
               groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
               MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
               MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).suspend_processes(
-                auto_scaling_group_name: groupname
+                auto_scaling_group_name: groupname,
+                scaling_processes: [
+                  "Terminate",
+                ], 
               )
             end
             begin
@@ -445,7 +448,10 @@ module MU
               if !groupname.nil?
                 MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
                 MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).resume_processes(
-                  auto_scaling_group_name: groupname
+                  auto_scaling_group_name: groupname,
+                  scaling_processes: [
+                    "Terminate",
+                  ],
                 )
               end
             end
@@ -515,7 +521,7 @@ module MU
           return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 
-          MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
@@ -752,7 +758,7 @@ module MU
                 subnet_id = subnet.cloud_id
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
                 iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
-                MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'], credentials: @config['credentials'])
 
                 if @config['optional_tags']
@@ -1218,7 +1224,7 @@ module MU
                 purgecmd = "rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates /cygdrive/c/mu_installed_chef"
                 # session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
               else
-                purgecmd = "#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
+                purgecmd = "#{sudo} rm -rf /var/lib/cloud/instances/i-* /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
               end
             end
             session.exec!(purgecmd)
@@ -1362,7 +1368,7 @@ module MU
             return nil
           end
           ami = resp.image_id
-          MU::MommaCat.createStandardTags(ami, region: region, credentials: credentials)
+          MU::Cloud::AWS.createStandardTags(ami, region: region, credentials: credentials)
           MU::MommaCat.createTag(ami, "Name", name, region: region, credentials: credentials)
           MU.log "AMI of #{name} in region #{region}: #{ami}"
           if make_public
@@ -1389,7 +1395,7 @@ module MU
                 )
                 MU.log "Initiated copy of #{ami} from #{region} to #{r}: #{copy.image_id}"
 
-                MU::MommaCat.createStandardTags(copy.image_id, region: r, credentials: credentials)
+                MU::Cloud::AWS.createStandardTags(copy.image_id, region: r, credentials: credentials)
                 MU::MommaCat.createTag(copy.image_id, "Name", name, region: r, credentials: credentials)
                 if !tags.nil?
                   tags.each { |tag|
@@ -1792,6 +1798,12 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
         end
 
         # Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in whatever Groomer was used.
@@ -2199,8 +2211,8 @@ module MU
             if server['iam_policies']
               role['iam_policies'] = server['iam_policies'].dup
             end
-            if server['canned_policies']
-              role['import'] = server['canned_policies'].dup
+            if server['canned_iam_policies']
+              role['import'] = server['canned_iam_policies'].dup
             end
             if server['iam_role']
 # XXX maybe break this down into policies and add those?

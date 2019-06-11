@@ -88,7 +88,7 @@ avail_deploys = MU::MommaCat.listDeploys
 do_deploys = []
 do_nodes = []
 ok = true
-if $opts[:all]
+if $opts[:all] or (ARGV.size == 0 and !$opts[:deploys])
   do_deploys = avail_deploys
 else
   if $opts[:deploys] and !$opts[:all]
@@ -102,16 +102,20 @@ else
   else
     do_nodes = ARGV
     do_deploys = []
+    matched = 0
     if do_nodes.size > 0
       # Just load the deploys we need
       do_nodes.each { |node|
         if node.match(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/)
+          matched += 1
           do_deploys << node.sub(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/, '\1')
         end
       }
       do_deploys.uniq!
     end
-    do_deploys = avail_deploys if do_deploys.size == 0
+    if do_deploys.size == 0 and do_nodes.size > 0 and (matched > 0 or ARGV.size > 0)
+      do_deploys = avail_deploys
+    end
   end
 end
 
@@ -389,7 +393,9 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
           next if !matched
         end
 
-        MU::Cloud::AWS::Server.createIAMProfile(pool_name, base_profile: server['iam_role'], extra_policies: server['iam_policies'])
+#        MU::Cloud::AWS::Server.createIAMProfile(pool_name, base_profile: server['iam_role'], extra_policies: server['iam_policies'])
+        pool_obj = mommacat.findLitterMate(type: "server_pool", mu_name: pool_name)
+        pool_obj.groom
 
         resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
             auto_scaling_group_names: [pool_name]
@@ -535,20 +541,24 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
       end
       id = server['cloud_id']
       id = server['instance_id'] if id.nil?
-      desc = MU::Cloud::AWS.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
+      desc = MU::Cloud::AWS.ec2(region: server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 
       server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
       next if nodes.size > 0 and !nodes.include?(nodename)
 
-      rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(nodename, base_profile: server["conf"]['iam_role'], extra_policies: server["conf"]['iam_policies'])
-      MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename)
-
       mytype = "server"
-      mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
-      olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(server['region']).describe_instance_attribute(
-                                instance_id: id,
-                                attribute: "userData"
-                              ).user_data.value)
+      if server['conf'].has_key?("basis") or
+         server['conf']['#TYPENAME'] == "ServerPool" or
+         server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
+        mytype = "server_pool"
+      else
+        server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+        server_obj.groom
+      end
+      olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(region: server['region']).describe_instance_attribute(
+        instance_id: id,
+        attribute: "userData"
+      ).user_data.value)
 
       userdata = MU::Cloud::AWS::Server.fetchUserdata(
           platform: server['conf']["platform"],

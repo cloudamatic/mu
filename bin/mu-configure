@@ -33,7 +33,34 @@ if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.h
   $IN_GEM = true
 end
 
+$possible_addresses = []
+$impossible_addresses = ['127.0.0.1', 'localhost']
+begin
+  sys_name = Socket.gethostname
+  official, aliases = Socket.gethostbyname(sys_name)
+  $possible_addresses << sys_name
+  $possible_addresses << official
+  $possible_addresses.concat(aliases)
+rescue SocketError
+  # don't let them use the default hostname if it doesn't resolve
+  $impossible_addresses << sys_name
+end
+Socket.getifaddrs.each { |iface|
+  if iface.addr and iface.addr.ipv4?
+    $possible_addresses << iface.addr.ip_address
+    begin
+      addrinfo = Socket.gethostbyaddr(iface.addr.ip_address)
+      $possible_addresses << addrinfo.first if !addrinfo.first.nil?
+    rescue SocketError
+      # usually no name to look up; that's ok
+    end
+  end
+}
+$possible_addresses.uniq!
+$possible_addresses.reject! { |i| i.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/)}
+
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
@@ -42,8 +69,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
-    "rootonly" => true,
-    "pattern" => /^(localhost|127\.0\.0\.1|#{Socket.gethostname})$/,
+    "pattern" => /^(#{$impossible_addresses.map { |a| Regexp.quote(a) }.join("|") })$/,
     "negate_pattern" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
@@ -52,14 +78,12 @@ $CONFIGURABLES = {
     "desc" => "Administative contact email",
     "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
     "required" => true,
-    "rootonly" => true,
     "changes" => ["mu-user", "chefrun"]
   },
   "mu_admin_name" => {
     "title" => "Admin Name",
     "desc" => "Administative contact's full name",
     "default" => "Mu Administrator",
-    "rootonly" => true,
     "changes" => ["mu-user", "chefrun"]
   },
   "hostname" => {
@@ -70,10 +94,17 @@ $CONFIGURABLES = {
     "desc" => "The local system's value for HOSTNAME",
     "changes" => ["chefrun", "hostname"]
   },
+  "mommacat_port" => {
+    "title" => "Momma Cat Listen Port",
+    "pattern" => /^[0-9]+$/i,
+    "default" => 2260,
+    "required" => true,
+    "desc" => "Listen port for the Momma Cat grooming daemon",
+    "changes" => ["chefrun"]
+  },
   "banner" => {
     "title" => "Banner",
     "desc" => "Login banner, displayed in various locations",
-    "rootonly" => true,
     "changes" => ["chefrun"]
   },
   "mu_repository" => {
@@ -104,6 +135,11 @@ $CONFIGURABLES = {
     "title" => "Invade Foreign VPCs?",
     "desc" => "If set to true, Mu will be allowed to modify routing and peering behavior of VPCs which it did not create, but for which it has permissions.",
     "boolean" => true
+  },
+  "ansible_dir" => {
+    "title" => "Ansible directory",
+    "desc" => "Intended for use with minimal installs which use Ansible as a groomer and which do not store Ansible artifacts in a dedicated git repository. This allows simply pointing to a local directory.",
+    "required" => false
   },
   "aws" => {
     "title" => "Amazon Web Services",
@@ -230,6 +266,55 @@ $CONFIGURABLES = {
   }
 }
 
+def cloneHash(hash)
+  new = {}
+  hash.each_pair { |k,v|
+    if v.is_a?(Hash)
+      new[k] = cloneHash(v)
+    elsif !v.nil?
+      new[k] = v.dup
+    end
+  }
+  new
+end
+
+# Load values from our existing configuration into the $CONFIGURABLES hash
+def importCurrentValues
+  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+  $CONFIGURABLES.each_key { |key|
+    next if !$MU_CFG.has_key?(key)
+    if $CONFIGURABLES[key].has_key?("subtree")
+      # It's a sub-tree. I'm too lazy to write a recursive thing for this, just
+      # cover the simple case that we actually care about for now.
+      if $CONFIGURABLES[key]["named_subentries"]
+        $CONFIGURABLES[key]['subtree']["#title"] = $CONFIGURABLES[key]['title']
+        $MU_CFG[key].each_pair { |nameentry, subtree|
+          $CONFIGURABLES[key]['subtree']["#entries"] ||= {}
+          $CONFIGURABLES[key]['subtree']["#entries"][nameentry] = cloneHash($CONFIGURABLES[key]['subtree'])
+          $CONFIGURABLES[key]['subtree']["#entries"][nameentry].delete("#entries")
+          $CONFIGURABLES[key]["subtree"]["#entries"][nameentry]["name"] = {
+            "title" => "Name",
+            "desc" => "A name/alias for this account.",
+            "required" => true,
+            "value" => nameentry
+          }
+          $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
+            next if !subtree.has_key?(subkey)
+            $CONFIGURABLES[key]["subtree"]["#entries"][nameentry][subkey]["value"] = subtree[subkey]
+          }
+        }
+      else
+        $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
+          next if !$MU_CFG[key].has_key?(subkey)
+          $CONFIGURABLES[key]["subtree"][subkey]["value"] = $MU_CFG[key][subkey]
+        }
+      end
+    else
+      $CONFIGURABLES[key]["value"] = $MU_CFG[key]
+    end
+  }
+end
+
 AMROOT = Process.uid == 0
 HOMEDIR = Etc.getpwuid(Process.uid).dir
 
@@ -268,16 +353,38 @@ else
   MU_BASE = "/opt/mu"
 end
 
-$INITIALIZE = (!File.size?("#{MU_BASE}/etc/mu.yaml") or $opts[:force])
+def cfgPath
+  home = Etc.getpwuid(Process.uid).dir
+  username = Etc.getpwuid(Process.uid).name
+  if Process.uid == 0
+    if ENV.include?('MU_INSTALLDIR')
+      ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
+    elsif Dir.exists?("/opt/mu")
+      "/opt/mu/etc/mu.yaml"
+    else
+      "#{home}/.mu.yaml"
+    end
+  else
+    "#{home}/.mu.yaml"
+  end
+end
+
+$INITIALIZE = (!File.size?(cfgPath) or $opts[:force])
+
 $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM
+if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM and Dir.exists?("/opt/mu/lib")
   puts "Global configuration has not been initialized or is missing. Must run as root to correct."
   exit 1
 end
 
 if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
-  puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
-  exit 1
+  if $IN_GEM
+    importCurrentValues # maybe we're in local-only mode
+  end
+  if !$MU_CFG or !$MU_CFG['mu_admin_email'] or !$MU_CFG['mu_admin_name']
+    puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
+    exit 1
+  end
 end
 
 $IN_AWS = false
@@ -303,11 +410,10 @@ $IN_AZURE = false
 begin
   Timeout.timeout(2) do
     instance_id = open("http://169.254.169.254/metadata/instance/compute").read
-    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
+    $IN_AZURE = true if !instance_id.nil? and instance_id.size > 0
   end
 rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
 end
-
 
 KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
@@ -344,17 +450,6 @@ ssl_verify_mode :verify_none
 
 $CHANGES = []
 
-def cloneHash(hash)
-  new = {}
-  hash.each_pair { |k,v|
-    if v.is_a?(Hash)
-      new[k] = cloneHash(v)
-    elsif !v.nil?
-      new[k] = v.dup
-    end
-  }
-  new
-end
 
 $MENU_MAP = {}
 def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
@@ -562,10 +657,9 @@ def setDefaults
     end
   end
 
-  ips.concat(Socket.ip_address_list.delete_if { |i| !i.ipv4? or i.ip_address.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/) }.map { |a| a.ip_address })
 
   $CONFIGURABLES["allow_invade_foreign_vpcs"]["default"] = false
-  $CONFIGURABLES["public_address"]["default"] = ips.first
+  $CONFIGURABLES["public_address"]["default"] = $possible_addresses.first
   $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
   $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
   if $IN_AWS
@@ -629,42 +723,6 @@ def importCLIValues
   }
 end
 
-# Load values from our existing configuration into the $CONFIGURABLES hash
-def importCurrentValues
-  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
-  $CONFIGURABLES.each_key { |key|
-    next if !$MU_CFG.has_key?(key)
-    if $CONFIGURABLES[key].has_key?("subtree")
-      # It's a sub-tree. I'm too lazy to write a recursive thing for this, just
-      # cover the simple case that we actually care about for now.
-      if $CONFIGURABLES[key]["named_subentries"]
-        $CONFIGURABLES[key]['subtree']["#title"] = $CONFIGURABLES[key]['title']
-        $MU_CFG[key].each_pair { |nameentry, subtree|
-          $CONFIGURABLES[key]['subtree']["#entries"] ||= {}
-          $CONFIGURABLES[key]['subtree']["#entries"][nameentry] = cloneHash($CONFIGURABLES[key]['subtree'])
-          $CONFIGURABLES[key]['subtree']["#entries"][nameentry].delete("#entries")
-          $CONFIGURABLES[key]["subtree"]["#entries"][nameentry]["name"] = {
-            "title" => "Name",
-            "desc" => "A name/alias for this account.",
-            "required" => true,
-            "value" => nameentry
-          }
-          $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
-            next if !subtree.has_key?(subkey)
-            $CONFIGURABLES[key]["subtree"]["#entries"][nameentry][subkey]["value"] = subtree[subkey]
-          }
-        }
-      else
-        $CONFIGURABLES[key]["subtree"].keys.each { |subkey|
-          next if !$MU_CFG[key].has_key?(subkey)
-          $CONFIGURABLES[key]["subtree"][subkey]["value"] = $MU_CFG[key][subkey]
-        }
-      end
-    else
-      $CONFIGURABLES[key]["value"] = $MU_CFG[key]
-    end
-  }
-end
 
 def printVal(data)
   valid = true
@@ -973,6 +1031,7 @@ if !$opts[:noninteractive]
   $CONFIGURABLES, $MENU_MAP = menu
   $MU_CFG = setConfigTree
 else
+  $MU_CFG = setConfigTree
   if !entireConfigValid?
     puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
     exit 1
@@ -1084,8 +1143,14 @@ rescue LoadError
 end
 
 if $IN_GEM
+  if $INITIALIZE
+    $MU_CFG = MU.detectCloudProviders
+  end
+  require 'mu/master/ssl'
+  MU::Master::SSL.bootstrap
   puts $MU_CFG.to_yaml
   saveMuConfig($MU_CFG)
+  MU::MommaCat.restart
   exit
 end
 
@@ -1103,10 +1168,10 @@ if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
   if $?.exitstatus != 0
     puts output
     MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
-    %x{/sbin/service iptables start} if $INITIALIZE
+    %x{/sbin/service iptables start} if !$INITIALIZE
     exit 1
   end
-  %x{/sbin/service iptables start} if $INITIALIZE
+  %x{/sbin/service iptables start} if !$INITIALIZE
 end
 
 if $INITIALIZE and AMROOT
@@ -1172,7 +1237,7 @@ if AMROOT
     %x{/sbin/service iptables stop}
     system("/opt/opscode/bin/chef-server-ctl reconfigure")
     system("/opt/opscode/bin/chef-server-ctl restart")
-    %x{/sbin/service iptables start}
+    %x{/sbin/service iptables start} if !$INITIALIZE
     updateChefRbs
     $CHANGES << "chefcerts"
   else

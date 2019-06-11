@@ -41,8 +41,6 @@ module MU
         if $MU_CFG[cloud.downcase] and !$MU_CFG[cloud.downcase].empty?
           configured[cloud] = $MU_CFG[cloud.downcase].size
           configured[cloud] += 0.5 if cloudclass.hosted? # tiebreaker
-        elsif cloudclass.hosted?
-          configured[cloud] = 1
         end
       }
       if configured.size > 0
@@ -50,13 +48,17 @@ module MU
           configured[b] <=> configured[a]
         }.first
       else
+        MU::Cloud.supportedClouds.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          return cloud if cloudclass.hosted?
+        }
         return MU::Cloud.supportedClouds.first
       end
     end
 
     # The default grooming agent for new resources. Must exist in MU.supportedGroomers.
     def self.defaultGroomer
-      "Chef"
+      MU.localOnly ? "Ansible" : "Chef"
     end
 
     attr_accessor :nat_routes
@@ -156,6 +158,8 @@ module MU
           end
           res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
           required, res_schema = res_class.schema(self)
+          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] ||= ""
+          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+res_class.quality
           res_schema.each { |key, cfg|
             if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               only_children[attrs[:cfg_plural]] ||= {}
@@ -661,7 +665,18 @@ module MU
           }
         ]
       end
-      MU::Config.set_defaults(@config, MU::Config.schema)
+
+      types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
+
+      MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
+        if @config[type]
+          @config[type].each { |k|
+            inheritDefaults(k, type)
+          }
+        end
+      }
+
+      set_schema_defaults(@config, MU::Config.schema)
       validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
 #      XXX but now we're not validating top-level keys, argh
 #pp @config
@@ -870,7 +885,9 @@ module MU
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
+
       inheritDefaults(descriptor, cfg_plural)
+
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
 
       if (descriptor["region"] and descriptor["region"].empty?) or
@@ -885,6 +902,16 @@ module MU
         if !valid_regions.include?(descriptor["region"])
           MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
           ok = false
+        end
+      end
+
+      if descriptor['project']
+        if haveLitterMate?(descriptor['project'], "habitats")
+          descriptor['dependencies'] ||= []
+          descriptor['dependencies'] << {
+            "type" => "habitat",
+            "name" => descriptor['project']
+          }
         end
       end
 
@@ -1097,7 +1124,7 @@ module MU
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
-          MU::Config.set_defaults(descriptor, myschema)
+          set_schema_defaults(descriptor, myschema, type: shortclass)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
@@ -1202,7 +1229,7 @@ module MU
         "type" => "array",
         "minItems" => 1,
         "items" => {
-          "description" => "Tags to apply to this resource. Will apply at the cloud provider level and in Chef, where applicable.",
+          "description" => "Tags to apply to this resource. Will apply at the cloud provider level and in node groomers, where applicable.",
           "type" => "object",
           "title" => "tags",
           "required" => ["key", "value"],
@@ -1464,20 +1491,43 @@ module MU
       binding
     end
 
-    def self.set_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil)
+    def set_schema_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
       return if schema_chunk.nil?
 
       if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
+
         if schema_chunk["properties"]["creation_style"].nil? or
             schema_chunk["properties"]["creation_style"] != "existing"
           schema_chunk["properties"].each_pair { |key, subschema|
-            new_val = self.set_defaults(conf_chunk[key], subschema, depth+1, conf_chunk)
+            shortclass = if conf_chunk[key]
+              shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(key)
+              shortclass
+            else
+              nil
+            end
+
+            new_val = set_schema_defaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+
             conf_chunk[key] = new_val if new_val != nil
           }
         end
       elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)
         conf_chunk.map! { |item|
-          self.set_defaults(item, schema_chunk["items"], depth+1, conf_chunk)
+          # If we're working on a resource type, go get implementation-specific
+          # schema information so that we set those defaults correctly.
+          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"]
+
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
+            toplevel_required, cloudschema = cloudclass.schema(self)
+
+            newschema = schema_chunk["items"].dup
+            newschema["properties"].merge!(cloudschema)
+            newschema
+          else
+            schema_chunk["items"]
+          end
+
+          set_schema_defaults(item, realschema, depth+1, conf_chunk)
         }
       else
         if conf_chunk.nil? and !schema_chunk["default_if"].nil? and !siblings.nil?
@@ -1488,7 +1538,7 @@ module MU
           }
         end
         if conf_chunk.nil? and schema_chunk["default"] != nil
-          return schema_chunk["default"]
+          return schema_chunk["default"].dup
         end
       end
       return conf_chunk
@@ -1555,7 +1605,7 @@ module MU
     def self.check_vault_refs(server)
       ok = true
       server['vault_access'] = [] if server['vault_access'].nil?
-      server['groomer'] ||= "Chef"
+      server['groomer'] ||= self.defaultGroomer
       groomclass = MU::Groomer.loadGroomer(server['groomer'])
 
       begin

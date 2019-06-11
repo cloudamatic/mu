@@ -28,6 +28,7 @@ module MU
       # Google Cloud, this amounts to a single Instance in an Unmanaged
       # Instance Group.
       class Server < MU::Cloud::Server
+        @project_id = nil
 
         attr_reader :mu_name
         attr_reader :config
@@ -69,6 +70,11 @@ module MU
             @config['mu_name'] = @mu_name
             # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           else
             if kitten_cfg.has_key?("basis")
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -79,7 +85,7 @@ module MU
 
             @config['instance_secret'] = Password.random(50)
           end
-          @config['ssh_user'] ||= "mu"
+          @config['ssh_user'] ||= "muadmin"
           @groomer = MU::Groomer.new(self)
 
         end
@@ -243,11 +249,12 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
             @deploy,
-            project: @config['project'],
+            project: @project_id,
             credentials: @config['credentials']
           )
           MU::Cloud::Google.grantDeploySecretAccess(service_acct.email, credentials: @config['credentials'])
@@ -301,7 +308,7 @@ next if !create
             MU.log "Creating instance #{@mu_name}"
             begin
               instance = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance(
-                @config['project'],
+                @project_id,
                 @config['availability_zone'],
                 instanceobj
               )
@@ -379,7 +386,7 @@ next if !create
         def stop
           MU.log "Stopping #{@cloud_id}"
           MU::Cloud::Google.compute(credentials: @config['credentials']).stop_instance(
-            @config['project'],
+            @project_id,
             @config['availability_zone'],
             @cloud_id
           )
@@ -392,7 +399,7 @@ next if !create
         def start
           MU.log "Starting #{@cloud_id}"
           MU::Cloud::Google.compute(credentials: @config['credentials']).start_instance(
-            @config['project'],
+            @project_id,
             @config['availability_zone'],
             @cloud_id
           )
@@ -460,7 +467,7 @@ next if !create
           return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
 
-#          MU::MommaCat.createStandardTags(@cloud_id, region: @config['region'])
+#          MU::Cloud::AWS.createStandardTags(@cloud_id, region: @config['region'])
 #          MU::MommaCat.createTag(@cloud_id, "Name", node, region: @config['region'])
 #
 #          if @config['optional_tags']
@@ -616,6 +623,8 @@ next if !create
                       az,
                       cloud_id
                     )
+                  rescue ::OpenSSL::SSL::SSLError => e
+                    MU.log "Got #{e.message} looking for instance #{cloud_id} in project #{flags["project"]} (#{az}). Usually this means we've tried to query a non-functional region.", MU::DEBUG
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/^notFound: /)
                   end
@@ -687,6 +696,7 @@ next if !create
               "image_created" => @config['image_created'],
 #              "iam_role" => @config['iam_role'],
               "cloud_desc_id" => @cloud_id,
+              "project_id" => @project_id,
               "private_ip_address" => private_ips.first,
               "public_ip_address" => public_ips.first,
               "private_ip_list" => private_ips,
@@ -714,6 +724,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           
@@ -791,7 +802,7 @@ next if !create
                 region: @config['region'],
                 storage: @config['storage'],
                 family: ("mu-"+@config['platform']+"-"+MU.environment).downcase,
-                project: @config['project'],
+                project: @project_id,
                 exclude_storage: img_cfg['image_exclude_storage'],
                 make_public: img_cfg['public'],
                 tags: @config['tags'],
@@ -803,7 +814,7 @@ next if !create
             if img_cfg['image_then_destroy']
               MU.log "Image #{image_id} ready, removing source node #{node}"
               MU::Cloud::Google.compute(credentials: @config['credentials']).delete_instance(
-                @config['project'],
+                @project_id,
                 @config['availability_zone'],
                 @cloud_id
               )
@@ -901,7 +912,7 @@ next if !create
 #          if !@cloud_id.nil?
 #            begin
 #              return MU::Cloud::Google.compute(credentials: @config['credentials']).get_instance(
-#                @config['project'],
+#                @project_id,
 #                @config['availability_zone'],
 #                @cloud_id
 #              )
@@ -975,14 +986,14 @@ next if !create
             description: description,
             zone: @config['availability_zone'],
 #            type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
-            type: "projects/#{@config['project']}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
+            type: "projects/#{@project_id}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
 # Other values include pd-ssd and local-ssd
             name: resname
           )
 
           begin
             newdisk = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_disk(
-              @config['project'],
+              @project_id,
               @config['availability_zone'],
               newdiskobj
             )
@@ -1002,7 +1013,7 @@ next if !create
             type: "PERSISTENT"
           )
           attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
-            @config['project'],
+            @project_id,
             @config['availability_zone'],
             @cloud_id,
             attachobj
@@ -1022,6 +1033,12 @@ next if !create
         # @return [Boolean]
         def self.isGlobal?
           false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
         end
 
         # Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in whatever Groomer was used.
@@ -1091,6 +1108,11 @@ next if !create
             "image_id" => {
               "type" => "string",
               "description" => "The Google Cloud Platform Image on which to base this instance. Will use the default appropriate for the platform, if not specified."
+            },
+            "ssh_user" => {
+              "type" => "string",
+              "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
+              "default" => "muadmin"
             },
             "routes" => {
               "type" => "array",

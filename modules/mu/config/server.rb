@@ -120,6 +120,10 @@ module MU
       def self.common_properties
         {
           "name" => {"type" => "string"},
+          "ansible_vars" => {
+            "type" => "object",
+            "description" => "When using Ansible as a groomer, this will insert a +vars+ tree into the playbook for this node."
+          },
           "scrub_mu_isms" => {
               "type" => "boolean",
               "default" => false,
@@ -132,9 +136,14 @@ module MU
               "description" => "Bootstrap asynchronously via the Momma Cat daemon instead of during the main deployment process"
           },
           "groomer" => {
-              "type" => "string",
-              "default" => MU::Config.defaultGroomer,
-              "enum" => MU.supportedGroomers
+            "type" => "string",
+            "default" => MU::Config.defaultGroomer,
+            "enum" => MU.supportedGroomers
+          },
+          "groomer_autofetch" => {
+            "type" => "boolean",
+            "description" => "For groomer implementations which support automatically fetching roles/recipes/manifests from a public library, such as Ansible Galaxy, this will toggle this behavior on or off.",
+            "default" => true
           },
           "groom" => {
               "type" => "boolean",
@@ -415,7 +424,7 @@ module MU
               "type" => "array",
               "items" => {
                   "type" => "string",
-                  "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
+                  "description" => "A list of +groomer+ recipes/roles/scripts to run, using naming conventions specific to the appropriate grooming layer. In +Chef+, this corresponds to a node's +run_list+ attribute, and entries should be of the form <tt>role[rolename]</tt> or <tt>recipe[recipename]</tt>. In +Ansible+, it should be a list of roles (+rolename+), which Mu will use to generate a custom Playbook for the deployment."
               }
           },
           "ingress_rules" => {

@@ -38,6 +38,11 @@ module MU
             @mu_name = mu_name
             deploydata = describe[2]
             @config['availability_zone'] = deploydata['zone']
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 40)
           end
@@ -185,6 +190,7 @@ puts @config['credentials']
           desc = MU.structToHash(MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase))
           desc["project"] = @config['project']
           desc["cloud_id"] = @cloud_id
+          desc["project_id"] = @project_id
           desc["mu_name"] = @mu_name.downcase
           desc
         end
@@ -194,6 +200,12 @@ puts @config['credentials']
         # @return [Boolean]
         def self.isGlobal?
           false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::ALPHA
         end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the

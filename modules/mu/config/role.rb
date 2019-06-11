@@ -39,53 +39,126 @@ module MU
             },
             "policies" => {
               "type" => "array",
+              "items" => self.policy_primitive
+            }
+          }
+        }
+      end
+
+      # Chunk of schema to reference an account/project, here to be embedded
+      # into the schemas of other resources.
+      def self.reference
+        {
+          "type" => "object",
+          "description" => "An IAM role to associate with this resource",
+          "minProperties" => 1,
+          "additionalProperties" => false,
+          "properties" => {
+            "id" => {
+              "type" => "string",
+              "description" => "Discover this role by looking for this cloud provider identifier, such as an AWS ARN"
+            },
+            "name" => {
+              "type" => "string",
+              "description" => "Discover this role by Mu-internal name; typically the shorthand 'name' field of a Role object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+            },
+            "cloud" => MU::Config.cloud_primitive,
+            "deploy_id" => {
+              "type" => "string",
+              "description" => "Search for this Role in an existing Mu deploy by Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
+            }
+          }
+        }
+      end
+
+      # A generic, cloud-neutral descriptor for a policy that grants or denies
+      # permissions to some entity over some other entity.
+      # @param subobjects [Boolean]: Whether the returned schema should include a +path+ parameter
+      # @param grant_to [Boolean]: Whether the returned schema should include an explicit +grant_to+ parameter
+      # @return [Hash]
+      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false)
+        cfg = {
+          "type" => "object",
+          "description" => "Policies which grant or deny permissions.",
+          "required" => ["name", "targets"],
+#          "additionalProperties" => false,
+          "properties" => {
+            "name" => {
+              "type" => "string",
+              "description" => "A unique name for this policy"
+            },
+            "flag" => {
+              "type" => "string",
+              "enum" => ["allow", "deny"],
+              "default" => "allow"
+            },
+            "permissions" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
+              }
+            },
+            "targets" => {
+              "type" => "array",
               "items" => {
                 "type" => "object",
-                "description" => "Policies which grant or deny permissions.",
-                "required" => ["name", "permissions", "targets"],
+                "description" => "Entities to which this policy will grant or deny access.",
+                "required" => ["identifier"],
                 "additionalProperties" => false,
                 "properties" => {
-                  "name" => {
+                  "type" => {
                     "type" => "string",
-                    "description" => "A unique name for this policy"
+                    "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
+                    "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
                   },
-                  "flag" => {
+                  "identifier" => {
                     "type" => "string",
-                    "enum" => ["allow", "deny"],
-                    "default" => "allow"
+                    "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
                   },
-                  "permissions" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "string",
-                      "description" => "Permissions to grant or deny. Valid permission strings are cloud-specific."
-                    }
-                  },
-                  "targets" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "object",
-                      "description" => "Entities to which this policy will grant or deny access.",
-                      "required" => ["identifier"],
-                      "additionalProperties" => false,
-                      "properties" => {
-                        "type" => {
-                          "type" => "string",
-                          "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
-                          "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
-                        },
-                        "identifier" => {
-                          "type" => "string",
-                          "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an ARN in Amazon Web Services."
-                        }
-                      }
-                    }
+                  "path" => {
+                    "type" => "string",
                   }
                 }
               }
             }
           }
         }
+
+        cfg["required"] << "permissions" if !permissions_optional
+
+        if grant_to
+          cfg["properties"]["grant_to"] = {
+            "type" => "array",
+            "default" => [ { "identifier" => "*" } ],
+            "items" => {
+              "type" => "object",
+              "description" => "Entities to which this policy will grant or deny access.",
+              "required" => ["identifier"],
+              "additionalProperties" => false,
+              "properties" => {
+                "type" => {
+                  "type" => "string",
+                  "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
+                  "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
+                },
+                "identifier" => {
+                  "type" => "string",
+                  "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an Amazon ARN or email-address-formatted Google Cloud username. Wildcards (+*+) are valid if supported by the cloud provider."
+                }
+              }
+            }
+          }
+        end
+
+        if subobjects
+          cfg["properties"]["targets"]["items"]["properties"]["path"] = {
+            "type" => "string",
+            "description" => "Target this policy to a path or child resource of the object to which we are granting or denying permissions, such as a key or wildcard in an S3 or Cloud Storage bucket."
+          }
+        end
+
+        cfg
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::role}, bare and unvalidated.

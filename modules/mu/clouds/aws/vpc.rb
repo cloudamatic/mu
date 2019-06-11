@@ -49,7 +49,7 @@ module MU
           resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc(cidr_block: @config['ip_block']).vpc
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
-          MU::MommaCat.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
           if @config['tags']
@@ -87,7 +87,7 @@ module MU
                 }
               end
 
-              MU::MommaCat.createStandardTags(rtb.route_table_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createStandardTags(rtb.route_table_id, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
@@ -104,7 +104,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_internet_gateway
             internet_gateway_id = resp.internet_gateway.internet_gateway_id
             sleep 5
-            MU::MommaCat.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
             MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             if @config['tags']
               @config['tags'].each { |tag|
@@ -202,7 +202,7 @@ module MU
                     availability_zone: az
                 ).subnet
                 subnet_id = subnet['subnet_id'] = resp.subnet_id
-                MU::MommaCat.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
                 MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
                 if @config['tags']
                   @config['tags'].each { |tag|
@@ -386,8 +386,17 @@ module MU
                           }
 
                           MU.log "Creating route for #{route['destination_network']} through NAT gatway #{gateway['id']}", details: route_config
+                          nat_retries = 0
                           begin
                             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(route_config)
+                          rescue Aws::EC2::Errors::InvalidNatGatewayIDNotFound => e
+                            if nat_retries < 5
+                              nat_retries += 1 
+                              sleep 10
+                              retry
+                            else
+                              raise e
+                            end
                           rescue Aws::EC2::Errors::RouteAlreadyExists => e
                             MU.log "Attempt to create duplicate route to #{route['destination_network']} for #{gateway['id']} in #{rtb['route_table_id']}", MU::WARN
                           end
@@ -439,7 +448,7 @@ module MU
                 dhcp_configurations: dhcpopts
             )
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
-            MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
             MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
             if @config['tags']
@@ -555,7 +564,7 @@ module MU
               peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['vpc_id'])
 
               peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
-              MU::MommaCat.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
@@ -1129,6 +1138,12 @@ module MU
           false
         end
 
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
+        end
+
         # Remove all VPC resources associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -1440,9 +1455,27 @@ module MU
           ok
         end
 
+        # Remove all network interfaces associated with the currently loaded deployment.
+        # @param noop [Boolean]: If true, will only print what would be done
+        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param region [String]: The cloud provider region
+        # @return [void]
+        def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
+          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
+              filters: tagfilters
+          )
+          ifaces = resp.data.network_interfaces
+
+          return if ifaces.nil? or ifaces.size == 0
+
+          ifaces.each { |iface|
+            MU.log "Deleting Network Interface #{iface.network_interface_id}"
+            MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_network_interface(network_interface_id: iface.network_interface_id)
+          }
+        end
+
 
         private
-
 
         # List the route tables for each subnet in the given VPC
         def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion, credentials: nil)
@@ -1512,7 +1545,7 @@ module MU
             }
           end
 
-          MU::MommaCat.createStandardTags(route_table_id, credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(route_table_id, credentials: @config['credentials'])
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?
               route_config = {

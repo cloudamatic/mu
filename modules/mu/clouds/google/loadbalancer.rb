@@ -18,6 +18,7 @@ module MU
       # A load balancer as configured in {MU::Config::BasketofKittens::loadbalancers}
       class LoadBalancer < MU::Cloud::LoadBalancer
 
+        @project_id = nil
         @deploy = nil
         @lb = nil
         attr_reader :mu_name
@@ -36,6 +37,11 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+            if !@project_id
+              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
+              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
+            end
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
           else
@@ -45,6 +51,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           parent_thread_id = Thread.current.object_id
 
@@ -96,13 +103,13 @@ module MU
             if @config['global']
               MU.log "Creating Global Forwarding Rule #{@mu_name}", MU::NOTICE, details: ruleobj
               resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_global_forwarding_rule(
-                @config['project'],
+                @project_id,
                 ruleobj
               )
             else
               MU.log "Creating regional Forwarding Rule #{@mu_name} in #{@config['region']}", MU::NOTICE, details: ruleobj
               resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_forwarding_rule(
-                @config['project'],
+                @project_id,
                 @config['region'],
                 ruleobj
               )
@@ -120,12 +127,12 @@ module MU
         def notify
           rules = {}
           resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_global_forwarding_rules(
-            @config["project"],
+            @project_id,
             filter: "description eq #{@deploy.deploy_id}"
           )
           if resp.nil? or resp.items.nil? or resp.items.size == 0
             resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_forwarding_rules(
-              @config["project"],
+              @project_id,
               @config['region'],
               filter: "description eq #{@deploy.deploy_id}"
             )
@@ -136,6 +143,7 @@ module MU
               rules[rule.name].delete(:label_fingerprint)
             }
           end
+          rules["project_id"] = @project_id
 
           rules
         end
@@ -152,6 +160,12 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           true
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
         end
 
         # Remove all load balancers associated with the currently loaded deployment.
@@ -321,7 +335,7 @@ module MU
           )
           MU.log "Creating url map #{tg['name']}", details: urlmap_obj
           urlmap = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_url_map(
-            @config['project'],
+            @project_id,
             urlmap_obj
           )
 
@@ -335,7 +349,7 @@ module MU
             target_obj = MU::Cloud::Google.compute(:TargetHttpProxy).new(desc)
             MU.log "Creating http target proxy #{tg['name']}", details: target_obj
             MU::Cloud::Google.compute(credentials: @config['credentials']).insert_target_http_proxy(
-              @config['project'],
+              @project_id,
               target_obj
             )
           else
@@ -348,7 +362,7 @@ module MU
             target_obj = MU::Cloud::Google.compute(:TargetHttpsProxy).new(desc)
             MU.log "Creating https target proxy #{tg['name']}", details: target_obj
             MU::Cloud::Google.compute(credentials: @config['credentials']).insert_target_https_proxy(
-              @config['project'],
+              @project_id,
               target_obj
             )
           end
@@ -394,13 +408,13 @@ module MU
           MU.log "Creating backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", details: backend_obj
           if @config['private'] and !@config['global']
             return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_region_backend_service(
-              @config['project'],
+              @project_id,
               @config['region'],
               backend_obj
             )
           else
             return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_backend_service(
-              @config['project'],
+              @project_id,
               backend_obj
             )
           end
@@ -430,12 +444,12 @@ module MU
             MU.log "Creating #{proto} health check #{name}", details: hc_obj
             if proto == "HTTP"
               return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_http_health_check(
-                @config['project'],
+                @project_id,
                 hc_obj
               )
             else
               return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_https_health_check(
-                @config['project'],
+                @project_id,
                 hc_obj
               )
             end
@@ -475,7 +489,7 @@ module MU
             hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(desc)
             MU.log "INSERTING HEALTH CHECK", MU::NOTICE, details: hc_obj
             return MU::Cloud::Google.compute(credentials: @config['credentials']).insert_health_check(
-              @config['project'],
+              @project_id,
               hc_obj
             )
           end

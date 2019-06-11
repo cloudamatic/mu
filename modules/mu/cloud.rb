@@ -126,10 +126,44 @@ module MU
     class NoSQLDB;
     end
 
+    # Denotes a resource implementation which is missing significant
+    # functionality or is largely untested.
+    ALPHA = "This implementation is **ALPHA** quality. It is experimental, may be missing significant functionality, and has not been widely tested."
+
+    # Denotes a resource implementation which supports most or all key API
+    # functionality and has seen at least some non-trivial testing.
+    BETA = "This implementation is **BETA** quality. It is substantially complete, but may be missing some functionality or have some features which are untested."
+
+    # Denotes a resource implementation which supports all key API functionality
+    # and has been substantially tested on real-world applications.
+    RELEASE = "This implementation is considered **RELEASE** quality. It covers all major API features and has been tested with real-world applications."
+
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
     # considered valid.
     @@resource_types = {
+      :Folder => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "folder",
+        :cfg_plural => "folders",
+        :interface => self.const_get("Folder"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Habitat => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "habitat",
+        :cfg_plural => "habitats",
+        :interface => self.const_get("Habitat"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
       :Collection => {
         :has_multiples => false,
         :can_live_in_vpc => false,
@@ -327,28 +361,6 @@ module MU
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
-      },
-      :Habitat => {
-        :has_multiples => false,
-        :can_live_in_vpc => false,
-        :cfg_name => "habitat",
-        :cfg_plural => "habitats",
-        :interface => self.const_get("Habitat"),
-        :deps_wait_on_my_creation => true,
-        :waits_on_parent_completion => true,
-        :class => generic_class_methods,
-        :instance => generic_instance_methods
-      },
-      :Folder => {
-        :has_multiples => false,
-        :can_live_in_vpc => false,
-        :cfg_name => "folder",
-        :cfg_plural => "folders",
-        :interface => self.const_get("Folder"),
-        :deps_wait_on_my_creation => true,
-        :waits_on_parent_completion => true,
-        :class => generic_class_methods,
-        :instance => generic_instance_methods
       },
       :User => {
         :has_multiples => false,
@@ -1028,6 +1040,12 @@ module MU
           return [@dependencies, @vpc, @loadbalancers]
         end
 
+        # Defaults any resources that don't declare their release-readiness to
+        # ALPHA. That'll learn 'em.
+        def self.quality
+          MU::Cloud::ALPHA
+        end
+
         def self.find(*flags)
           allfound = {}
 
@@ -1520,12 +1538,14 @@ module MU
             if (method == :create or method == :groom or method == :postBoot) and
                (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
+              @deploydata ||= deploydata # XXX I don't remember why we're not just doing this from the get-go; maybe because we prefer some mangling occurring in @deploy.notify?
               if deploydata.nil? or !deploydata.is_a?(Hash)
                 MU.log "#{self} notify method did not return a Hash of deployment data", MU::WARN
                 deploydata = MU.structToHash(@cloudobj.cloud_desc)
               end
               deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
+              deploydata['nodename'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             elsif method == :notify
               retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?

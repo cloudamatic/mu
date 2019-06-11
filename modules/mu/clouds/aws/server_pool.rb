@@ -148,8 +148,6 @@ module MU
             setScaleInProtection(need_instances)
           end
 
-          MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
-
           return asg
         end
 
@@ -368,18 +366,7 @@ module MU
                 policy_params[:scaling_adjustment] = policy['adjustment']
                 policy_params[:adjustment_type] = policy['type']
               elsif policy["policy_type"] == "TargetTrackingScaling"
-                def strToSym(hash)
-                  newhash = {}
-                  hash.each_pair { |k, v|
-                    if v.is_a?(Hash)
-                      newhash[k.to_sym] = strToSym(v)
-                    else
-                      newhash[k.to_sym] = v
-                    end
-                  }
-                  newhash
-                end
-                policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                policy_params[:target_tracking_configuration] = MU.strToSym(policy['target_tracking_configuration'])
                 policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
@@ -489,6 +476,11 @@ module MU
           toplevel_required = []
           
           schema = {
+            "role_strip_path" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Normally we namespace IAM roles with a +path+ set to match our +deploy_id+; this disables that behavior. Temporary workaround for a bug in EKS/IAM integration."
+            },
             "notifications" => {
               "type" => "object",
               "description" => "Send notifications to an SNS topic for basic AutoScaling events",
@@ -845,8 +837,11 @@ module MU
                 ok = false
               end
             else
+              s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem']
+
               role = {
                 "name" => pool["name"],
+                "strip_path" => pool["role_strip_path"],
                 "can_assume" => [
                   {
                     "entity_id" => "ec2.amazonaws.com",
@@ -857,19 +852,15 @@ module MU
                   {
                     "name" => "MuSecrets",
                     "permissions" => ["s3:GetObject"],
-                    "targets" => [
-                      {
-                        "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem'
-                      }
-                    ]
+                    "targets" => s3_objs.map { |f| { "identifier" => f } }
                   }
                 ]
               }
               if launch['iam_policies']
                 role['iam_policies'] = launch['iam_policies'].dup
               end
-              if pool['canned_policies']
-                role['import'] = pool['canned_policies'].dup
+              if pool['canned_iam_policies']
+                role['import'] = pool['canned_iam_policies'].dup
               end
               if pool['iam_role']
 # XXX maybe break this down into policies and add those?
@@ -987,6 +978,12 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           false
+        end
+
+        # Denote whether this resource implementation is experiment, ready for
+        # testing, or ready for production use.
+        def self.quality
+          MU::Cloud::RELEASE
         end
 
         # Remove all autoscale groups associated with the currently loaded deployment.
@@ -1148,6 +1145,14 @@ module MU
 
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
 
+          if @config['basis']['launch_config']['generate_iam_role']
+            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
+            }
+            role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+          end
+
           if !oldlaunch.nil?
             olduserdata = Base64.decode64(oldlaunch.user_data)
             if userdata != olduserdata or
@@ -1231,11 +1236,6 @@ module MU
 
           if @config['basis']['launch_config']['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
-# XXX are these the right patterns for a pool, or did we need wildcards?
-            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
-            }
-            role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
 
             @config['iam_role'] = role.mu_name
 

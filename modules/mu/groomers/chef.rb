@@ -20,11 +20,6 @@ module MU
     # Support for Chef as a host configuration management layer.
     class Chef
 
-      # Wrapper class for temporary Exceptions. Gives our internals something
-      # to inherit that will log a notice message appropriately before
-      # bubbling up.
-      class MuNoSuchSecret < StandardError;end
-
       Object.class_eval {
         def self.const_missing(symbol)
           if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
@@ -337,14 +332,19 @@ module MU
                 end
               end
             }
-            if resp.exitcode != 0
+
+            if resp.exitcode == 1 and output.join("\n").match(/Chef Client finished/)
+              MU.log "resp.exit code 1"
+            elsif resp.exitcode != 0
               raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
             end
           end
         rescue MU::Cloud::BootstrapTempFail
           MU.log "#{@server.mu_name} rebooting from Chef, waiting then resuming", MU::NOTICE
+
           sleep 30
+
           # weird failures seem common in govcloud
           if MU::Cloud::AWS.isGovCloud?(@config['region'])
             @server.reboot(true)
@@ -613,7 +613,7 @@ module MU
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
           ::Chef::Node.load(@server.mu_name)
-        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail => e
+        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail, Net::SSH::Exception, Net::SSH::ConnectionTimeout => e
           if retries < max_retries
             retries += 1
             # Bad Chef installs are possible culprits of bootstrap failures, so
