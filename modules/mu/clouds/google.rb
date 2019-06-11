@@ -1055,9 +1055,17 @@ module MU
               end
             end
 
-            if retval.class == ::Google::Apis::ComputeBeta::Operation
+            if retval.class.name.match(/.*?::Operation$/)
+
               retries = 0
               orig_target = retval.name
+
+              # Check whether the various types of +Operation+ responses say
+              # they're done, without knowing which specific API they're from
+              def is_done?(retval)
+                (retval.respond_to?(:status) and retval.status == "DONE") or (retval.respond_to?(:done) and retval.done)
+              end
+
               begin
                 if retries > 0 and retries % 3 == 0
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::NOTICE
@@ -1065,14 +1073,26 @@ module MU
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::DEBUG, details: retval
                 end
 
-                if retval.status != "DONE"
+                if !is_done?(retval)
                   sleep 7
                   begin
-                    resp = MU::Cloud::Google.compute(credentials: @credentials).get_global_operation(
-                      arguments.first, # there's always a project id
-                      retval.name
-                    )
-                    retval = resp
+                    if retval.class.name.match(/::Compute[^:]*::/)
+                      resp = MU::Cloud::Google.compute(credentials: @credentials).get_global_operation(
+                        arguments.first, # there's always a project id
+                        retval.name
+                      )
+                      retval = resp
+                    elsif retval.class.name.match(/::Cloudresourcemanager[^:]*::/)
+                      resp = MU::Cloud::Google.resource_manager(credentials: @credentials).get_operation(
+                        retval.name
+                      )
+                      retval = resp
+                      if retval.error
+                        raise MuError, retval.error.message
+                      end
+                    else
+                      raise MuError, "I NEED TO IMPLEMENT AN OPERATION HANDLER FOR #{retval.class.name}"
+                    end
                   rescue ::Google::Apis::ClientError => e
                     # this is ok; just means the operation is done and went away
                     if e.message.match(/^notFound:/)
@@ -1083,7 +1103,8 @@ module MU
                   end
                   retries = retries + 1
                 end
-              end while retval.status != "DONE"
+
+              end while !is_done?(retval)
 
               # Most insert methods have a predictable get_* counterpart. Let's
               # take advantage.
