@@ -232,11 +232,19 @@ $CONFIGURABLES = {
     "subtree" => {
       "directory_id" => {
         "title" => "Directory ID",
-        "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
+        "desc" => "AKA Tenant ID; the default Microsoft Azure Directory project in which we operate and deploy, from https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview"
+      },
+      "client_id" => {
+        "title" => "Client ID",
+        "desc" => "App client id used to authenticate to our subscription. From https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview"
+      },
+      "client_secret" => {
+        "title" => "Client Secret",
+        "desc" => "App client secret used to authenticate to our subscription. From https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview under the 'Certificates & secrets' tab, 'Client secrets.' This can only be retrieved upon initial secret creation."
       },
       "subscription" => {
         "title" => "Default Subscription",
-        "desc" => "Default Microsoft Azure Subscription we will use to deploy."
+        "desc" => "Default Microsoft Azure Subscription we will use to deploy, from https://portal.azure.com/#blade/Microsoft_Azure_Billing/SubscriptionsBlade"
       },
       # "credentials" => {
       #   "title" => "Credentials Vault:Item",
@@ -244,7 +252,7 @@ $CONFIGURABLES = {
       # },
       "credentials_file" => {
         "title" => "Credentials File",
-        "desc" => "JSON-formatted Service Account credentials for our Azure account, stored in plain text in a file."
+        "desc" => "JSON file which contains a hash of directory_id, client_id, client_secret, and subscription values. If found, these will be override values entered directly in mu-configure."
       },
       "region" => {
         "title" => "Default Region",

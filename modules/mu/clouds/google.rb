@@ -124,7 +124,7 @@ module MU
       # credentials. If no account name is specified, will return one flagged as
       # default. Returns nil if GCP is not configured. Throws an exception if 
       # an account name is specified which does not exist.
-      # @param name [String]: The name of the key under 'aws' in mu.yaml to return
+      # @param name [String]: The name of the key under 'google' in mu.yaml to return
       # @return [Hash,nil]
       def self.credConfig(name = nil, name_only: false)
         # If there's nothing in mu.yaml (which is wrong), but we're running
