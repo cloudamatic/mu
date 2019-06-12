@@ -138,11 +138,11 @@ module MU
         end
         
         begin
-          sdk_response = MU::Cloud::Azure.subscriptions().list_locations(subscription)
+          sdk_response = MU::Cloud::Azure.subs.subscriptions().list_locations(subscription)
         rescue Exception => e
           MU.log e.inspect, MU::ERR, details: e.backtrace
           #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
-          return @@regions if @@region and @@regions.size > 0
+          return @@regions if @@regions and @@regions.size > 0
           raise e
         end
 
@@ -156,7 +156,7 @@ module MU
       def self.list_subscriptions()
         subscriptions = []
 
-        sdk_response = MU::Cloud::Azure.subscriptions().list
+        sdk_response = MU::Cloud::Azure.subs.subscriptions().list
 
         sdk_response.each do |subscription|
           subscriptions.push(subscription.subscription_id)
@@ -217,7 +217,10 @@ module MU
       def self.credConfig (name = nil, name_only: false)
         if !$MU_CFG['azure'] or !$MU_CFG['azure'].is_a?(Hash) or $MU_CFG['azure'].size == 0
           return @@my_hosted_cfg if @@my_hosted_cfg
+
           if hosted?
+            @@my_hosted_cfg = hosted_config
+            return name_only ? "#default" : @@my_hosted_cfg
           end
 
           return nil
@@ -338,36 +341,52 @@ module MU
       end
 
 # BEGIN SDK STUBS
-      def self.subscriptions()
+      def self.subs(subclass = nil, credentials: nil)
         require 'azure_mgmt_subscriptions'
 
-        @@subscriptions_api ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions")
+        @@subscriptions_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials)
 
-        return @@subscriptions_api.subscriptions
+        return @@subscriptions_api[credentials]
       end
 
-      def self.compute(api: "Compute")
+      def self.subcreator(subclass = nil, credentials: nil)
+        require 'azure_mgmt_subscriptions'
+
+        @@subscriptions_factory_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, version: "V2018_03_01_preview")
+
+        return @@subscriptions_factory_api[credentials]
+      end
+
+      def self.compute(subclass = nil, credentials: nil)
         require 'azure_mgmt_compute'
 
-        @@compute_api ||= MU::Cloud::Azure::SDKClient.new(api: "Compute")
+        @@compute_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Compute", credentials: credentials)
 
-        return @@compute_api
+        return @@compute_api[credentials]
       end
 
-      def self.network(api: "Network")
+      def self.network(subclass = nil, credentials: nil)
         require 'azure_mgmt_network'
 
-        @@network_api ||= MU::Cloud::Azure::SDKClient.new(api: "Network")
+        @@network_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Network", credentials: credentials)
 
-        return @@network_api
+        return @@network_api[credentials]
       end
 
-      def self.storage(api: "Storage")
+      def self.storage(subclass = nil, credentials: nil)
         require 'azure_mgmt_storage'
 
-        @@storage_api ||= MU::Cloud::Azure::SDKClient.new(api: "Storage")
+        @@storage_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Storage", credentials: credentials)
 
-        return @@storage_api
+        return @@storage_api[credentials]
+      end
+
+      def self.apis(subclass = nil, credentials: nil)
+        require 'azure_mgmt_api_management'
+
+        @@apis_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ApiManagement", credentials: credentials)
+
+        return @@apis_api[credentials]
       end
 
 # END SDK STUBS
@@ -375,41 +394,61 @@ module MU
 # BEGIN SDK CLIENT
       private
 
+      @@subscriptions_api = {}
+      @@subscriptions_factory_api = {}
+      @@compute_api = {}
+      @@apis_api = {}
+      @@network_api = {}
+      @@storage_api = {}
+
       class SDKClient
         @api = nil
         @credentials = nil
-
-        @@subscriptions_api = {}
-        @@compute_api = {}
-        @@container_api = {}
-        @@storage_api = {}
-        @@sql_api = {}
-        @@iam_api = {}
-        @@logging_api = {}
-        @@resource_api = {}
-        @@resource2_api = {}
-        @@service_api = {}
-        @@firestore_api = {}
-        @@admin_directory_api = {}
+        @cred_hash = nil
 
         attr_reader :issuer
 
-        def initialize(api: "Compute")
+        def initialize(api: "Compute", credentials: nil, version: "Latest", subcomponent: nil)
+          @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
+          @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
 
-          @credentials = MU::Cloud::Azure.getSDKOptions()
+          # There seem to be multiple ways to get at clients, and different 
+          # versions available depending which way you do it, so... try that?
+          begin
+            # Standard approach: get a client from a canned, approved profile
+            @api = Object.const_get("::Azure::#{api}::Profiles::#{version}::Mgmt::Client").new(@cred_hash)
+          rescue NameError => e
+            # Weird approach: generate our own credentials object and invoke a
+            # client directly from a particular model version
+            token_provider = MsRestAzure::ApplicationTokenProvider.new(
+              @cred_hash[:tenant_id],
+              @cred_hash[:client_id],
+              @cred_hash[:client_secret]
+            )
+            @cred_obj = MsRest::TokenCredentials.new(token_provider)
+            subcomponent ||= api.sub(/s$/, '')+"Client"
+            begin
+              @api = Object.const_get("::Azure::#{api}::Mgmt::#{version}::#{subcomponent}").new(@cred_obj)
+            rescue NameError => e
+              raise MuError, "Unable to locate a version #{version} of Azure API #{api}"
+            end
+          end
 
-          @api = Object.const_get("::Azure::#{api}::Profiles::Latest::Mgmt::Client").new(@credentials)
-          
         end
 
         def method_missing(method_sym, *arguments)
 
-          if !arguments.nil? and arguments.size == 1
-            retval = @api.method(method_sym).call(arguments[0])
-          elsif !arguments.nil? and arguments.size > 0
-            retval = @api.method(method_sym).call(*arguments)
-          else
-            retval = @api.method(method_sym).call
+          begin
+            if !arguments.nil? and arguments.size == 1
+              retval = @api.method(method_sym).call(arguments[0])
+            elsif !arguments.nil? and arguments.size > 0
+              retval = @api.method(method_sym).call(*arguments)
+            else
+              retval = @api.method(method_sym).call
+            end
+          rescue ::MsRestAzure::AzureOperationError => e
+            MU.log e.message, MU::ERR, details: e.inspect
+            raise e
           end
 
           return retval

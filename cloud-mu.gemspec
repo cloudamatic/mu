@@ -18,7 +18,7 @@ end
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
   s.version     = '2.1.0alpha'
-  s.date        = '2019-04-27'
+  s.date        = '2019-06-12'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -62,5 +62,5 @@ EOF
   s.add_runtime_dependency 'rubocop', '~> 0.58'
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
-  s.add_runtime_dependency 'azure_sdk', "~> 0.22.3"
+  s.add_runtime_dependency 'azure_sdk', "~> 0.26.1"
 end
