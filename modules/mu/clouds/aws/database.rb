@@ -1428,9 +1428,14 @@ module MU
             }
           }
 
+
           schema = {
             "db_parameter_group_parameters" => rds_parameters_primitive,
             "cluster_parameter_group_parameters" => rds_parameters_primitive,
+            "parameter_group_family" => {
+              "type" => "String",
+              "description" => "An RDS parameter group family. See also https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html"
+            },
             "cluster_mode" => {
               "type" => "string",
               "description" => "The DB engine mode of the DB cluster",
@@ -1512,6 +1517,34 @@ module MU
             db['create_cluster'] = true
           end
 
+          pgroup_families = []
+          engines = {}
+
+          marker = nil
+          begin
+            resp = MU::Cloud::AWS.rds(credentials: db['credentials'], region: db['region']).describe_db_engine_versions(marker: marker)
+            marker = resp.marker
+
+            if resp and resp.db_engine_versions
+              resp.db_engine_versions.each { |version|
+                engines[version.engine] ||= {
+                  "versions" => [],
+                  "families" => []
+                }
+                engines[version.engine]['versions'] << version.engine_version
+                engines[version.engine]['families'] << version.db_parameter_group_family
+
+              }
+              engines.keys.each { |engine|
+                engines[engine]["versions"].uniq!
+                engines[engine]["families"].uniq!
+              }
+
+            else
+              MU.log "Failed to get list of valid RDS engine versions in #{db['region']}, proceeding without proper validation", MU::WARN
+            end
+          end while !marker.nil?
+
           if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
@@ -1526,6 +1559,31 @@ module MU
               ok = false
               MU.log "Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
             end
+          end
+
+          if engines.size > 0 
+            if !engines[db['engine']]
+              MU.log "RDS engine #{db['engine']} is not supported in #{db['region']}", MU::ERR, details: engines.keys.sort
+              ok = false
+            else
+              if db["engine_version"] and
+                 engines[db['engine']]['versions'].size > 0 and
+                 !engines[db['engine']]['versions'].include?(db['engine_version']) and
+                 !engines[db['engine']]['versions'].grep(/^#{Regexp.quote(db["engine_version"])}.+/)
+                MU.log "RDS engine '#{db['engine']}' version '#{db['engine_version']}' is not supported in #{db['region']}", MU::ERR, details: { "Known-good versions:" => engines[db['engine']]['versions'].uniq.sort }
+                ok = false
+              end
+              if db["parameter_group_family"] and
+                 engines[db['engine']]['families'].size > 0 and
+                 !engines[db['engine']]['families'].include?(db['parameter_group_family'])
+                MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported in #{db['region']}", MU::ERR, details: { "Valid parameter families:" => engines[db['engine']]['families'].uniq.sort }
+                ok = false
+              end
+            end
+          end
+
+          if db['parameter_group_family'] and pgroup_families.size > 0 and
+             !pgroup_families.include?(db['parameter_group_family'])
           end
 
           db["license_model"] ||=
