@@ -1548,7 +1548,7 @@ module MU
           if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
-              if db["engine_version"] == "5.6" or db["cluster_mode"] == "serverless"
+              if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
                 db["engine"] = "aurora"
               else
                 db["engine"] = "aurora-mysql"
