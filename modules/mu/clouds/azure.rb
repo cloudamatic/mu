@@ -349,7 +349,7 @@ module MU
         return @@subscriptions_api[credentials]
       end
 
-      def self.subcreator(subclass = nil, credentials: nil)
+      def self.subfactory(subclass = nil, credentials: nil)
         require 'azure_mgmt_subscriptions'
 
         @@subscriptions_factory_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, version: "V2018_03_01_preview")
@@ -389,6 +389,22 @@ module MU
         return @@apis_api[credentials]
       end
 
+      def self.resources(subclass = nil, credentials: nil)
+        require 'azure_mgmt_resources_management'
+
+        @@resources_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ResourcesManagement", credentials: credentials, subclass: subclass)
+
+        return @@resources_api[credentials]
+      end
+
+      def self.billing(subclass = nil, credentials: nil)
+        require 'azure_mgmt_billing'
+
+        @@billing_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Billing", credentials: credentials, subclass: subclass)
+
+        return @@billing_api[credentials]
+      end
+
 # END SDK STUBS
 
 # BEGIN SDK CLIENT
@@ -397,9 +413,11 @@ module MU
       @@subscriptions_api = {}
       @@subscriptions_factory_api = {}
       @@compute_api = {}
+      @@billing_api = {}
       @@apis_api = {}
       @@network_api = {}
       @@storage_api = {}
+      @@resources_api = {}
 
       class SDKClient
         @api = nil
@@ -407,16 +425,18 @@ module MU
         @cred_hash = nil
 
         attr_reader :issuer
+        attr_reader :api
 
-        def initialize(api: "Compute", credentials: nil, version: "Latest", subcomponent: nil)
+        def initialize(api: "Compute", credentials: nil, version: "Latest", subclass: nil)
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
 
           # There seem to be multiple ways to get at clients, and different 
           # versions available depending which way you do it, so... try that?
+          stdpath = "::Azure::#{api}::Profiles::#{version}::Mgmt::Client"
           begin
             # Standard approach: get a client from a canned, approved profile
-            @api = Object.const_get("::Azure::#{api}::Profiles::#{version}::Mgmt::Client").new(@cred_hash)
+            @api = Object.const_get(stdpath).new(@cred_hash)
           rescue NameError => e
             # Weird approach: generate our own credentials object and invoke a
             # client directly from a particular model version
@@ -426,11 +446,12 @@ module MU
               @cred_hash[:client_secret]
             )
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
-            subcomponent ||= api.sub(/s$/, '')+"Client"
+            subclass ||= api.sub(/s$/, '')+"Client"
             begin
-              @api = Object.const_get("::Azure::#{api}::Mgmt::#{version}::#{subcomponent}").new(@cred_obj)
+              modelpath = "::Azure::#{api}::Mgmt::#{version}::#{subclass}"
+              @api = Object.const_get(modelpath).new(@cred_obj)
             rescue NameError => e
-              raise MuError, "Unable to locate a version #{version} of Azure API #{api}"
+              raise MuError, "Unable to locate a version #{version} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
             end
           end
 
