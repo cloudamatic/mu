@@ -169,13 +169,7 @@ module MU
             "cluster_node_count" => {
               "type" => "integer",
               "description" => "The number of database instances to add to a database cluster. This only applies to aurora",
-              "default_if" => [
-                {
-                  "key_is" => "engine",
-                  "value_is" => "aurora",
-                  "set" => 1
-                }
-              ]
+              "default" => 2
             },
             "create_cluster" => {
               "type" => "boolean",
