@@ -187,6 +187,7 @@ if !node['update_nagios_only']
   execute "Allow net connect to local for apache" do
     command "/usr/sbin/setsebool -P httpd_can_network_connect on"
     not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
+    not_if "/sbin/getenforce | grep -cim1  disabled"
     notifies :reload, "service[apache2]", :delayed
   end
 
