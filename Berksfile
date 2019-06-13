@@ -14,6 +14,6 @@ cookbook 'mu-openvpn'
 # cookbook 'mu-php54'
 cookbook 'mu-tools'
 cookbook 'mu-utility'
-cookbook 'nagios' , '~> 8.0'
+cookbook 'mu-nagios' , '~> 8.2.0', git: "https://github.com/cloudamatic/mu-nagios.git", branch: "bug-fixes"
 cookbook 'firewall', path: 'cookbooks/firewall'
 #cookbook 's3fs', path: 'cookbooks/s3fs'
