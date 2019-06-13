@@ -16,8 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe "nagios::server_source"
-include_recipe "nagios"
+include_recipe "mu-nagios::server_source"
+include_recipe "mu-nagios"
 include_recipe 'mu-master::firewall-holes'
 
 if $MU_CFG.has_key?('ldap')
@@ -49,7 +49,7 @@ file "/etc/sysconfig/nagios" do
   content "checkconfig=\"false\"\n"
   mode 0600
 end
-include_recipe "nagios"
+include_recipe "mu-nagios"
 
 # scrub our old stuff if it's around
 ["nagios_fifo", "nagios_more_selinux"].each { |policy|
