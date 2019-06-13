@@ -146,7 +146,7 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
   end
 }
 if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
-  execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
+  execute "chcon -R -h system_u:object_r:nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
     not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
   end
 end
