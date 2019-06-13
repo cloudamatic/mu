@@ -312,6 +312,7 @@ module MU
           
           if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
             config[:db_snapshot_identifier] = @config["snapshot_id"]
+            config[:db_cluster_identifier] = @config["cluster_identifier"] if @config["add_cluster_node"]
           end
 
           if @config["creation_style"] == "point_in_time"
@@ -530,6 +531,10 @@ module MU
             cluster_config_struct[:source_db_cluster_identifier] = @config["source_identifier"]
             cluster_config_struct[:restore_to_time] = @config["restore_time"] unless @config["restore_time"] == "latest"
             cluster_config_struct[:use_latest_restorable_time] = true if @config["restore_time"] == "latest"
+          end
+
+          if @config['cloudwatch_logs']
+            cluster_config_struct[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
           end
 
           attempts = 0
@@ -798,7 +803,15 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          unless @config["create_cluster"]
+          if @config["create_cluster"]
+            @config['cluster_node_count'] ||= 1
+            if @config['cluster_mode'] == "serverless"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_current_db_cluster_capacity(
+                db_cluster_identifier: @cloud_id,
+                capacity: @config['cluster_node_count']
+              )
+            end
+          else
             database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
 
             # Run SQL on deploy
@@ -1442,6 +1455,14 @@ module MU
               "enum" => ["provisioned", "serverless", "parallelquery", "global"],
               "default" => "provisioned"
             },
+            "cloudwatch_logs" => {
+              "type" => "array",
+              "default" => ["error"],
+              "items" => {
+                "type" => "string",
+                "enum" => ["error", "general", "audit", "slow_query"],
+              }
+            },
             "serverless_scaling" => {
               "type" => "object",
               "descriptions" => "Scaling configuration for a +serverless+ Aurora cluster",
@@ -1513,8 +1534,8 @@ module MU
           if db['creation_style'] == "existing_snapshot" and
              !db['create_cluster'] and
              db['identifier'] and db['identifier'].match(/:cluster-snapshot:/)
-            MU.log "Existing snapshot #{db['identifier']} looks like a cluster snapshot, setting create_cluster to true", MU::WARN
-            db['create_cluster'] = true
+            MU.log "Database #{db['name']}: Existing snapshot #{db['identifier']} looks like a cluster snapshot, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
+            ok = false
           end
 
           pgroup_families = []
@@ -1557,8 +1578,13 @@ module MU
               db["engine"] = "aurora-postgresql"
             else
               ok = false
-              MU.log "Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
+              MU.log "Database #{db['name']}: Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
             end
+          end
+
+          if db['engine'].match(/^aurora/) and !db['create_cluster'] and !db['add_cluster_node']
+            MU.log "Database #{db['name']}: #{db['engine']} looks like a cluster engine, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
+            ok = false
           end
 
           if engines.size > 0 
