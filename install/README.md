@@ -9,8 +9,8 @@ In the standard instsatation create your original VPC and manually provision a M
 	* Must have access to the internet
 	* Must manually configure any security on the networking
 1. Properly configured instance
-	* Supported OS CentOS 6-7, RHEL 6-7, and Amazon Linux 2
-	* A role, other API credentials to grant proper Mu-Master permissions
+	* Supported OS `CentOS 6-7`, `RHEL 6-7`, or `Amazon Linux 2`
+	* API credentials to grant proper Mu-Master permissions. (Cloud provider roles recomended when hosted in the same cloud you intend to work in.)
 
 ### Instalation 
 
