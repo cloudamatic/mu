@@ -110,7 +110,7 @@ module MU
             else
               MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
             end
-          rescue MU::Groomer::Chef::MuNoSuchSecret
+          rescue MU::Groomer::MuNoSuchSecret
             MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but does not exist", MU::WARN
           end
         end
