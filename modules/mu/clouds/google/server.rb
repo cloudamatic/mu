@@ -57,6 +57,7 @@ module MU
                 "publicIP" => MU.mu_public_ip,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
+                "mommaCatPort" => MU.mommaCatPort,
                 "resourceName" => @config["name"],
                 "resourceType" => "server",
                 "platform" => @config["platform"]
@@ -85,7 +86,7 @@ module MU
 
             @config['instance_secret'] = Password.random(50)
           end
-          @config['ssh_user'] ||= "mu"
+          @config['ssh_user'] ||= "muadmin"
           @groomer = MU::Groomer.new(self)
 
         end
@@ -249,7 +250,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
@@ -467,7 +468,7 @@ next if !create
           return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
 
-#          MU::MommaCat.createStandardTags(@cloud_id, region: @config['region'])
+#          MU::Cloud::AWS.createStandardTags(@cloud_id, region: @config['region'])
 #          MU::MommaCat.createTag(@cloud_id, "Name", node, region: @config['region'])
 #
 #          if @config['optional_tags']
@@ -724,7 +725,7 @@ next if !create
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project_id'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           
@@ -1108,6 +1109,11 @@ next if !create
             "image_id" => {
               "type" => "string",
               "description" => "The Google Cloud Platform Image on which to base this instance. Will use the default appropriate for the platform, if not specified."
+            },
+            "ssh_user" => {
+              "type" => "string",
+              "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
+              "default" => "muadmin"
             },
             "routes" => {
               "type" => "array",

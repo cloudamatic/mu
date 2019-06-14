@@ -1,16 +1,16 @@
 GIT
   remote: https://github.com/eGT-Labs/knife-windows.git
-  revision: 0deb5ce9bba6718ebac6bb6c48a1a4b7bdc4b15b
+  revision: d9ed1c2da3fa60a6adaa4e3089cbab32a5999e93
   branch: winrm_cert_auth
   specs:
-    knife-windows (1.9.0)
+    knife-windows (2.0.3)
       winrm (~> 2.1)
       winrm-elevated (~> 1.0)
 
 PATH
   remote: ..
   specs:
-    cloud-mu (2.0.2)
+    cloud-mu (2.0.3)
       addressable (~> 2.5)
       aws-sdk-core (< 3)
       bundler (~> 1.17)
@@ -42,12 +42,12 @@ GEM
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
     aws-eventstream (1.0.3)
-    aws-sdk-core (2.11.269)
+    aws-sdk-core (2.11.283)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.1.0)
       aws-eventstream (~> 1.0, >= 1.0.2)
-    backports (3.14.0)
+    backports (3.15.0)
     berkshelf (7.0.8)
       chef (>= 13.6.52)
       chef-config
@@ -155,7 +155,7 @@ GEM
     eventmachine (1.2.7)
     faraday (0.15.4)
       multipart-post (>= 1.2, < 3)
-    ffi (1.10.0)
+    ffi (1.11.1)
     ffi-libarchive (0.4.6)
       ffi (~> 1.0)
     ffi-yajl (2.3.1)
@@ -202,7 +202,7 @@ GEM
     jmespath (1.4.0)
     json-schema (2.8.1)
       addressable (>= 2.4)
-    jwt (2.1.0)
+    jwt (2.2.1)
     libyajl2 (1.2.0)
     little-plugger (1.1.4)
     logging (2.2.2)
@@ -220,7 +220,7 @@ GEM
     mixlib-cli (1.7.0)
     mixlib-config (3.0.1)
       tomlrb
-    mixlib-install (3.11.12)
+    mixlib-install (3.11.18)
       mixlib-shellout
       mixlib-versioning
       thor
@@ -229,7 +229,7 @@ GEM
     mixlib-versioning (1.2.7)
     molinillo (0.6.6)
     multi_json (1.13.1)
-    multipart-post (2.0.0)
+    multipart-post (2.1.1)
     mysql2 (0.5.2)
     net-ldap (0.16.1)
     net-scp (1.2.1)
@@ -250,7 +250,7 @@ GEM
     numerizer (0.1.1)
     octokit (4.14.0)
       sawyer (~> 0.8.0, >= 0.5.3)
-    ohai (14.8.11)
+    ohai (14.8.12)
       chef-config (>= 12.8, < 15)
       ffi (~> 1.9)
       ffi-yajl (~> 2.2)
@@ -272,7 +272,7 @@ GEM
     plist (3.5.0)
     polyglot (0.3.5)
     proxifier (1.0.3)
-    public_suffix (3.0.3)
+    public_suffix (3.1.0)
     rack (2.0.7)
     rainbow (3.0.0)
     rake (12.3.2)
@@ -301,24 +301,24 @@ GEM
     rspec_junit_formatter (0.2.3)
       builder (< 4)
       rspec-core (>= 2, < 4, != 2.12.0)
-    rubocop (0.68.1)
+    rubocop (0.70.0)
       jaro_winkler (~> 1.5.1)
       parallel (~> 1.10)
-      parser (>= 2.5, != 2.5.1.1)
+      parser (>= 2.6)
       rainbow (>= 2.2.2, < 4.0)
       ruby-progressbar (~> 1.7)
-      unicode-display_width (>= 1.4.0, < 1.6)
+      unicode-display_width (>= 1.4.0, < 1.7)
     ruby-graphviz (1.2.4)
-    ruby-progressbar (1.10.0)
+    ruby-progressbar (1.10.1)
     ruby-wmi (0.4.0)
     rubyntlm (0.6.2)
-    rubyzip (1.2.2)
+    rubyzip (1.2.3)
     rufus-lru (1.1.0)
     sawyer (0.8.2)
       addressable (>= 2.3.5)
       faraday (> 0.8, < 2.0)
     semverse (3.0.0)
-    serverspec (2.41.3)
+    serverspec (2.41.4)
       multi_json
       rspec (~> 3.0)
       rspec-its
@@ -334,7 +334,7 @@ GEM
     solve (4.0.2)
       molinillo (~> 0.6)
       semverse (>= 1.1, < 4.0)
-    specinfra (2.77.1)
+    specinfra (2.77.3)
       net-scp
       net-ssh (>= 2.7)
       net-telnet (= 0.1.1)
@@ -350,9 +350,9 @@ GEM
     treetop (1.6.10)
       polyglot (~> 0.3)
     uber (0.1.0)
-    unicode-display_width (1.5.0)
+    unicode-display_width (1.6.0)
     uuidtools (2.1.5)
-    winrm (2.2.3)
+    winrm (2.3.2)
       builder (>= 2.1.2)
       erubis (~> 2.7)
       gssapi (~> 1.2)
@@ -389,7 +389,7 @@ DEPENDENCIES
   rack
   ruby-wmi
   thin
-  winrm (~> 2.2.3)
+  winrm (~> 2.3, >= 2.3.2)
 
 BUNDLED WITH
-   1.17.3
+   1.17.2

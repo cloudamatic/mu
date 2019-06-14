@@ -227,38 +227,41 @@ module MU
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
       end
 
-      # Scrub any residual Chef records with matching tags
+      # Scrub any residual Chef records with matching tags. If we have Chef.
       if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
-        MU::Groomer::Chef.loadChefLib
-        if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-          Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-        end
-        deadnodes = []
-        Chef::Config[:environment] = MU.environment
-        q = Chef::Search::Query.new
         begin
-          q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-            next if item.is_a?(Integer)
-            item.each { |node|
-              deadnodes << node.name
+          MU::Groomer::Chef.loadChefLib
+          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          deadnodes = []
+          Chef::Config[:environment] = MU.environment
+          q = Chef::Search::Query.new
+          begin
+            q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
             }
-          }
-        rescue Net::HTTPServerException
-        end
+          rescue Net::HTTPServerException
+          end
 
-        begin
-          q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-            next if item.is_a?(Integer)
-            item.each { |node|
-              deadnodes << node.name
+          begin
+            q.search("node", "name:#{MU.deploy_id}-*").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
             }
+          rescue Net::HTTPServerException
+          end
+          MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
+          deadnodes.uniq.each { |node|
+            MU::Groomer::Chef.cleanup(node, [], noop)
           }
-        rescue Net::HTTPServerException
+        rescue LoadError
         end
-        MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
-        deadnodes.uniq.each { |node|
-          MU::Groomer::Chef.cleanup(node, [], noop)
-        }
       end
 
       if !@onlycloud and !@noop and @mommacat

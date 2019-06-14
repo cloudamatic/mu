@@ -32,7 +32,12 @@ $LOAD_PATH << "#{$MUDIR}/modules"
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
-MU::Groomer::Chef.loadChefLib # pre-cache this so we don't take a hit on a user-interactive need
+begin
+  MU::Groomer::Chef.loadChefLib # pre-cache this so we don't take a hit on a user-interactive need
+  $ENABLE_SCRATCHPAD = true
+rescue LoadError
+  MU.log "Chef libraries not available, disabling Scratchpad", MU::WARN
+end
 #MU.setLogging($opts[:verbose], $opts[:web])
 if MU.myCloud == "AWS"
   MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
@@ -57,7 +62,7 @@ Thread.new {
   MU.dupGlobals(parent_thread_id)
   begin
     MU::MommaCat.cleanTerminatedInstances
-    MU::Master.cleanExpiredScratchpads
+    MU::Master.cleanExpiredScratchpads if $ENABLE_SCRATCHPAD
     sleep 60
   rescue Exception => e
     MU.log "Error in cleanTerminatedInstances thread: #{e.inspect}", MU::ERR, details: e.backtrace
@@ -199,6 +204,17 @@ app = proc do |env|
   ]
   begin
     if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/scratchpad/)
+      if !$ENABLE_SCRATCHPAD
+        msg = "Scratchpad disabled in non-Chef Mu installations"
+        return [
+          504,
+          {
+            'Content-Type' => 'text/html',
+            'Content-Length' => msg.length.to_s
+          },
+          [msg]
+        ]
+      end
       itemname = env['REQUEST_PATH'].sub(/^\/scratchpad\//, "")
       begin
         if itemname.sub!(/\/secret$/, "")

@@ -47,7 +47,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           port_objs = []
 
           @config['named_ports'].each { |port_cfg|
@@ -184,6 +184,11 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "ssh_user" => {
+              "type" => "string",
+              "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
+              "default" => "muadmin"
+            },
             "named_ports" => {
               "type" => "array",
               "items" => {

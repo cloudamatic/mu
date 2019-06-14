@@ -81,7 +81,7 @@ module MU
       # @param sibling_only [Boolean]
       # @return [MU::Cloud::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
-        project_obj = deploy.findLitterMate(type: "habitats", name: name)
+        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
 
         if !project_obj and !sibling_only
           resp = MU::MommaCat.findStray(
@@ -92,7 +92,7 @@ module MU
             name: name,
             dummy_ok: true
           )
-          project_obj = resp.first if resp
+          project_obj = resp.first if resp and resp.size > 0
         end
 
         if (!project_obj or !project_obj.cloud_id) and raise_on_fail
@@ -173,6 +173,8 @@ module MU
         elsif MU::Cloud::Google.hosted?
           zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
           @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
+        else
+          @@myRegion_var = "us-east4"
         end
         @@myRegion_var
       end
@@ -354,11 +356,10 @@ module MU
 
         cfg = credConfig(credentials)
 
-        if cfg['project']
-          @@enable_semaphores[cfg['project']] ||= Mutex.new
-        end
-
         if cfg
+          if cfg['project']
+            @@enable_semaphores[cfg['project']] ||= Mutex.new
+          end
           data = nil
           @@authorizers[credentials] ||= {}
   
@@ -530,7 +531,7 @@ module MU
       # "translate" machine types across cloud providers.
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
       # @return [Hash]
-      def self.listInstanceTypes(region = myRegion)
+      def self.listInstanceTypes(region = self.myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
         if !MU::Cloud::Google.defaultProject
           return {}
@@ -564,6 +565,8 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
+        region ||= self.myRegion
+
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
         raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
         @@regions[region]
@@ -864,14 +867,18 @@ module MU
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
+#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
               end
               @@enable_semaphores ||= {}
               max_retries = 3
               wait_time = 90
               if retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
-                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
+                project = if arguments.size > 0 and !arguments.first.is_a?(Hash)
+                  arguments.first.to_s
+                else
+                  MU::Cloud::Google.defaultProject(@credentials)
+                end
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project

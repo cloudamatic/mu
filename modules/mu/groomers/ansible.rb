@@ -20,10 +20,16 @@ module MU
     # Support for Ansible as a host configuration management layer.
     class Ansible
 
+      # Failure to load or create a deploy
+      class NoAnsibleExecError < MuError;
+      end
 
-      # Location in which we'll find our Ansible executables
+      # Location in which we'll find our Ansible executables. This only applies
+      # to full-grown Mu masters; minimalist gem installs will have to make do
+      # with whatever Ansible executables they can find in $PATH.
       BINDIR = "/usr/local/python-current/bin"
       @@pwfile_semaphore = Mutex.new
+
 
       # @param node [MU::Cloud::Server]: The server object on which we'll be operating
       def initialize(node)
@@ -32,6 +38,11 @@ module MU
         @inventory = Inventory.new(node.deploy)
         @mu_user = node.deploy.mu_user
         @ansible_path = node.deploy.deploy_dir+"/ansible"
+        @ansible_execs = MU::Groomer::Ansible.ansibleExecDir
+
+        if !@ansible_execs or @ansible_execs.empty?
+          raise NoAnsibleExecError, "No Ansible executables found in visible paths"
+        end
 
         [@ansible_path, @ansible_path+"/roles", @ansible_path+"/vars", @ansible_path+"/group_vars", @ansible_path+"/vaults"].each { |dir|
           if !Dir.exists?(dir)
@@ -87,9 +98,10 @@ module MU
         File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
           f.write data
         }
-        cmd = %Q{#{BINDIR}/ansible-vault encrypt #{path} --vault-id #{pwfile}}
+
+        cmd = %Q{#{ansibleExecDir}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
         MU.log cmd
-        system(cmd)
+        raise MuError, "Failed Ansible command: #{cmd}" if !system(cmd)
       end
 
       # see {MU::Groomer::Ansible.saveSecret}
@@ -120,7 +132,7 @@ module MU
           if !File.exists?(itempath)
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
-          cmd = %Q{#{BINDIR}/ansible-vault view #{itempath} --vault-id #{pwfile}}
+          cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
           MU.log cmd
           a = `#{cmd}`
           # If we happen to have stored recognizeable JSON, return it as parsed,
@@ -189,13 +201,16 @@ module MU
       # @param output [Boolean]: Display Ansible's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
       def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
+        bootstrap
         pwfile = MU::Groomer::Ansible.vaultPasswordFile
         stashHostSSLCertSecret
 
-        cmd = %Q{cd #{@ansible_path} && #{BINDIR}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-id #{pwfile} --vault-id #{@ansible_path}/.vault_pw}
+        ssh_user = @server.config['ssh_user'] || "root"
+
+        cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         MU.log cmd
-        system(cmd)
+        raise MuError, "Failed Ansible command: #{cmd}" if !system(cmd)
       end
 
       # This is a stub; since Ansible is effectively agentless, this operation
@@ -222,6 +237,10 @@ module MU
 
         if @server.config['run_list'] and !@server.config['run_list'].empty?
           play["roles"] = @server.config['run_list']
+        end
+
+        if @server.config['ansible_vars']
+          play["vars"] = @server.config['ansible_vars']
         end
 
         File.open(@ansible_path+"/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
@@ -312,11 +331,34 @@ module MU
       # @param for_user [String]: Encrypt using the Vault password of the specified Mu user
       def self.encryptString(name, string, for_user = nil)
         pwfile = vaultPasswordFile
-        cmd = %Q{#{BINDIR}/ansible-vault}
-        system(cmd, "encrypt_string", string, "--name", name, "--vault-id", pwfile)
+        cmd = %Q{#{ansibleExecDir}/ansible-vault}
+        if !system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
+          raise MuError, "Failed Ansible command: #{cmd} encrypt_string <redacted> --name #{name} --vault-password-file"
+        end
       end
 
       private
+
+      def self.ansibleExecDir
+        path = nil
+        if File.exists?(BINDIR+"/ansible-playbook")
+          path = BINDIR
+        else
+          ENV['PATH'].split(/:/).each { |bindir|
+            if File.exists?(bindir+"/ansible-playbook")
+              path = bindir
+              if !File.exists?(bindir+"/ansible-vault")
+                MU.log "Found ansible-playbook executable in #{bindir}, but no ansible-vault. Vault functionality will not work!", MU::WARN
+              end
+              if !File.exists?(bindir+"/ansible-galaxy")
+                MU.log "Found ansible-playbook executable in #{bindir}, but no ansible-galaxy. Automatic community role fetch will not work!", MU::WARN
+              end
+              break
+            end
+          }
+        end
+        path
+      end
 
       # Get the +.vault_pw+ file for the appropriate user. If it doesn't exist,
       # generate one.
@@ -350,6 +392,7 @@ module MU
       # artifacts, since 'roles' is an awfully generic name for a directory.
       # Short of a full, slow syntax check, this is the best we're liable to do.
       def isAnsibleRole?(path)
+        begin
         Dir.foreach(path) { |entry|
           if File.directory?(path+"/"+entry) and
              ["tasks", "vars"].include?(entry)
@@ -358,6 +401,8 @@ module MU
             return false
           end
         }
+        rescue Errno::ENOTDIR
+        end
         false
       end
 
@@ -368,11 +413,25 @@ module MU
 
         canon_links = {}
 
+        repodirs = []
+
+        # Make sure we search the global ansible_dir, if any is set
+        if $MU_CFG and $MU_CFG['ansible_dir'] and !$MU_CFG['ansible_dir'].empty?
+          if !Dir.exists?($MU_CFG['ansible_dir'])
+            MU.log "Config lists an Ansible directory at #{$MU_CFG['ansible_dir']}, but I see no such directory", MU::WARN
+          else
+            repodirs << $MU_CFG['ansible_dir']
+          end
+        end
+
         # Hook up any Ansible roles listed in our platform repos
         $MU_CFG['repos'].each { |repo|
           repo.match(/\/([^\/]+?)(\.git)?$/)
           shortname = Regexp.last_match(1)
-          repodir = MU.dataDir + "/" + shortname
+          repodirs << MU.dataDir + "/" + shortname
+        }
+
+        repodirs.each { |repodir|
           ["roles", "ansible/roles"].each { |subdir|
             next if !Dir.exists?(repodir+"/"+subdir)
             Dir.foreach(repodir+"/"+subdir) { |role|
@@ -411,7 +470,7 @@ module MU
             found = false
             if !File.exists?(roledir+"/"+role)
               if role.match(/[^\.]\.[^\.]/) and @server.config['groomer_autofetch']
-                system(%Q{#{BINDIR}/ansible-galaxy}, "--roles-path", roledir, "install", role)
+                system(%Q{#{@ansible_execs}/ansible-galaxy}, "--roles-path", roledir, "install", role)
                 found = true
 # XXX check return value
               else

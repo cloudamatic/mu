@@ -419,6 +419,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               "deploySSHKey" => mommacat.ssh_public_key,
               "muID" => muid,
               "muUser" => MU.chef_user,
+              "mommaCatPort" => MU.mommaCatPort,
               "publicIP" => MU.mu_public_ip,
               "resourceName" => svr_class,
               "windowsAdminName" => server['windows_admin_username'],

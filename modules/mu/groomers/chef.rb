@@ -332,14 +332,19 @@ module MU
                 end
               end
             }
-            if resp.exitcode != 0
+
+            if resp.exitcode == 1 and output.join("\n").match(/Chef Client finished/)
+              MU.log "resp.exit code 1"
+            elsif resp.exitcode != 0
               raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
             end
           end
         rescue MU::Cloud::BootstrapTempFail
           MU.log "#{@server.mu_name} rebooting from Chef, waiting then resuming", MU::NOTICE
+
           sleep 30
+
           # weird failures seem common in govcloud
           if MU::Cloud::AWS.isGovCloud?(@config['region'])
             @server.reboot(true)
