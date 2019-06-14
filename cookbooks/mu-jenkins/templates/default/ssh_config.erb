@@ -1,6 +1,0 @@
-<% @ssh_urls.each { |url| %>
-Host <%= url %>
-  User <%= @ssh_user %>
-  IdentityFile <%= @ssh_key_path %>
-  StrictHostKeyChecking no
-<% } %>
