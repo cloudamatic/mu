@@ -166,6 +166,7 @@ module MU
                 "deploySSHKey" => @deploy.ssh_public_key,
                 "muID" => MU.deploy_id,
                 "muUser" => MU.chef_user,
+                "mommaCatPort" => MU.mommaCatPort,
                 "publicIP" => MU.mu_public_ip,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
