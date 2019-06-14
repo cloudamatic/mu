@@ -34,24 +34,9 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
           @subnetcachesemaphore = Mutex.new
-          @config['project'] ||= MU::Cloud::Azure.defaultProject(@config['credentials'])
-
-          if cloud_id
-            if cloud_id.match(/^https:\/\//)
-              @url = cloud_id.clone
-              @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
-            elsif !cloud_id.empty?
-              @cloud_id = cloud_id.to_s
-              desc = cloud_desc
-              @url = desc.self_link if desc and desc.self_link
-            end
-          end
 
           if !mu_name.nil?
             @mu_name = mu_name
-            if @cloud_id.nil? or @cloud_id.empty?
-              @cloud_id = MU::Cloud::Azure.nameStr(@mu_name)
-            end
             loadSubnets(use_cache: true)
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
@@ -63,20 +48,29 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+
+raise MuError, "MADE IT TO VPC.CREATE #{@deploy.deploy_id}"
+MU.log "MADE IT TO VPC.CREATE #{@deploy.deploy_id}", MU::NOTICE
+#          resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
+#            @deploy.deploy_id,
+#            @mu_name,
+#            {}
+#          )
         end
 
         # Describe this VPC
         # @return [Hash]
         def notify
-          base = MU.structToHash(cloud_desc)
-          base["cloud_id"] = @cloud_id
-          base.merge!(@config.to_h)
-          if @subnets
-            base["subnets"] = @subnets.map { |s| s.notify }
-          end
+          base = {}
+#          base = MU.structToHash(cloud_desc)
+#          base["cloud_id"] = @cloud_id
+#          base.merge!(@config.to_h)
+#          if @subnets
+#            base["subnets"] = @subnets.map { |s| s.notify }
+#          end
           base
         end
-
+#
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
         def cloud_desc
@@ -102,12 +96,36 @@ module MU
         def self.find(**args)
           found = {}
 
-          if args[:cloud_id]
+          # Azure resources are namedspaced by resource group. If we weren't
+          # told one, we may have to search all the ones we can see.
+          resource_groups = if args[:resource_group]
+            [args[:resource_group]]
+          elsif args[:cloud_id] and args[:cloud_id].is_a?(MU::Cloud::Azure::Id)
+            [args[:cloud_id].resource_group]
           else
-            MU::Cloud::Azure.network.virtual_networks.list_all.each { |id|
-# XXX but really 
-              found[net.id] = net
+            MU::Cloud::Azure.resources(credentials: args[:credentials]).resource_groups.list.map { |rg| rg.name }
+          end
+
+          if args[:cloud_id]
+            id_str = args[:cloud_id].is_a?(MU::Cloud::Azure::Id) ? args[:cloud_id].name : args[:cloud_id]
+            resource_groups.each { |rg|
+              begin
+                resp = MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.get(rg, id_str)
+                found[Id.new(resp.id)] = resp
+              rescue MsRestAzure::AzureOperationError => e
+                # this is fine, we're doing a blind search after all
+              end
             }
+          else
+            if args[:resource_group]
+              MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.list(args[:resource_group]).each { |net|
+                found[Id.new(resp.id)] = net
+              }
+            else
+              MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.list_all.each { |net|
+                found[Id.new(resp.id)] = net
+              }
+            end
           end
 
           found

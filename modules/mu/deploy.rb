@@ -246,6 +246,13 @@ module MU
         parent_thread_id = Thread.current.object_id
         @main_thread = Thread.current
 
+        # Run cloud provider-specific deploy meta-artifact creation (ssh keys,
+        # resource groups, etc)
+        @mommacat.cloudsUsed.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          cloudclass.initDeploy(@mommacat)
+        }
+
         # Kick off threads to create each of our new servers.
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
@@ -297,13 +304,14 @@ module MU
         # If it was a regular old exit, we assume something deeper in already
         # handled logging and cleanup for us, and just quietly go away.
         if e.class.to_s != "SystemExit"
-          MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
+          MU.log e.class.name+": "+e.message, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
             Thread.list.each do |t|
               if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
                 t.kill
               end
             end
+
             MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
             @nocleanup = true # so we don't run this again later
           end
@@ -611,6 +619,7 @@ MESSAGE_END
             MU.dupGlobals(parent_thread_id)
             threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
             Thread.current.thread_variable_set("name", threadname)
+            Thread.current.thread_variable_set("owned_by_mu", true)
 #            Thread.abort_on_exception = false
             waitOnThreadDependencies(threadname)
 
@@ -707,7 +716,7 @@ MESSAGE_END
               MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
               MU::MommaCat.unlockAll
               Thread.list.each do |t|
-                if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+                if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id and t.thread_variable_get("owned_by_mu")
                   t.kill
                 end
               end

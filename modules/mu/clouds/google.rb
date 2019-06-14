@@ -247,6 +247,18 @@ module MU
         @@myRegion_var
       end
 
+      # Do cloud-specific deploy instantiation tasks, such as copying SSH keys
+      # around, sticking secrets in buckets, creating resource groups, etc
+      # @param deploy [MU::MommaCat]
+      def self.initDeploy(deploy)
+      end
+
+      # Purge cloud-specific deploy meta-artifacts (SSH keys, resource groups,
+      # etc)
+      # @param deploy_id [MU::MommaCat]
+      def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
+      end
+
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
       # @param deploy_id [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret

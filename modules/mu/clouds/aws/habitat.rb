@@ -137,6 +137,12 @@ module MU
           [toplevel_required, schema]
         end
 
+        # @param account_number [String]
+        # @return [Boolean]
+        def self.isLive?(account_number, credentials = nil)
+          true
+        end
+
         # Figure out what account we're calling from, and then figure out if
         # it's the organization's master account- the only place from which
         # we can create accounts, amongst other things.

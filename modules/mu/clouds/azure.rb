@@ -27,6 +27,50 @@ module MU
       @@default_subscription = nil
       @@regions = []
 
+      # Stub class to represent Azure's resource identifiers, which look like:
+      # /subscriptions/3d20ddd8-4652-4074-adda-0d127ef1f0e0/resourceGroups/mu/providers/Microsoft.Network/virtualNetworks/mu-vnet
+      # Various API calls need chunks of this in different contexts, and this
+      # full string is necessary to guarantee that a +cloud_id+ is a unique
+      # identifier for a given resource. So we'll use this object of our own
+      # devising to represent it.
+      class Id
+        attr_reader :subscription
+        attr_reader :resource_group
+        attr_reader :provider
+        attr_reader :type
+        attr_reader :name
+
+        def initialize(*args)
+          if args.first.is_a?(String)
+            @raw = args.first
+            junk, junk, @subscription, junk, @resource_group, junk, @provider, @resource_type, @name = @raw.split(/\//)
+            if @subscription.nil? or @resource_group.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
+              raise MuError, "Failed to parse Azure resource id string #{@raw}"
+            end
+          else
+            args.each { |arg|
+              if arg.is_a?(Hash)
+                arg.each_pair { |k, v|
+                  self.instance_variable_set(("@"+k.to_s).to_sym, v)
+                }
+              end
+            }
+
+            if @resource_group.nil? or @name.nil?
+              raise MuError, "Failed to extract at least name and resource_group fields from #{args.flatten.join(", ").to_s}"
+            end
+          end
+        end
+
+        def to_s
+          if @raw
+            @raw
+          else
+            @name
+          end
+        end
+      end
+
 
 # UTILITY METHODS
       # Determine whether we (the Mu master, presumably) are hosted in Azure.
@@ -87,18 +131,14 @@ module MU
 
         cfg = credConfig(credentials)
         
-        if cfg['default_region']
-          # MU.log "Found default region in mu.yml. Using that..."
-          @@myRegion_var = cfg['default_region']
-
+        @@myRegion_var = if cfg['default_region']
+          cfg['default_region']
         elsif MU::Cloud::Azure.hosted?
           # IF WE ARE HOSTED IN AZURE CHECK FOR THE REGION OF THE INSTANCE
           metadata = get_metadata()
-          @@myRegion_var = metadata['compute']['location']
-
-          # TODO: PERHAPS I SHOULD DEFAULT TO SOMETHING SENSIBLE?
+          metadata['compute']['location']
         else
-          #raise MuError, "Default Region was not found. Please run mu-configure to setup a region"
+          "eastus"
         end
 
         return @@myRegion_var
@@ -129,7 +169,7 @@ module MU
       end
 
       # LIST THE REGIONS FROM AZURE
-      def self.listRegions(credentials = nil)
+      def self.listRegions(credentials: nil)
         cfg = credConfig(credentials)
         subscription = cfg['subscription']
 
@@ -190,8 +230,54 @@ module MU
         sample
       end
 
-      def self.writeDeploySecret
-        "TODO"
+      # Do cloud-specific deploy instantiation tasks, such as copying SSH keys
+      # around, sticking secrets in buckets, creating resource groups, etc
+      # @param deploy [MU::MommaCat]
+      def self.initDeploy(deploy)
+        deploy.credsUsed.each { |creds|
+          listRegions.each { |region|
+            next if !deploy.regionsUsed.include?(region)
+            createResourceGroup(deploy.deploy_id+"-"+region.upcase, region, credentials: creds)
+          }
+        }
+      end
+
+      # Purge cloud-specific deploy meta-artifacts (SSH keys, resource groups,
+      # etc)
+      # @param deploy_id [String]
+      # @param credentials [String]
+      def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
+        threads = []
+
+        MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
+          if rg.tags and rg.tags["MU-ID"] == deploy_id
+            threads << Thread.new(rg) { |rg_obj|
+              MU.log "Removing resource group #{rg_obj.name} from #{rg_obj.location}"
+              if !noop
+                MU::Cloud::Azure.resources(credentials: credentials).resource_groups.delete(rg_obj.name)
+              end
+            }
+          end
+        }
+        threads.each { |t|
+          t.join
+        }
+      end
+
+      def self.createResourceGroup(name, region, credentials: nil)
+        rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
+        rg_obj.location = region
+        rg_obj.tags = MU::MommaCat.listStandardTags
+        MU.log "Creating resource group #{name} in #{region}", details: rg_obj
+
+        resp = MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
+          name,
+          rg_obj
+        )
+      end
+
+      def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
+        
       end
 
       # Return the name strings of all known sets of credentials for this cloud
@@ -204,7 +290,7 @@ module MU
         $MU_CFG['azure'].keys
       end
 
-      def self.habitat
+      def self.habitat(cloudobj, nolookup: false, deploy: nil)
         nil
       end
 
@@ -235,8 +321,8 @@ module MU
         else
           if $MU_CFG['azure'][name]
             return name_only ? name : $MU_CFG['azure'][name]
-          elsif @@acct_to_profile_map[name.to_s]
-            return name_only ? name : @@acct_to_profile_map[name.to_s]
+#          elsif @@acct_to_profile_map[name.to_s]
+#            return name_only ? name : @@acct_to_profile_map[name.to_s]
           end
 # XXX whatever process might lead us to populate @@acct_to_profile_map with some mappings, like projectname -> account profile, goes here
           return nil
@@ -305,6 +391,7 @@ module MU
       # @return [Hash]
       def self.getSDKOptions(credentials = nil)
         cfg = credConfig(credentials)
+
         map = { #... from mu.yaml-ese to Azure SDK-ese
           "directory_id" => :tenant_id,
           "client_id" => :client_id,
@@ -341,66 +428,74 @@ module MU
       end
 
 # BEGIN SDK STUBS
-      def self.subs(subclass = nil, credentials: nil)
+      def self.subs(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_subscriptions'
 
-        @@subscriptions_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials)
+        @@subscriptions_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, subclass: alt_object)
 
         return @@subscriptions_api[credentials]
       end
 
-      def self.subfactory(subclass = nil, credentials: nil)
+      def self.subfactory(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_subscriptions'
 
-        @@subscriptions_factory_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, version: "V2018_03_01_preview")
+        @@subscriptions_factory_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, profile: "V2018_03_01_preview", subclass: alt_object)
 
         return @@subscriptions_factory_api[credentials]
       end
 
-      def self.compute(subclass = nil, credentials: nil)
+      def self.compute(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_compute'
 
-        @@compute_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Compute", credentials: credentials)
+        @@compute_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Compute", credentials: credentials, subclass: alt_object)
 
         return @@compute_api[credentials]
       end
 
-      def self.network(subclass = nil, credentials: nil)
+      def self.network(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_network'
 
-        @@network_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Network", credentials: credentials)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Network").const_get("Mgmt").const_get("V2019_02_01").const_get("Models").const_get(model)
+        else
+          @@network_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Network", credentials: credentials, subclass: alt_object)
+        end
 
         return @@network_api[credentials]
       end
 
-      def self.storage(subclass = nil, credentials: nil)
+      def self.storage(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_storage'
 
-        @@storage_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Storage", credentials: credentials)
+        @@storage_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Storage", credentials: credentials, subclass: alt_object)
 
         return @@storage_api[credentials]
       end
 
-      def self.apis(subclass = nil, credentials: nil)
+      def self.apis(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_api_management'
 
-        @@apis_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ApiManagement", credentials: credentials)
+        @@apis_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ApiManagement", credentials: credentials, subclass: alt_object)
 
         return @@apis_api[credentials]
       end
 
-      def self.resources(subclass = nil, credentials: nil)
-        require 'azure_mgmt_resources_management'
+      def self.resources(model = nil, alt_object: nil, credentials: nil)
+        require 'azure_mgmt_resources'
 
-        @@resources_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ResourcesManagement", credentials: credentials, subclass: subclass)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Resources").const_get("Mgmt").const_get("V2018_05_01").const_get("Models").const_get(model)
+        else
+          @@resources_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Resources", credentials: credentials, subclass: alt_object)
+        end
 
         return @@resources_api[credentials]
       end
 
-      def self.billing(subclass = nil, credentials: nil)
+      def self.billing(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_billing'
 
-        @@billing_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Billing", credentials: credentials, subclass: subclass)
+        @@billing_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Billing", credentials: credentials, subclass: alt_object)
 
         return @@billing_api[credentials]
       end
@@ -427,19 +522,19 @@ module MU
         attr_reader :issuer
         attr_reader :api
 
-        def initialize(api: "Compute", credentials: nil, version: "Latest", subclass: nil)
+        def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
 
           # There seem to be multiple ways to get at clients, and different 
-          # versions available depending which way you do it, so... try that?
-          stdpath = "::Azure::#{api}::Profiles::#{version}::Mgmt::Client"
+          # profiles available depending which way you do it, so... try that?
+          stdpath = "::Azure::#{api}::Profiles::#{profile}::Mgmt::Client"
           begin
             # Standard approach: get a client from a canned, approved profile
             @api = Object.const_get(stdpath).new(@cred_hash)
           rescue NameError => e
             # Weird approach: generate our own credentials object and invoke a
-            # client directly from a particular model version
+            # client directly from a particular model profile
             token_provider = MsRestAzure::ApplicationTokenProvider.new(
               @cred_hash[:tenant_id],
               @cred_hash[:client_id],
@@ -448,13 +543,12 @@ module MU
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
             subclass ||= api.sub(/s$/, '')+"Client"
             begin
-              modelpath = "::Azure::#{api}::Mgmt::#{version}::#{subclass}"
+              modelpath = "::Azure::#{api}::Mgmt::#{profile}::#{subclass}"
               @api = Object.const_get(modelpath).new(@cred_obj)
             rescue NameError => e
-              raise MuError, "Unable to locate a version #{version} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
+              raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
             end
           end
-
         end
 
         def method_missing(method_sym, *arguments)

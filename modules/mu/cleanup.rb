@@ -97,6 +97,7 @@ module MU
             creds[cloud] ||= {}
             cloudclass.listCredentials.each { |credset|
               next if credsets and credsets.size > 0 and !credsets.include?(credset)
+              next if credsused and credsused.size > 0 and !credsused.include?(credset)
               MU.log "Will scan #{cloud} with credentials #{credset}"
               creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
             }
@@ -143,7 +144,7 @@ module MU
 
                 if projects == []
                   projects << "" # dummy
-                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE, details: projects
+                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
                 end
 
                 # We do these in an order that unrolls dependent resources
@@ -260,6 +261,13 @@ module MU
 
         MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
+
+        creds.each_pair { |provider, credsets|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
+          credsets.each_pair { |creds, regions|
+            cloudclass.cleanDeploy(MU.deploy_id, credentials: creds, noop: @noop)
+          }
+        }
       end
 
       # Scrub any residual Chef records with matching tags

@@ -188,7 +188,7 @@ if platform_family?("rhel")
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
-    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
+    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.5-1.el6.x86_64.rpm"
     rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el6.x86_64.rpm"
     
     removepackages = ["nagios"]
@@ -196,7 +196,7 @@ if platform_family?("rhel")
   # RHEL7, CentOS7
   elsif elversion < 8
     basepackages.concat(["libX11", "mariadb-devel", "cryptsetup"])
-    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
+    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.5-1.el7.x86_64.rpm"
     rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el7.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end

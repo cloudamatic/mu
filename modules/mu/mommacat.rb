@@ -345,31 +345,66 @@ module MU
 #     end
     end
 
-    def credsUsed
-      creds = []
-      @kittens.each_pair { |type, habitat_group|
-        habitat_group.each_pair { |habitat, sib_classes|
-          sib_classes.each_pair { |sib_class, data|
-            if data and data.config and data.config["credentials"]
-              creds << data.config["credentials"]
-            end
+    # List all the cloud providers declared by resources in our deploy.
+    def cloudsUsed
+      seen = []
+      seen << @original_config['cloud'] if @original_config['cloud']
+      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+        type = attrs[:cfg_plural]
+        if @original_config.has_key?(type)
+          @original_config[type].each { |resource|
+            seen << resource['cloud'] if resource['cloud']
           }
-        }
+        end
       }
-      creds.uniq
+      seen.uniq
     end
 
+    def credsUsed
+      seen = []
+      seen << @original_config['credentials'] if @original_config['credentials']
+      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+        type = attrs[:cfg_plural]
+        if @original_config.has_key?(type)
+          @original_config[type].each { |resource|
+            seen << resource['credentials'] if resource['credentials']
+          }
+        end
+      }
+# XXX insert default for each cloud provider if not explicitly seen
+      seen.uniq
+    end
+
+    # List the regions used by each resource in our deploy. This will just be
+    # a flat list of strings with no regard to which region belongs with what
+    # cloud provider- things mostly use this as a lookup table so they can
+    # safely skip unnecessary regions when creating/cleaning deploy artifacts.
+    # @return [Array<String>]
     def regionsUsed
       regions = []
-      @kittens.each_pair { |type, habitat_group|
-        habitat_group.each_pair { |habitat, sib_classes|
-          sib_classes.each_pair { |sib_class, data|
-            if data and data.config and data.config["region"]
-              regions << data.config["region"]
+      regions << @original_config['region'] if @original_config['region']
+      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+        type = attrs[:cfg_plural]
+        if @original_config.has_key?(type)
+          @original_config[type].each { |resource|
+            if resource['cloud']
+              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
+              resclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud']).const_get(res_type.to_s)
+              if resclass.isGlobal?
+                regions.concat(cloudclass.listRegions)
+                next
+              elsif !resource['region']
+                regions << cloudclass.myRegion
+              end
+            end
+            if resource['region']
+              regions << resource['region'] if resource['region']
+            else
             end
           }
-        }
+        end
       }
+
       regions.uniq
     end
 

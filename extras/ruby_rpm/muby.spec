@@ -1,7 +1,7 @@
 Summary: Ruby for Mu(by)
 BuildArch: x86_64
 Name: muby
-Version: 2.5.3
+Version: 2.5.5
 Release: 1%{dist}
 Group: Development/Languages
 License: Ruby License/GPL - see COPYING
