@@ -55,8 +55,8 @@ module FirewallCookbook
                      %w(iptables)
                    end
 
-        # centos 7 requires extra service
-        if !debian?(node) && node['platform_family'] != "amazon" && node['platform_version'].to_i >= 7
+        # centos 7 and AzL2 requires extra service
+        if !debian?(node) && (node['platform_version'].to_i >= 7 || node['platform_version'].to_i == 2)
           packages << %w(iptables-services)
         end
 
