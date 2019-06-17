@@ -48,23 +48,24 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          create_update
+        end
 
-raise MuError, "MADE IT TO VPC.CREATE #{@deploy.deploy_id}"
-MU.log "MADE IT TO VPC.CREATE #{@deploy.deploy_id}", MU::NOTICE
-#          resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
-#            @deploy.deploy_id,
-#            @mu_name,
-#            {}
-#          )
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          create_update
+
+# XXX peering goes here
         end
 
         # Describe this VPC
         # @return [Hash]
         def notify
           base = {}
-#          base = MU.structToHash(cloud_desc)
-#          base["cloud_id"] = @cloud_id
-#          base.merge!(@config.to_h)
+          base = MU.structToHash(cloud_desc)
+          base["cloud_id"] = @mu_name
+          base.merge!(@config.to_h)
 #          if @subnets
 #            base["subnets"] = @subnets.map { |s| s.notify }
 #          end
@@ -77,14 +78,11 @@ MU.log "MADE IT TO VPC.CREATE #{@deploy.deploy_id}", MU::NOTICE
           if @cloud_desc_cache
             return @cloud_desc_cache
           end
+          desc = MU::Cloud::Azure::VPC.find(cloud_id: @mu_name).values.first
 
-# XXX fill in with self.find and bolt on routes, subnets, etc
+# XXX bolt on routes, subnets, etc
 
-        end
-
-        # Called automatically by {MU::Deploy#createResources}
-        def groom
-
+          @cloud_desc_cache = desc
         end
 
         # Locate an existing VPC or VPCs and return an array containing matching Azure cloud resource descriptors for those that match.
@@ -259,6 +257,39 @@ MU.log "MADE IT TO VPC.CREATE #{@deploy.deploy_id}", MU::NOTICE
         def self.validateConfig(vpc, configurator)
           ok = true
 
+          if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
+            vpc['route_tables'] = [
+              {
+                "name" => "internet",
+                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
+              },
+              {
+                "name" => "private",
+                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
+              }
+            ]
+          end
+
+          if vpc['subnets']
+            vpc['subnets'].each { |subnet|
+              subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
+              subnet_routes[subnet['route_table']] << subnet['name']
+            }
+          end
+
+          if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
+            subnets = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size, 28)
+            vpc['subnets'] ||= []
+            vpc['route_tables'].each { |rtb|
+              vpc['subnets'] << {
+                "name" => "Subnet#{rtb['name'].capitalize}",
+                "ip_block" => subnets.shift,
+                "route_table" => rtb['name']
+              }
+            }
+
+          end
+
           ok
         end
 
@@ -270,22 +301,97 @@ MU.log "MADE IT TO VPC.CREATE #{@deploy.deploy_id}", MU::NOTICE
 
         private
 
-        # Helper method for manufacturing routes. Expect to be called from
-        # {MU::Cloud::Azure::VPC#create} or {MU::Cloud::Azure::VPC#groom}.
-        # @param route [Hash]: A route description, per the Basket of Kittens schema
-        # @param network [String]: Cloud identifier of the VPC to which we're adding this route
-        # @param tags [Array<String>]: Instance tags to which this route applies. If empty, applies to entire VPC.
-        # @return [Hash]: The modified configuration that was originally passed in.
-        def createRoute(route, network: @url, tags: [])
-        end
+        def create_update
+          @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
+          tags = {}
+          if !@config['scrub_mu_isms']
+            tags = MU::MommaCat.listStandardTags
+          end
+          if @config['tags']
+            @config['tags'].each { |tag|
+              tags[tag['key']] = tag['value']
+            }
+          end
 
+          vpc_obj =  MU::Cloud::Azure.network(:VirtualNetwork).new
+          addr_space_obj = MU::Cloud::Azure.network(:AddressSpace).new
+          addr_space_obj.address_prefixes = [
+            @config['ip_block']
+          ]
+          vpc_obj.address_space = addr_space_obj
+          vpc_obj.location = @config['region']
+          vpc_obj.tags = tags
 
-        # Remove all subnets associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
-        # @param regions [Array<String>]: The cloud provider regions to check
-        # @return [void]
-        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Azure.listRegions, project: nil, credentials: nil)
+          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
+
+          MU.log "Configuring VPC #{@mu_name} (#{@config['ip_block']}) in #{@config['region']}", details: vpc_obj
+          resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
+            rgroup_name,
+            @mu_name,
+            vpc_obj
+          )
+
+# this is slow: guard it and thread it
+          rtb_map = {}
+          @config['route_tables'].each { |rtb|
+            rtb_name = @mu_name+"-"+rtb['name'].upcase
+            rtb_obj = MU::Cloud::Azure.network(:RouteTable).new
+            rtb_obj.location = @config['region']
+
+            rtb_obj.tags = tags
+            rtb_ref_obj = MU::Cloud::Azure.network(:RouteTable).new
+            rtb_ref_obj.name = rtb_name
+            rtb_map[rtb['name']] = rtb_ref_obj
+            MU.log "Configuring route table #{rtb_name} in VPC #{@mu_name}", details: rtb_obj
+            rtb_map[rtb['name']] = MU::Cloud::Azure.network(credentials: @config['credentials']).route_tables.create_or_update(
+              rgroup_name,
+              rtb_name,
+              rtb_obj
+            )
+
+            rtb['routes'].each { |route|
+              route_obj = MU::Cloud::Azure.network(:Route).new
+              route_obj.address_prefix = route['destination_network']
+              routename = rtb_name+"-"+route['destination_network'].gsub(/[^a-z0-9]/i, "_")
+              route_obj.next_hop_type = if route['gateway'] == "#NAT"
+                routename = rtb_name+"-NAT"
+                "VirtualNetworkGateway"
+              elsif route['gateway'] == "#INTERNET"
+                routename = rtb_name+"-INTERNET"
+                "Internet"
+              else
+                routename = rtb_name+"-LOCAL"
+                "VnetLocal"
+              end
+
+# XXX ... or if it's an instance, I think we do VirtualAppliance and also set route_obj.next_hop_ip_address
+#
+#next_hop_type 'VirtualNetworkGateway', 'VnetLocal', 'Internet', 'VirtualAppliance', and 'None'. Possible values include: 'VirtualNetworkGateway', 'VnetLocal', 'Internet', 'VirtualAppliance', 'None'
+
+              MU.log "Setting route #{routename} for #{route['destination_network']} in route table #{rtb_name}", details: rtb_obj
+#              MU::Cloud::Azure.network(credentials: @config['credentials']).routes.create_or_update(
+#                rgroup_name,
+#                rtb_name,
+#                routename,
+#                route_obj
+#              )
+
+            }
+          }
+
+          @config['subnets'].each { |subnet|
+            subnet_obj = MU::Cloud::Azure.network(:Subnet).new
+            subnet_name = @mu_name+"-"+subnet['name'].upcase
+            subnet_obj.address_prefix = subnet['ip_block']
+            subnet_obj.route_table = rtb_map[subnet['route_table']]
+            MU.log "Configuring subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
+            MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.create_or_update(
+              rgroup_name,
+              @mu_name,
+              subnet_name,
+              subnet_obj
+            )
+          }
         end
 
         protected

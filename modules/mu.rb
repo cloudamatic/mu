@@ -701,10 +701,21 @@ module MU
     rescue NameError
     end
 
-    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
-       google_struct or aws_struct
+    azure_struct = false
+    begin
+      azure_struct = struct.class.ancestors.include?(::MsRestAzure) or struct.class.name.match(/Azure::.*?::Mgmt::.*?::Models::/)
+    rescue NameError
+    end
 
-      hash = struct.to_h
+    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
+       google_struct or aws_struct or azure_struct
+
+      hash = if azure_struct
+        MU::Cloud::Azure.respToHash(struct)
+      else
+        struct.to_h
+      end
+
       if stringify_keys
         newhash = {}
         hash.each_pair { |k, v|

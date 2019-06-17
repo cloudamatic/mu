@@ -122,6 +122,17 @@ module MU
         []
       end
 
+      # Azure's API response objects don't implement +to_h+, so we'll wing it
+      # ourselves
+      def self.respToHash(struct)
+        hash = {}
+        struct.class.instance_methods(false).each { |m|
+          next if m.to_s.match(/=$/)
+          hash[m.to_s] = struct.send(m)
+        }
+        hash
+      end
+
       # Method that returns the default Azure region for this Mu Master
       # @return [string]
       def self.myRegion(credentials = nil)
@@ -268,6 +279,7 @@ module MU
         rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
         rg_obj.location = region
         rg_obj.tags = MU::MommaCat.listStandardTags
+# XXX guard me
         MU.log "Creating resource group #{name} in #{region}", details: rg_obj
 
         resp = MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
