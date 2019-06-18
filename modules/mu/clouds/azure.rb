@@ -39,6 +39,14 @@ module MU
         attr_reader :provider
         attr_reader :type
         attr_reader :name
+        attr_reader :raw
+
+        # The name of the attribute on a cloud object from this provider which
+        # has the provider's long-form cloud identifier (Google Cloud URL,
+        # Amazon ARN, etc).
+        def self.idattr
+          :id
+        end
 
         def initialize(*args)
           if args.first.is_a?(String)
@@ -63,11 +71,7 @@ module MU
         end
 
         def to_s
-          if @raw
-            @raw
-          else
-            @name
-          end
+          @name
         end
       end
 
@@ -124,11 +128,16 @@ module MU
 
       # Azure's API response objects don't implement +to_h+, so we'll wing it
       # ourselves
+      # @param struct [MsRestAzure]
+      # @return [Hash]
       def self.respToHash(struct)
         hash = {}
         struct.class.instance_methods(false).each { |m|
           next if m.to_s.match(/=$/)
           hash[m.to_s] = struct.send(m)
+        }
+        struct.instance_variables.each { |a|
+          hash[a.to_s.sub(/^@/, "")] = struct.instance_variable_get(a)
         }
         hash
       end
@@ -248,7 +257,10 @@ module MU
         deploy.credsUsed.each { |creds|
           listRegions.each { |region|
             next if !deploy.regionsUsed.include?(region)
-            createResourceGroup(deploy.deploy_id+"-"+region.upcase, region, credentials: creds)
+            begin
+              createResourceGroup(deploy.deploy_id+"-"+region.upcase, region, credentials: creds)
+            rescue ::MsRestAzure::AzureOperationError
+            end
           }
         }
       end
@@ -279,10 +291,16 @@ module MU
         rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
         rg_obj.location = region
         rg_obj.tags = MU::MommaCat.listStandardTags
-# XXX guard me
-        MU.log "Creating resource group #{name} in #{region}", details: rg_obj
 
-        resp = MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
+        MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
+          if rg.name == name and rg.location == region and rg.tags == rg_obj.tags
+            MU.log "Resource group #{name} already exists in #{region}", MU::DEBUG, details: rg_obj
+            return rg # already exists? Do nothing
+          end
+        }
+        MU.log "Configuring resource group #{name} in #{region}", details: rg_obj
+
+        MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
           name,
           rg_obj
         )

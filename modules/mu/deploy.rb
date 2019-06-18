@@ -293,6 +293,8 @@ module MU
           t.join
         end
 
+        @mommacat.save!
+
       rescue Exception => e
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
@@ -634,7 +636,10 @@ MESSAGE_END
             MU.log "Launching thread #{threadname}", MU::DEBUG
             begin
               if service['#MUOBJECT'].nil?
-                service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
+                if @mommacat
+                  service['#MUOBJECT'] = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_plural, name: service['name'], credentials: service['credentials'], created_only: true, return_all: false)
+                end
+                service['#MUOBJECT'] ||= service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
               end
             rescue Exception => e
               MU::MommaCat.unlockAll
@@ -682,7 +687,6 @@ MESSAGE_END
                      service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
                      service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
                      service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
-# XXX only know LBs to be safe, atm
                     MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                     myservice = run_this_method.call
                   end

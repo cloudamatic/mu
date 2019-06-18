@@ -186,6 +186,7 @@ module MU
       @nocleanup = nocleanup
       @secret_semaphore = Mutex.new
       @notify_semaphore = Mutex.new
+      @need_deploy_flush = false
       @node_cert_semaphore = Mutex.new
       @deployment = deployment_data
       @deployment['mu_public_ip'] = MU.mu_public_ip
@@ -1531,7 +1532,11 @@ raise "NAH"
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
       return if @no_artifacts
       MU::MommaCat.lock("deployment-notification")
-      loadDeploy(true) # make sure we're saving the latest and greatest
+
+      if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
+        loadDeploy(true) # make sure we're saving the latest and greatest
+      end
+
       have_deploy = true
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
@@ -1550,15 +1555,21 @@ raise "NAH"
         end
       end
 
+      @need_deploy_flush = true
+
       if !remove
         if data.nil?
           MU.log "MU::MommaCat.notify called to modify deployment struct, but no data provided", MU::WARN
           MU::MommaCat.unlock("deployment-notification")
           return
         end
-        @deployment[type] = {} if @deployment[type].nil?
+        @notify_semaphore.synchronize {
+          @deployment[type] ||= {}
+        }
         if has_multiples
-          @deployment[type][key] = {} if @deployment[type][key].nil?
+          @notify_semaphore.synchronize {
+            @deployment[type][key] ||= {}
+          }
           # fix has_multiples classes that weren't tiered correctly
           if @deployment[type][key].is_a?(Hash) and @deployment[type][key].has_key?("mu_name")
             olddata = @deployment[type][key].dup
@@ -1586,23 +1597,26 @@ raise "NAH"
         end
 
         if have_deploy
-          if has_multiples
-            MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
-            @deployment[type][key].delete(mu_name)
-            if @deployment[type][key].size == 0
+          @notify_semaphore.synchronize {
+            if has_multiples
+              MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
+              @deployment[type][key].delete(mu_name)
+              if @deployment[type][key].size == 0
+                @deployment[type].delete(key)
+              end
+            else
+              MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
               @deployment[type].delete(key)
             end
-          else
-            MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
-            @deployment[type].delete(key)
-          end
-          if @deployment[type].size == 0
-            @deployment.delete(type)
-          end
+            if @deployment[type].size == 0
+              @deployment.delete(type)
+            end
+          }
         end
         save! if !delayed_save
 
       end
+
       MU::MommaCat.unlock("deployment-notification")
     end
 
@@ -2482,6 +2496,108 @@ MESSAGE_END
       start
     end
 
+    # Synchronize all in-memory information related to this to deployment to
+    # disk.
+    def save!(triggering_node = nil)
+
+      return if @no_artifacts
+      MU::MommaCat.deploy_struct_semaphore.synchronize {
+        MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
+
+        if !Dir.exist?(deploy_dir)
+          MU.log "Creating #{deploy_dir}", MU::DEBUG
+          Dir.mkdir(deploy_dir, 0700)
+        end
+
+        if !@private_key.nil?
+          privkey = File.new("#{deploy_dir}/private_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          privkey.puts @private_key
+          privkey.close
+        end
+
+        if !@public_key.nil?
+          pubkey = File.new("#{deploy_dir}/public_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          pubkey.puts @public_key
+          pubkey.close
+        end
+
+        if !@deployment.nil? and @deployment.size > 0
+          @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
+          @deployment['public_key'] = @public_key
+          begin
+            # XXX doing this to trigger JSON errors before stomping the stored
+            # file...
+            JSON.pretty_generate(@deployment, max_nesting: false)
+            deploy = File.new("#{deploy_dir}/deployment.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
+            MU.log "Getting lock to write #{deploy_dir}/deployment.json", MU::DEBUG
+            deploy.flock(File::LOCK_EX)
+            deploy.puts JSON.pretty_generate(@deployment, max_nesting: false)
+          rescue JSON::NestingError => e
+            raise MuError, e.inspect+"\n\n"+@deployment.to_s
+          end
+          deploy.flock(File::LOCK_UN)
+          deploy.close
+          @need_deploy_flush = false
+        end
+
+        if !@original_config.nil? and @original_config.is_a?(Hash)
+          config = File.new("#{deploy_dir}/basket_of_kittens.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          config.puts JSON.pretty_generate(@original_config)
+          config.close
+        end
+
+        if !@ssh_private_key.nil?
+          key = File.new("#{deploy_dir}/node_ssh.key", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          key.puts @ssh_private_key
+          key.close
+        end
+        if !@ssh_public_key.nil?
+          key = File.new("#{deploy_dir}/node_ssh.pub", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          key.puts @ssh_public_key
+          key.close
+        end
+        if !@ssh_key_name.nil?
+          key = File.new("#{deploy_dir}/ssh_key_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          key.puts @ssh_key_name
+          key.close
+        end
+        if !@environment.nil?
+          env = File.new("#{deploy_dir}/environment_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          env.puts @environment
+          env.close
+        end
+        if !@deploy_secret.nil?
+          secret = File.new("#{deploy_dir}/deploy_secret", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          secret.print @deploy_secret
+          secret.close
+        end
+        if !@secrets.nil?
+          secretdir = "#{deploy_dir}/secrets"
+          if !Dir.exist?(secretdir)
+            MU.log "Creating #{secretdir}", MU::DEBUG
+            Dir.mkdir(secretdir, 0700)
+          end
+          @secrets.each_pair { |type, server|
+            server.each_pair { |server, secret|
+              key = File.new("#{secretdir}/#{type}.#{server}", File::CREAT|File::TRUNC|File::RDWR, 0600)
+              key.puts secret
+              key.close
+            }
+          }
+        end
+      }
+
+      # Update groomer copies of this metadata
+      syncLitter(@deployment['servers'].keys, save_all_only: true) if @deployment.has_key?("servers")
+    end
+
+    # Find one or more resources by their Mu resource name, and return
+    # MommaCat objects for their containing deploys, their BoK config data,
+    # and their deployment data.
+    #
+    # @param type [String]: The type of resource, e.g. "vpc" or "server."
+    # @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
+    # @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
 
     private
 
@@ -2553,106 +2669,6 @@ MESSAGE_END
       return [key.export, key.public_key.export]
     end
 
-    # Synchronize all in-memory information related to this to deployment to
-    # disk.
-    def save!(triggering_node = nil)
-      return if @no_artifacts
-      MU::MommaCat.deploy_struct_semaphore.synchronize {
-        MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
-
-        if !Dir.exist?(deploy_dir)
-          MU.log "Creating #{deploy_dir}", MU::DEBUG
-          Dir.mkdir(deploy_dir, 0700)
-        end
-
-        if !@private_key.nil?
-          privkey = File.new("#{deploy_dir}/private_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          privkey.puts @private_key
-          privkey.close
-        end
-
-        if !@public_key.nil?
-          pubkey = File.new("#{deploy_dir}/public_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          pubkey.puts @public_key
-          pubkey.close
-        end
-
-        if !@deployment.nil? and @deployment.size > 0
-          @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
-          @deployment['public_key'] = @public_key
-          begin
-            # XXX doing this to trigger JSON errors before stomping the stored
-            # file...
-            JSON.pretty_generate(@deployment, max_nesting: false)
-            deploy = File.new("#{deploy_dir}/deployment.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-            MU.log "Getting lock to write #{deploy_dir}/deployment.json", MU::DEBUG
-            deploy.flock(File::LOCK_EX)
-            deploy.puts JSON.pretty_generate(@deployment, max_nesting: false)
-          rescue JSON::NestingError => e
-            raise MuError, e.inspect+"\n\n"+@deployment.to_s
-          end
-          deploy.flock(File::LOCK_UN)
-          deploy.close
-        end
-
-        if !@original_config.nil? and @original_config.is_a?(Hash)
-          config = File.new("#{deploy_dir}/basket_of_kittens.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          config.puts JSON.pretty_generate(@original_config)
-          config.close
-        end
-
-        if !@ssh_private_key.nil?
-          key = File.new("#{deploy_dir}/node_ssh.key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_private_key
-          key.close
-        end
-        if !@ssh_public_key.nil?
-          key = File.new("#{deploy_dir}/node_ssh.pub", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_public_key
-          key.close
-        end
-        if !@ssh_key_name.nil?
-          key = File.new("#{deploy_dir}/ssh_key_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_key_name
-          key.close
-        end
-        if !@environment.nil?
-          env = File.new("#{deploy_dir}/environment_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          env.puts @environment
-          env.close
-        end
-        if !@deploy_secret.nil?
-          secret = File.new("#{deploy_dir}/deploy_secret", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          secret.print @deploy_secret
-          secret.close
-        end
-        if !@secrets.nil?
-          secretdir = "#{deploy_dir}/secrets"
-          if !Dir.exist?(secretdir)
-            MU.log "Creating #{secretdir}", MU::DEBUG
-            Dir.mkdir(secretdir, 0700)
-          end
-          @secrets.each_pair { |type, server|
-            server.each_pair { |server, secret|
-              key = File.new("#{secretdir}/#{type}.#{server}", File::CREAT|File::TRUNC|File::RDWR, 0600)
-              key.puts secret
-              key.close
-            }
-          }
-        end
-      }
-
-      # Update groomer copies of this metadata
-      syncLitter(@deployment['servers'].keys, save_all_only: true) if @deployment.has_key?("servers")
-    end
-
-    # Find one or more resources by their Mu resource name, and return
-    # MommaCat objects for their containing deploys, their BoK config data,
-    # and their deployment data.
-    #
-    # @param type [String]: The type of resource, e.g. "vpc" or "server."
-    # @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
-    # @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
     # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
     # @return [Hash,Array<Hash>]
     def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)

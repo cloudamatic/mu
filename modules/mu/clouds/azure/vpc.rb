@@ -38,13 +38,13 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+            cloud_desc
             loadSubnets(use_cache: true)
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end
-
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -64,11 +64,8 @@ module MU
         def notify
           base = {}
           base = MU.structToHash(cloud_desc)
-          base["cloud_id"] = @mu_name
+          base["cloud_id"] = @cloud_id.name
           base.merge!(@config.to_h)
-#          if @subnets
-#            base["subnets"] = @subnets.map { |s| s.notify }
-#          end
           base
         end
 #
@@ -79,6 +76,8 @@ module MU
             return @cloud_desc_cache
           end
           @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @mu_name).values.first
+          @cloud_id = Id.new(@cloud_desc_cache.id)
+          @cloud_desc_cache
         end
 
         # Locate an existing VPC or VPCs and return an array containing matching Azure cloud resource descriptors for those that match.
@@ -275,6 +274,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(vpc, configurator)
           ok = true
+          vpc['region'] ||= MU::Cloud::Azure.myRegion(vpc['credentials'])
 
           if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
             vpc['route_tables'] = [
@@ -309,6 +309,26 @@ module MU
 
           end
 
+
+          default_acl = {
+            "name" => vpc['name']+"-defaultfw",
+            "cloud" => "Azure",
+            "region" => vpc['region'],
+            "credentials" => vpc['credentials'],
+            "rules" => [
+              { "ingress" => true, "proto" => "tcp", "hosts" => [vpc['ip_block']] }
+            ]
+          }
+          vpc["dependencies"] ||= []
+          vpc["dependencies"] << {
+            "type" => "firewall_rule",
+            "name" => vpc['name']+"-defaultfw"
+          }
+
+          if !configurator.insertKitten(default_acl, "firewall_rules", true)
+            ok = false
+          end
+
           ok
         end
 
@@ -341,6 +361,8 @@ module MU
           vpc_obj.location = @config['region']
           vpc_obj.tags = tags
 
+          my_fw = deploy.findLitterMate(type: "firewall_rule", name: @config['name']+"-defaultfw")
+
           rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
 
           need_apply = false
@@ -369,11 +391,12 @@ module MU
           end
 
           if need_apply
-            MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
+            resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
               rgroup_name,
               @mu_name,
               vpc_obj
             )
+            @cloud_id = Id.new(resp.id)
           end
 
           # this is slow, so maybe thread it
@@ -479,6 +502,9 @@ module MU
             subnet_name = @mu_name+"-"+subnet['name'].upcase
             subnet_obj.address_prefix = subnet['ip_block']
             subnet_obj.route_table = rtb_map[subnet['route_table']]
+            if my_fw and my_fw.cloud_desc
+              subnet_obj.network_security_group = my_fw.cloud_desc
+            end
 
             need_apply = false
             ext_subnet = nil
@@ -499,9 +525,12 @@ module MU
             if !ext_subnet
               MU.log "Creating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
             elsif ext_subnet.route_table.id != subnet_obj.route_table.id or
-                  ext_subnet.address_prefix != subnet_obj.address_prefix
+                  ext_subnet.address_prefix != subnet_obj.address_prefix or
+                  ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
+                  (ext_subnet.network_security_group and subnet_obj.network_security_group and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
               MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", MU::NOTICE, details: subnet_obj
               need_apply = true
+
             end
 
             if need_apply

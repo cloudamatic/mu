@@ -746,11 +746,10 @@ module MU
 
 # If we just loaded an existing object, go ahead and prepopulate the
 # describe() cache
-          if !cloud_id.nil? or !mu_name.nil? and !delay_descriptor_load
+          if !cloud_id.nil? or !mu_name.nil?
             @cloudobj.describe(cloud_id: cloud_id)
-            @cloud_id ||= @cloudobj.cloud_id
           end
-
+          @cloud_id = @cloudobj.cloud_id if @cloudobj.cloud_id # sometimes the cloud layer has something more sophisticated here, so use that
           @deploydata = @cloudobj.deploydata
           @config = @cloudobj.config
 
@@ -775,6 +774,20 @@ module MU
           # cloud provider, and attrib-ify them programmatically
           @url = @cloudobj.url if @cloudobj.respond_to?(:url)
           @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
+          begin
+            idclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("Id")
+            long_id = if @deploydata and @deploydata[idclass.idattr.to_s]
+              @deploydata[idclass.idattr.to_s]
+            elsif @cloudobj.respond_to?(idclass.idattr)
+              @cloudobj.send(idclass.idattr) # XXX and not empty
+            end
+
+            @cloud_id = idclass.new(long_id) if !long_id.nil? and !long_id.empty?
+# 1 see if we have the value on the object directly or in deploy data
+# 2 set an attr_reader with the value
+# 3 rewrite our @cloud_id attribute with a ::Id object
+          rescue NameError
+          end
 
           # Register us with our parent deploy so that we can be found by our
           # littermates if needed.
@@ -784,7 +797,6 @@ module MU
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
-
         end
 
         def cloud
@@ -858,8 +870,11 @@ module MU
         
         def cloud_desc
           describe
+
           if !@cloudobj.nil?
-            @cloud_desc_cache ||= @cloudobj.cloud_desc
+            if @cloudobj.class.instance_methods(false).include?(:cloud_desc)
+              @cloud_desc_cache ||= @cloudobj.cloud_desc
+            end
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
             @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
           end
@@ -868,7 +883,8 @@ module MU
             # as a key and a cloud platform descriptor as the value.
             begin
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: habitat_id)
-              if !matches.nil? and matches.is_a?(Hash) and matches[@cloud_id]
+              if !matches.nil? and matches.is_a?(Hash)
+# XXX or if the hash is keyed with an ::Id element, oh boy
 #                puts matches[@cloud_id][:self_link]
 #                puts matches[@cloud_id][:url]
 #                if matches[@cloud_id][:self_link]
@@ -878,8 +894,19 @@ module MU
 #                elsif matches[@cloud_id][:arn]
 #                  @arn ||= matches[@cloud_id][:arn]
 #                end
-                @cloud_desc_cache = matches[@cloud_id]
-              else
+                if matches[@cloud_id]
+                  @cloud_desc_cache = matches[@cloud_id]
+                else
+                  matches.each_pair { |k, v| # flatten out ::Id objects just in case
+                    if @cloud_id.to_s == k.to_s
+                      @cloud_desc_cache = v
+                      break
+                    end
+                  }
+                end
+              end
+
+              if !@cloud_desc_cache
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }.\nCalled by #{caller[0]}", MU::WARN
               end
             rescue Exception => e
@@ -926,19 +953,6 @@ module MU
             end
             if @deploydata.has_key?('cloud_id')
               @cloud_id ||= @deploydata['cloud_id']
-            else
-              # XXX temp hack to catch old Amazon-style identifiers. Remove this
-              # before supporting any other cloud layers, otherwise name
-              # collision is possible.
-              ["group_id", "instance_id", "awsname", "identifier", "vpc_id", "id"].each { |identifier|
-                if @deploydata.has_key?(identifier)
-                  @cloud_id ||= @deploydata[identifier]
-                  if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
-                    @mu_name = @deploydata[identifier]
-                  end
-                  break
-                end
-              }
             end
           end
 
@@ -1620,15 +1634,16 @@ module MU
               deploydata = @cloudobj.method(:notify).call
               @deploydata ||= deploydata # XXX I don't remember why we're not just doing this from the get-go; maybe because we prefer some mangling occurring in @deploy.notify?
               if deploydata.nil? or !deploydata.is_a?(Hash)
-                MU.log "#{self} notify method did not return a Hash of deployment data", MU::WARN
+                MU.log "#{self} notify method did not return a Hash of deployment data, attempting to fill in with cloud descriptor", MU::WARN
                 deploydata = MU.structToHash(@cloudobj.cloud_desc)
               end
-              deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
+              deploydata['cloud_id'] ||= @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               deploydata['nodename'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
+              deploydata.delete("#MUOBJECT")
               @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             elsif method == :notify
-              retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
+              retval['cloud_id'] = @cloudobj.cloud_id.to_s if !@cloudobj.cloud_id.nil?
               retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             end
