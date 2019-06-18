@@ -2160,7 +2160,10 @@ module MU
                 end
               }
             end
-            if !foundmatch
+            if types == {}
+              MU.log "The list of types is empty, going to assume our instance type is correct", MU::WARN
+              return size
+            elsif !foundmatch
               MU.log "Invalid size '#{size}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
               return nil
             end
