@@ -27,6 +27,9 @@ module MU
       @@default_subscription = nil
       @@regions = []
 
+      class APIError < MU::MuError;
+      end
+
       # Stub class to represent Azure's resource identifiers, which look like:
       # /subscriptions/3d20ddd8-4652-4074-adda-0d127ef1f0e0/resourceGroups/mu/providers/Microsoft.Network/virtualNetworks/mu-vnet
       # Various API calls need chunks of this in different contexts, and this
@@ -191,6 +194,7 @@ module MU
       # LIST THE REGIONS FROM AZURE
       def self.listRegions(credentials: nil)
         cfg = credConfig(credentials)
+        return nil if !cfg
         subscription = cfg['subscription']
 
         if @@regions.length() > 0 && subscription == default_subscription()
@@ -457,6 +461,28 @@ module MU
         return options
       end
 
+      # Azure API errors often come with a useful JSON structure wrapping yet
+      # another useful JSON structure. Use this to attempt to peel the onion
+      # and display what we need in a readable fashion, before propagating the
+      # exception as normal.
+      # @param e [Exception]
+      def self.handleError(e)
+        begin
+          parsed = JSON.parse(e.message)
+          if parsed["response"] and parsed["response"]["body"]
+            response = JSON.parse(parsed["response"]["body"])
+            if response["code"] and response["message"]
+              MU.log response["code"]+": "+response["message"], MU::ERR, details: e.backtrace
+              raise APIError, response["code"]
+            end
+          end
+        rescue JSON::ParserError
+        end
+
+        MU.log e.message, MU::ERR, details: e.inspect
+        raise e
+      end
+
 # BEGIN SDK STUBS
       def self.subs(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_subscriptions'
@@ -522,6 +548,19 @@ module MU
         return @@resources_api[credentials]
       end
 
+      def self.containers(model = nil, alt_object: nil, credentials: nil)
+        require 'azure_mgmt_container_service'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("ContainerService").const_get("Mgmt").const_get("V2019_04_01").const_get("Models").const_get(model)
+        else
+          subclass = alt_object || "<client>"
+          @@containers_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ContainerService", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@containers_api[credentials]
+      end
+
       def self.billing(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_billing'
 
@@ -543,6 +582,7 @@ module MU
       @@network_api = {}
       @@storage_api = {}
       @@resources_api = {}
+      @@containers_api = {}
 
       class SDKClient
         @api = nil
@@ -553,6 +593,8 @@ module MU
         attr_reader :api
 
         def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
+          subclass ||= api.sub(/s$/, '')+"Client"
+
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
 
@@ -571,7 +613,6 @@ module MU
               @cred_hash[:client_secret]
             )
             @cred_obj = MsRest::TokenCredentials.new(token_provider)
-            subclass ||= api.sub(/s$/, '')+"Client"
             begin
               modelpath = "::Azure::#{api}::Mgmt::#{profile}::#{subclass}"
               @api = Object.const_get(modelpath).new(@cred_obj)
@@ -592,7 +633,21 @@ module MU
               retval = @api.method(method_sym).call
             end
           rescue ::MsRestAzure::AzureOperationError => e
-            MU.log e.message, MU::ERR, details: e.inspect
+            begin
+              parsed = JSON.parse(e.message)
+              if parsed["response"] and parsed["response"]["body"]
+                response = JSON.parse(parsed["response"]["body"])
+                if response["code"] and response["message"]
+                  MU.log response["code"]+": "+response["message"], MU::ERR, details: e.backtrace
+                else
+                  MU.log e.message, MU::ERR, details: e.inspect
+                end
+              else
+                MU.log e.message, MU::ERR, details: e.inspect
+              end
+            rescue JSON::ParserError
+              MU.log e.message, MU::ERR, details: e.inspect
+            end
             raise e
           end
 

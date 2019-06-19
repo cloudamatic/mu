@@ -1,4 +1,4 @@
-# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -111,7 +111,6 @@ module MU
               end
             }
           else
-#          MU::Cloud::Azure.network().network_security_groups.list
             if args[:resource_group]
               MU::Cloud::Azure.network(credentials: args[:credentials]).network_security_groups.list(args[:resource_group]).each { |net|
                 found[Id.new(net.id)] = net

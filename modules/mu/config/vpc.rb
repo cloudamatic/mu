@@ -546,7 +546,7 @@ module MU
                 tag_value: tag_value,
                 region: vpc_block["region"],
                 flags: flags,
-                debug: true,
+                debug: false,
                 dummy_ok: true
               )
 

@@ -1,4 +1,4 @@
-# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -145,12 +145,13 @@ module MU
           @subnets = []
           if cloud_desc and cloud_desc.subnets
             cloud_desc.subnets.each { |subnet|
+# XXX why is this coming back a hash? I have no idea... just... deal with it for now
               subnet_cfg = {
-                "cloud_id" => subnet.name,
-                "mu_name" => subnet.name,
+                "cloud_id" => subnet.is_a?(Hash) ? subnet['name'] : subnet.name,
+                "mu_name" => subnet.is_a?(Hash) ? subnet['name'] : subnet.name,
                 "credentials" => @config['credentials'],
                 "region" => @config['region'],
-                "ip_block" => subnet.address_prefix
+                "ip_block" => subnet.is_a?(Hash) ? subnet['ip_block'] : subnet.address_prefix
               }
               if @config['subnets']
                 @config['subnets'].each { |s|
@@ -160,7 +161,7 @@ module MU
                   end
                 }
               end
-              subnet_cfg['name'] ||= subnet.name
+              subnet_cfg['name'] ||= subnet.is_a?(Hash) ? subnet['name'] : subnet.name
               @subnets << MU::Cloud::Azure::VPC::Subnet.new(self, subnet_cfg)
             }
           end
@@ -560,6 +561,7 @@ module MU
           attr_reader :name
           attr_reader :cloud_desc_cache
           attr_reader :resource_group
+          attr_reader :az
 
           # @param parent [MU::Cloud::Azure::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:
@@ -573,6 +575,7 @@ module MU
             @deploydata = config # This is a dummy for the sake of describe()
             @ip_block = config['ip_block']
             @cloud_desc_cache = nil
+            @az = parent.config['region']
             cloud_desc if precache_description
           end
 
@@ -598,7 +601,12 @@ module MU
           def cloud_desc
             if @parent.cloud_desc and @parent.cloud_desc.subnets
               @parent.cloud_desc.subnets.each { |s|
-                return s if s.name == @mu_name
+# XXX not clear why this is a hash sometimes
+                if s.is_a?(Hash)
+                  return s if s['name'] == @mu_name
+                else
+                  return s if s.name == @mu_name
+                end
               }
             end
           end

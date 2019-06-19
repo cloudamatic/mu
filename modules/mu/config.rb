@@ -526,7 +526,7 @@ end
       end
       # Walk like a String
       def to_s
-        @prefix+@value+@suffix
+        @prefix.to_s+@value.to_s+@suffix.to_s
       end
       # Quack like a String
       def to_str
