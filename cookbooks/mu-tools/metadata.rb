@@ -26,3 +26,4 @@ depends "poise-python", '~> 1.7.0'
 depends "yum-epel", '~> 3.2.0'
 depends "mu-firewall"
 depends "mu-activedirectory"
+depends 'selinux', '~> 3.0.0'
