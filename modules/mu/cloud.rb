@@ -773,7 +773,7 @@ module MU
           # XXX might just want to make a list of interesting symbols in each
           # cloud provider, and attrib-ify them programmatically
           @url = @cloudobj.url if @cloudobj.respond_to?(:url)
-          @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
+          @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn) and @cloudobj.cloud_id
           begin
             idclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("Id")
             long_id = if @deploydata and @deploydata[idclass.idattr.to_s]
@@ -786,7 +786,7 @@ module MU
 # 1 see if we have the value on the object directly or in deploy data
 # 2 set an attr_reader with the value
 # 3 rewrite our @cloud_id attribute with a ::Id object
-          rescue NameError
+          rescue NameError, MU::Cloud::MuCloudResourceNotImplemented
           end
 
           # Register us with our parent deploy so that we can be found by our

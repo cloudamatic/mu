@@ -481,6 +481,9 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
+          puts @config['region']
+          puts MU::Cloud::AWS.credToAcct(@config['credentials'])
+          puts @cloud_id
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":vpc/"+@cloud_id
         end
 
@@ -711,7 +714,14 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        def self.find(**args)
+          cloud_id = args[:cloud_id]
+          region = args[:region] || MU.curRegion
+          tag_key = args[:tag_key] || "Name"
+          tag_value = args[:tag_value]
+          credentials = args[:credentials]
+          flags = args[:flags]
 
           retries = 0
           map = {}

@@ -36,6 +36,7 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+            @cloud_id = Id.new(cloud_desc.id)
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 31)
           end
@@ -105,12 +106,14 @@ module MU
           pool_obj.vm_size = "Standard_DS2_v2"
 
           begin
-            MU.log "Creating AKS cluster #{@mu_name}", MU::NOTICE, details: cluster_obj
-            MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
+            MU.log "Creating AKS cluster #{@mu_name}", details: cluster_obj
+            resp = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
               rgroup_name,
               @mu_name,
               cluster_obj
             )
+            pp resp
+            @cloud_id = Id.new(resp.id)
           rescue ::MsRestAzure::AzureOperationError => e
             MU::Cloud::Azure.handleError(e)
           end
@@ -119,6 +122,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          MU.log "IN GROOM LAND"
         end
 
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
@@ -153,12 +157,12 @@ module MU
             }
           else
             if args[:resource_group]
-              MU::Cloud::Azure.containers(credentials: args[:credentials]).managed_clusters.list(args[:resource_group]).each { |net|
-                found[Id.new(net.id)] = net
+              MU::Cloud::Azure.containers(credentials: args[:credentials]).managed_clusters.list_by_resource_group(args[:resource_group]).each { |cluster|
+                found[Id.new(cluster.id)] = cluster
               }
             else
-              MU::Cloud::Azure.containers(credentials: args[:credentials]).managed_clusters.list_all.each { |net|
-                found[Id.new(net.id)] = net
+              MU::Cloud::Azure.containers(credentials: args[:credentials]).managed_clusters.list.each { |cluster|
+                found[Id.new(cluster.id)] = cluster
               }
             end
           end
@@ -168,8 +172,11 @@ module MU
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
-#          MU.structToHash(cloud_desc)
-          @config
+          base = {}
+          base = MU.structToHash(cloud_desc)
+          base["cloud_id"] = @cloud_id.name
+          base.merge!(@config.to_h)
+          base
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or

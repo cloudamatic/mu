@@ -436,7 +436,7 @@ module MU
       # such as for a {Habitat} or {Folder}, returns nil.
       # @param cloudobj [MU::Cloud::AWS]: The resource from which to extract the habitat id
       # @return [String,nil]
-      def self.habitat(cloudobj)
+      def self.habitat(cloudobj, nolookup: false, deploy: nil)
         cloudobj.respond_to?(:account_number) ? cloudobj.account_number : nil
       end
 
