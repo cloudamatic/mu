@@ -244,14 +244,31 @@ module MU
     end
     @@globals[Thread.current.object_id]['verbosity']
   end
+  
+  # The color logging flag merits a default value.
+  def self.color
+    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['color'].nil?
+      MU.setVar("color", true)
+    end
+    @@globals[Thread.current.object_id]['color']
+  end
+
+  def self.verbosity
+    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['verbosity'].nil?
+      MU.setVar("verbosity", MU::Logger::NORMAL)
+    end
+    @@globals[Thread.current.object_id]['verbosity']
+  end
 
   # Set parameters parameters for calls to {MU#log}
-  def self.setLogging(verbosity, webify_logs = false, handle = STDOUT)
+  def self.setLogging(verbosity, webify_logs = false, handle = STDOUT, color = true)
     MU.setVar("verbosity", verbosity)
-    @@logger ||= MU::Logger.new(verbosity, webify_logs, handle)
+    MU.setVar("color", color)
+    @@logger ||= MU::Logger.new(verbosity, webify_logs, handle, color)
     @@logger.html = webify_logs
     @@logger.verbosity = verbosity
     @@logger.handle = handle
+    @@logger.color = color
   end
 
   setLogging(MU::Logger::NORMAL, false)
@@ -263,7 +280,7 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity)
+  def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity, color: true)
     return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
     return if verbosity == MU::Logger::SILENT
 
@@ -286,9 +303,9 @@ module MU
         extra = Hash.new if extra.nil?
         extra[:details] = details
       end
-      @@logger.log(msg, level, details: extra, verbosity: MU::Logger::LOUD, html: html)
+      @@logger.log(msg, level, details: extra, verbosity: MU::Logger::LOUD, html: html, color: color)
     else
-      @@logger.log(msg, level, html: html, verbosity: verbosity)
+      @@logger.log(msg, level, html: html, verbosity: verbosity, color: color)
     end
   end
 

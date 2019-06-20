@@ -66,6 +66,7 @@ module MU
     # @param deploy_id [String]: Reload and re-process an existing deploy
     def initialize(environment,
                    verbosity: MU::Logger::NORMAL,
+                   color: true,
                    webify_logs: false,
                    nocleanup: false,
                    cloudformation_path: nil,
@@ -76,12 +77,14 @@ module MU
                    deploy_id: nil,
                    deploy_obj: nil)
       MU.setVar("verbosity", verbosity)
+      MU.setVar("color", color)
       @webify_logs = webify_logs
       @verbosity = verbosity
+      @color = color
       @nocleanup = nocleanup
       @no_artifacts = no_artifacts
       @reraise_thread = reraise_thread
-      MU.setLogging(verbosity, webify_logs)
+      MU.setLogging(verbosity, webify_logs, STDOUT, color)
 
       MU::Cloud::CloudFormation.emitCloudFormation(set: force_cloudformation)
       @cloudformation_output = cloudformation_path
@@ -668,6 +671,7 @@ MESSAGE_END
                 found = MU::MommaCat.findStray(service['cloud'],
                                    service["#MU_CLOUDCLASS"].cfg_name,
                                    name: service['name'],
+                                   credentials: service['credentials'],
                                    region: service['region'],
                                    deploy_id: @mommacat.deploy_id,
 #                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
