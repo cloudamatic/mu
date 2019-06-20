@@ -68,48 +68,49 @@ module MU
           lnx_obj.admin_username = "muadmin"
           lnx_obj.ssh = ssh_obj
 
+# XXX this should come from a MU::Cloud::Azure::User object
+          svc_principal_obj = MU::Cloud::Azure.containers(:ManagedClusterServicePrincipalProfile).new
+          svc_principal_obj.client_id = "2597e134-9976-4423-bd27-f5a8a72326f0"
+          svc_principal_obj.secret = "@FurkML5lYqWzW@Qad@e@ObshH6cCE81"
+
           profile_obj = MU::Cloud::Azure.containers(:ManagedClusterAgentPoolProfile).new
           profile_obj.count = @config['instance_count']
+          profile_obj.name = @deploy.getResourceName(@config["name"], max_length: 11).downcase.gsub(/[^0-9a-z]/, "")
           profile_obj.vm_size = "Standard_DS2_v2"
-          profile_obj.min_count = @config['instance_count']
-          profile_obj.max_count = @config['instance_count']
+#          profile_obj.min_count = @config['instance_count'] # XXX only when enable_auto_scaling is in play
+#          profile_obj.max_count = @config['instance_count'] # XXX only when enable_auto_scaling is in play
+          profile_obj.max_pods = 30
           profile_obj.os_type = "Linux"
-          profile_obj.os_disk_size_gb = 10
+          profile_obj.os_disk_size_gb = 30 # validation: 30-1024
 # XXX correlate this with the one(s) we configured in @config['vpc']
-          profile_obj.vnet_subnet_id = @vpc.subnets.first.cloud_desc.id
+#          profile_obj.vnet_subnet_id = @vpc.subnets.first.cloud_desc.id # XXX has to have its own subnet for k8s apparently
 
 
           cluster_obj = MU::Cloud::Azure.containers(:ManagedCluster).new
           cluster_obj.location = @config['region']
-#          cluster_obj.dns_prefix = @config['dns_prefix']
-#          cluster_obj.tags = tags
-#          cluster_obj.linux_profile = lnx_obj
-#          cluster_obj.api_server_authorized_ipranges = [MU.mu_public_ip+"/32", MU.my_private_ip+"/32"]
-#          cluster_obj.node_resource_group = rgroup_name
-#          cluster_obj.agent_pool_profiles = [profile_obj]
+          cluster_obj.dns_prefix = @config['dns_prefix']
+          cluster_obj.tags = tags
+          cluster_obj.service_principal_profile = svc_principal_obj
+          cluster_obj.linux_profile = lnx_obj
+#          cluster_obj.api_server_authorized_ipranges = [MU.mu_public_ip+"/32", MU.my_private_ip+"/32"] # XXX only allowed with Microsoft.ContainerService/APIServerSecurityPreview enabled
+#          cluster_obj.node_resource_group = rgroup_name XXX this tries to create a separate resource group for the nodes
+          cluster_obj.agent_pool_profiles = [profile_obj]
           
-#          if @config['flavor'] == "Kubernetes"
-#            cluster_obj.kubernetes_version = @config['kubernetes']['version']
-#          end
+          if @config['flavor'] == "Kubernetes"
+            cluster_obj.kubernetes_version = @config['kubernetes']['version']
+          end
 
           pool_obj = MU::Cloud::Azure.containers(:AgentPool).new
           pool_obj.count = @config['instance_count']
           pool_obj.vm_size = "Standard_DS2_v2"
 
-begin
-MU.log "building thing", MU::NOTICE, details: cluster_obj
-          MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
-            rgroup_name,
-            @mu_name,
-            cluster_obj
-          )
-MU.log "building other thing", MU::NOTICE, details: cluster_obj
-          MU::Cloud::Azure.containers(credentials: @config['credentials']).agent_pools.create_or_update(
-            rgroup_name,
-            @mu_name,
-            @mu_name,
-            cluster_obj
-          )
+          begin
+            MU.log "Creating AKS cluster #{@mu_name}", MU::NOTICE, details: cluster_obj
+            MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
+              rgroup_name,
+              @mu_name,
+              cluster_obj
+            )
           rescue ::MsRestAzure::AzureOperationError => e
             MU::Cloud::Azure.handleError(e)
           end
@@ -167,7 +168,8 @@ MU.log "building other thing", MU::NOTICE, details: cluster_obj
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
-          MU.structToHash(cloud_desc)
+#          MU.structToHash(cloud_desc)
+          @config
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
