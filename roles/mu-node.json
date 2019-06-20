@@ -5,7 +5,7 @@
   "json_class": "Chef::Role",
   "run_list": [
     "recipe[mu-tools::base_repositories]",
-    "recipe[mu-tools::selinux]",
+    "recipe[selinux::enforcing]",
     "recipe[mu-tools::set_mu_hostname]",
     "recipe[mu-tools::add_admin_ssh_keys]",
     "recipe[mu-tools::disable-requiretty]",
