@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ruby
 # Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
 
-bindir="`dirname $0`"
+wd = Dir.getwd
 
-for host in $($bindir/mu-node-manage -l $@);do
-  echo $host
-  ssh $host
-done
+if FileTest.exist?("#{wd}/mu-node-manage.rb") == false
+	abort "the file doesn't exist."
+end
+
+host = system("#{wd}/mu-node-manage.rb -l $@")
+system ("ssh #{host}")
