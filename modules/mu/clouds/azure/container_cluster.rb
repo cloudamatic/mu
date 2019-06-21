@@ -69,10 +69,11 @@ module MU
           lnx_obj.admin_username = "muadmin"
           lnx_obj.ssh = ssh_obj
 
-# XXX this should come from a MU::Cloud::Azure::User object
           svc_principal_obj = MU::Cloud::Azure.containers(:ManagedClusterServicePrincipalProfile).new
-          svc_principal_obj.client_id = "2597e134-9976-4423-bd27-f5a8a72326f0"
-          svc_principal_obj.secret = "@FurkML5lYqWzW@Qad@e@ObshH6cCE81"
+# XXX this should come from a MU::Cloud::Azure::User object...
+          creds = MU::Cloud::Azure.credConfig(@config['credentials'])
+          svc_principal_obj.client_id = creds["client_id"]
+          svc_principal_obj.secret = creds["client_secret"]
 
           profile_obj = MU::Cloud::Azure.containers(:ManagedClusterAgentPoolProfile).new
           profile_obj.count = @config['instance_count']
@@ -122,7 +123,29 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          MU.log "IN GROOM LAND"
+          @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
+          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
+          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
+
+          admin_creds = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.list_cluster_admin_credentials(
+            rgroup_name,
+            @mu_name
+          )
+          admin_creds.kubeconfigs.each { |kube|
+            next if kube.name != "clusterAdmin"
+
+            cfgfile = ""
+            kube.value.each { |ord|
+              cfgfile += ord.chr
+            }
+
+            File.open(kube_conf, "w"){ |k|
+              k.puts cfgfile
+            }
+          }
+
+          MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+
         end
 
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
