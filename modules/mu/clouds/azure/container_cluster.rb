@@ -276,6 +276,20 @@ module MU
 # XXX validate image types
 # MU::Cloud::Azure.container.get_project_zone_serverconfig(@config["project"], @config['availability_zone'])
           cluster["dns_prefix"] ||= $myAppName # XXX woof globals wtf
+          cluster['region'] ||= MU::Cloud::Azure.myRegion(cluster['credentials'])
+
+          svcacct_desc = {
+            "name" => cluster["name"]+"user",
+            "region" => cluster["region"],
+            "type" => "service",
+            "create_api_key" => true,
+            "credentials" => cluster["credentials"],
+            "roles" => [
+              "Azure Kubernetes Service Cluster Admin Role"
+            ]
+          }
+
+          ok = false if !configurator.insertKitten(svcacct_desc, "users")
 
           ok
         end

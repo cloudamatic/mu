@@ -56,7 +56,16 @@ module MU
             @raw = args.first
             junk, junk, @subscription, junk, @resource_group, junk, @provider, @resource_type, @name = @raw.split(/\//)
             if @subscription.nil? or @resource_group.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
-              raise MuError, "Failed to parse Azure resource id string #{@raw}"
+              # Not everything has a resource group
+              if @raw.match(/^\/subscriptions\/#{Regexp.quote(@subscription)}\/providers/)
+                junk, junk, @subscription, junk, @provider, @resource_type, @name = @raw.split(/\//)
+                if @subscription.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
+                  raise MuError, "Failed to parse Azure resource id string #{@raw} (got subscription: #{@subscription}, provider: #{@provider}, resource_type: #{@resource_type}, name: #{@name}"
+                end
+
+              else
+                raise MuError, "Failed to parse Azure resource id string #{@raw} (got subscription: #{@subscription}, resource_group: #{@resource_group}, provider: #{@provider}, resource_type: #{@resource_type}, name: #{@name}"
+              end
             end
           else
             args.each { |arg|
@@ -531,7 +540,11 @@ module MU
       def self.apis(model = nil, alt_object: nil, credentials: nil)
         require 'azure_mgmt_api_management'
 
-        @@apis_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ApiManagement", credentials: credentials, subclass: alt_object)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("ApiManagement").const_get("Mgmt").const_get("V2019_01_01").const_get("Models").const_get(model)
+        else
+          @@apis_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ApiManagement", credentials: credentials, subclass: alt_object)
+        end
 
         return @@apis_api[credentials]
       end
@@ -554,11 +567,35 @@ module MU
         if model and model.is_a?(Symbol)
           return Object.const_get("Azure").const_get("ContainerService").const_get("Mgmt").const_get("V2019_04_01").const_get("Models").const_get(model)
         else
-          subclass = alt_object || "<client>"
+#          subclass = alt_object || "<client>"
           @@containers_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ContainerService", credentials: credentials, subclass: alt_object)
         end
 
         return @@containers_api[credentials]
+      end
+
+      def self.serviceaccts(model = nil, alt_object: nil, credentials: nil)
+        require 'azure_mgmt_msi'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("ManagedServiceIdentity").const_get("Mgmt").const_get("V2015_08_31_preview").const_get("Models").const_get(model)
+        else
+          @@service_identity_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ManagedServiceIdentity", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@service_identity_api[credentials]
+      end
+
+      def self.authorization(model = nil, alt_object: nil, credentials: nil)
+        require 'azure_mgmt_authorization'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Authorization").const_get("Mgmt").const_get("V2018_07_01_preview").const_get("Models").const_get(model)
+        else
+          @@authorization_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass")
+        end
+
+        return @@authorization_api[credentials]
       end
 
       def self.billing(model = nil, alt_object: nil, credentials: nil)
@@ -574,6 +611,7 @@ module MU
 # BEGIN SDK CLIENT
       private
 
+      @@authorization_api = {}
       @@subscriptions_api = {}
       @@subscriptions_factory_api = {}
       @@compute_api = {}
@@ -583,6 +621,8 @@ module MU
       @@storage_api = {}
       @@resources_api = {}
       @@containers_api = {}
+      @@apis_api = {}
+      @@service_identity_api = {}
 
       class SDKClient
         @api = nil
