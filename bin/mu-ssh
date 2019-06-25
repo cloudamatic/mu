@@ -21,4 +21,4 @@ if FileTest.exist?("#{wd}/mu-node-manage") == false
 end
 
 host = `#{wd}/mu-node-manage.rb -l $@`
-`ssh #{host}`
+system("ssh #{host}")
