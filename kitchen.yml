@@ -1,0 +1,37 @@
+driver:
+  name: ec2
+  #aws_ssh_key_id: id_rsa-aws
+  #security_group_ids: ["sg-1a2b3c4d"]
+  region: us-east-1
+  #availability_zone: b
+  #require_chef_omnibus: true
+  subnet_id: subnet-00f6ebfde53bbdccd
+  #iam_profile_name: chef-client
+  instance_type: t3.medium
+  associate_public_ip: true
+  interface: dns
+
+provisioner:
+  name: chef_zero
+  roles_path: roles
+
+platforms:
+  - name: ubuntu
+  - name: centos-7
+  - name: centos-6
+  - name: rhel-7
+  - name: rhel-6
+  - name: amazon
+
+suites:
+  - name: mu-bootstrap
+    run_list:
+      - recipe[mu-tools::newclient]
+      - recipe[mu-tools::selinux]
+      - recipe[mu-tools::gcloud]
+  - name: mu-node
+    run_list:
+      - role[mu-node]
+  - name: mu-master
+    run_list:
+      - role[mu-master]
