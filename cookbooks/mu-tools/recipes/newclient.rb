@@ -20,4 +20,14 @@ if !node['application_attributes']['skip_recipes'].include?('newclient')
       only_if { ::File.exist?(Chef::Config[:client_key]) }
     end
   end
+
+  selinux_state "SELinux Enforcing" do
+    action :enforcing
+    notifies :reboot_now, 'reboot[now]', :immediately
+  end
+  
+  reboot 'now' do
+    action :nothing
+    reason 'Must reboot to enable SELinux.'
+  end
 end
