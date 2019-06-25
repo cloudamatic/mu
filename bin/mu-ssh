@@ -1,5 +1,5 @@
-#!/bin/ruby
-# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+#!/usr/local/ruby-current/bin/ruby
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,11 +14,11 @@
 # limitations under the License.
 
 
-wd = Dir.getwd
+wd = File.dirname(__FILE__)
 
-if FileTest.exist?("#{wd}/mu-node-manage.rb") == false
+if FileTest.exist?("#{wd}/mu-node-manage") == false
 	abort "the file doesn't exist."
 end
 
-host = system("#{wd}/mu-node-manage.rb -l $@")
-system ("ssh #{host}")
+host = `#{wd}/mu-node-manage.rb -l $@`
+`ssh #{host}`
