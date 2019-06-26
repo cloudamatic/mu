@@ -6,7 +6,7 @@
 
 selinux_state "SELinux Enforcing" do
 	action :enforcing
-	notifies :reboot_now, 'reboot[now]', :immediately
+	notifies :request_reboot, 'reboot[now]', :immediately
 end
 
 reboot 'now' do
