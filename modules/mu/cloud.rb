@@ -600,7 +600,7 @@ module MU
         }
         cloudclass.required_instance_methods.each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            MU.log "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}, will declare as attr_accessor", MU::DEBUG
           end
         }
 
@@ -645,6 +645,7 @@ module MU
         attr_reader :cfm_template
         attr_reader :cfm_name
         attr_reader :delayed_save
+
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
@@ -714,6 +715,11 @@ module MU
           @credentials = credentials
           @credentials ||= kitten_cfg['credentials']
 
+if kitten_cfg['vpc']
+MU.log "in #{self.class.name}.new #{kitten_cfg['name']} under #{@deploy.deploy_id}} (#{caller[0]})", MU::WARN, details: kitten_cfg['vpc']
+MU.log "in #{self.class.name}.new #{kitten_cfg['name']} under #{@deploy.deploy_id}}", MU::WARN, details: caller
+end
+
           # It's probably fairly easy to contrive a generic .habitat method
           # implemented by the cloud provider, instead of this
           @habitat ||= if @config['cloud'] == "AWS"
@@ -733,13 +739,22 @@ module MU
           if !kitten_cfg.has_key?("cloud")
             kitten_cfg['cloud'] = MU::Config.defaultCloud
           end
-          @cloud = kitten_cfg['cloud']
-          @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
-          @environment = kitten_cfg['environment']
+
           @method_semaphore = Mutex.new
           @method_locks = {}
 # XXX require subclass to provide attr_readers of @config and @deploy
 
+          @cloud = @config['cloud']
+          if !@cloud
+            if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
+              cloudclass_name = Regexp.last_match[1]
+              if MU::Cloud.supportedClouds.include?(cloudclass_name)
+                @cloud = cloudclass_name
+              end
+            end
+          end
+          @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+          @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
           @cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
 
           raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
@@ -799,9 +814,64 @@ module MU
           end
         end
 
+        # Set instance variables that *every* resource class must implement, as
+        # well as cloud-specific and resource-specific ones. This is intended
+        # to be the first thing called by +initialize+ in every individual
+        # cloud resource implementation.
+        def setInstanceVariables(**args)
+          MU.log "setInstanceVariables invoked from #{caller[0]}", MU::DEBUG, details: args
+# TODO mebbe declare the attr_reader for each of these?
+          @config = MU::Config.manxify(args[:kitten_cfg]) || MU::Config.manxify(args[:config])
+
+          if !@config
+            MU.log "Missing config arguments in setInstanceVariables, can't initialize a cloud object without it", MU::ERR, details: args.keys
+            raise MuError, "Missing config arguments in setInstanceVariables"
+          end
+
+          @deploy = args[:mommacat] || args[:deploy]
+
+          @cloud = @config['cloud']
+          if !@cloud
+            if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
+             cloudclass_name = Regexp.last_match[1]
+              if MU::Cloud.supportedClouds.include?(cloudclass_name)
+                @cloud = cloudclass_name
+              end
+            end
+          end
+          if !@cloud
+            raise MuError, "Failed to determine what cloud #{self} should be in!"
+          end
+          @environment = @config['environment']
+          if @deploy
+            @deploy_id = @deploy.deploy_id
+            @appname = @deploy.appname
+          end
+
+          @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+          @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
+
+          # A pre-existing object, you say?
+          if args[:cloud_id]
+# TODO ::Id for every cloud... and they should know how to get from cloud_desc
+# to a fully-resolved ::Id object, not just the short string
+            @cloud_id = args[:cloud_id]
+          end
+          if args[:mu_name]
+            @mu_name = args[:mu_name]
+          end
+
+          if @cloudparentclass.respond_to?(:resourceMethodPre)
+            @cloudparentclass.resourceMethodPre(self, @deploy)
+          end
+
+        end
+
         def cloud
           if @cloud
             @cloud
+          elsif @config and @config['cloud']
+            @config['cloud']
           elsif self.class.name.match(/^MU::Cloud::([^:]+)::.+/)
             cloudclass_name = Regexp.last_match[1]
             if MU::Cloud.supportedClouds.include?(cloudclass_name)
@@ -850,13 +920,26 @@ module MU
         # @return [String,nil]
         def habitat(nolookup: true)
           return nil if ["folder", "habitat"].include?(self.class.cfg_name)
-          @cloudobj ||= self
-          parent_cloud_class = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-          parent_cloud_class.habitat(@cloudobj, nolookup: nolookup, deploy: @deploy)
+          if @cloudobj 
+            @cloudparentclass.habitat(@cloudobj, nolookup: nolookup, deploy: @deploy)
+          else
+            @cloudparentclass.habitat(self, nolookup: nolookup, deploy: @deploy)
+          end
         end
 
         def habitat_id(nolookup: false)
           habitat(nolookup: nolookup)
+        end
+
+        # We're fundamentally a wrapper class, so go ahead and reroute requests
+        # that are meant for our wrapped object.
+        def method_missing(method_sym, *arguments)
+          if @cloudobj
+MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}"
+            @cloudobj.method(method_sym).call(*arguments)
+          else
+            raise NoMethodError, method_sym.to_s
+          end
         end
 
         # Merge the passed hash into the existing configuration hash of this
@@ -882,7 +965,23 @@ module MU
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials, project: habitat_id)
+              resourceMethodPre
+              args = {
+                :region => @config['region'],
+                :cloud_id => @cloud_id,
+                :credentials => @credentials,
+                :project => habitat_id, # XXX this belongs in our required_instance_methods hack
+                :flags => @config
+              }
+              @cloudparentclass.required_instance_methods.each { |m|
+#                if respond_to?(m)
+#                  args[m] = method(m).call
+#                else
+                  args[m] = instance_variable_get(("@"+m.to_s).to_sym)
+#                end
+              }
+
+              matches = self.class.find(args)
               if !matches.nil? and matches.is_a?(Hash)
 # XXX or if the hash is keyed with an ::Id element, oh boy
 #                puts matches[@cloud_id][:self_link]
@@ -969,6 +1068,7 @@ module MU
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
         def dependencies(use_cache: false, debug: false)
+debug = true
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?
@@ -1059,7 +1159,7 @@ module MU
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
                 dummy_ok: true,
-                debug: debug
+                debug: true
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
@@ -1595,6 +1695,18 @@ module MU
           MU::MommaCat.unlockAll
         end
 
+        # A hook that is always called just before each instance method is
+        # invoked, so that we can ensure that repetitive setup tasks (like
+        # resolving +:resource_group+ for Azure resources) have always been
+        # done.
+        def resourceMethodPre
+          @cloud ||= cloud
+          if @cloudparentclass.respond_to?(:resourceMethodPre)
+            @cloudparentclass.resourceMethodPre(@cloudobj, @deploy)
+# XXX also set them up 
+          end
+        end
+
         # Wrap the instance methods that this cloud resource type has to
         # implement.
         MU::Cloud.resource_types[name.to_sym][:instance].each { |method|
@@ -1615,6 +1727,8 @@ module MU
 
             # Make sure the describe() caches are fresh
             @cloudobj.describe if method != :describe
+
+            resourceMethodPre
 
             # Don't run through dependencies on simple attr_reader lookups
             if ![:dependencies, :cloud_id, :config, :mu_name].include?(method)

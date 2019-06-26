@@ -336,6 +336,10 @@ module MU
           @tag_value = cfg['tag']['value']
         end
 
+        if @deploy_id and !@mommacat
+          @mommacat = MU::MommaCat.new(@deploy_id, set_context_to_me: false, create: false)
+        end
+
         kitten if @mommacat # try to populate the actual cloud object for this
       end
 
@@ -437,7 +441,7 @@ module MU
         return @obj if @obj
 
         if mommacat
-          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials)
+          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: false)
           if @obj # initialize missing attributes, if we can
             @id ||= @obj.cloud_id
             if !@name

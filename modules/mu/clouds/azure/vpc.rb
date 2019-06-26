@@ -30,9 +30,8 @@ module MU
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
+        def initialize(**args)
+          setInstanceVariables(args) # set things like @deploy, @config, @cloud_id...
           @subnets = []
           @subnetcachesemaphore = Mutex.new
 
@@ -75,7 +74,8 @@ module MU
           if @cloud_desc_cache
             return @cloud_desc_cache
           end
-          @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @mu_name).values.first
+          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
+          @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @mu_name, resource_group: rgroup_name).values.first
           @cloud_id = Id.new(@cloud_desc_cache.id)
           @cloud_desc_cache
         end
@@ -102,21 +102,22 @@ module MU
           if args[:cloud_id]
             id_str = args[:cloud_id].is_a?(MU::Cloud::Azure::Id) ? args[:cloud_id].name : args[:cloud_id]
             resource_groups.each { |rg|
-              begin
-                resp = MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.get(rg, id_str)
-                found[Id.new(resp.id)] = resp
-              rescue MsRestAzure::AzureOperationError => e
-                # this is fine, we're doing a blind search after all
-              end
+              resp = MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.get(rg, id_str)
+if !resp
+  MU.log "FAILED TO FIND VPC, DYING FOR CONVENIENCE", MU::WARN, details: args
+  MU.log "TRACE UP TO", MU::WARN, details: caller
+  raise MuError, "fuckery"
+end
+              found[Id.new(resp.id)] = resp if resp
             }
           else
             if args[:resource_group]
               MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.list(args[:resource_group]).each { |net|
-                found[Id.new(resp.id)] = net
+                found[Id.new(net.id)] = net
               }
             else
               MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.list_all.each { |net|
-                found[Id.new(resp.id)] = net
+                found[Id.new(net.id)] = net
               }
             end
           end

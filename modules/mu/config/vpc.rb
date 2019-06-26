@@ -818,7 +818,6 @@ module MU
             }
           end
 
-          vpc_block.delete('deploy_id')
           vpc_block.delete('id') if vpc_block['id'].nil?
           vpc_block.delete('name') if vpc_block.has_key?('id')
           vpc_block.delete('tag')
@@ -831,7 +830,7 @@ module MU
           vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent['name']}nat_host_name", vpc_block["nat_host_name"])
 
         end
-
+MU.log "JAYSUS FUCK VPC REF IN #{parent_type} #{parent['name']}", MU::WARN, details: vpc_block
         return ok
       end
 

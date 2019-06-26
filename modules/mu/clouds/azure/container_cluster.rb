@@ -26,10 +26,9 @@ module MU
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        def initialize(**args)
+          setInstanceVariables(args) # set things like @deploy, @config, @cloud_id...
+
           # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
@@ -192,12 +191,8 @@ module MU
           if args[:cloud_id]
             id_str = args[:cloud_id].is_a?(MU::Cloud::Azure::Id) ? args[:cloud_id].name : args[:cloud_id]
             resource_groups.each { |rg|
-              begin
-                resp = MU::Cloud::Azure.containers(credentials: args[:credentials]).managed_clusters.get(rg, id_str)
-                found[Id.new(resp.id)] = resp
-              rescue MsRestAzure::AzureOperationError => e
-                # this is fine, we're doing a blind search after all
-              end
+              resp = MU::Cloud::Azure.containers(credentials: args[:credentials]).managed_clusters.get(rg, id_str)
+              found[Id.new(resp.id)] = resp if resp
             }
           else
             if args[:resource_group]

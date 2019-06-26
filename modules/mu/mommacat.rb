@@ -53,11 +53,11 @@ module MU
       if deploy_id.nil? or deploy_id.empty?
         raise MuError, "Cannot fetch a deployment without a deploy_id"
       end
+
 # XXX this caching may be harmful, causing stale resource objects to stick
 # around. Have we fixed this? Sort of. Bad entries seem to have no kittens,
 # so force a reload if we see that. That's probably not the root problem.
       @@litter_semaphore.synchronize {
-
         if !use_cache or !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
           @@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         elsif set_context_to_me
@@ -206,6 +206,7 @@ module MU
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
+
       if create and !@no_artifacts
         if !Dir.exist?(MU.dataDir+"/deployments")
           MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
@@ -273,6 +274,7 @@ module MU
       # deploy, IF it already exists, which is to say if we're loading an
       # existing deploy instead of creating a new one.
       if !create and @deployment and @original_config and !skip_resource_objects
+
         MU::Cloud.resource_types.each_pair { |res_type, attrs|
           type = attrs[:cfg_plural]
           if @deployment.has_key?(type)
@@ -286,6 +288,11 @@ module MU
                     break
                   end
                 }
+              end
+              
+              if orig_cfg['vpc']
+                ref = MU::Config::Ref.get(orig_cfg['vpc'])
+                orig_cfg['vpc']['id'] = ref if ref.kitten
               end
 
               # Some Server objects originated from ServerPools, get their
@@ -1141,6 +1148,7 @@ raise "NAH"
         dummy_ok: false,
         debug: false
     )
+
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
       begin
         deploy_id = deploy_id.to_s if deploy_id.class.to_s == "MU::Config::Tail"
@@ -1302,7 +1310,12 @@ raise "NAH"
               region_threads = []
               regions.each { |reg| region_threads << Thread.new(reg) { |r|
                 MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p})", loglevel
+begin
                 found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, project: p)
+rescue Exception => e
+MU.log "THE FUCKERY AFOOT "+e.message, MU::WARN, details: caller
+exit
+end
                 if found
                   desc_semaphore.synchronize {
                     cloud_descs[p][r] = found
@@ -1499,11 +1512,17 @@ raise "NAH"
               end
             }
           else
-            if (name.nil? or sib_class == name or virtual_name == name) and
-                (cloud_id.nil? or cloud_id == data.cloud_id) and
-                (credentials.nil? or data.credentials.nil? or credentials == data.credentials)
-              if !created_only or !data.cloud_id.nil?
-                MU.log indent+"SINGLE MATCH findLitterMate(#{argstring})", loglevel, details: [data.mu_name, data.cloud_id, data.config.keys]
+
+            MU.log indent+"CHECKING AGAINST findLitterMate data.cloud_id: #{data.cloud_id}, data.credentials: #{data.credentials}, sib_class: #{sib_class}, virtual_name: #{virtual_name}", loglevel, details: argstring
+            data_cloud_id = data.cloud_id.nil? ? nil : data.cloud_id.to_s
+            MU.log indent+"(name.nil? or sib_class == name or virtual_name == name)", loglevel, details: (name.nil? or sib_class == name or virtual_name == name).to_s
+            MU.log indent+"(cloud_id.nil? or cloud_id == data_cloud_id)", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
+            MU.log indent+"(credentials.nil? or data.credentials.nil? or credentials == data.credentials)", loglevel, details: (credentials.nil? or data.credentials.nil? or credentials == data.credentials).to_s
+            if (name.nil? or sib_class == name.to_s or virtual_name == name.to_s) and
+                (cloud_id.nil? or cloud_id.to_s == data_cloud_id) and
+                (credentials.nil? or data.credentials.nil? or credentials.to_s == data.credentials.to_s)
+              if !created_only or !data_cloud_id.nil?
+                MU.log indent+"SINGLE MATCH findLitterMate(#{argstring})", loglevel, details: [data.mu_name, data_cloud_id, data.config.keys]
                 matches << data
               end
             end
@@ -1670,11 +1689,19 @@ raise "NAH"
     # should be applied to all taggable cloud provider resources.
     # @return [Hash<String,String>]
     def self.listStandardTags
-      return {
-          "MU-ID" => MU.deploy_id,
-          "MU-APP" => MU.appname,
-          "MU-ENV" => MU.environment,
-          "MU-MASTER-IP" => MU.mu_public_ip
+      {
+        "MU-ID" => MU.deploy_id,
+        "MU-APP" => MU.appname,
+        "MU-ENV" => MU.environment,
+        "MU-MASTER-IP" => MU.mu_public_ip
+      }
+    end
+    def listStandardTags
+      {
+        "MU-ID" => @deploy_id,
+        "MU-APP" => @appname,
+        "MU-ENV" => @environment,
+        "MU-MASTER-IP" => MU.mu_public_ip
       }
     end
 

@@ -39,10 +39,9 @@ pp MU::Cloud::Azure::Habitat.find
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::habitats}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        def initialize(**args)
+          setInstanceVariables(args) # set things like @deploy, @config, @cloud_id...
+
           cloud_desc if @cloud_id # XXX why don't I have this on regroom?
           if !@cloud_id and cloud_desc and cloud_desc.project_id
             @cloud_id = cloud_desc.project_id
