@@ -131,14 +131,17 @@ Smoke Test:
     - development
   when: manual
 
-.Dockerbuild:
+Dockerbuild:
   stage: Dockerbuild
   image: docker:latest
+  dependencies:
+  - Gem Build
   script:
-    - echo "Build Mu Docker Container"
+    - docker build -t mu:latest .
   only:
     - master
     - development
+    - docker_test
 
 Gen Docs:
   stage: Merge/Tag
