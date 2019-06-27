@@ -715,11 +715,6 @@ module MU
           @credentials = credentials
           @credentials ||= kitten_cfg['credentials']
 
-if kitten_cfg['vpc']
-MU.log "in #{self.class.name}.new #{kitten_cfg['name']} under #{@deploy.deploy_id}} (#{caller[0]})", MU::WARN, details: kitten_cfg['vpc']
-MU.log "in #{self.class.name}.new #{kitten_cfg['name']} under #{@deploy.deploy_id}}", MU::WARN, details: caller
-end
-
           # It's probably fairly easy to contrive a generic .habitat method
           # implemented by the cloud provider, instead of this
           @habitat ||= if @config['cloud'] == "AWS"
@@ -1098,7 +1093,9 @@ debug = true
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
-            if !@config['vpc']["name"].nil? and @deploy
+            if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(MU::Config::Ref) and !@config['vpc']["id"].kitten.nil?
+              @vpc = @config['vpc']["id"].kitten
+            elsif !@config['vpc']["name"].nil? and @deploy
               MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
 
               sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)

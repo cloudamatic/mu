@@ -830,7 +830,7 @@ module MU
           vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent['name']}nat_host_name", vpc_block["nat_host_name"])
 
         end
-MU.log "JAYSUS FUCK VPC REF IN #{parent_type} #{parent['name']}", MU::WARN, details: vpc_block
+
         return ok
       end
 
