@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'mu'
 
-wd = File.dirname(__FILE__)
-
-if FileTest.exist?("#{wd}/mu-node-manage") == false
-	abort "the file doesn't exist."
+argument = ARGV[0]
+puts argument
+testy = argument.is_a?(String)
+puts testy
+avail_deploys = MU::MommaCat.listAllNodes
+if avail_deploys.include?(argument)
+	  system("ssh #{argument}")
+else
+	  abort "That node doesn't exist."
 end
-
-host = `#{wd}/mu-node-manage.rb -l $@`
-system("ssh #{host}")
