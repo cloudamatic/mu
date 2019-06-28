@@ -17,14 +17,6 @@ module MU
     class Azure
       # Creates an Azure directory as configured in {MU::Config::BasketofKittens::habitats}
       class Habitat < MU::Cloud::Habitat
-        @deploy = nil
-        @config = nil
-
-        attr_reader :mu_name
-        attr_reader :habitat_id # misnomer- it's really a parent folder, which may or may not exist
-        attr_reader :config
-        attr_reader :cloud_id
-        attr_reader :url
 
         def self.testcalls
 
@@ -40,7 +32,7 @@ pp MU::Cloud::Azure::Habitat.find
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::habitats}
         def initialize(**args)
-          setInstanceVariables(args) # set things like @deploy, @config, @cloud_id...
+          super
 
           cloud_desc if @cloud_id # XXX why don't I have this on regroom?
           if !@cloud_id and cloud_desc and cloud_desc.project_id

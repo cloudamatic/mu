@@ -17,18 +17,11 @@ module MU
     class AWS
       # A user as configured in {MU::Config::BasketofKittens::users}
       class User < MU::Cloud::User
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::users}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        def initialize(**args)
+          super
           @mu_name ||= if @config['unique_name']
             @deploy.getResourceName(@config["name"])
           else

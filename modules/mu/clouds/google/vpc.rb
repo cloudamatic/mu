@@ -18,46 +18,24 @@ module MU
 
       # Creation of Virtual Private Clouds and associated artifacts (routes, subnets, etc).
       class VPC < MU::Cloud::VPC
-
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :url
-        attr_reader :config
         attr_reader :cloud_desc_cache
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
+        def initialize(**args)
+          super
+
           @subnets = []
           @subnetcachesemaphore = Mutex.new
-          @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
 
-          if cloud_id
-            if cloud_id.match(/^https:\/\//)
-              @url = cloud_id.clone
-              @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
-            elsif !cloud_id.empty?
-              @cloud_id = cloud_id.to_s
-              desc = cloud_desc
-              @url = desc.self_link if desc and desc.self_link
-            end
-          end
-
-          if !mu_name.nil?
-            @mu_name = mu_name
+          if !@mu_name.nil?
             if @cloud_id.nil? or @cloud_id.empty?
               @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
             end
             loadSubnets(use_cache: true)
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
           end
+
+          @mu_name ||= @deploy.getResourceName(@config['name'])
 
         end
 
@@ -685,6 +663,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(vpc, configurator)
           ok = true
+
+          vpc['project'] ||= MU::Cloud::Google.defaultProject(vpc['credentials'])
 
           if vpc["project"] and !vpc["habitat"]
             vpc["habitat"] = MU::Cloud::Google.projectToRef(vpc["project"], config: configurator, credentials: vpc["credentials"])

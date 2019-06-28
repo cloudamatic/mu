@@ -18,38 +18,15 @@ module MU
       # A server pool as configured in {MU::Config::BasketofKittens::server_pools}
       class ServerPool < MU::Cloud::ServerPool
 
-        @deploy = nil
-        @project_id = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-        attr_reader :url
-        attr_reader :project_id
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           port_objs = []
 
           @config['named_ports'].each { |port_cfg|
@@ -218,6 +195,8 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
+
+          pool['project'] ||= MU::Cloud::Google.defaultProject(pool['credentials'])
 
           pool['named_ports'] ||= []
           if !pool['named_ports'].include?({"name" => "ssh", "port" => 22})

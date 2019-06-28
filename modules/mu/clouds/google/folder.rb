@@ -17,32 +17,14 @@ module MU
     class Google
       # Creates an Google project as configured in {MU::Config::BasketofKittens::folders}
       class Folder < MU::Cloud::Folder
-        @deploy = nil
-        @config = nil
-        @parent = nil
-
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :habitat_id # misnomer- it's really a parent folder, which may or may not exist
-        attr_reader :cloud_id
-        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::folders}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        def initialize(**args)
+          super
+          cloud_desc if @cloud_id # XXX this maybe isn't my job
 
-          cloud_desc if @cloud_id
-
-          if !mu_name.nil?
-            @mu_name = mu_name
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}

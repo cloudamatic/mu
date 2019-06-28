@@ -19,28 +19,16 @@ module MU
       # Creation of Virtual Private Clouds and associated artifacts (routes, subnets, etc).
       class VPC < MU::Cloud::VPC
 
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
+        def initialize(**args)
+          super
           @subnets = []
           @subnetcachesemaphore = Mutex.new
-          @cloud_id = cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-            loadSubnets if !@cloud_id.nil?
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+
+          loadSubnets if !@cloud_id.nil?
+
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}

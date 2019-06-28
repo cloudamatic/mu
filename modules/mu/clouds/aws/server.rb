@@ -75,21 +75,10 @@ module MU
           @ephemeral_mappings
         end
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :deploy
-        attr_reader :cloud_id
-        attr_reader :cloud_desc
-        attr_reader :groomer
-        attr_accessor :mu_windows_name
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id = cloud_id
-
+        def initialize(**args)
+          super
           if @deploy
             @userdata = MU::Cloud.fetchUserdata(
               platform: @config["platform"],
@@ -113,10 +102,8 @@ module MU
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
 
-          if !mu_name.nil?
-            @mu_name = mu_name
+          if !@mu_name.nil?
             @config['mu_name'] = @mu_name
-            # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
@@ -128,7 +115,6 @@ module MU
 
             @config['instance_secret'] = Password.random(50)
           end
-          @groomer = MU::Groomer.new(self)
 
         end
 

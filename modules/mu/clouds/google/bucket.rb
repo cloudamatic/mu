@@ -17,30 +17,11 @@ module MU
     class Google
       # Support for Google Cloud Storage
       class Bucket < MU::Cloud::Bucket
-        @deploy = nil
-        @config = nil
-        @project_id = nil
-
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-        attr_reader :project_id
-        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::logs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if mu_name
-            @mu_name = mu_name
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
-          end
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -202,6 +183,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(bucket, configurator)
           ok = true
+          bucket['project'] ||= MU::Cloud::Google.defaultProject(bucket['credentials'])
 
           if bucket['policies']
             bucket['policies'].each { |pol|

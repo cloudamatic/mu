@@ -30,6 +30,12 @@ module MU
       @@acct_to_profile_map = {}
       @@enable_semaphores = {}
 
+      module AdditionalResourceMethods
+        def url
+          desc = cloud_desc
+          (desc and desc.self_link) ? desc.self_link : nil
+        end
+      end
 
       # Any cloud-specific instance methods we require our resource
       # implementations to have, above and beyond the ones specified by
@@ -39,6 +45,36 @@ module MU
         [:url]
       end
 
+      # A hook that is always called just before any of the instance method of
+      # our resource implementations gets invoked, so that we can ensure that
+      # repetitive setup tasks (like resolving +:resource_group+ for Azure
+      # resources) have always been done.
+      # @param cloudobj [MU::Cloud]
+      # @param deploy [MU::MommaCat]
+      def self.resourceInitHook(cloudobj, deploy)
+        class << self
+          attr_reader :project_id
+          # url is too complex for an attribute (we get it from the cloud API),
+          # so it's up in AdditionalResourceMethods instead
+        end
+        return if !cloudobj
+
+# XXX ensure @cloud_id and @project_id if this is a habitat
+# XXX skip project_id if this is a folder
+        if deploy
+# XXX this may be wrong for new deploys (but def right for regrooms)
+          project = MU::Cloud::Google.projectLookup(cloudobj.config['project'], deploy, sibling_only: true, raise_on_fail: false)
+          project_id = project.nil? ? cloudobj.config['project'] : project.cloudobj.cloud_id
+          cloudobj.instance_variable_set(:@project_id, project_id)
+        else
+          cloudobj.instance_variable_set(:@project_id, cloudobj.config['project'])
+        end
+
+# XXX @url? Well we're not likely to have @cloud_desc at this point, so maybe
+# that needs to be a generic-to-google wrapper like def url; cloud_desc.self_link;end
+
+# XXX something like: vpc["habitat"] = MU::Cloud::Google.projectToRef(vpc["project"], config: configurator, credentials: vpc["credentials"])
+      end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
       # describe this environment as our target one.

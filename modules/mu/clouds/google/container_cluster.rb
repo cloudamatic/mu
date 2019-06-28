@@ -17,34 +17,14 @@ module MU
     class Google
       # A Kubernetes cluster as configured in {MU::Config::BasketofKittens::container_clusters}
       class ContainerCluster < MU::Cloud::ContainerCluster
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :project_id
-        attr_reader :config
-        attr_reader :groomer    
-        attr_reader :url
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
-          @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
-          @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
-
-          if !mu_name.nil?
-            @mu_name = mu_name
+        def initialize(**args)
+          super
+          if @mu_name
             deploydata = describe[2]
             @config['availability_zone'] = deploydata['zone']
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 40)
           end

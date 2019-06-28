@@ -19,22 +19,11 @@ module MU
       # A DNS Zone as configured in {MU::Config::BasketofKittens::dnszones}
       class DNSZone < MU::Cloud::DNSZone
 
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          unless @mu_name
-            @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
-          end
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config["name"])
 
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
         end

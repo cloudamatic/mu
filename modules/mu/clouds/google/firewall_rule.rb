@@ -18,44 +18,21 @@ module MU
     class Google
       # A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
       class FirewallRule < MU::Cloud::FirewallRule
-
-        @deploy = nil
-        @config = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :url
-        attr_reader :cloud_id
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        def initialize(**args)
+          super
 
-#          if @cloud_id
-#            desc = cloud_desc
-#            @url = desc.self_link if desc and desc.self_link
-#          end
-
-          if !mu_name.nil?
-            @mu_name = mu_name
-            # This is really a placeholder, since we "own" multiple rule sets
-            @cloud_id ||= MU::Cloud::Google.nameStr(@mu_name+"-ingress-allow")
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
+          if !@vpc.nil?
+            @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: true, max_length: 61)
           else
-            if !@vpc.nil?
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true, max_length: 61)
-            else
-              @mu_name = @deploy.getResourceName(@config['name'], max_length: 61)
-            end
+            @mu_name ||= @deploy.getResourceName(@config['name'], max_length: 61)
           end
-
         end
 
         attr_reader :rulesets

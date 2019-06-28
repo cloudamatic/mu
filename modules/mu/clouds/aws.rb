@@ -28,6 +28,22 @@ module MU
 
       @@creds_loaded = {}
 
+      module AdditionalResourceMethods
+      end
+
+      # A hook that is always called just before any of the instance method of
+      # our resource implementations gets invoked, so that we can ensure that
+      # repetitive setup tasks (like resolving +:resource_group+ for Azure
+      # resources) have always been done.
+      # @param cloudobj [MU::Cloud]
+      # @param deploy [MU::MommaCat]
+      def self.resourceInitHook(cloudobj, deploy)
+        class << self
+          attr_reader :cloudformation_data
+        end
+        cloudobj.instance_variable_set(:@cloudformation_data, {})
+      end
+
       # Load some credentials for using the AWS API
       # @param name [String]: The name of the mu.yaml AWS credential set to use. If not specified, will use the default credentials, and set the global Aws.config credentials to those.
       # @return [Aws::Credentials]

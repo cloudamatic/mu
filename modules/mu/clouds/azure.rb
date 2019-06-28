@@ -27,6 +27,9 @@ module MU
       @@default_subscription = nil
       @@regions = []
 
+      module AdditionalResourceMethods
+      end
+
       class APIError < MU::MuError;
       end
 
@@ -36,30 +39,21 @@ module MU
       # resources) have always been done.
       # @param cloudobj [MU::Cloud]
       # @param deploy [MU::MommaCat]
-      def self.resourceMethodPre(cloudobj, deploy)
-        return if !cloudobj
-
-        if deploy
-          cloudobj.instance_variable_set(:@resource_group, deploy.deploy_id+"-"+cloudobj.config['region'].upcase)
+      def self.resourceInitHook(cloudobj, deploy)
+        class << self
+          attr_reader :resource_group
         end
-
-        tags = {}
-        if !cloudobj.config['scrub_mu_isms']
-          tags = deploy ? deploy.listStandardTags : MU::MommaCat.listStandardTags
-        end
-        if cloudobj.config['tags']
-          cloudobj.config['tags'].each { |tag|
-            tags[tag['key']] = tag['value']
-          }
-        end
-        cloudobj.instance_variable_set(:@tags, tags)
+        return if !cloudobj or !deploy 
+        
+        region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
+        cloudobj.instance_variable_set(:@resource_group, deploy.deploy_id+"-"+region.upcase)
 
       end
 
       # Any cloud-specific instance methods we require our resource implementations to have, above and beyond the ones specified by {MU::Cloud}
       # @return [Array<Symbol>]
       def self.required_instance_methods
-        [:resource_group, :tags]
+        [:resource_group]
       end
 
       # Stub class to represent Azure's resource identifiers, which look like:
@@ -598,13 +592,13 @@ module MU
         return @@service_identity_api[credentials]
       end
 
-      def self.authorization(model = nil, alt_object: nil, credentials: nil)
+      def self.authorization(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_07_01")
         require 'azure_mgmt_authorization'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("Authorization").const_get("Mgmt").const_get("V2018_01_01_preview").const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("Authorization").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
-          @@authorization_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass")
+          @@authorization_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass", profile: "V2018_03_01")
         end
 
         return @@authorization_api[credentials]
@@ -644,6 +638,7 @@ module MU
         @wrappers = {}
 
         attr_reader :issuer
+        attr_reader :subclass
         attr_reader :api
 
         def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
@@ -690,7 +685,7 @@ module MU
               else
                 retval = @api.method(method_sym).call
               end
-              @wrappers[method_sym] = ClientCallWrapper.new(retval, method_sym.to_s, @subclass)
+              @wrappers[method_sym] = ClientCallWrapper.new(retval, method_sym.to_s, self)
             end
             return @wrappers[method_sym]
           }
@@ -698,30 +693,39 @@ module MU
 
         class ClientCallWrapper
 
-          def initialize(myobject, myname, parentname)
-            @parent = myobject
+          def initialize(myobject, myname, parent)
+            @myobject = myobject
             @myname = myname
-            @parentname = parentname
+            @parent = parent
+            @parentname = parent.subclass
           end
 
           def method_missing(method_sym, *arguments)
             MU.log "Calling #{@parentname}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
             begin
               if !arguments.nil? and arguments.size == 1
-                retval = @parent.method(method_sym).call(arguments[0])
+                retval = @myobject.method(method_sym).call(arguments[0])
               elsif !arguments.nil? and arguments.size > 0
-                retval = @parent.method(method_sym).call(*arguments)
+                retval = @myobject.method(method_sym).call(*arguments)
               else
-                retval = @parent.method(method_sym).call
+                retval = @myobject.method(method_sym).call
               end
             rescue ::MsRestAzure::AzureOperationError => e
+              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::ERR, details: arguments
               begin
                 parsed = JSON.parse(e.message)
                 if parsed["response"] and parsed["response"]["body"]
                   response = JSON.parse(parsed["response"]["body"])
-                  if response["code"] and response["message"]
-                    MU.log response["code"]+": "+response["message"], MU::ERR, details: caller
-                    raise MU::Cloud::Azure::APIError, response["code"]
+                  err = if response["code"] and response["message"]
+                    response
+                  elsif response["error"] and response["error"]["code"] and
+                        response["error"]["message"]
+                    response["error"]
+                  end
+                  if err
+                    MU.log err["code"]+": "+err["message"], MU::ERR, details: caller
+                    MU.log e.backtrace[0], MU::ERR, details: parsed
+                    raise MU::Cloud::Azure::APIError, err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})"
                   end
                 end
               rescue JSON::ParserError

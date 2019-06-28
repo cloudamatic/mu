@@ -19,21 +19,15 @@ module MU
       # A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
       class FirewallRule < MU::Cloud::FirewallRule
 
-        @deploy = nil
-        @config = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
         def initialize(**args)
-          setInstanceVariables(args) # set things like @deploy, @config, @cloud_id...
+          super
 
 #          if @cloud_id
 #            desc = cloud_desc

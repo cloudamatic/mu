@@ -289,6 +289,11 @@ module MU
                   end
                 }
               end
+
+              if orig_cfg.nil?
+                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
+                next
+              end
               
               if orig_cfg['vpc']
                 ref = MU::Config::Ref.get(orig_cfg['vpc'])
@@ -305,10 +310,6 @@ module MU
                     break
                   end
                 }
-              end
-              if orig_cfg.nil?
-                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
-                next
               end
               begin
                 # Load up MU::Cloud objects for all our kittens in this deploy

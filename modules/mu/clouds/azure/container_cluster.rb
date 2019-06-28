@@ -17,22 +17,13 @@ module MU
     class Azure
       # A Kubernetes cluster as configured in {MU::Config::BasketofKittens::container_clusters}
       class ContainerCluster < MU::Cloud::ContainerCluster
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-        attr_reader :groomer    
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
         def initialize(**args)
-          setInstanceVariables(args) # set things like @deploy, @config, @cloud_id...
+          super
 
           # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
-          @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
-          @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
-
           if !mu_name.nil?
             @mu_name = mu_name
             @cloud_id = Id.new(cloud_desc.id)

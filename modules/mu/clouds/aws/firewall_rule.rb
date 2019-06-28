@@ -20,29 +20,17 @@ module MU
       class FirewallRule < MU::Cloud::FirewallRule
         require "mu/clouds/aws/vpc"
 
-        @deploy = nil
-        @config = nil
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
+        def initialize(**args)
+          super
+          if !@vpc.nil?
+            @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: true)
           else
-            if !@vpc.nil?
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
-            else
-              @mu_name = @deploy.getResourceName(@config['name'])
-            end
+            @mu_name ||= @deploy.getResourceName(@config['name'])
           end
 
         end

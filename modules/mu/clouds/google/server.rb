@@ -28,24 +28,11 @@ module MU
       # Google Cloud, this amounts to a single Instance in an Unmanaged
       # Instance Group.
       class Server < MU::Cloud::Server
-        @project_id = nil
-
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :deploy
-        attr_reader :cloud_id
-        attr_reader :project_id
-        attr_reader :cloud_desc
-        attr_reader :groomer
-        attr_reader :url
-        attr_accessor :mu_windows_name
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id = cloud_id
+        def initialize(**args)
+          super
 
           if @deploy
             @userdata = MU::Cloud.fetchUserdata(
@@ -66,17 +53,11 @@ module MU
               custom_append: @config['userdata_script']
             )
           end
-
-          if !mu_name.nil?
-            @mu_name = mu_name
-            @config['mu_name'] = @mu_name
+# XXX writing things into @config at runtime is a bad habit and we should stop
+          if !@mu_name.nil?
+            @config['mu_name'] = @mu_name # XXX whyyyy
             # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloud_id
-            end
           else
             if kitten_cfg.has_key?("basis")
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -88,7 +69,6 @@ module MU
             @config['instance_secret'] = Password.random(50)
           end
           @config['ssh_user'] ||= "muadmin"
-          @groomer = MU::Groomer.new(self)
 
         end
 
@@ -1167,6 +1147,8 @@ next if !create
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
           ok = true
+
+          server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
 
           server['size'] = validateInstanceType(server["size"], server["region"])
           ok = false if server['size'].nil?

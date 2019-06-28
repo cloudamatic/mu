@@ -51,6 +51,8 @@ module MU
     # Class methods which the base of a cloud implementation must implement
     generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
 
+    PUBLIC_ATTRS = [:config, :mu_name, :cloud, :cloud_id, :environment, :deploy, :deploy_id, :deploydata, :appname, :habitat_id, :credentials]
+
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
     # missing classes, even though they're created at runtime.
@@ -629,21 +631,9 @@ module MU
 
     @@resource_types.each_pair { |name, attrs|
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
-        attr_reader :cloud
-        attr_reader :environment
         attr_reader :cloudclass
         attr_reader :cloudobj
-        attr_reader :deploy_id
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :credentials
-        attr_reader :habitat
-        attr_reader :url
-        attr_reader :config
-        attr_reader :deploydata
         attr_reader :destroyed
-        attr_reader :cfm_template
-        attr_reader :cfm_name
         attr_reader :delayed_save
 
 
@@ -675,11 +665,6 @@ module MU
           MU::Cloud.resource_types[shortname.to_sym][:deps_wait_on_my_creation]
         end
 
-        def groomer
-          return @cloudobj.groomer if !@cloudobj.nil?
-          nil
-        end
-
         # Print something palatable when we're called in a string context.
         def to_s
           fullname = "#{self.class.shortname}"
@@ -695,170 +680,192 @@ module MU
           return fullname
         end
 
+
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
         # @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
         # @param kitten_cfg [Hash]: The parse configuration for this object from {MU::Config}
-        def initialize(mommacat: nil,
-                       mu_name: nil,
-                       cloud_id: nil,
-                       credentials: nil,
-                       delay_descriptor_load: nil,
-                       kitten_cfg: nil,
-                       delayed_save: false)
-          raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
-          @live = true
-          @deploy = mommacat
-          @config = kitten_cfg
-          @delayed_save = delayed_save
-          @cloud_id = cloud_id
-          @credentials = credentials
-          @credentials ||= kitten_cfg['credentials']
+        def initialize(**args)
+          raise MuError, "Cannot invoke Cloud objects without a configuration" if args[:kitten_cfg].nil?
 
-          # It's probably fairly easy to contrive a generic .habitat method
-          # implemented by the cloud provider, instead of this
-          @habitat ||= if @config['cloud'] == "AWS"
-            MU::Cloud::AWS.credToAcct(@credentials)
-          elsif @config['cloud'] == "Google"
-            @config['project'] || MU::Cloud::Google.defaultProject(@credentials)
-          end
-
-          if !@deploy.nil?
-            @deploy_id = @deploy.deploy_id
-            MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
-          elsif mu_name.nil?
-            raise MuError, "Can't instantiate a MU::Cloud object with a live deploy or giving us a mu_name"
-          else
-            MU.log "Initializing an independent instance of #{self.class.name} named #{mu_name}", MU::DEBUG, details: kitten_cfg
-          end
-          if !kitten_cfg.has_key?("cloud")
-            kitten_cfg['cloud'] = MU::Config.defaultCloud
-          end
-
-          @method_semaphore = Mutex.new
-          @method_locks = {}
-# XXX require subclass to provide attr_readers of @config and @deploy
-
-          @cloud = @config['cloud']
-          if !@cloud
-            if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
-              cloudclass_name = Regexp.last_match[1]
-              if MU::Cloud.supportedClouds.include?(cloudclass_name)
-                @cloud = cloudclass_name
-              end
-            end
-          end
-          @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
-          @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
-          @cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
-
-          raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
-
-# If we just loaded an existing object, go ahead and prepopulate the
-# describe() cache
-          if !cloud_id.nil? or !mu_name.nil?
-            @cloudobj.describe(cloud_id: cloud_id)
-          end
-          @cloud_id = @cloudobj.cloud_id if @cloudobj.cloud_id # sometimes the cloud layer has something more sophisticated here, so use that
-          @deploydata = @cloudobj.deploydata
-          @config = @cloudobj.config
-
-# If we're going to be integrated into AD or otherwise need a short
-# hostname, generate it now.
-          if self.class.shortname == "Server" and (@cloudobj.windows? or @config['active_directory']) and @cloudobj.mu_windows_name.nil?
-            if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
-              @cloudobj.mu_windows_name = @deploydata['mu_windows_name']
+          # We are a parent wrapper object. Initialize our child object and
+          # housekeeping bits accordingly.
+          if self.class.name.match(/^MU::Cloud::([^:]+)$/)
+            @live = true
+            @delayed_save = args[:delayed_save]
+            @method_semaphore = Mutex.new
+            @method_locks = {}
+            if args[:mommacat]
+               MU.log "Initializing an instance of #{self.class.name} in #{args[:mommacat].deploy_id} #{mu_name}", MU::DEBUG, details: args[:kitten_cfg]
+            elsif args[:mu_name].nil?
+              raise MuError, "Can't instantiate a MU::Cloud object with a live deploy or giving us a mu_name"
             else
-              # Use the same random differentiator as the "real" name if we're
-              # from a ServerPool. Helpful for admin sanity.
-              unq = @cloudobj.mu_name.sub(/^.*?-(...)$/, '\1')
-              if @config['basis'] and !unq.nil? and !unq.empty?
-                @cloudobj.mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
-              else
-                @cloudobj.mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+              MU.log "Initializing a detached #{self.class.name} named #{args[:mu_name]}", MU::DEBUG, details: args[:kitten_cfg]
+            end
+
+            my_cloud = args[:kitten_cfg]['cloud'] || MU::Config.defaultCloud
+            if my_cloud.nil? or !MU::Cloud.supportedClouds.include?(my_cloud)
+              raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
+            end
+          
+            @cloudclass = MU::Cloud.loadCloudType(my_cloud, self.class.shortname)
+            @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(my_cloud)
+            @cloudobj = @cloudclass.new(
+              mommacat: args[:mommacat],
+              kitten_cfg: args[:kitten_cfg],
+              cloud_id: args[:cloud_id],
+              mu_name: args[:mu_name]
+            )
+            raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
+
+# These should actually call the method live instead of caching a static value
+            PUBLIC_ATTRS.each { |a|
+              instance_variable_set(("@"+a.to_s).to_sym, @cloudobj.send(a))
+            }
+
+            # Register with the containing deployment
+            if !@deploy.nil? and !@cloudobj.mu_name.nil? and
+               !@cloudobj.mu_name.empty? and !args[:delay_descriptor_load]
+              describe # XXX is this actually safe here?
+              @deploy.addKitten(self.class.cfg_name, @config['name'], self)
+            elsif !@deploy.nil?
+              MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
+            end
+
+
+          # We are actually a child object invoking this via super() from its
+          # own initialize(), so initialize all the attributes and instance
+          # variables we know to be universal.
+          else
+
+            # Declare the attributes that everyone should have
+            class << self
+              PUBLIC_ATTRS.each { |a|
+                attr_reader a
+              }
+            end
+
+# XXX this butchers ::Id and ::Ref objects that might be used by dependencies() to good effect, but we also can't expect our implementations to cope with knowing when a .to_s has to be appended to things at random
+            @config = MU::Config.manxify(args[:kitten_cfg]) || MU::Config.manxify(args[:config])
+
+            if !@config
+              MU.log "Missing config arguments in setInstanceVariables, can't initialize a cloud object without it", MU::ERR, details: args.keys
+              raise MuError, "Missing config arguments in setInstanceVariables"
+            end
+
+            @deploy = args[:mommacat] || args[:deploy]
+
+            @credentials = args[:credentials]
+            @credentials ||= @config['credentials']
+
+            @cloud = @config['cloud']
+            if !@cloud
+              if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
+               cloudclass_name = Regexp.last_match[1]
+                if MU::Cloud.supportedClouds.include?(cloudclass_name)
+                  @cloud = cloudclass_name
+                end
               end
             end
-          end
-
-          # XXX might just want to make a list of interesting symbols in each
-          # cloud provider, and attrib-ify them programmatically
-          @url = @cloudobj.url if @cloudobj.respond_to?(:url)
-          @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn) and @cloudobj.cloud_id
-          begin
-            idclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("Id")
-            long_id = if @deploydata and @deploydata[idclass.idattr.to_s]
-              @deploydata[idclass.idattr.to_s]
-            elsif @cloudobj.respond_to?(idclass.idattr)
-              @cloudobj.send(idclass.idattr) # XXX and not empty
+            if !@cloud
+              raise MuError, "Failed to determine what cloud #{self} should be in!"
             end
 
-            @cloud_id = idclass.new(long_id) if !long_id.nil? and !long_id.empty?
+            @environment = @config['environment']
+            if @deploy
+              @deploy_id = @deploy.deploy_id
+              @appname = @deploy.appname
+            end
+
+            @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+            @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
+
+            # A pre-existing object, you say?
+            if args[:cloud_id]
+
+# TODO implement ::Id for every cloud... and they should know how to get from
+# cloud_desc to a fully-resolved ::Id object, not just the short string
+
+              @cloud_id = args[:cloud_id]
+              describe(cloud_id: @cloud_id)
+
+              # If we can build us an ::Id object for @cloud_id instead of a
+              # string, do so.
+              begin
+                idclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("Id")
+                long_id = if @deploydata and @deploydata[idclass.idattr.to_s]
+                  @deploydata[idclass.idattr.to_s]
+                elsif self.respond_to?(idclass.idattr)
+                  self.send(idclass.idattr)
+                end
+
+                @cloud_id = idclass.new(long_id) if !long_id.nil? and !long_id.empty?
+pp @cloud_id
 # 1 see if we have the value on the object directly or in deploy data
 # 2 set an attr_reader with the value
 # 3 rewrite our @cloud_id attribute with a ::Id object
-          rescue NameError, MU::Cloud::MuCloudResourceNotImplemented
-          end
-
-          # Register us with our parent deploy so that we can be found by our
-          # littermates if needed.
-          if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty? and !delay_descriptor_load
-            describe # XXX is this actually safe here?
-            @deploy.addKitten(self.class.cfg_name, @config['name'], self)
-          elsif !@deploy.nil?
-            MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
-          end
-        end
-
-        # Set instance variables that *every* resource class must implement, as
-        # well as cloud-specific and resource-specific ones. This is intended
-        # to be the first thing called by +initialize+ in every individual
-        # cloud resource implementation.
-        def setInstanceVariables(**args)
-          MU.log "setInstanceVariables invoked from #{caller[0]}", MU::DEBUG, details: args
-# TODO mebbe declare the attr_reader for each of these?
-          @config = MU::Config.manxify(args[:kitten_cfg]) || MU::Config.manxify(args[:config])
-
-          if !@config
-            MU.log "Missing config arguments in setInstanceVariables, can't initialize a cloud object without it", MU::ERR, details: args.keys
-            raise MuError, "Missing config arguments in setInstanceVariables"
-          end
-
-          @deploy = args[:mommacat] || args[:deploy]
-
-          @cloud = @config['cloud']
-          if !@cloud
-            if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
-             cloudclass_name = Regexp.last_match[1]
-              if MU::Cloud.supportedClouds.include?(cloudclass_name)
-                @cloud = cloudclass_name
+              rescue NameError, MU::Cloud::MuCloudResourceNotImplemented
               end
+
+            end
+
+            # Use pre-existing mu_name (we're probably loading an extant deploy)
+            # if available
+            if args[:mu_name]
+              @mu_name = args[:mu_name]
+            # If scrub_mu_isms is set, our mu_name is always just the bare name
+            # field of the resource.
+            elsif @config['scrub_mu_isms']
+              @mu_name = @config['name']
+# XXX feck it insert an inheritable method right here? Set a default? How should resource implementations determine whether they're instantiating a new object?
+            end
+
+            @tags = {}
+            if !@config['scrub_mu_isms']
+              tags = @deploy ? @deploy.listStandardTags : MU::MommaCat.listStandardTags
+            end
+            if @config['tags']
+              @config['tags'].each { |tag|
+                @tags[tag['key']] = tag['value']
+              }
+            end
+
+            if @cloudparentclass.respond_to?(:resourceInitHook)
+              @cloudparentclass.resourceInitHook(self, @deploy)
+            end
+
+            # Add cloud-specific instance methods for our resource objects to
+            # inherit.
+            if @cloudparentclass.const_defined?(:AdditionalResourceMethods)
+              self.extend @cloudparentclass.const_get(:AdditionalResourceMethods)
+            end
+
+            if ["Server", "ServerPool"].include?(self.class.shortname)
+              @groomer = MU::Groomer.new(self)
+              @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
+
+              if windows? or @config['active_directory'] and !@mu_windows_name
+                if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
+                  @mu_windows_name = @deploydata['mu_windows_name']
+                else
+                  # Use the same random differentiator as the "real" name if we're
+                  # from a ServerPool. Helpful for admin sanity.
+                  unq = @mu_name.sub(/^.*?-(...)$/, '\1')
+                  if @config['basis'] and !unq.nil? and !unq.empty?
+                    @mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
+                  else
+                    @mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+                  end
+                end
+              end
+              class << self
+                attr_reader :groomer
+                attr_reader :groomerclass
+                attr_accessor :mu_windows_name # XXX might be ok as reader now
+              end 
             end
           end
-          if !@cloud
-            raise MuError, "Failed to determine what cloud #{self} should be in!"
-          end
-          @environment = @config['environment']
-          if @deploy
-            @deploy_id = @deploy.deploy_id
-            @appname = @deploy.appname
-          end
 
-          @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
-          @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
-
-          # A pre-existing object, you say?
-          if args[:cloud_id]
-# TODO ::Id for every cloud... and they should know how to get from cloud_desc
-# to a fully-resolved ::Id object, not just the short string
-            @cloud_id = args[:cloud_id]
-          end
-          if args[:mu_name]
-            @mu_name = args[:mu_name]
-          end
-
-          if @cloudparentclass.respond_to?(:resourceMethodPre)
-            @cloudparentclass.resourceMethodPre(self, @deploy)
-          end
 
         end
 
@@ -930,7 +937,7 @@ module MU
         # that are meant for our wrapped object.
         def method_missing(method_sym, *arguments)
           if @cloudobj
-MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}"
+            MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}", MU::DEBUG, details: arguments
             @cloudobj.method(method_sym).call(*arguments)
           else
             raise NoMethodError, method_sym.to_s
@@ -953,14 +960,11 @@ MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}"
             if @cloudobj.class.instance_methods(false).include?(:cloud_desc)
               @cloud_desc_cache ||= @cloudobj.cloud_desc
             end
-            @url = @cloudobj.url if @cloudobj.respond_to?(:url)
-            @arn = @cloudobj.arn if @cloudobj.respond_to?(:arn)
           end
           if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
-              resourceMethodPre
               args = {
                 :region => @config['region'],
                 :cloud_id => @cloud_id,
@@ -1696,11 +1700,10 @@ debug = true
         # invoked, so that we can ensure that repetitive setup tasks (like
         # resolving +:resource_group+ for Azure resources) have always been
         # done.
-        def resourceMethodPre
+        def resourceInitHook
           @cloud ||= cloud
-          if @cloudparentclass.respond_to?(:resourceMethodPre)
-            @cloudparentclass.resourceMethodPre(@cloudobj, @deploy)
-# XXX also set them up 
+          if @cloudparentclass.respond_to?(:resourceInitHook)
+            @cloudparentclass.resourceInitHook(@cloudobj, @deploy)
           end
         end
 
@@ -1724,8 +1727,6 @@ debug = true
 
             # Make sure the describe() caches are fresh
             @cloudobj.describe if method != :describe
-
-            resourceMethodPre
 
             # Don't run through dependencies on simple attr_reader lookups
             if ![:dependencies, :cloud_id, :config, :mu_name].include?(method)
