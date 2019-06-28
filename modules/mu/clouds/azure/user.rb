@@ -190,6 +190,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(user, configurator)
           ok = true
+          user['region'] ||= MU::Cloud::Azure.myRegion(user['credentials'])
 
 #          if user['groups'] and user['groups'].size > 0 and
 #             !MU::Cloud::Azure.credConfig(user['credentials'])['masquerade_as']

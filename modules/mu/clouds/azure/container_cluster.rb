@@ -45,19 +45,6 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this GKE instance.
         def create
-          @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
-          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
-
-          tags = {}
-          if !@config['scrub_mu_isms']
-            tags = MU::MommaCat.listStandardTags
-          end
-          if @config['tags']
-            @config['tags'].each { |tag|
-              tags[tag['key']] = tag['value']
-            }
-          end
-
           key_obj = MU::Cloud::Azure.containers(:ContainerServiceSshPublicKey).new
           key_obj.key_data = @deploy.ssh_public_key
 
@@ -90,13 +77,13 @@ module MU
           cluster_obj = MU::Cloud::Azure.containers(:ManagedCluster).new
           cluster_obj.location = @config['region']
           cluster_obj.dns_prefix = @config['dns_prefix']
-          cluster_obj.tags = tags
+          cluster_obj.tags = @tags
           cluster_obj.service_principal_profile = svc_principal_obj
           cluster_obj.linux_profile = lnx_obj
 #          cluster_obj.api_server_authorized_ipranges = [MU.mu_public_ip+"/32", MU.my_private_ip+"/32"] # XXX only allowed with Microsoft.ContainerService/APIServerSecurityPreview enabled
-#          cluster_obj.node_resource_group = rgroup_name XXX this tries to create a separate resource group for the nodes
+#          cluster_obj.node_resource_group = @resource_group XXX this tries to create a separate resource group for the nodes
           cluster_obj.agent_pool_profiles = [profile_obj]
-          
+
           if @config['flavor'] == "Kubernetes"
             cluster_obj.kubernetes_version = @config['kubernetes']['version']
           end
@@ -108,7 +95,7 @@ module MU
           begin
             MU.log "Creating AKS cluster #{@mu_name}", details: cluster_obj
             resp = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
-              rgroup_name,
+              @resource_group,
               @mu_name,
               cluster_obj
             )
@@ -122,12 +109,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
-          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
           kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
 
           admin_creds = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.list_cluster_admin_credentials(
-            rgroup_name,
+            @resource_group,
             @mu_name
           )
           admin_creds.kubeconfigs.each { |kube|

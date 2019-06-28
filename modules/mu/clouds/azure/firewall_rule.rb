@@ -216,6 +216,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
+          acl['region'] ||= MU::Cloud::Azure.myRegion(acl['credentials'])
 
           ok
         end
@@ -224,27 +225,16 @@ module MU
 
         def create_update
           @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
-          tags = {}
-          if !@config['scrub_mu_isms']
-            tags = MU::MommaCat.listStandardTags
-          end
-          if @config['tags']
-            @config['tags'].each { |tag|
-              tags[tag['key']] = tag['value']
-            }
-          end
-
-          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
 
           fw_obj = MU::Cloud::Azure.network(:NetworkSecurityGroup).new
           fw_obj.location = @config['region']
-          fw_obj.tags = tags
+          fw_obj.tags = @tags
 
           ext_ruleset = nil
           need_apply = false
           begin
             ext_ruleset = MU::Cloud::Azure.network(credentials: @config['credentials']).network_security_groups.get(
-              rgroup_name,
+              @resource_group,
               @mu_name
             )
             @cloud_id = MU::Cloud::Azure::Id.new(ext_ruleset.id)
@@ -266,7 +256,7 @@ module MU
 
           if need_apply
             resp = MU::Cloud::Azure.network(credentials: @config['credentials']).network_security_groups.create_or_update(
-              rgroup_name,
+              @resource_group,
               @mu_name,
               fw_obj
             )

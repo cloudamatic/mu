@@ -88,16 +88,30 @@ module MU
           roles = MU::Cloud::Azure::Role.find(cloud_id: role_id, role_name: role_name, credentials: credentials)
           role = roles.values.first # XXX handle failures and multiples
 
-          assign_obj = MU::Cloud::Azure.authorization(:RoleAssignment).new
-          assign_obj.principal_id = principal
-          assign_obj.role_definition_id = role.id
-          assign_obj.scope = "/subscriptions/"+MU::Cloud::Azure.default_subscription(credentials)
-          MU.log "Assigning role '#{role.role_name}' to principal #{principal}", MU::NOTICE, details: assign_obj
+#          assign_props = MU::Cloud::Azure.authorization(:RoleAssignmentPropertiesWithScope).new
+          assign_props = MU::Cloud::Azure.authorization(:RoleAssignmentProperties).new
+#          assign_props.scope = "/subscriptions/"+MU::Cloud::Azure.default_subscription(credentials)
+          assign_props.principal_id = principal
+          assign_props.role_definition_id = role.id
+
+
+#          assign_obj = MU::Cloud::Azure.authorization(:RoleAssignmentCreateParameters, model_version: "V2015_07_01").new
+          assign_obj = MU::Cloud::Azure.authorization(:RoleAssignmentCreateParameters).new
+          assign_obj.properties = assign_props
+#          assign_obj.principal_id = principal
+#          assign_obj.role_definition_id = role.id
+#          assign_obj.scope = "/subscriptions/"+MU::Cloud::Azure.default_subscription(credentials)
+          role_name = begin
+            role.role_name
+          rescue NoMethodError
+            role.properties.role_name
+          end
+          MU.log "Assigning role '#{role_name}' to principal #{principal}", MU::NOTICE, details: assign_obj
           MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.create_by_id(
             role.id,
             assign_obj
           )
-          pp roles
+
 #MU::Cloud::Azure.authorization(credentials: @config['credentials']).role_assigments.list_for_resource_group(rgroup_name)
         end
 
@@ -128,9 +142,17 @@ module MU
             }
             if args[:role_name]
               @@role_list_cache[scope].each_pair { |key, role|
-                if role.role_name == args[:role_name]
-                  found[Id.new(role.id)] = role
-                  break
+              pp role
+                begin
+                  if role.role_name == args[:role_name]
+                    found[Id.new(role.id)] = role
+                    break
+                  end
+                rescue NoMethodError
+                  if role.properties.role_name == args[:role_name]
+                    found[Id.new(role.id)] = role
+                    break
+                  end
                 end
               }
             else
@@ -163,8 +185,9 @@ module MU
         # @param user [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(user, configurator)
+        def self.validateConfig(role, configurator)
           ok = true
+          role['region'] ||= MU::Cloud::Azure.myRegion(role['credentials'])
 
           ok
         end

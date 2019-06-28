@@ -157,6 +157,7 @@ pp MU::Cloud::Azure::Habitat.find
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(habitat, configurator)
           ok = true
+          habitat['region'] ||= MU::Cloud::Azure.myRegion(habitat['credentials'])
 
           ok
         end
