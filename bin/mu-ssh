@@ -23,5 +23,5 @@ avail_deploys = MU::MommaCat.listAllNodes
 if avail_deploys.include?(argument)
 	  system("ssh #{argument}")
 else
-	  abort "That node doesn't exist."
+	abort "#{argument} cannot be found in the list of deployed nodes.."
 end
