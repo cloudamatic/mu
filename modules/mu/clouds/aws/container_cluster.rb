@@ -153,7 +153,7 @@ module MU
           serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
-          if @config['kubernetes']
+          if @config["flavor"] == "EKS"
             kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig.erb"))
             configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
             tagme = [@vpc.cloud_id]
@@ -1455,6 +1455,7 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           if cluster["flavor"] != "EKS" and cluster["containers"]
+            cluster.delete("kubernetes")
             created_generic_loggroup = false
             cluster['containers'].each { |c|
               if c['log_configuration'] and
