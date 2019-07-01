@@ -800,7 +800,6 @@ module MU
                 end
 
                 @cloud_id = idclass.new(long_id) if !long_id.nil? and !long_id.empty?
-pp @cloud_id
 # 1 see if we have the value on the object directly or in deploy data
 # 2 set an attr_reader with the value
 # 3 rewrite our @cloud_id attribute with a ::Id object
@@ -1160,7 +1159,7 @@ debug = true
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
                 dummy_ok: true,
-                debug: true
+                debug: false
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end

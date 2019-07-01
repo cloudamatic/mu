@@ -30,7 +30,10 @@ module MU
       module AdditionalResourceMethods
       end
 
-      class APIError < MU::MuError;
+      class APIError < MU::MuError
+#        def initialize(**args)
+#          super
+#        end
       end
 
       # A hook that is always called just before any of the instance method of
@@ -523,11 +526,11 @@ module MU
         return @@compute_api[credentials]
       end
 
-      def self.network(model = nil, alt_object: nil, credentials: nil)
+      def self.network(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_02_01")
         require 'azure_mgmt_network'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("Network").const_get("Mgmt").const_get("V2019_02_01").const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("Network").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
           @@network_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Network", credentials: credentials, subclass: alt_object)
         end
@@ -543,11 +546,11 @@ module MU
         return @@storage_api[credentials]
       end
 
-      def self.apis(model = nil, alt_object: nil, credentials: nil)
+      def self.apis(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_01_01")
         require 'azure_mgmt_api_management'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("ApiManagement").const_get("Mgmt").const_get("V2019_01_01").const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("ApiManagement").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
           @@apis_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ApiManagement", credentials: credentials, subclass: alt_object)
         end
@@ -567,11 +570,11 @@ module MU
         return @@resources_api[credentials]
       end
 
-      def self.containers(model = nil, alt_object: nil, credentials: nil)
+      def self.containers(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_04_01")
         require 'azure_mgmt_container_service'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("ContainerService").const_get("Mgmt").const_get("V2019_04_01").const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("ContainerService").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
 #          subclass = alt_object || "<client>"
           @@containers_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ContainerService", credentials: credentials, subclass: alt_object)
@@ -723,8 +726,9 @@ module MU
                     response["error"]
                   end
                   if err
-                    MU.log err["code"]+": "+err["message"], MU::ERR, details: caller
-                    MU.log e.backtrace[0], MU::ERR, details: parsed
+# XXX trade in for ::DEBUG when the dust is settled
+                    MU.log err["code"]+": "+err["message"], MU::WARN, details: caller
+                    MU.log e.backtrace[0], MU::WARN, details: parsed
                     raise MU::Cloud::Azure::APIError, err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})"
                   end
                 end

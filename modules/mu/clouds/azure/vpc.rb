@@ -310,7 +310,12 @@ end
             "region" => vpc['region'],
             "credentials" => vpc['credentials'],
             "rules" => [
-              { "ingress" => true, "proto" => "tcp", "hosts" => [vpc['ip_block']] }
+              {
+                "ingress" => true, "proto" => "all", "hosts" => [vpc['ip_block']]
+              },
+              {
+                "egress" => true, "proto" => "all", "hosts" => [vpc['ip_block']]
+              }
             ]
           }
           vpc["dependencies"] ||= []

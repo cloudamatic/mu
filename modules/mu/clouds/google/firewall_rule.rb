@@ -418,6 +418,18 @@ module MU
           append = []
           delete = []
           acl['rules'].each { |r|
+            if !r['egress']
+              if !r['source_tags'] and !r['source_service_accounts'] and
+                 (!r['hosts'] or r['hosts'].empty?)
+                r['hosts'] = ['0.0.0.0/0']
+              end
+            else
+              if !r['destination_tags'] and !r['destination_service_accounts'] and
+                 (!r['hosts'] or r['hosts'].empty?)
+                r['hosts'] = ['0.0.0.0/0']
+              end
+            end
+
             if r['proto'] == "standard"
               STD_PROTOS.each { |p|
                 newrule = r.dup
@@ -434,17 +446,6 @@ module MU
               delete << r
             end
 
-            if !r['egress']
-              if !r['source_tags'] and !r['source_service_accounts'] and
-                 (!r['hosts'] or r['hosts'].empty?)
-                r['hosts'] = ['0.0.0.0/0']
-              end
-            else
-              if !r['destination_tags'] and !r['destination_service_accounts'] and
-                 (!r['hosts'] or r['hosts'].empty?)
-                r['hosts'] = ['0.0.0.0/0']
-              end
-            end
           }
           delete.each { |r|
             acl['rules'].delete(r)

@@ -67,7 +67,6 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          pp cloud_desc
           rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
           if @config['roles']
             @config['roles'].each { |role|

@@ -102,10 +102,14 @@ module MU
             role.properties.role_name
           end
           MU.log "Assigning role '#{role_name}' to principal #{principal}", MU::NOTICE, details: assign_obj
+begin
           MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.create_by_id(
             role.id,
             assign_obj
           )
+rescue Exception => e
+MU.log e.inspect, MU::ERR            
+end
 
 #MU::Cloud::Azure.authorization(credentials: @config['credentials']).role_assigments.list_for_resource_group(rgroup_name)
         end
@@ -137,7 +141,6 @@ module MU
             }
             if args[:role_name]
               @@role_list_cache[scope].each_pair { |key, role|
-              pp role
                 begin
                   if role.role_name == args[:role_name]
                     found[Id.new(role.id)] = role

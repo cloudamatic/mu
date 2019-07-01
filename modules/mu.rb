@@ -51,9 +51,9 @@ module MU
     def initialize(message = nil)
       MU.log message, MU::ERR if !message.nil?
       if MU.verbosity == MU::Logger::SILENT
-        super
-      else
         super ""
+      else
+        super message
       end
     end
   end
@@ -64,9 +64,9 @@ module MU
     def initialize(message = nil)
       MU.log message, MU::NOTICE if !message.nil?
       if MU.verbosity == MU::Logger::SILENT
-        super
-      else
         super ""
+      else
+        super message
       end
     end
   end
