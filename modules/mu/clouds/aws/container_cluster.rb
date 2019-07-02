@@ -339,6 +339,7 @@ module MU
               cpu_total = 0
               mem_total = 0
               role_arn = nil
+              lbs = []
 
               container_definitions = containers.map { |c|
                 cpu_total += c['cpu']
@@ -360,6 +361,22 @@ module MU
                     end
                   else
                     raise MuError, "Unable to find execution role from #{c["role"]}"
+                  end
+                end
+
+                if c['loadbalancer']
+                  found = MU::MommaCat.findLitterMate(name: c['loadbalancer']['concurrent_load_balancer'], type: "loadbalancer")
+                  if found
+                    found = found.first
+                    if found and found.cloudobj
+                      lbs << {
+                        container_name: service_name,
+                        container_port: c['port_mappings'].first['host_port'],
+                        load_balancer_name: found.cloudobj.name
+                      }
+                    end
+                  else
+                    raise MuError, "Unable to find loadbalancer from #{c["loadbalancer"]['concurrent_load_balancer']}"
                   end
                 end
 
@@ -457,7 +474,8 @@ module MU
                 :desired_count => @config['instance_count'], # XXX this makes no sense
                 :service_name => service_name,
                 :launch_type => launch_type,
-                :task_definition => task_def
+                :task_definition => task_def,
+                :load_balancers => lbs
               }
               if @config['vpc']
                 subnet_ids = []
