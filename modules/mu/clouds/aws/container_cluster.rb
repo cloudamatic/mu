@@ -366,16 +366,13 @@ module MU
 pp c
                 if c['loadbalancers'] != []
                   found = @deploy.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
-                  MU.log "Mapping LB to service #{found}", MU::WARN
+                  MU.log "Mapping LB to service #{found}", MU::INFO
                   if found
-                    found = found.first
-                    if found and found.cloudobj
-                      lbs << {
-                        container_name: service_name,
-                        container_port: c['loadbalancers'].first['container_port'],
-                        load_balancer_name: found.cloudobj.name
-                      }
-                    end
+                    lbs << {
+                      container_name: service_name,
+                      container_port: c['loadbalancers'].first['container_port'],
+                      load_balancer_name: found
+                    }
                   else
                     raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
                   end
