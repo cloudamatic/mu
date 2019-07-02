@@ -364,7 +364,7 @@ module MU
                   end
                 end
 pp c
-                if c['loadbalancers']
+                if c['loadbalancers'] != []
                   found = MU::MommaCat.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
                   MU.log "Mapping LB to service #{found}", MU::WARN
                   if found
