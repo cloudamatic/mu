@@ -127,9 +127,7 @@ end
             if resource_bok
               resource_bok.delete("credentials") if @destination
               # If we've got duplicate names in here, try to deal with it
-puts "\n#{resource_bok['name']} vs:"
               bok[res_class.cfg_plural].each { |sibling|
-puts "\t#{sibling['name']}"
                 if sibling['name'] == resource_bok['name']
                   MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
                   if resource_bok['cloud_id']

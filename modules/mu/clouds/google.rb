@@ -136,7 +136,8 @@ module MU
             return projectobj.cloud_id
           end
         end
-        
+MU.log "I DONE FAILED TO FIND MY HABITAT", MU::ERR, details: cloudobj
+raise "gtfo"
         nil
       end
 
@@ -1133,6 +1134,7 @@ module MU
                         raise MuError, retval.error.message
                       end
                     else
+                      pp retval
                       raise MuError, "I NEED TO IMPLEMENT AN OPERATION HANDLER FOR #{retval.class.name}"
                     end
                   rescue ::Google::Apis::ClientError => e

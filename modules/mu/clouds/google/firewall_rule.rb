@@ -101,9 +101,9 @@ module MU
           }
 
           fwobj = MU::Cloud::Google.compute(:Firewall).new(params)
-          MU.log "Creating firewall #{@cloud_id} in project #{habitat_id}", details: fwobj
+          MU.log "Creating firewall #{@cloud_id} in project #{@habitat_id}", details: fwobj
 #begin
-  MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(habitat_id, fwobj)
+  MU::Cloud::Google.compute(credentials: @config['credentials']).insert_firewall(@habitat_id, fwobj)
 #rescue ::Google::Apis::ClientError => e
 #  MU.log @config['project']+"/"+@config['name']+": "+@cloud_id, MU::ERR, details: @config['vpc']
 #  MU.log e.inspect, MU::ERR, details: fwobj
@@ -115,7 +115,7 @@ module MU
           # Make sure it actually got made before we move on
           desc = nil
           begin
-            desc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_firewall(habitat_id, @cloud_id)
+            desc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_firewall(@habitat_id, @cloud_id)
             sleep 1
           end while desc.nil?
           desc

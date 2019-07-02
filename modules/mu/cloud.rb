@@ -51,7 +51,7 @@ module MU
     # Class methods which the base of a cloud implementation must implement
     generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
 
-    PUBLIC_ATTRS = [:config, :mu_name, :cloud, :cloud_id, :environment, :deploy, :deploy_id, :deploydata, :appname, :habitat_id, :credentials]
+    PUBLIC_ATTRS = [:config, :mu_name, :cloud, :cloud_id, :environment, :deploy, :deploy_id, :deploydata, :appname, :credentials]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -788,6 +788,7 @@ module MU
 
               @cloud_id = args[:cloud_id]
               describe(cloud_id: @cloud_id)
+              @habitat_id = habitat_id # effectively, cache this
 
               # If we can build us an ::Id object for @cloud_id instead of a
               # string, do so.
@@ -929,7 +930,8 @@ module MU
         end
 
         def habitat_id(nolookup: false)
-          habitat(nolookup: nolookup)
+          @habitat_id ||= habitat(nolookup: nolookup)
+          @habitat_id
         end
 
         # We're fundamentally a wrapper class, so go ahead and reroute requests
