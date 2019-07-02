@@ -365,19 +365,19 @@ module MU
                 end
 pp c
                 if c['loadbalancers']
-                  found = MU::MommaCat.findLitterMate(name: c['loadbalancers'].first['concurrent_load_balancer'], type: "loadbalancer")
+                  found = MU::MommaCat.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
                   MU.log "Mapping LB to service #{found}", MU::WARN
                   if found
                     found = found.first
                     if found and found.cloudobj
                       lbs << {
                         container_name: service_name,
-                        container_port: c['port_mappings'].first['host_port'],
+                        container_port: c['loadbalancers'].first['container_port'],
                         load_balancer_name: found.cloudobj.name
                       }
                     end
                   else
-                    raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['concurrent_load_balancer']}"
+                    raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
                   end
                 end
 
@@ -1432,6 +1432,21 @@ MU.log c.name, MU::NOTICE, details: t
                       "options" => {
                         "type" => "object",
                         "description" => "Per-driver configuration options. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method"
+                      }
+                    }
+                  },
+                  "loadbalancers" => {
+                    "type" => "array",
+                    "description" => "Array of loadbalancers to associate with this container servvice See also: https://docs.aws.amazon.com/sdk-for-ruby/v3/api/Aws/ECS/Client.html#create_service-instance_method",
+                    "default" => [],
+                    "properties" => {
+                      "name" => {
+                        "type" => "string",
+                        "description" => "Name of the loadbalancer to associate"
+                      },
+                      "container_port" => {
+                        "type" => "integer",
+                        "description" => "container port to map to the loadbalancer"
                       }
                     }
                   }
