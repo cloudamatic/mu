@@ -364,8 +364,9 @@ module MU
                   end
                 end
 
-                if c['loadbalancer']
-                  found = MU::MommaCat.findLitterMate(name: c['loadbalancer']['concurrent_load_balancer'], type: "loadbalancer")
+                if c['loadbalancers']
+                  found = MU::MommaCat.findLitterMate(name: c['loadbalancers'].first['concurrent_load_balancer'], type: "loadbalancer")
+                  MU.log "Mapping LB to service #{found}", MU::WARN
                   if found
                     found = found.first
                     if found and found.cloudobj
@@ -376,7 +377,7 @@ module MU
                       }
                     end
                   else
-                    raise MuError, "Unable to find loadbalancer from #{c["loadbalancer"]['concurrent_load_balancer']}"
+                    raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['concurrent_load_balancer']}"
                   end
                 end
 
