@@ -1439,14 +1439,18 @@ MU.log c.name, MU::NOTICE, details: t
                     "type" => "array",
                     "description" => "Array of loadbalancers to associate with this container servvice See also: https://docs.aws.amazon.com/sdk-for-ruby/v3/api/Aws/ECS/Client.html#create_service-instance_method",
                     "default" => [],
-                    "properties" => {
-                      "name" => {
-                        "type" => "string",
-                        "description" => "Name of the loadbalancer to associate"
-                      },
-                      "container_port" => {
-                        "type" => "integer",
-                        "description" => "container port to map to the loadbalancer"
+                    "items" => {
+                      "description" => "Load Balancers to associate with the container services",
+                      "type" => "object",
+                      "properties" => {
+                        "name" => {
+                          "type" => "string",
+                          "description" => "Name of the loadbalancer to associate"
+                        },
+                        "container_port" => {
+                          "type" => "integer",
+                          "description" => "container port to map to the loadbalancer"
+                        }
                       }
                     }
                   }
