@@ -363,7 +363,7 @@ module MU
                     raise MuError, "Unable to find execution role from #{c["role"]}"
                   end
                 end
-
+pp c
                 if c['loadbalancers']
                   found = MU::MommaCat.findLitterMate(name: c['loadbalancers'].first['concurrent_load_balancer'], type: "loadbalancer")
                   MU.log "Mapping LB to service #{found}", MU::WARN
