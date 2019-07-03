@@ -363,6 +363,7 @@ module MU
                     raise MuError, "Unable to find execution role from #{c["role"]}"
                   end
                 end
+                
                 if c['loadbalancers'] != []
                   found = @deploy.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
                   MU.log "Mapping LB to service #{found}", MU::INFO
@@ -372,6 +373,7 @@ module MU
                       container_port: c['loadbalancers'].first['container_port'],
                       load_balancer_name: found
                     }
+                    pp lbs
                   else
                     raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
                   end
