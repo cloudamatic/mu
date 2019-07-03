@@ -370,11 +370,12 @@ module MU
                     if found
                       MU.log "Mapping LB #{found.mu_name} to service #{service_name}", MU::INFO
                       if found.cloud_desc.type != "classic"
-                        target_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
+                        elb_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
                             load_balancer_arn: found.cloud_desc.load_balancer_arn
                           })
                           matching_target_groups = []
-                          target_groups.each {|tg|
+                          elb_groups.target_groups.each { |tg|
+                            pp tg
                             if tg.port == lb['container_port']
                               matching_target_groups << {
                                 arn: tg.target_group_arn,
@@ -395,12 +396,12 @@ module MU
                       elsif @config['flavor'] == "Fargate" && found.cloud_desc.type == "classic"
                         raise MuError, "Classic Load Balancers are not supported with Fargate."
                       else
+                        MU.log "Mapping Classic LB #{found.mu_name} to service #{service_name}", MU::INFO
                         lbs << {
                           container_name: service_name,
                           container_port: lb['container_port'],
                           load_balancer_name: found.mu_name
                         }
-                        MU.log "Mu currently only supports service LB's on Fargate. This is WIP.", MU::WARN
                       end
                     else
                       raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
