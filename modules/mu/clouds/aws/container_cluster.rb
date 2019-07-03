@@ -373,7 +373,6 @@ module MU
                       container_port: c['loadbalancers'].first['container_port'],
                       load_balancer_name: found.mu_name
                     }
-                    pp lbs
                   else
                     raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
                   end
@@ -467,20 +466,13 @@ module MU
               resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
 
               task_def = resp.task_definition.task_definition_arn
-              # new_service_params = {
-              #   :cluster => @mu_name,
-              #   :desired_count => @config['instance_count'], # XXX this makes no sense
-              #   :service_name => service_name,
-              #   :launch_type => launch_type,
-              #   :task_definition => task_def,
-              #   :load_balancers => lbs
-              # }
               service_params = {
                 :cluster => @mu_name,
                 :desired_count => @config['instance_count'], # XXX this makes no sense
                 :service_name => service_name,
                 :launch_type => launch_type,
-                :task_definition => task_def
+                :task_definition => task_def,
+                :load_balancers => lbs
               }
               if @config['vpc']
                 subnet_ids = []
