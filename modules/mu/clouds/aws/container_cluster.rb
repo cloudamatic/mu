@@ -466,7 +466,7 @@ pp c
               resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
 
               task_def = resp.task_definition.task_definition_arn
-
+pp lbs
               service_params = {
                 :cluster => @mu_name,
                 :desired_count => @config['instance_count'], # XXX this makes no sense
@@ -475,6 +475,7 @@ pp c
                 :task_definition => task_def,
                 :load_balancers => lbs
               }
+pp service_params
               if @config['vpc']
                 subnet_ids = []
                 all_public = true
