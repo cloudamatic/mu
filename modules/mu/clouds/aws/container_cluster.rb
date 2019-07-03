@@ -467,7 +467,7 @@ pp c
 
               task_def = resp.task_definition.task_definition_arn
 pp lbs
-              service_params = {
+              new_service_params = {
                 :cluster => @mu_name,
                 :desired_count => @config['instance_count'], # XXX this makes no sense
                 :service_name => service_name,
@@ -475,7 +475,14 @@ pp lbs
                 :task_definition => task_def,
                 :load_balancers => lbs
               }
-pp service_params
+              service_params = {
+                :cluster => @mu_name,
+                :desired_count => @config['instance_count'], # XXX this makes no sense
+                :service_name => service_name,
+                :launch_type => launch_type,
+                :task_definition => task_def
+              }
+pp new_service_params
               if @config['vpc']
                 subnet_ids = []
                 all_public = true
