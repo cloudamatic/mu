@@ -388,7 +388,7 @@ module MU
                             lbs << {
                               container_name: service_name,
                               container_port: lb['container_port'],
-                              target_group_arn: matching_target_groups.first.['arn']
+                              target_group_arn: matching_target_groups.first['arn']
                             }
                           else
                             raise MuError, "No matching target groups found"
