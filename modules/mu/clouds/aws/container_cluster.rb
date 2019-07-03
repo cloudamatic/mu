@@ -363,7 +363,6 @@ module MU
                     raise MuError, "Unable to find execution role from #{c["role"]}"
                   end
                 end
-pp c
                 if c['loadbalancers'] != []
                   found = @deploy.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
                   MU.log "Mapping LB to service #{found}", MU::INFO
@@ -466,6 +465,7 @@ pp c
               resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
 
               task_def = resp.task_definition.task_definition_arn
+pp "Load Balancers"
 pp lbs
               new_service_params = {
                 :cluster => @mu_name,
@@ -482,6 +482,7 @@ pp lbs
                 :launch_type => launch_type,
                 :task_definition => task_def
               }
+pp "service_params:"
 pp new_service_params
               if @config['vpc']
                 subnet_ids = []
