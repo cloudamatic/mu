@@ -368,6 +368,7 @@ module MU
                   found = @deploy.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
                   MU.log "Mapping LB to service #{found}", MU::INFO
                   if found
+                    pp found.targetgroups
                     lbs << {
                       container_name: service_name,
                       container_port: c['loadbalancers'].first['container_port'],
