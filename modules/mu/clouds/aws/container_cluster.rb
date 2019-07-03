@@ -375,7 +375,6 @@ module MU
                         load_balancer_arn: found.cloud_desc.load_balancer_arn
                       })
                       pp target_groups
-                      MU::Cloud::AWS.loadbalancers(
                       if found.cloud_desc.type != "classic"
                           lbs << {
                             container_name: service_name,
