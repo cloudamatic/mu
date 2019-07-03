@@ -377,8 +377,8 @@ module MU
                           elb_groups.target_groups.each { |tg|
                             if tg.port.to_i == lb['container_port'].to_i
                               matching_target_groups << {
-                                arn: tg.target_group_arn,
-                                name: tg.target_group_name
+                                arn: tg['target_group_arn'],
+                                name: tg['target_group_name']
                               }
                             end 
                           }
