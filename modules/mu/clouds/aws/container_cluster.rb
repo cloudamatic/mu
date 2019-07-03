@@ -377,7 +377,7 @@ module MU
                           target_groups.each {|tg|
                             if tg.port == lb['container_port']
                               matching_target_groups << {
-                                arn: tg.target_group_arn
+                                arn: tg.target_group_arn,
                                 name: tg.target_group_name
                               }
                             end 
