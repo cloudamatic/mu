@@ -365,18 +365,32 @@ module MU
                 end
                 
                 if c['loadbalancers'] != []
-                  found = @deploy.findLitterMate(name: c['loadbalancers'].first['name'], type: "loadbalancer")
-                  MU.log "Mapping LB to service #{found}", MU::INFO
-                  if found
-                    pp found.cloud_desc
-                    lbs << {
-                      container_name: service_name,
-                      container_port: c['loadbalancers'].first['container_port'],
-                      load_balancer_name: found.mu_name
-                    }
-                  else
-                    raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
-                  end
+                  c['loadbalancers'].each {|lb|
+                    found = @deploy.findLitterMate(name: lb['name'], type: "loadbalancer")
+                    MU.log "Mapping LB #{found.mu_name} to service #{service_name}", MU::INFO
+                    if found
+                      #For Classic Load Balancers, this object must contain the load balancer name, the container name (as it appears in a container definition), and the container port to access from the load balancer. When a task from this service is placed on a container instance, the container instance is registered with the load balancer specified here.
+                      #For Application Load Balancers and Network Load Balancers, this object must contain the load balancer target group ARN, the container name (as it appears in a container definition), and the container port to access from the load balancer. When a task from this service is placed on a container instance, the container instance and port combination is registered as a target in the target group specified here.
+                      pp found.targetgroups
+                      if @config['flavor'] == "Fargate" # || found.type == "ALB"
+                          lbs << {
+                            container_name: service_name,
+                            container_port: lb['container_port'],
+                            target_group_arn: found.mu_name
+                          }
+                      elsif 0 # found.type == CLB
+                        lbs << {
+                          container_name: service_name,
+                          container_port: lb['container_port'],
+                          load_balancer_name: found.mu_name
+                        }
+                      else
+                        MU.log "Mu currently only supports service LB's on Fargate. This is WIP.", MU::WARN
+                      end
+                    else
+                      raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
+                    end
+                  }
                 end
 
                 params = {
