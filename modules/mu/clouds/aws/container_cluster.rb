@@ -387,8 +387,7 @@ module MU
                             lbs << {
                               container_name: service_name,
                               container_port: lb['container_port'],
-                              target_group_arn: matching_target_groups.first['arn'],
-                              load_balancer_name: found.mu_name
+                              target_group_arn: matching_target_groups.first['arn']
                             }
                           else
                             raise MuError, "No matching target groups found"
@@ -408,7 +407,7 @@ module MU
                     end
                   }
                 end
-
+pp lbs
                 params = {
                   name: @mu_name+"-"+c['name'].upcase,
                   image: c['image'],
