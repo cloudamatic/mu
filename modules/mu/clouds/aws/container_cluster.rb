@@ -375,7 +375,6 @@ module MU
                           })
                           matching_target_groups = []
                           elb_groups.target_groups.each { |tg|
-                            pp tg
                             if tg.port.to_i == lb['container_port'].to_i
                               matching_target_groups << {
                                 arn: tg.target_group_arn,
@@ -388,7 +387,8 @@ module MU
                             lbs << {
                               container_name: service_name,
                               container_port: lb['container_port'],
-                              target_group_arn: matching_target_groups.first['arn']
+                              target_group_arn: matching_target_groups.first['arn'],
+                              load_balancer_name: found.mu_name
                             }
                           else
                             raise MuError, "No matching target groups found"
