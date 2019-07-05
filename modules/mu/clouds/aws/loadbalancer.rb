@@ -208,7 +208,7 @@ module MU
                   :name => tg_name,
                   :protocol => tg['proto'],
                   :vpc_id => @vpc.cloud_id,
-                  :port => tg['port']
+                  :port => tg['port'],
                   :target_type  => 'instance'
                 }
                 if tg['target_type'] && tg['target_type'] != 'instance'
