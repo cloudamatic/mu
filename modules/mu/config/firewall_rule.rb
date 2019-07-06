@@ -48,8 +48,8 @@ module MU
               "default" => false
             },
             "rules" => {
-                "type" => "array",
-                "items" => ruleschema
+              "type" => "array",
+              "items" => ruleschema
             }
           }
         }
@@ -61,7 +61,7 @@ module MU
         {
           "type" => "object",
           "description" => "Network ingress and/or egress rules.",
-          "additionalProperties" => false,
+#          "additionalProperties" => false, # inline ingress_rules can have cloud-specific attributes, and this trips those up
           "properties" => {
             "port_range" => {"type" => "string"},
             "port" => {"type" => "integer"},

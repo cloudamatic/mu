@@ -83,7 +83,11 @@ module MU
               rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Outbound
               if rule["hosts"] and !rule["hosts"].empty?
                 rule_obj.source_address_prefix = "*"
-                rule_obj.destination_address_prefixes = rule["hosts"]
+                if rule["hosts"] == ["*"]
+                  rule_obj.destination_address_prefix = "*"
+                else
+                  rule_obj.destination_address_prefixes = rule["hosts"]
+                end
               end
               if !resolved_sgs.empty?
                 rule_obj.destination_application_security_groups = resolved_sgs
@@ -91,7 +95,11 @@ module MU
             else
               rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Inbound
               if rule["hosts"] and !rule["hosts"].empty?
-                rule_obj.source_address_prefixes = rule["hosts"]
+                if rule["hosts"] == ["*"]
+                  rule_obj.source_address_prefix = "*"
+                else
+                  rule_obj.source_address_prefixes = rule["hosts"]
+                end
                 rule_obj.destination_address_prefix = "*"
               end
               if !resolved_sgs.empty?
@@ -150,8 +158,7 @@ module MU
                 newval = rule_obj.instance_variable_get(var)
                 need_update = true if oldval != newval
               }
-              pp rule_obj
-              pp oldrules[rname].instance_variables
+
               [:@destination_address_prefix, :@destination_address_prefixes,
                :@destination_application_security_groups,
                :@destination_address_prefix,
@@ -235,7 +242,7 @@ module MU
               begin
                 resp = MU::Cloud::Azure.network(credentials: args[:credentials]).network_security_groups.get(rg, id_str)
                 found[Id.new(resp.id)] = resp
-              rescue MsRestAzure::AzureOperationError => e
+              rescue MU::Cloud::Azure::APIError => e
                 # this is fine, we're doing a blind search after all
               end
             }
@@ -396,24 +403,18 @@ module MU
           fw_obj.location = @config['region']
           fw_obj.tags = @tags
 
-          ext_ruleset = nil
           need_apply = false
-          begin
-            ext_ruleset = MU::Cloud::Azure.network(credentials: @config['credentials']).network_security_groups.get(
-              @resource_group,
-              @mu_name
-            )
+          ext_ruleset = MU::Cloud::Azure.network(credentials: @config['credentials']).network_security_groups.get(
+            @resource_group,
+            @mu_name
+          )
+          if ext_ruleset
             @cloud_id = MU::Cloud::Azure::Id.new(ext_ruleset.id)
-          rescue MU::Cloud::Azure::APIError => e
-            if e.message.match(/ResourceNotFound: /)
-              need_apply = true
-            else
-              raise e
-            end
           end
 
           if !ext_ruleset
             MU.log "Creating Network Security Group #{@mu_name} in #{@config['region']}", details: fw_obj
+            need_apply = true
           elsif ext_ruleset.location != fw_obj.location or
                 ext_ruleset.tags != fw_obj.tags
             MU.log "Updating Network Security Group #{@mu_name} in #{@config['region']}", MU::NOTICE, details: fw_obj
@@ -426,6 +427,7 @@ module MU
               @mu_name,
               fw_obj
             )
+
             @cloud_id = MU::Cloud::Azure::Id.new(resp.id)
           end
         end

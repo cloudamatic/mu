@@ -202,7 +202,7 @@ module MU
 
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
-      def self.myRegion
+      def self.myRegion(credentials: nil)
         return @@myRegion_var if @@myRegion_var
 
         if credConfig.nil? and !hosted? and !ENV['EC2_REGION']
@@ -212,10 +212,11 @@ module MU
 
         if $MU_CFG and $MU_CFG['aws']
           $MU_CFG['aws'].each_pair { |credset, cfg|
+            next if credentials and credset != credentials
             next if !cfg['region']
             if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'])
               @@myRegion_var = cfg['region']
-              break if cfg['default']
+              break if cfg['default'] or credentials
             end
           }
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty? and

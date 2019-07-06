@@ -224,7 +224,7 @@ module MU
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods + [:registerNode]
+        :instance => generic_instance_methods + [:groom, :registerNode]
       },
       :Server => {
         :has_multiples => true,
@@ -822,7 +822,7 @@ module MU
 
             @tags = {}
             if !@config['scrub_mu_isms']
-              tags = @deploy ? @deploy.listStandardTags : MU::MommaCat.listStandardTags
+              @tags = @deploy ? @deploy.listStandardTags : MU::MommaCat.listStandardTags
             end
             if @config['tags']
               @config['tags'].each { |tag|
@@ -1134,7 +1134,7 @@ debug = true
                 MU.log "Found exact VPC match for #{self}", loglevel, details: sib_by_name.to_s
               end
             else
-              MU.log "Not sure how to fetch VPC for #{self}", loglevel, details: @config['vpc']
+              MU.log "No shortcuts available to fetch VPC for #{self}", loglevel, details: @config['vpc']
             end
 
             if !@vpc and !@config['vpc']["name"].nil? and
@@ -1161,7 +1161,7 @@ debug = true
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
                 dummy_ok: true,
-                debug: false
+                debug: debug
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
@@ -1747,8 +1747,9 @@ debug = true
               deploydata = @cloudobj.method(:notify).call
               @deploydata ||= deploydata # XXX I don't remember why we're not just doing this from the get-go; maybe because we prefer some mangling occurring in @deploy.notify?
               if deploydata.nil? or !deploydata.is_a?(Hash)
-                MU.log "#{self} notify method did not return a Hash of deployment data, attempting to fill in with cloud descriptor", MU::WARN
+                MU.log "#{self} notify method did not return a Hash of deployment data, attempting to fill in with cloud descriptor #{@cloudobj.cloud_id}", MU::WARN
                 deploydata = MU.structToHash(@cloudobj.cloud_desc)
+                raise MuError, "Failed to collect metadata about #{self}" if deploydata.nil?
               end
               deploydata['cloud_id'] ||= @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?

@@ -494,12 +494,30 @@ module MU
         return options
       end
 
-      # Azure API errors often come with a useful JSON structure wrapping yet
-      # another useful JSON structure. Use this to attempt to peel the onion
-      # and display what we need in a readable fashion, before propagating the
-      # exception as normal.
-      # @param e [Exception]
-      def self.handleError(e)
+      # Find or allocate a static public IP address resource
+      # @param resource_group [String]
+      # @param name [String]
+      # @param credentials [String]
+      # @param region [String]
+      # @param tags [Hash<String>]
+      # @return [Azure::Network::Mgmt::V2019_02_01::Models::PublicIPAddress]
+      def self.fetchPublicIP(resource_group, name, credentials: nil, region: nil, tags: nil)
+        if !name or !resource_group
+          raise MuError, "Must supply resource_group and name to create or retrieve an Azure PublicIPAddress"
+        end
+        region ||= MU::Cloud::Azure.myRegion(credentials)
+
+        resp = MU::Cloud::Azure.network(credentials: credentials).public_ipaddresses.get(resource_group, name)
+        if !resp
+          ip_obj = MU::Cloud::Azure.network(:PublicIPAddress).new
+          ip_obj.location = region
+          ip_obj.tags = tags if tags
+          ip_obj.public_ipallocation_method = "Dynamic"
+          MU.log "Allocating PublicIpAddress #{name}", details: ip_obj
+          resp = MU::Cloud::Azure.network(credentials: credentials).public_ipaddresses.create_or_update(resource_group, name, ip_obj)
+        end
+
+        resp
       end
 
 # BEGIN SDK STUBS
@@ -715,7 +733,7 @@ module MU
                 retval = @myobject.method(method_sym).call
               end
             rescue ::MsRestAzure::AzureOperationError => e
-              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::ERR, details: arguments
+              MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
               begin
                 parsed = JSON.parse(e.message)
                 if parsed["response"] and parsed["response"]["body"]
@@ -727,8 +745,11 @@ module MU
                     response["error"]
                   end
                   if err
-# XXX trade in for ::DEBUG when the dust is settled
-                    MU.log err["code"]+": "+err["message"], MU::WARN, details: caller
+                    if method_sym == :get and err["code"] == "ResourceNotFound"
+                      return nil
+                    end
+
+                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned "+err["code"]+": "+err["message"], MU::WARN, details: caller
                     MU.log e.backtrace[0], MU::WARN, details: parsed
                     raise MU::Cloud::Azure::APIError, err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})"
                   end

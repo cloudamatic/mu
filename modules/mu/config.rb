@@ -1107,8 +1107,8 @@ end
       end
 
       # Make sure a sensible region has been targeted, if applicable
+      classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
       if descriptor["region"]
-        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
           MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
@@ -1225,6 +1225,7 @@ end
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
+        acl['region'] ||= classobj.myRegion(acl['credentials'])
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]

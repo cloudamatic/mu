@@ -95,11 +95,7 @@ module MU
             id_str = args[:cloud_id].is_a?(MU::Cloud::Azure::Id) ? args[:cloud_id].name : args[:cloud_id]
             resource_groups.each { |rg|
               resp = MU::Cloud::Azure.network(credentials: args[:credentials]).virtual_networks.get(rg, id_str)
-if !resp
-  MU.log "FAILED TO FIND VPC, DYING FOR CONVENIENCE", MU::WARN, details: args
-  MU.log "TRACE UP TO", MU::WARN, details: caller
-  raise MuError, "fuckery"
-end
+
               found[Id.new(resp.id)] = resp if resp
             }
           else
