@@ -103,10 +103,13 @@ module MU
           end
           MU.log "Assigning role '#{role_name}' to principal #{principal}", MU::NOTICE, details: assign_obj
 begin
-          MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.create_by_id(
-            role.id,
-            assign_obj
-          )
+# XXX this API call don't work yo
+# Required property 'permissions' not found in JSON. Path 'properties', line 1, position 228.'
+# (there is no such parameter)
+#          MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.create_by_id(
+#            role.id,
+#            assign_obj
+#          )
 rescue Exception => e
 MU.log e.inspect, MU::ERR            
 end

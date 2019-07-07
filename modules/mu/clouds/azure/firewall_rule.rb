@@ -397,7 +397,6 @@ module MU
         private
 
         def create_update
-          @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
 
           fw_obj = MU::Cloud::Azure.network(:NetworkSecurityGroup).new
           fw_obj.location = @config['region']

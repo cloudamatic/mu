@@ -774,7 +774,8 @@ module MU
     # We have dopey complexity requirements, be stringent here.
     # I'll be nice and not condense this into one elegant-but-unreadable regular expression
     attempts = 0
-    safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
+    safe_metachars = Regexp.escape('!@#$%^&*()') # Azure constraints
+#    safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
     begin
       if attempts > 25
         MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
@@ -782,7 +783,7 @@ module MU
       end
       winpass = Password.random(14..16)
       attempts += 1
-    end while winpass.nil? or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
+    end while winpass.nil? or !winpass.match(/^[a-z]/i) or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
 
     MU.log "Generated Windows password after #{attempts} attempts", MU::DEBUG
     return winpass

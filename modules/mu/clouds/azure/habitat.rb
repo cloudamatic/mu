@@ -20,13 +20,13 @@ module MU
 
         def self.testcalls
 
-pp MU::Cloud::Azure::Habitat.find
+#pp MU::Cloud::Azure::Habitat.find
 
           pp MU::Cloud::Azure.billing.enrollment_accounts.list
 
-          pp MU::Cloud::Azure.subfactory.api.class.name
+#          pp MU::Cloud::Azure.subfactory.api.class.name
 
-          pp MU::Cloud::Azure.subfactory.subscription_factory.create_subscription_in_enrollment_account # this should barf
+#          pp MU::Cloud::Azure.subfactory.subscription_factory.create_subscription_in_enrollment_account # this should barf
         end
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.

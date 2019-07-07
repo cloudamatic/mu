@@ -640,7 +640,9 @@ MESSAGE_END
             begin
               if service['#MUOBJECT'].nil?
                 if @mommacat
-                  service['#MUOBJECT'] = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_plural, name: service['name'], credentials: service['credentials'], created_only: true, return_all: false)
+                  ext_obj = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_plural, name: service['name'], credentials: service['credentials'], created_only: true, return_all: false)
+                  ext_obj.config!(service) if @updating
+                  service['#MUOBJECT'] = ext_obj
                 end
                 service['#MUOBJECT'] ||= service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
               end

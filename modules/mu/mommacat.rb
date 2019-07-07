@@ -1206,17 +1206,21 @@ raise "NAH"
           mu_descs.each_pair { |deploy_id, matches|
             MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches", loglevel
             next if matches.nil? or matches.size == 0
+
             momma = MU::MommaCat.getLitter(deploy_id)
             straykitten = nil
 
 
             # If we found exactly one match in this deploy, use its metadata to
             # guess at resource names we weren't told.
-            if matches.size == 1 and name.nil? and mu_name.nil?
+            if matches.size > 1 and cloud_id
+              MU.log "findStray: attempting to narrow down multiple matches with cloud_id #{cloud_id}", loglevel
+              straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, credentials: credentials, created_only: true)
+            elsif matches.size == 1 and name.nil? and mu_name.nil?
               if cloud_id.nil?
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
               else
-                MU.log "findStray: attempting to narrow down with cloud_id #{cloud_id}", loglevel
+                MU.log "findStray: fetching single match with cloud_id #{cloud_id}", loglevel
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
               end
 #            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
@@ -1246,7 +1250,7 @@ raise "NAH"
             kittens[straykitten.cloud_id] = straykitten
 
             # Peace out if we found the exact resource we want
-            if cloud_id and straykitten.cloud_id == cloud_id
+            if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
               return [straykitten]
             # ...or if we've validated our one possible match
             elsif !cloud_id and mu_descs.size == 1 and matches.size == 1

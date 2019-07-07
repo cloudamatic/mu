@@ -577,16 +577,28 @@ module MU
         return @@apis_api[credentials]
       end
 
-      def self.resources(model = nil, alt_object: nil, credentials: nil)
+      def self.resources(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_05_01")
         require 'azure_mgmt_resources'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("Resources").const_get("Mgmt").const_get("V2018_05_01").const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("Resources").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
           @@resources_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Resources", credentials: credentials, subclass: alt_object)
         end
 
         return @@resources_api[credentials]
+      end
+
+      def self.features(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_12_01")
+        require 'azure_mgmt_features'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Features").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@features_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Features", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@features_api[credentials]
       end
 
       def self.containers(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_04_01")
@@ -595,7 +607,6 @@ module MU
         if model and model.is_a?(Symbol)
           return Object.const_get("Azure").const_get("ContainerService").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
-#          subclass = alt_object || "<client>"
           @@containers_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ContainerService", credentials: credentials, subclass: alt_object)
         end
 
@@ -634,6 +645,47 @@ module MU
         return @@billing_api[credentials]
       end
 
+      def self.ensureProvider(provider, force: false, credentials: nil)
+        state = MU::Cloud::Azure.resources(credentials: credentials).providers.get(provider)
+        if state.registration_state != "Registered" or force
+          begin
+            if state.registration_state == "NotRegistered" or force
+              MU.log "Registering Provider #{provider}", MU::NOTICE
+              MU::Cloud::Azure.resources(credentials: credentials).providers.register(provider)
+              force = false
+              sleep 30
+            elsif state.registration_state == "Registering"
+              MU.log "Waiting for Provider #{provider} to finish registering", MU::NOTICE, details: state.registration_state
+              sleep 30
+            end
+            state = MU::Cloud::Azure.resources(credentials: credentials).providers.get(provider)
+          end while state and state.registration_state != "Registered"
+        end
+      end
+
+      def self.ensureFeature(feature_string, credentials: nil)
+        provider, feature = feature_string.split(/\//)
+        feature_state = MU::Cloud::Azure.features(credentials: credentials).features.get(provider, feature)
+        changed = false
+        begin
+          if feature_state
+            if feature_state.properties.state == "Registering"
+              MU.log "Waiting for Feature #{provider}/#{feature} to finish registering", MU::NOTICE, details: feature_state.properties.state
+              sleep 30
+            elsif feature_state.properties.state == "NotRegistered"
+              MU.log "Registering Feature #{provider}/#{feature}", MU::NOTICE
+              MU::Cloud::Azure.features(credentials: credentials).features.register(provider, feature)
+              changed = true
+              sleep 30
+            else
+              MU.log "#{provider}/#{feature} registration state: #{feature_state.properties.state}", MU::DEBUG
+            end
+            feature_state = MU::Cloud::Azure.features(credentials: credentials).features.get(provider, feature)
+          end
+        end while feature_state and feature_state.properties.state != "Registered"
+        ensureProvider(provider, credentials: credentials, force: true) if changed
+      end
+
 # END SDK STUBS
 
 # BEGIN SDK CLIENT
@@ -649,6 +701,7 @@ module MU
       @@storage_api = {}
       @@resources_api = {}
       @@containers_api = {}
+      @@features_api = {}
       @@apis_api = {}
       @@service_identity_api = {}
 

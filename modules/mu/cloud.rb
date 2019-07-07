@@ -1068,7 +1068,6 @@ module MU
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
         def dependencies(use_cache: false, debug: false)
-debug = true
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?

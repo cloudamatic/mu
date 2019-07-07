@@ -1601,13 +1601,15 @@ MU.log c.name, MU::NOTICE, details: t
           }
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
+            cluster["max_size"] ||= cluster["instance_count"]
+            cluster["min_size"] ||= cluster["instance_count"]
 
             worker_pool = {
               "name" => cluster["name"]+"workers",
               "credentials" => cluster["credentials"],
               "region" => cluster['region'],
-              "min_size" => cluster["instance_count"],
-              "max_size" => cluster["instance_count"],
+              "min_size" => cluster["min_size"],
+              "max_size" => cluster["max_size"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
               "role_strip_path" => true,

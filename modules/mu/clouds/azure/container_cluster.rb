@@ -36,70 +36,13 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this GKE instance.
         def create
-          key_obj = MU::Cloud::Azure.containers(:ContainerServiceSshPublicKey).new
-          key_obj.key_data = @deploy.ssh_public_key
-
-          ssh_obj = MU::Cloud::Azure.containers(:ContainerServiceSshConfiguration).new
-          ssh_obj.public_keys = [key_obj]
-
-          lnx_obj = MU::Cloud::Azure.containers(:ContainerServiceLinuxProfile).new
-          lnx_obj.admin_username = "muadmin"
-          lnx_obj.ssh = ssh_obj
-
-          svc_principal_obj = MU::Cloud::Azure.containers(:ManagedClusterServicePrincipalProfile).new
-# XXX this should come from a MU::Cloud::Azure::User object...
-          creds = MU::Cloud::Azure.credConfig(@config['credentials'])
-          svc_principal_obj.client_id = creds["client_id"]
-          svc_principal_obj.secret = creds["client_secret"]
-
-          profile_obj = MU::Cloud::Azure.containers(:ManagedClusterAgentPoolProfile).new
-          profile_obj.count = @config['instance_count']
-          profile_obj.name = @deploy.getResourceName(@config["name"], max_length: 11).downcase.gsub(/[^0-9a-z]/, "")
-          profile_obj.vm_size = "Standard_DS2_v2"
-#          profile_obj.min_count = @config['instance_count'] # XXX only when enable_auto_scaling is in play
-#          profile_obj.max_count = @config['instance_count'] # XXX only when enable_auto_scaling is in play
-          profile_obj.max_pods = 30
-          profile_obj.os_type = "Linux"
-          profile_obj.os_disk_size_gb = 30 # validation: 30-1024
-# XXX correlate this with the one(s) we configured in @config['vpc']
-#          profile_obj.vnet_subnet_id = @vpc.subnets.first.cloud_desc.id # XXX has to have its own subnet for k8s apparently
-
-
-          cluster_obj = MU::Cloud::Azure.containers(:ManagedCluster).new
-          cluster_obj.location = @config['region']
-          cluster_obj.dns_prefix = @config['dns_prefix']
-          cluster_obj.tags = @tags
-          cluster_obj.service_principal_profile = svc_principal_obj
-          cluster_obj.linux_profile = lnx_obj
-#          cluster_obj.api_server_authorized_ipranges = [MU.mu_public_ip+"/32", MU.my_private_ip+"/32"] # XXX only allowed with Microsoft.ContainerService/APIServerSecurityPreview enabled
-#          cluster_obj.node_resource_group = @resource_group XXX this tries to create a separate resource group for the nodes
-          cluster_obj.agent_pool_profiles = [profile_obj]
-
-          if @config['flavor'] == "Kubernetes"
-            cluster_obj.kubernetes_version = @config['kubernetes']['version']
-          end
-
-          pool_obj = MU::Cloud::Azure.containers(:AgentPool).new
-          pool_obj.count = @config['instance_count']
-          pool_obj.vm_size = "Standard_DS2_v2"
-
-          begin
-            MU.log "Creating AKS cluster #{@mu_name}", details: cluster_obj
-            resp = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
-              @resource_group,
-              @mu_name,
-              cluster_obj
-            )
-            pp resp
-            @cloud_id = Id.new(resp.id)
-          rescue ::MsRestAzure::AzureOperationError => e
-            MU::Cloud::Azure.handleError(e)
-          end
-
+          create_update
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          create_update
+
           kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
 
           admin_creds = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.list_cluster_admin_credentials(
@@ -130,12 +73,12 @@ module MU
               arg = $?.exitstatus == 0 ? "replace" : "create"
               cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" #{arg} -f #{blobfile}}
               MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", MU::NOTICE, details: cmd
-              output = %x{#{cmd} 2>&1}
-              if $?.exitstatus == 0
-                MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
-              else
-                MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
-              end
+#              output = %x{#{cmd} 2>&1}
+#              if $?.exitstatus == 0
+#                MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
+#              else
+#                MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
+#              end
               count += 1
             }
           end
@@ -226,13 +169,28 @@ module MU
               "enum" => ["Kubernetes", "OpenShift", "Swarm", "DC/OS"],
               "default" => "Kubernetes"
             },
+            "platform" => {
+              "description" => "The OS platform to deploy for workers and containers.",
+              "default" => "Linux",
+              "enum" => ["Linux", "Windows"]
+            },
+            "max_pods" => {
+              "type" => "integer",
+              "description" => "Maximum number of pods allowed on this cluster",
+              "default" => 30
+            },
             "kubernetes" => {
               "default" => { "version" => "1.12.8" }
             },
             "dns_prefix" => {
               "type" => "string",
               "description" => "DNS name prefix to use with the hosted Kubernetes API server FQDN. Will default to the global +appname+ value if not specified."
-            }
+            },
+            "disk_size_gb" => {
+              "type" => "integer",
+              "description" => "Size of the disk attached to each worker, specified in GB. The smallest allowed disk size is 30, the largest 1024.",
+              "default" => 100
+            },
           }
           [toplevel_required, schema]
         end
@@ -248,6 +206,20 @@ module MU
 # MU::Cloud::Azure.container.get_project_zone_serverconfig(@config["project"], @config['availability_zone'])
           cluster["dns_prefix"] ||= $myAppName # XXX woof globals wtf
           cluster['region'] ||= MU::Cloud::Azure.myRegion(cluster['credentials'])
+
+          if cluster["disk_size_gb"] < 30 or cluster["disk_size_gb"] > 1024
+            MU.log "Azure ContainerCluster disk_size_gb must be between 30 and 1024.", MU::ERR
+            ok = false
+          end
+
+          if cluster['min_size'] and cluster['instance_count'] < cluster['min_size']
+            cluster['instance_count'] = cluster['min_size']
+          end
+          if cluster['max_size'] and cluster['instance_count'] < cluster['max_size']
+            cluster['instance_count'] = cluster['max_size']
+          end
+
+          cluster['instance_type'] ||= "Standard_DS2_v2" # TODO when Server is implemented, it should have a validateInstanceType method we can use here
 
           svcacct_desc = {
             "name" => cluster["name"]+"user",
@@ -266,6 +238,175 @@ module MU
         end
 
         private
+
+        def create_update
+          need_apply = false
+
+          ext_cluster = MU::Cloud::Azure.containers(credentials: @config[:credentials]).managed_clusters.get(
+            @resource_group,
+            @mu_name
+          )
+          if ext_cluster
+            @cloud_id = MU::Cloud::Azure::Id.new(ext_cluster.id)
+          end
+
+          key_obj = MU::Cloud::Azure.containers(:ContainerServiceSshPublicKey).new
+          key_obj.key_data = @deploy.ssh_public_key
+
+          ssh_obj = MU::Cloud::Azure.containers(:ContainerServiceSshConfiguration).new
+          ssh_obj.public_keys = [key_obj]
+
+          os_profile_obj = if !ext_cluster
+            if @config['platform'] == "Windows"
+              os_obj = MU::Cloud::Azure.containers(:ContainerServiceWindowsProfile, model_version: "V2019_02_01").new
+              os_obj.admin_username = "muadmin"
+              winpass = MU.generateWindowsPassword
+# TODO store this somewhere the user can get at it
+              os_obj.admin_password = winpass
+              os_obj
+            else
+              os_obj = MU::Cloud::Azure.containers(:ContainerServiceLinuxProfile).new
+              os_obj.admin_username = "muadmin"
+              os_obj.ssh = ssh_obj
+              os_obj
+            end
+          else
+            # Azure does not support updates to this parameter
+            @config['platform'] == "Windows" ? ext_cluster.windows_profile : ext_cluster.linux_profile
+          end
+
+          svc_principal_obj = MU::Cloud::Azure.containers(:ManagedClusterServicePrincipalProfile).new
+# XXX this should come from a MU::Cloud::Azure::User object, but right now
+# the API call to tie roles to those managed principals doesn't seem to work.
+# For now, we'll cheat with Mu's system credentials.
+          creds = MU::Cloud::Azure.credConfig(@config['credentials'])
+          svc_principal_obj.client_id = creds["client_id"]
+          svc_principal_obj.secret = creds["client_secret"]
+
+          agent_profiles = if !ext_cluster
+            profile_obj = MU::Cloud::Azure.containers(:ManagedClusterAgentPoolProfile).new
+            profile_obj.name = @deploy.getResourceName(@config["name"], max_length: 11).downcase.gsub(/[^0-9a-z]/, "")
+            if @config['min_size'] and @config['max_size']
+              # Special API features need to be enabled for scaling
+              MU::Cloud::Azure.ensureFeature("Microsoft.ContainerService/WindowsPreview", credentials: @config['credentials'])
+              MU::Cloud::Azure.ensureFeature("Microsoft.ContainerService/VMSSPreview", credentials: @config['credentials'])
+
+              profile_obj.min_count = @config['min_size']
+              profile_obj.max_count = @config['max_size']
+              profile_obj.enable_auto_scaling = true
+              profile_obj.type = MU::Cloud::Azure.containers(:AgentPoolType)::VirtualMachineScaleSets
+# XXX if you actually try to do this:
+# BadRequest: Virtual Machine Scale Set agent nodes are not allowed since feature "Microsoft.ContainerService/WindowsPreview" is not enabled.
+            end
+            profile_obj.count = @config['instance_count']
+            profile_obj.vm_size = @config['instance_type']
+            profile_obj.max_pods = @config['max_pods']
+            profile_obj.os_type = @config['platform']
+            profile_obj.os_disk_size_gb = @config['disk_size_gb']
+# XXX correlate this with the one(s) we configured in @config['vpc']
+#          profile_obj.vnet_subnet_id = @vpc.subnets.first.cloud_desc.id # XXX has to have its own subnet for k8s apparently
+            [profile_obj]
+          else
+            # Azure does not support adding/removing agent profiles to a live
+            # cluster, but it does support changing some values on an existing
+            # one.
+            profile_obj = ext_cluster.agent_pool_profiles.first
+
+            nochange_map = {
+              "disk_size_gb" => :os_disk_size_gb,
+              "instance_type" => :vm_size,
+              "platform" => :os_type,
+              "max_pods" => :max_pods,
+            }
+
+            tried_to_change =[]
+            nochange_map.each_pair { |cfg, attribute|
+              if @config.has_key?(cfg) and
+                 @config[cfg] != profile_obj.send(attribute)
+                tried_to_change << cfg
+              end
+            }
+            if @config['min_size'] and @config['max_size'] and
+               !profile_obj.enable_auto_scaling
+              tried_to_change << "enable_auto_scaling"
+            end
+            if tried_to_change.size > 0
+              MU.log "Changes specified to one or more immutable AKS Agent Pool parameters in cluster #{@mu_name}, ignoring.", MU::NOTICE, details: tried_to_change
+            end
+
+            if @config['min_size'] and @config['max_size'] and
+               profile_obj.enable_auto_scaling and
+               (
+                 profile_obj.min_count != @config['min_size'] or
+                 profile_obj.max_count != @config['max_size']
+               )
+              profile_obj.min_count = @config['min_size']
+              profile_obj.max_count = @config['max_size']
+              need_apply = true
+            end
+
+            if profile_obj.count != @config['instance_count']
+              profile_obj.count = @config['instance_count']
+              need_apply = true
+            end
+
+            [profile_obj]
+          end
+
+          cluster_obj = MU::Cloud::Azure.containers(:ManagedCluster).new
+
+          if ext_cluster
+            cluster_obj.dns_prefix = ext_cluster.dns_prefix
+            cluster_obj.location = ext_cluster.location
+          else
+            # Azure does not support updates to these parameters
+            cluster_obj.dns_prefix = @config['dns_prefix']
+            cluster_obj.location = @config['region']
+          end
+
+          cluster_obj.tags = @tags
+
+          cluster_obj.service_principal_profile = svc_principal_obj
+          if @config['platform'] == "Windows"
+            cluster_obj.windows_profile = os_profile_obj
+          else
+            cluster_obj.linux_profile = os_profile_obj
+          end
+#          cluster_obj.api_server_authorized_ipranges = [MU.mu_public_ip+"/32", MU.my_private_ip+"/32"] # XXX only allowed with Microsoft.ContainerService/APIServerSecurityPreview enabled
+          cluster_obj.agent_pool_profiles = agent_profiles
+
+          if @config['flavor'] == "Kubernetes"
+            cluster_obj.kubernetes_version = @config['kubernetes']['version'].to_s
+            if ext_cluster and @config['kubernetes']['version'] != ext_cluster.kubernetes_version
+              need_apply = true
+            end
+          end
+
+# XXX it may be possible to create a new AgentPool and fall forward into it?
+# API behavior suggests otherwise. Project for later.
+#          pool_obj = MU::Cloud::Azure.containers(:AgentPool).new
+#          pool_obj.count = @config['instance_count']
+#          pool_obj.vm_size = "Standard_DS2_v2"
+
+          if !ext_cluster
+pp cluster_obj
+            MU.log "Creating AKS cluster #{@mu_name}", details: cluster_obj
+            need_apply = true
+          elsif need_apply
+            MU.log "Updating AKS cluster #{@mu_name}", MU::NOTICE, details: cluster_obj
+          end
+
+          if need_apply
+            resp = MU::Cloud::Azure.containers(credentials: @config['credentials']).managed_clusters.create_or_update(
+              @resource_group,
+              @mu_name,
+              cluster_obj
+            )
+
+            @cloud_id = Id.new(resp.id)
+          end
+
+        end
 
       end #class
     end #class
