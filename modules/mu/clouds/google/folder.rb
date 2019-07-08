@@ -15,7 +15,7 @@
 module MU
   class Cloud
     class Google
-      # Creates an Google project as configured in {MU::Config::BasketofKittens::folders}
+      # Creates a Google folder as configured in {MU::Config::BasketofKittens::folders}
       class Folder < MU::Cloud::Folder
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -120,7 +120,7 @@ module MU
           @cached_cloud_desc
         end
 
-        # Return the metadata for this project's configuration
+        # Return the metadata for this folders's configuration
         # @return [Hash]
         def notify
           desc = MU.structToHash(MU::Cloud::Google.folder(credentials: @config['credentials']).get_folder("folders/"+@cloud_id))
@@ -135,6 +135,11 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           true
+        end
+
+        # Does this resource reside inside projects?
+        def self.inHabitats?
+          false
         end
 
         # Denote whether this resource implementation is experiment, ready for

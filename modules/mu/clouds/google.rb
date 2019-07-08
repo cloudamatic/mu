@@ -60,7 +60,7 @@ module MU
         return if !cloudobj
 
 # XXX ensure @cloud_id and @project_id if this is a habitat
-# XXX skip project_id if this is a folder
+# XXX skip project_id if this is a folder or group
         if deploy
 # XXX this may be wrong for new deploys (but def right for regrooms)
           project = MU::Cloud::Google.projectLookup(cloudobj.config['project'], deploy, sibling_only: true, raise_on_fail: false)
@@ -120,6 +120,9 @@ module MU
       def self.habitat(cloudobj, nolookup: false, deploy: nil)
         @@habmap ||= {}
 # XXX whaddabout config['habitat'] HNNNGH
+
+# XXX users are assholes because they're valid two different ways ugh ugh
+        return nil if [MU::Cloud::Google::Group, MU::Cloud::Google::Folder].include?(cloudobj.cloudclass)
         if cloudobj.config and cloudobj.config['project']
           if nolookup
             return cloudobj.config['project']
@@ -136,8 +139,13 @@ module MU
             return projectobj.cloud_id
           end
         end
+
+        # XXX probably applies to roles, too
+        if cloudobj.cloudclass != MU::Cloud::Google::User
 MU.log "I DONE FAILED TO FIND MY HABITAT", MU::ERR, details: cloudobj
 raise "gtfo"
+        end
+
         nil
       end
 
@@ -695,7 +703,7 @@ raise "gtfo"
         require 'google/apis/compute_beta'
 
         if subclass.nil?
-          @@compute_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], credentials: credentials)
+          @@compute_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ComputeBeta::ComputeService", scopes: ['cloud-platform', 'compute.readonly'], credentials: credentials)
           return @@compute_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ComputeBeta").const_get(subclass)
@@ -708,7 +716,7 @@ raise "gtfo"
         require 'google/apis/storage_v1'
 
         if subclass.nil?
-          @@storage_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "StorageV1::StorageService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@storage_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "StorageV1::StorageService", scopes: ['cloud-platform'], credentials: credentials)
           return @@storage_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("StorageV1").const_get(subclass)
@@ -721,7 +729,7 @@ raise "gtfo"
         require 'google/apis/iam_v1'
 
         if subclass.nil?
-          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['cloud-platform'], credentials: credentials)
           return @@iam_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
@@ -734,12 +742,7 @@ raise "gtfo"
         require 'google/apis/admin_directory_v1'
     
         if subclass.nil?
-          begin
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-          rescue Signet::AuthorizationError => e
-            MU.log "Cannot masquerade as #{MU::Cloud::Google.credConfig(credentials)['masquerade_as']}", MU::ERROR, details: MU::Cloud::Google.credConfig(credentials)
-            raise e
-          end
+          @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
           return @@admin_directory_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
@@ -752,12 +755,7 @@ raise "gtfo"
         require 'google/apis/cloudresourcemanager_v1'
 
         if subclass.nil?
-          begin
-            @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects', 'https://www.googleapis.com/auth/cloudplatformorganizations', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
-          rescue Signet::AuthorizationError => e
-            MU.log "Cannot masquerade as #{MU::Cloud::Google.credConfig(credentials)['masquerade_as']}", MU::ERROR, details: MU::Cloud::Google.credConfig(credentials)
-            raise e
-          end
+          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -770,7 +768,7 @@ raise "gtfo"
         require 'google/apis/cloudresourcemanager_v2'
 
         if subclass.nil?
-          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials,  masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
+          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformfolders'], credentials: credentials,  masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource2_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2").const_get(subclass)
@@ -783,7 +781,7 @@ raise "gtfo"
         require 'google/apis/container_v1'
 
         if subclass.nil?
-          @@container_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@container_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ContainerV1::ContainerService", scopes: ['cloud-platform'], credentials: credentials)
           return @@container_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ContainerV1").const_get(subclass)
@@ -796,7 +794,7 @@ raise "gtfo"
         require 'google/apis/servicemanagement_v1'
 
         if subclass.nil?
-          @@service_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@service_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['cloud-platform'], credentials: credentials)
           return @@service_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ServicemanagementV1").const_get(subclass)
@@ -809,7 +807,7 @@ raise "gtfo"
         require 'google/apis/sqladmin_v1beta4'
 
         if subclass.nil?
-          @@sql_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@sql_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['cloud-platform'], credentials: credentials)
           return @@sql_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("SqladminV1beta4").const_get(subclass)
@@ -822,7 +820,7 @@ raise "gtfo"
         require 'google/apis/firestore_v1'
 
         if subclass.nil?
-          @@firestore_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "FirestoreV1::FirestoreService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@firestore_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "FirestoreV1::FirestoreService", scopes: ['cloud-platform'], credentials: credentials)
           return @@firestore_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("FirestoreV1").const_get(subclass)
@@ -835,7 +833,7 @@ raise "gtfo"
         require 'google/apis/logging_v2'
 
         if subclass.nil?
-          @@logging_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "LoggingV2::LoggingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@logging_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "LoggingV2::LoggingService", scopes: ['cloud-platform'], credentials: credentials)
           return @@logging_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("LoggingV2").const_get(subclass)
@@ -848,7 +846,7 @@ raise "gtfo"
         require 'google/apis/cloudbilling_v1'
 
         if subclass.nil?
-          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloud-billing'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
+          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['cloud-platform', 'cloud-billing'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@billing_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudbillingV1").const_get(subclass)
@@ -878,6 +876,29 @@ raise "gtfo"
         nil
       end
 
+      @@customer_ids_cache = {}
+
+      # Fetch the GSuite/Cloud Identity customer id for the domain associated
+      # with the given credentials, if a domain is set via the +masquerade_as+
+      # configuration option.
+      def self.customerID(credentials = nil)
+        cfg = credConfig(credentials)
+        if !cfg or !cfg['masquerade_as']
+          return nil
+        end
+
+        if @@customer_ids_cache[credentials]
+          return @@customer_ids_cache[credentials]
+        end
+
+        user = MU::Cloud::Google.admin_directory(credentials: credentials).get_user(cfg['masquerade_as'])
+        if user and user.customer_id
+          @@customer_ids_cache[credentials] = user.customer_id
+        end
+
+        @@customer_ids_cache[credentials]
+      end
+
       private
 
       # Wrapper class for Google APIs, so that we can catch some common
@@ -895,13 +916,23 @@ raise "gtfo"
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
         def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
           @credentials = credentials
-          @scopes = scopes
+          @scopes = scopes.map { |s|
+            if !s.match(/\//) # allow callers to use shorthand
+              s = "https://www.googleapis.com/auth/"+s
+            end
+            s
+          }
           @masquerade = masquerade
           @api = Object.const_get("Google::Apis::#{api}").new
-          @api.authorization = MU::Cloud::Google.loadCredentials(scopes, credentials: credentials)
+          @api.authorization = MU::Cloud::Google.loadCredentials(@scopes, credentials: credentials)
           if @masquerade
-            @api.authorization.sub = @masquerade
-            @api.authorization.fetch_access_token!
+            begin
+              @api.authorization.sub = @masquerade
+              @api.authorization.fetch_access_token!
+            rescue Signet::AuthorizationError => e
+              MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::ERROR, details: @scopes
+              raise e
+            end
           end
           @issuer = @api.authorization.issuer
         end
@@ -1030,7 +1061,7 @@ raise "gtfo"
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-                MU.log "#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? " Scopes: #{@scopes.join(", ")}" : "" }", MU::ERR, details: arguments
+                MU.log "#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? "\nScopes:\n#{@scopes.join("\n")}" : "" }", MU::ERR, details: arguments
                 raise e
               end
               @@enable_semaphores ||= {}
@@ -1194,15 +1225,19 @@ raise "gtfo"
               if method_sym.to_s.match(/^list_(.*)/)
                 what = Regexp.last_match[1].to_sym
                 whatassign = (Regexp.last_match[1]+"=").to_sym
+                if overall_retval.class == ::Google::Apis::IamV1::ListServiceAccountsResponse
+                  what = :accounts
+                  whatassign = :accounts=
+                end
                 if retval.respond_to?(what) and retval.respond_to?(whatassign)
                   newarray = retval.public_send(what) + overall_retval.public_send(what)
                   overall_retval.public_send(whatassign, newarray)
                 else
-                  MU.log "Not sure how to paginate #{method_sym.to_s} results, returning first page only", MU::WARN, details: retval
+                  MU.log "Not sure how to append #{method_sym.to_s} results to #{overall_retval.class.name} (apparently #{what.to_s} and #{whatassign.to_s} aren't it), returning first page only", MU::WARN, details: retval
                   return retval
                 end
               else
-                MU.log "Not sure how to paginate #{method_sym.to_s} results, returning first page only", MU::WARN, details: retval
+                MU.log "Not sure how to append #{method_sym.to_s} results, returning first page only", MU::WARN, details: retval
                 return retval
               end
             else

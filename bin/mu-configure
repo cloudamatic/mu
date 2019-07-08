@@ -218,6 +218,11 @@ $CONFIGURABLES = {
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. GCP service accounts cannot view or manage GSuite resources (groups, users, etc) directly, but must instead masquerade as a GSuite user which has delegated authority to the service account. See also: https://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
       },
+      "customer_id" => {
+        "title" => "GSuite Customer ID",
+        "required" => false,
+        "desc" => "For Google Cloud projects which are attached to a GSuite domain. Some API calls (groups, users, etc) require this identifier. From admin.google.com, choose Security, the Single Sign On, and look for the Entity ID field. The value after idpid= in the URL there should be the customer ID."
+      },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,

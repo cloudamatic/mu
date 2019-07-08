@@ -636,7 +636,6 @@ module MU
         attr_reader :destroyed
         attr_reader :delayed_save
 
-
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
         end
@@ -1006,7 +1005,7 @@ module MU
               end
 
               if !@cloud_desc_cache
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}#{ @config['project'] ? "/#{@config['project']}" : "" }#{ @config['region'] ? "/#{@config['region']}" : "" } #{@deploy ? ", which has a record in deploy #{@deploy.deploy_id}" : "" }.\nCalled by #{caller[0]}", MU::WARN
+                MU.log "cloud_desc via #{self.class.name}.find() failed to locate a live object.\nWas called by #{caller[0]}", MU::WARN, details: args
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN

@@ -20,10 +20,9 @@ module MU
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::groups}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        def initialize(**args)
+          super
+
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -37,11 +36,21 @@ module MU
           bind_group
         end
 
+        # Retrieve a list of users (by cloud id) of this group
+        def members
+          resp = MU::Cloud::Google.admin_directory(credentials: @credentials).list_members(@cloud_id)
+          pp resp
+          resp
+          exit
+        end
+
         # Return the metadata for this group configuration
         # @return [Hash]
         def notify
-          {
-          }
+          base = MU.structToHash(cloud_desc)
+          base["cloud_id"] = @cloud_id
+
+          base
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -49,6 +58,11 @@ module MU
         # @return [Boolean]
         def self.isGlobal?
           true
+        end
+
+        # Does this resource reside inside projects?
+        def self.inHabitats?
+          false
         end
 
         # Denote whether this resource implementation is experiment, ready for
@@ -70,11 +84,39 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching group group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          found = nil
+        def self.find(**args)
+          found = {}
+
+          # The API treats the email address field as its main identifier, so
+          # we'll go ahead and respect that.
+          if args[:cloud_id]
+            resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_group(args[:cloud_id])
+            found[resp.email] = resp if resp
+          else
+            resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_groups(customer: MU::Cloud::Google.customerID(args[:credentials]))
+            if resp and resp.groups
+              found = Hash[resp.groups.map { |g| [g.email, g] }]
+            end
+          end
+
           found
         end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials']
+          }
+
+          bok['name'] = cloud_desc.name
+          bok['cloud_id'] = cloud_desc.email
+          bok['members'] = members
+
+          bok
+       end
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
@@ -109,9 +151,12 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(group, configurator)
           ok = true
+
+          credcfg = MU::Cloud::Google.credConfig(group['credentials'])
+
           if group['members'] and group['members'].size > 0 and
-             !$MU_CFG['google']['masquerade_as']
-            MU.log "Cannot change Google group memberships in non-GSuite environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
+             !credCfg['masquerade_as']
+            MU.log "Cannot change Google group memberships in non-directory environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
             ok = false
           end
 

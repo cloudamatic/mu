@@ -67,6 +67,8 @@ module MU
           end
 
           @types.each { |type|
+            resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+            MU.log "Scraping #{cloud}/#{credset} for #{resclass.cfg_plural}"
             found = MU::MommaCat.findStray(
               cloud,
               type,
@@ -78,6 +80,7 @@ module MU
 
 
             if found and found.size > 0
+              MU.log "Found #{found.size.to_s} #{resclass.cfg_plural}"
               @scraped[type] ||= {}
               found.each { |obj|
 begin
@@ -117,7 +120,7 @@ end
             # XXX I don't think this can actually happen
             next
           end
-          MU.log "Scraping #{res_class.cfg_plural} in #{cloud}"
+          MU.log "Generating #{resources.size.to_s} #{res_class.cfg_plural} kittens from #{cloud}"
 
           bok[res_class.cfg_plural] ||= []
 
@@ -148,7 +151,7 @@ end
           }
         }
       }
-      pp bok["folders"].map { |f| f['name'] }
+
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint

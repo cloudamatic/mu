@@ -175,6 +175,11 @@ module MU
           true
         end
 
+        # Does this resource reside inside projects?
+        def self.inHabitats?
+          false
+        end
+
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality

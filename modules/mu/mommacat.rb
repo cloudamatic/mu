@@ -1297,6 +1297,8 @@ raise "NAH"
             projects = begin
               if [:Habitat, :Folder].include?(shortclass)
                 [nil]
+              elsif resourceclass.respond_to?(:inHabitats?) and !resourceclass.inHabitats?
+                [nil]
               elsif flags["project"]
                 [flags["project"]]
               else
@@ -1319,6 +1321,7 @@ begin
                 found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, project: p)
 rescue Exception => e
 MU.log "THE FUCKERY AFOOT "+e.message, MU::WARN, details: caller
+pp e.backtrace
 exit
 end
                 if found

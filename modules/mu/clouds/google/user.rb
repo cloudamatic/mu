@@ -71,8 +71,11 @@ module MU
           if @config['type'] == "interactive"
             return nil
           else
+if !@project_id
+  pp self
+end
             resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_accounts(
-              "projects/"+@config["project"]
+              "projects/"+@project_id
             )
 
             if resp and resp.accounts
@@ -142,24 +145,42 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+        def self.find(**args)
+MU.log "user.find called with #{args.to_s}", MU::NOTICE, details: caller
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
           found = nil
-          resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(
-            "projects/"+flags["project"]
+          resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
+            "projects/"+args[:project]
           )
-
+pp resp
           if resp and resp.accounts
             resp.accounts.each { |sa|
-              if sa.display_name and sa.display_name == cloud_id
+              if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id])
                 found ||= {}
-                found[cloud_id] = sa
+                found[sa.display_name] = sa
               end
             }
           end
 
           found
         end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials']
+          }
+
+          bok['name'] = cloud_desc.display_name
+          bok['cloud_id'] = cloud_desc.display_name
+          bok['project'] = cloud_desc.project_id
+# XXX where does the email attribute come from?
+          bok['use_if_exists'] = true # for default service accounts
+          bok
+       end
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
