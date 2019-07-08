@@ -89,6 +89,7 @@ module MU
                 "muID" => MU.deploy_id,
                 "muUser" => MU.mu_user,
                 "publicIP" => MU.mu_public_ip,
+                "mommaCatPort" => MU.mommaCatPort,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
                 "resourceName" => @config["name"],

@@ -24,7 +24,7 @@ end
 
 case node['platform']
 
-  when "centos"
+  when "centos" "amazon"
     include_recipe "yum-epel"
     include_recipe "mu-utility::remi"
 

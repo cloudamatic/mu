@@ -46,6 +46,7 @@ module MU
                 "publicIP" => MU.mu_public_ip,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
+                "mommaCatPort" => MU.mommaCatPort,
                 "resourceName" => @config["name"],
                 "resourceType" => "server",
                 "platform" => @config["platform"]

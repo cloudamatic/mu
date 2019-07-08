@@ -1088,6 +1088,7 @@ module MU
               "muID" => @deploy.deploy_id,
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
+              "mommaCatPort" => MU.mommaCatPort,
               "windowsAdminName" => @config['windows_admin_username'],
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "resourceName" => @config["name"],
@@ -1133,10 +1134,12 @@ module MU
 
           if @config['basis']['launch_config']['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
-            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
-            }
-            role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+            if role
+              s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
+                'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
+              }
+              role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+            end
           end
 
           if !oldlaunch.nil?

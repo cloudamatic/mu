@@ -106,6 +106,7 @@ amazon: &amazon2016
   us-east-2: ami-58277d3d
   us-west-1: ami-23e8a343
   us-west-2: ami-5ec1673e
+  us-gov-east-1: ami-fdaf4e8c
   eu-central-1: ami-f9619996
   eu-west-1: ami-9398d3e0
   sa-east-1: ami-97831ffb

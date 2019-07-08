@@ -79,6 +79,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
+          @cloud_id ||= @mu_name
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sns:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":"+@cloud_id
         end
 

@@ -143,6 +143,7 @@ module MU
   # Copy the set of global variables in use by another thread, typically our
   # parent thread.
   def self.dupGlobals(parent_thread_id)
+    @@globals[parent_thread_id] ||= {}
     @@globals[parent_thread_id].each_pair { |name, value|
       setVar(name, value)
     }

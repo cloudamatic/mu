@@ -24,6 +24,7 @@ if !node['application_attributes']['skip_recipes'].include?('rsyslog')
     execute "chcon -R -h -t var_log_t /Mu_Logs" do
       action :nothing
       only_if { ::Dir.exist?("/Mu_Logs") }
+      not_if "/sbin/getenforce | grep -cim1  disabled"
     end
     service "rsyslog" do
       action [:enable, :start]

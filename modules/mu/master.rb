@@ -170,7 +170,7 @@ module MU
           itemname = Password.pronounceable(32)
           # Make sure this itemname isn't already in use
           MU::Groomer::Chef.getSecret(vault: "scratchpad", item: itemname)
-        rescue MU::Groomer::Chef::MuNoSuchSecret
+        rescue MU::Groomer::MuNoSuchSecret
           MU::Groomer::Chef.saveSecret(vault: "scratchpad", item: itemname, data: data)
           return itemname
         end while true

@@ -4,7 +4,7 @@ source chef_repo: ".."
 metadata
 
 # Mu Cookbooks
-cookbook 'nagios'
+cookbook 'mu-nagios' , '~> 8.2.0', git: "https://github.com/cloudamatic/mu-nagios.git"
 cookbook 'mu-utility'
 cookbook 'mu-tools'
 cookbook 'mu-firewall'
