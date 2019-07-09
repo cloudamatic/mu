@@ -39,9 +39,12 @@ module MU
         # Retrieve a list of users (by cloud id) of this group
         def members
           resp = MU::Cloud::Google.admin_directory(credentials: @credentials).list_members(@cloud_id)
-          pp resp
-          resp
-          exit
+          members = []
+          if resp and resp.members
+            members = resp.members.map { |m| m.email }
+# XXX reject status != "ACTIVE" ?
+          end
+          members
         end
 
         # Return the metadata for this group configuration
@@ -60,9 +63,8 @@ module MU
           true
         end
 
-        # Does this resource reside inside projects?
-        def self.inHabitats?
-          false
+        def self.canLiveIn
+          [nil]
         end
 
         # Denote whether this resource implementation is experiment, ready for
@@ -98,7 +100,7 @@ module MU
               found = Hash[resp.groups.map { |g| [g.email, g] }]
             end
           end
-
+# XXX what about Google Groups groups? Where do we fish for those?
           found
         end
 
@@ -114,6 +116,19 @@ module MU
           bok['name'] = cloud_desc.name
           bok['cloud_id'] = cloud_desc.email
           bok['members'] = members
+          bok['members'].each { |m|
+            m = MU::Config::Ref.get(
+              id: m,
+              cloud: "Google",
+              credentials: @config['credentials'],
+              type: "users"
+            )
+          }
+          bok['roles'] = []
+
+# go get role bindings and list here? That'd be nice
+          pp cloud_desc
+          exit
 
           bok
        end
@@ -155,7 +170,7 @@ module MU
           credcfg = MU::Cloud::Google.credConfig(group['credentials'])
 
           if group['members'] and group['members'].size > 0 and
-             !credCfg['masquerade_as']
+             !credcfg['masquerade_as']
             MU.log "Cannot change Google group memberships in non-directory environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
             ok = false
           end

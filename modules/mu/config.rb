@@ -1910,7 +1910,8 @@ end
       end
 
       if kitten['cloud'] == "Google"
-        if cfg_name != "habitat"
+# TODO this should be cloud-generic (handle AWS accounts, Azure subscriptions)
+        if resclass.canLiveIn.include?(:Habitat)
           kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
           schema_fields << "project"
         end

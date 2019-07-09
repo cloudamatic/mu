@@ -121,6 +121,8 @@ module MU
         @@habmap ||= {}
 # XXX whaddabout config['habitat'] HNNNGH
 
+        return nil if !cloudobj.cloudclass.canLiveIn.include?(:Habitat)
+
 # XXX users are assholes because they're valid two different ways ugh ugh
         return nil if [MU::Cloud::Google::Group, MU::Cloud::Google::Folder].include?(cloudobj.cloudclass)
         if cloudobj.config and cloudobj.config['project']
@@ -140,10 +142,10 @@ module MU
           end
         end
 
-        # XXX probably applies to roles, too
-        if cloudobj.cloudclass != MU::Cloud::Google::User
-MU.log "I DONE FAILED TO FIND MY HABITAT", MU::ERR, details: cloudobj
-raise "gtfo"
+        # blow up if this resource *has* to live in a project
+        if cloudobj.cloudclass.canLiveIn == [:Habitat]
+          MU.log "Failed to find project for #{cloudobj.cloudclass.class.name}", MU::ERR, details: cloudobj
+          raise "Failed to find project for #{cloudobj.cloudclass.class.name}"
         end
 
         nil
@@ -1031,7 +1033,11 @@ raise "gtfo"
             retries = 0
             wait_backoff = 5
             if next_page_token
-              arguments << { :page_token => next_page_token }
+              if arguments.size == 1 and arguments.first.is_a?(Hash)
+                arguments[0][:page_token] = next_page_token
+              else
+                arguments << { :page_token => next_page_token }
+              end
             end
             begin
               if !arguments.nil? and arguments.size == 1
@@ -1041,6 +1047,9 @@ raise "gtfo"
               else
                 retval = @api.method(method_sym).call
               end
+            rescue ArgumentError => e
+              MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s}: #{e.message}", MU::ERR, details: arguments
+              raise e
             rescue ::Google::Apis::AuthorizationError => e
               if arguments.size > 0
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym} in project #{arguments.first}"
@@ -1057,11 +1066,11 @@ raise "gtfo"
                 raise e
               end
             rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
-              if e.message.match(/^invalidParameter:/)
-                MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
+              if e.message.match(/^invalidParameter:|^badRequest:/)
+                MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-                MU.log "#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? "\nScopes:\n#{@scopes.join("\n")}" : "" }", MU::ERR, details: arguments
+                MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? "\nScopes:\n#{@scopes.join("\n")}" : "" }", MU::ERR, details: arguments
                 raise e
               end
               @@enable_semaphores ||= {}
@@ -1230,8 +1239,10 @@ raise "gtfo"
                   whatassign = :accounts=
                 end
                 if retval.respond_to?(what) and retval.respond_to?(whatassign)
-                  newarray = retval.public_send(what) + overall_retval.public_send(what)
-                  overall_retval.public_send(whatassign, newarray)
+                  if !retval.public_send(what).nil?
+                    newarray = retval.public_send(what) + overall_retval.public_send(what)
+                    overall_retval.public_send(whatassign, newarray)
+                  end
                 else
                   MU.log "Not sure how to append #{method_sym.to_s} results to #{overall_retval.class.name} (apparently #{what.to_s} and #{whatassign.to_s} aren't it), returning first page only", MU::WARN, details: retval
                   return retval

@@ -1240,6 +1240,29 @@ module MU
           MU::Cloud::ALPHA
         end
 
+        # Return a list of "container" artifacts, by class, that apply to this
+        # resource type in a cloud provider. This is so methods that call find
+        # know whether to call +find+ with identifiers for parent resources.
+        # This is similar in purpose to the +isGlobal?+ resource class method,
+        # which tells our search functions whether or not a resource scopes to
+        # a region.  In almost all cases this is one-entry list consisting of
+        # +:Habitat+. Notable exceptions include most implementations of
+        # +Habitat+, which either reside inside a +:Folder+ or nothing at all;
+        # whereas a +:Folder+ tends to not have any containing parent. Very few
+        # resource implementations will need to override this.
+        # A +nil+ entry in this list is interpreted as "this resource can be
+        # global."
+        # @return [Array<Symbol,nil>]
+        def self.canLiveIn
+          if self.shortname == "Folder"
+            [nil, :Folder]
+          elsif self.shortname == "Habitat"
+            [:Folder]
+          else
+            [:Habitat]
+          end
+        end
+
         def self.find(*flags)
           allfound = {}
 

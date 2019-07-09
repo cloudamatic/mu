@@ -156,8 +156,8 @@ end
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
       MU.log "Minimizing footprint of #{count.to_s} found resources"
-      vacuum(bok)
 
+      vacuum(bok)
     end
 
     private
@@ -328,8 +328,10 @@ MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cf
       MU::Cloud.resource_types.each_pair { |typename, attrs|
         if bok[attrs[:cfg_plural]]
           bok[attrs[:cfg_plural]].each { |kitten|
+          pp @scraped[typename].keys
+          puts kitten['cloud_id']
             if !@scraped[typename][kitten['cloud_id']]
-              MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR
+              MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR, details: kitten
               next
             end
 

@@ -1294,18 +1294,19 @@ raise "NAH"
               regions = [nil]
             end
 
-            projects = begin
-              if [:Habitat, :Folder].include?(shortclass)
-                [nil]
-              elsif resourceclass.respond_to?(:inHabitats?) and !resourceclass.inHabitats?
-                [nil]
-              elsif flags["project"]
-                [flags["project"]]
-              else
-                cloudclass.listProjects(creds)
+# TODO generalize language to "habitat" (AWS accounts, Azure subscriptions)
+            projects = []
+            begin
+              if flags["project"]
+                projects << flags["project"]
+              elsif resourceclass.canLiveIn.include?(:Habitat)
+                projects.concat(cloudclass.listProjects(creds))
               end
             rescue NoMethodError # we only expect this to work on Google atm
-              [nil]
+            end
+
+            if projects.empty? or resourceclass.canLiveIn.include?(nil)
+              projects << nil
             end
 
             project_threads = []
@@ -1320,7 +1321,7 @@ raise "NAH"
 begin
                 found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, project: p)
 rescue Exception => e
-MU.log "THE FUCKERY AFOOT "+e.message, MU::WARN, details: caller
+MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
 pp e.backtrace
 exit
 end
@@ -1359,23 +1360,31 @@ end
                     if !dummy_ok
                       next
                     end
-                    # If we don't have a MU::Cloud object, manufacture a dummy one.
-                    # Give it a fake name if we have to and have decided that's ok.
+
+                    # If we don't have a MU::Cloud object, manufacture a dummy
+                    # one.  Give it a fake name if we have to and have decided
+                    # that's ok. Wild inferences from the cloud descriptor are
+                    # ok to try here.
                     use_name = if (name.nil? or name.empty?)
                       if !dummy_ok
                         nil
+                      elsif !mu_name.nil?
+                        mu_name
                       else
-                        if !mu_name.nil?
-                          mu_name
-                        elsif descriptor.respond_to?(:display_name)
-                          descriptor.display_name
-                        elsif descriptor.respond_to?(:name)
-                          descriptor.name
-                        elsif !tag_value.nil?
-                          tag_value
-                        else
-                          kitten_cloud_id
-                        end
+                        try = nil
+                        [:display_name, :name, (resourceclass.cfg_name+"_name").to_sym].each { |field|
+                          if descriptor.respond_to?(field) and descriptor.send(field).is_a?(String)
+                            try = descriptor.send(field)
+                            break
+                          end
+
+                        }
+                        try ||= if !tag_value.nil?
+                            tag_value
+                          else
+                            kitten_cloud_id
+                          end
+                        try
                       end
                     else
                       name
@@ -1389,8 +1398,13 @@ end
                       "cloud" => cloud,
                       "credentials" => creds
                     }
-                    cfg["region"] = r if !r.nil?
-                    cfg["project"] = p if !p.nil?
+                    if !r.nil? and !resourceclass.isGlobal?
+                     cfg["region"] = r
+                    end
+
+                    if !p.nil? and resourceclass.canLiveIn.include?(:Habitat)
+                      cfg["project"] = p
+                    end
                     # If we can at least find the config from the deploy this will
                     # belong with, use that, even if it's an ungroomed resource.
                     if !calling_deploy.nil? and
@@ -1409,7 +1423,7 @@ end
                       }
                     else
                      MU.log "findStray: Generating dummy '#{type}' cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
-                      newkitten = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
+                      newkitten = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
                       desc_semaphore.synchronize {
                         matches << newkitten
                       }

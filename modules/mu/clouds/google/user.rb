@@ -23,12 +23,27 @@ module MU
         def initialize(**args)
           super
 
+          # If we're being reverse-engineered from a cloud descriptor, use that
+          # to determine what sort of account we are.
+          if args[:from_cloud_desc]
+            if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::User
+              @config['type'] = "interactive"
+            elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
+              @config['type'] = "service"
+            else
+              puts args[:from_cloud_desc].class.name
+              pp @config
+            end
+          end
+
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
           if @config['type'] == "interactive"
+# XXX bind_human_user is really some logic that belongs in Role; what goes here
+# is logic to create GSuite or CLoud Identity accounts, assuming adequate privileges.
             bind_human_user
           else
             req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
@@ -68,12 +83,12 @@ module MU
 
         # Retrieve the cloud descriptor for this resource.
         def cloud_desc
-          if @config['type'] == "interactive"
-            return nil
+          if @config['type'] == "interactive" or
+             !@config['type'] and !@project_id
+            @config['type'] ||= "interactive"
+            return MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
           else
-if !@project_id
-  pp self
-end
+            @config['type'] ||= "service"
             resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_accounts(
               "projects/"+@project_id
             )
@@ -146,23 +161,42 @@ end
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
         def self.find(**args)
-MU.log "user.find called with #{args.to_s}", MU::NOTICE, details: caller
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
-          found = nil
-          resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
-            "projects/"+args[:project]
-          )
-pp resp
-          if resp and resp.accounts
-            resp.accounts.each { |sa|
-              if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id])
-                found ||= {}
-                found[sa.display_name] = sa
+          cred_cfg = MU::Cloud::Google.credConfig(args[:credentials])
+
+          found = {}
+
+          if args[:project]
+            # project-local service accounts
+            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
+              "projects/"+args[:project]
+            )
+
+            if resp and resp.accounts
+              resp.accounts.each { |sa|
+                if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id])
+                  found[sa.display_name] = sa
+                end
+              }
+            end
+          else
+            if cred_cfg['masquerade_as']
+              resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_users(customer: MU::Cloud::Google.customerID(args[:credentials]), show_deleted: false)
+              if resp and resp.users
+                resp.users.each { |u|
+                  found[u.primary_email] = u
+                }
               end
-            }
+            end
           end
 
           found
+        end
+
+        # We can either refer to a service account, which is scoped to a project
+        # (a +Habitat+ in Mu parlance), or a "real" user, which comes from
+        # an external directory like GMail, GSuite, or Cloud Identity.
+        def self.canLiveIn
+          [:Habitat, nil]
         end
 
         # Reverse-map our cloud description into a runnable config hash.
@@ -174,11 +208,18 @@ pp resp
             "credentials" => @config['credentials']
           }
 
-          bok['name'] = cloud_desc.display_name
-          bok['cloud_id'] = cloud_desc.display_name
-          bok['project'] = cloud_desc.project_id
-# XXX where does the email attribute come from?
-          bok['use_if_exists'] = true # for default service accounts
+          bok['name'] = @config['name']
+          bok['cloud_id'] = @cloud_id
+          bok['type'] = @config['type']
+          bok['type'] ||= "service"
+          if bok['type'] == "service"
+            bok['project'] = @project_id
+          # XXX set create_api_key if appropriate
+          end
+          bok['roles'] = [] # We'll allow Role/Group to deal with membership
+
+          bok['use_if_exists'] = true # don't try to step on existing accounts with the same names
+
           bok
        end
 
@@ -220,10 +261,9 @@ pp resp
         def self.validateConfig(user, configurator)
           ok = true
 
-          # admin_directory only works in a GSuite environment
-          if !user['name'].match(/@/i) and MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as']
+          if MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as'] and user['type'] != "service"
             # XXX flesh this check out, need to test with a GSuite site
-            pp MU::Cloud::Google.admin_directory(credentials: user['credentials']).get_user(user['name'])
+            # what exactly do we need to check though? write privs? existence?
           end
 
           if user['groups'] and user['groups'].size > 0 and
