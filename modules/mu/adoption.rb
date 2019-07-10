@@ -133,10 +133,12 @@ end
               bok[res_class.cfg_plural].each { |sibling|
                 if sibling['name'] == resource_bok['name']
                   MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
-                  if resource_bok['cloud_id']
-                    resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id']
-                  elsif resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
+                  if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
                     resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
+                  elsif resource_bok['project']
+                    resource_bok['name'] = resource_bok['name']+resource_bok['project']
+                  elsif resource_bok['cloud_id']
+                    resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
                   else
                     raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
                   end
@@ -328,7 +330,7 @@ MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cf
       MU::Cloud.resource_types.each_pair { |typename, attrs|
         if bok[attrs[:cfg_plural]]
           bok[attrs[:cfg_plural]].each { |kitten|
-          pp @scraped[typename].keys
+
           puts kitten['cloud_id']
             if !@scraped[typename][kitten['cloud_id']]
               MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR, details: kitten

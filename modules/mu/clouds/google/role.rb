@@ -31,10 +31,21 @@ module MU
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::Role
               @config['type'] = "directory"
 #            elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
-#              @config['type'] = "iam"
+            elsif args[:from_cloud_desc].name.match(/^organizations\/\d+\/roles\/(.*)/)
+              @config['type'] = "org"
+              @config['name'] = Regexp.last_match[1]
+              puts @cloud_id
+            elsif args[:from_cloud_desc].name.match(/^projects\/([^\/]+?)\/roles\/(.*)/)
+              @config['project'] = Regexp.last_match[1]
+              @config['name'] = Regexp.last_match[2]
+              @project_id = @config['project']
+              @config['type'] = "project"
+              puts @cloud_id
             else
+              pp args[:from_cloud_desc]
               puts args[:from_cloud_desc].class.name
               pp @config
+              @config['type'] = "iam"
               exit
             end
           end
@@ -49,6 +60,16 @@ module MU
         end
 
         def cloud_desc
+          customer = MU::Cloud::Google.customerID(@config['credentials'])
+          my_org = MU::Cloud::Google.getOrg(@config['credentials'])
+
+          if @config['type'] == "directory"
+            MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_role(customer, @cloud_id)
+          elsif @config['type'] == "project"
+            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
+          elsif @config['type'] == "org"
+            MU::Cloud::Google.iam(credentials: @config['credentials']).get_organization_role(@cloud_id)
+          end
 
         end
 
@@ -99,7 +120,15 @@ module MU
           found = {}
 
           if args[:project]
-#            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_roles
+            if args[:cloud_id]
+            else
+              resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_roles("projects/"+args[:project])
+              if resp and resp.roles
+                resp.roles.each { |role|
+                  found[role.name] = role
+                }
+              end
+            end
           else
             if credcfg['masquerade_as']
               if args[:cloud_id]
@@ -137,23 +166,48 @@ module MU
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials'],
-            "cloud_id" => @cloud_id
+            "cloud_id" => @cloud_id,
+            "type" => @config['type']
           }
-
-          if cloud_desc.is_system_role
-            return nil
-          end
-
-          bok["display_name"] = @config['name']
-          bok["descripion"] = cloud_desc.role_description if !cloud_desc.role_description.empty?
-          bok["name"] = @config['name'].gsub(/[^a-z0-9]/i, '-').downcase
-
-          if cloud_desc.role_privileges
-            bok["import"] = []
-            cloud_desc.role_privileges.each { |priv|
-# XXX is priv.service_id needed to namespace these?
-              bok["import"] << priv.privilege_name
-            }
+ 
+          # GSuite or Cloud Identity role
+          if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role
+            bok['type'] = "directory"
+            bok["name"] = @config['name'].gsub(/[^a-z0-9]/i, '-').downcase
+            bok["display_name"] = @config['name']
+            if !cloud_desc.role_description.empty?
+              bok["description"] = cloud_desc.role_description
+            end
+            if !cloud_desc.role_privileges.nil? and !cloud_desc.role_privileges.empty?
+              bok['import'] = []
+              cloud_desc.role_privileges.each { |priv|
+# XXX is priv.service_id (GSuite) needed to namespace these?
+                bok["import"] << priv.privilege_name
+              }
+            end
+          else # otherwise it's a GCP IAM role of some kind
+            pp cloud_desc
+            cloud_desc.name.match(/^([^\/]+?)\/([^\/]+?)\/roles\/(.*)/)
+            junk, type, parent, name = Regexp.last_match.to_a
+            bok['type'] = type == "organizations" ? "org" : "project"
+            bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
+            if bok['type'] == "project"
+              bok['project'] = parent
+            end
+            if !cloud_desc.description.nil? and !cloud_desc.description.empty?
+              bok["description"] = cloud_desc.description
+            end
+            bok["display_name"] = cloud_desc.title
+            if !cloud_desc.included_permissions.empty?
+# XXX user query_grantable_roles and see if we can wildcard this mess
+              bok['import'] = []
+              cloud_desc.included_permissions.each { |priv|
+                bok["import"] << priv
+              }
+            end
+            if bok["project"] == "ncbi-research-dbas"
+            MU.log "WHAT THE GODDAMN HELL", MU::NOTICE, details: bok
+            end
           end
 
           bok
@@ -169,6 +223,11 @@ module MU
               "type" => "string",
               "description" => "A human readable name for this role. If not specified, will default to our long-form deploy-generated name."
             },
+            "type" => {
+              "type" => "string",
+              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys",
+              "enum" => ["directory", "org", "project"]
+            },
             "description" => {
               "type" => "string",
               "description" => "Detailed human-readable description of this role's purpose"
@@ -176,6 +235,59 @@ module MU
 # XXX probably need a flag to distinguish directory roles from project/org/folder ones
           }
           [toplevel_required, schema]
+        end
+
+        @@binding_semaphore = Mutex.new
+        @@bindings_by_role = {}
+        @@bindings_by_entity = {}
+
+        # Retrieve IAM role bindings for all entities throughout our
+        # organization, map them in useful ways, and cache the result.
+        def self.getAllBindings(credentials = nil, refresh: false)
+          my_org = MU::Cloud::Google.getOrg(credentials)
+          @@binding_semaphore.synchronize {
+            if @@bindings_by_role[my_org.name] and @@bindings_by_entity[my_org.name] and !refresh
+              return {
+                "by_role" => @@bindings_by_role[my_org.name],
+                "by_entity" => @@bindings_by_entity[my_org.name]
+              }
+            end
+
+            def self.insertBinding(scope, binding)
+              @@bindings_by_role[scope] ||= {}
+              @@bindings_by_entity[scope] ||= {}
+              @@bindings_by_role[scope][binding.role] = {}
+              binding.members.each { |member|
+                member_type, member_id = member.split(/:/)
+                @@bindings_by_role[scope][binding.role][member_type] ||= []
+                @@bindings_by_role[scope][binding.role][member_type] << member_id
+                @@bindings_by_entity[scope][member_type] ||= {}
+                @@bindings_by_entity[scope][member_type][member_id] ||= []
+                @@bindings_by_entity[scope][member_type][member_id] << binding.role
+              }
+            end
+
+            resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(my_org.name)
+            resp.bindings.each { |binding|
+              insertBinding(my_org.name, binding)
+            }
+
+            MU::Cloud::Google::Folder.find(credentials: credentials).keys.each { |folder|
+              MU::Cloud::Google::Folder.bindings(folder, credentials: credentials).each { |binding|
+                insertBinding(folder, binding)
+              }
+            }
+            MU::Cloud::Google::Habitat.find(credentials: credentials).keys.each { |project|
+              MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
+                insertBinding(project, binding)
+              }
+            }
+
+            {
+              "by_role" => @@bindings_by_role,
+              "by_entity" => @@bindings_by_entity
+            }
+          }
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.

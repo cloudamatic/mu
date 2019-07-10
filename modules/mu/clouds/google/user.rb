@@ -214,7 +214,12 @@ module MU
           bok['type'] ||= "service"
           if bok['type'] == "service"
             bok['project'] = @project_id
+            bok['cloud_id'] = cloud_desc.name
+            pp bok
+            pp cloud_desc
+            puts "================"
           # XXX set create_api_key if appropriate
+            MU.log "service account #{@cloud_id}", MU::NOTICE, details: MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account_iam_policy(cloud_desc.name)
           end
           bok['roles'] = [] # We'll allow Role/Group to deal with membership
 
@@ -235,7 +240,8 @@ module MU
             },
             "type" => {
               "type" => "string",
-              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys"
+              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys",
+              "enum" => ["interactive", "service"]
             },
             "roles" => {
               "type" => "array",

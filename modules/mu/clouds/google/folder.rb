@@ -72,6 +72,18 @@ module MU
 
         end
 
+        # Retrieve the IAM bindings for this folder (associates between IAM roles and groups/users)
+        def bindings
+          MU::Cloud::Google::Folder.bindings(@cloud_id, credentials: @config['credentials'])
+        end
+
+        # Retrieve the IAM bindings for this folder (associates between IAM roles and groups/users)
+        # @param folder [String]:
+        # @param credentials [String]:
+        def self.bindings(folder, credentials: nil)
+          MU::Cloud::Google.folder(credentials: credentials).get_folder_iam_policy(folder).bindings
+        end
+
         # Given a {MU::Config::Folder.reference} configuration block, resolve
         # to a GCP resource id and type suitable for use in API calls to manage
         # projects and folders.
@@ -210,9 +222,7 @@ module MU
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-#        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
         def self.find(**args)
-#MU.log "folder.find called by #{caller[0]}", MU::WARN, details: args
           found = {}
 
           # Recursively search a GCP folder hierarchy for a folder matching our
@@ -245,14 +255,15 @@ begin
 raw_id = nil
           if args[:cloud_id]
             raw_id = args[:cloud_id].sub(/^folders\//, "")
-            found[raw_id] = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
+            resp = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
+            found[resp.name] = resp if resp
 
           elsif args[:flags] and args[:flags]['display_name']
 
             if parent
               resp = self.find_matching_folder(parent, name: args[:flags]['display_name'], credentials: args[:credentials])
               if resp
-                found[resp.name.sub(/^folders\//, "")] = resp
+                found[resp.name] = resp
               end
             end
           else
@@ -260,7 +271,7 @@ raw_id = nil
             if resp and resp.folders
               resp.folders.each { |folder|
                 next if folder.lifecycle_state == "DELETE_REQUESTED"
-                found[folder.name.sub(/^folders\//, "")] = folder
+                found[folder.name] = folder
                 # recurse so that we'll pick up child folders
                 children = self.find(
                   credentials: args[:credentials],

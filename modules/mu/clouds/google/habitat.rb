@@ -126,6 +126,18 @@ module MU
           setProjectBilling
         end
 
+        # Retrieve the IAM bindings for this project (associates between IAM roles and groups/users)
+        def bindings
+          MU::Cloud::Google::Habitat.bindings(@cloud_id, credentials: @config['credentials'])
+        end
+
+        # Retrieve the IAM bindings for this project (associates between IAM roles and groups/users)
+        # @param project [String]:
+        # @param credentials [String]:
+        def self.bindings(project, credentials: nil)
+          MU::Cloud::Google.resource_manager(credentials: credentials).get_project_iam_policy(project).bindings
+        end
+
         # Associate a billing account with this project. If none is specified in
         # our configuration, use the billing account tied the the default
         # project of our credential set.
@@ -314,6 +326,7 @@ module MU
 
           bok
         end
+
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
