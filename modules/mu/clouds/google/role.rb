@@ -34,19 +34,14 @@ module MU
             elsif args[:from_cloud_desc].name.match(/^organizations\/\d+\/roles\/(.*)/)
               @config['type'] = "org"
               @config['name'] = Regexp.last_match[1]
-              puts @cloud_id
             elsif args[:from_cloud_desc].name.match(/^projects\/([^\/]+?)\/roles\/(.*)/)
               @config['project'] = Regexp.last_match[1]
               @config['name'] = Regexp.last_match[2]
               @project_id = @config['project']
               @config['type'] = "project"
-              puts @cloud_id
             else
-              pp args[:from_cloud_desc]
-              puts args[:from_cloud_desc].class.name
-              pp @config
-              @config['type'] = "iam"
-              exit
+              MU.log "I don't know what to do with this #{args[:from_cloud_desc].class.name}", MU::ERR, details: args[:from_cloud_desc]
+              raise MuError, "I don't know what to do with this #{args[:from_cloud_desc].class.name}"
             end
           end
         end
@@ -169,6 +164,7 @@ module MU
             "cloud_id" => @cloud_id,
             "type" => @config['type']
           }
+          my_org = MU::Cloud::Google.getOrg(@config['credentials'])
  
           # GSuite or Cloud Identity role
           if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role
@@ -181,12 +177,10 @@ module MU
             if !cloud_desc.role_privileges.nil? and !cloud_desc.role_privileges.empty?
               bok['import'] = []
               cloud_desc.role_privileges.each { |priv|
-# XXX is priv.service_id (GSuite) needed to namespace these?
-                bok["import"] << priv.privilege_name
+                bok["import"] << priv.service_id+"/"+priv.privilege_name
               }
             end
           else # otherwise it's a GCP IAM role of some kind
-            pp cloud_desc
             cloud_desc.name.match(/^([^\/]+?)\/([^\/]+?)\/roles\/(.*)/)
             junk, type, parent, name = Regexp.last_match.to_a
             bok['type'] = type == "organizations" ? "org" : "project"
@@ -199,19 +193,46 @@ module MU
             end
             bok["display_name"] = cloud_desc.title
             if !cloud_desc.included_permissions.empty?
-# XXX user query_grantable_roles and see if we can wildcard this mess
               bok['import'] = []
               cloud_desc.included_permissions.each { |priv|
                 bok["import"] << priv
               }
             end
-            if bok["project"] == "ncbi-research-dbas"
-            MU.log "WHAT THE GODDAMN HELL", MU::NOTICE, details: bok
+
+            bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
+
+            if bindings and bindings["domain"]
+              bindings["domain"].each_pair { |domain, roles|
+                if roles[cloud_desc.name]
+                  bok["bindings"] ||= []
+                  bok["bindings"] << {
+                    "entity" => { "id" => domain }
+                  }
+                  roles[cloud_desc.name].each_pair { |scopetype, places|
+                    mu_type = scopetype == "projects" ? "habitats" : scopetype
+                    bok["bindings"][scopetype] = []
+                    if scopetype == "organizations"
+                      places.each { |org|
+                        bok["bindings"][scopetype] << ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org)
+                      }
+                    else
+                      places.each { |scope|
+                        bok["bindings"][scopetype] << MU::Config::Ref.new(
+                          id: scope,
+                          type: mu_type
+                        )
+                      }
+                    end
+                  }
+pp bok
+exit
+                end
+              }
             end
           end
 
           bok
-       end
+        end
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
@@ -231,63 +252,168 @@ module MU
             "description" => {
               "type" => "string",
               "description" => "Detailed human-readable description of this role's purpose"
+            },
+            "bindings" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "One or more entities (+user+, +group+, etc) to associate with this role. IAM roles in Google can be associated at the project (+Habitat+), folder, or organization level, so we must specify not only the target entity, but each container in which it is granted to the entity in question.",
+                "properties" => {
+                  "entity" => MU::Config::Ref.schema,
+                  "projects" => {
+                    "type" => "array",
+                    "items" => MU::Config::Ref.schema(type: "habitats")
+                  },
+                  "folders" => {
+                    "type" => "array",
+                    "items" => MU::Config::Ref.schema(type: "folders")
+                  },
+                  "organizations" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials, which can be used as an alias to the organization to which they authenticate."
+                    }
+                  }
+                }
+              }
             }
-# XXX probably need a flag to distinguish directory roles from project/org/folder ones
           }
           [toplevel_required, schema]
+        end
+
+        # Schema used by +user+ and +group+ entities to reference role
+        # assignments and their scopes.
+        # @return [<Hash>]
+        def self.ref_schema
+          {
+            "type" => "object",
+            "description" => "One or more Google IAM roles to associate with this entity. IAM roles in Google can be associated at the project (+Habitat+), folder, or organization level, so we must specify not only role, but each container in which it is granted to the entity in question.",
+            "properties" => {
+              "role" => MU::Config::Ref.schema(type: "roles"),
+              "projects" => {
+                "type" => "array",
+                "items" => MU::Config::Ref.schema(type: "habitats")
+              },
+              "folders" => {
+                "type" => "array",
+                "items" => MU::Config::Ref.schema(type: "folders")
+              },
+              "organizations" => {
+                "type" => "array",
+                "items" => {
+                  "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials, which can be used as an alias to the organization to which they authenticate."
+                }
+              }
+            }
+          }
         end
 
         @@binding_semaphore = Mutex.new
         @@bindings_by_role = {}
         @@bindings_by_entity = {}
+        @@bindings_by_scope = {}
 
         # Retrieve IAM role bindings for all entities throughout our
         # organization, map them in useful ways, and cache the result.
         def self.getAllBindings(credentials = nil, refresh: false)
           my_org = MU::Cloud::Google.getOrg(credentials)
           @@binding_semaphore.synchronize {
-            if @@bindings_by_role[my_org.name] and @@bindings_by_entity[my_org.name] and !refresh
+            if @@bindings_by_role.size > 0 and !refresh
               return {
-                "by_role" => @@bindings_by_role[my_org.name],
-                "by_entity" => @@bindings_by_entity[my_org.name]
+                "by_role" => @@bindings_by_role,
+                "by_scope" => @@bindings_by_scope,
+                "by_entity" => @@bindings_by_entity
               }
             end
 
-            def self.insertBinding(scope, binding)
-              @@bindings_by_role[scope] ||= {}
-              @@bindings_by_entity[scope] ||= {}
-              @@bindings_by_role[scope][binding.role] = {}
+            def self.insertBinding(scopetype, scope, binding)
+              @@bindings_by_scope[scopetype] ||= {}
+              @@bindings_by_scope[scopetype][scope] ||= {}
+              @@bindings_by_scope[scopetype][scope][binding.role] ||= {}
+              @@bindings_by_role[binding.role] ||= {}
+              @@bindings_by_role[binding.role][scopetype] ||= {}
+              @@bindings_by_role[binding.role][scopetype][scope] ||= {}
               binding.members.each { |member|
                 member_type, member_id = member.split(/:/)
-                @@bindings_by_role[scope][binding.role][member_type] ||= []
-                @@bindings_by_role[scope][binding.role][member_type] << member_id
-                @@bindings_by_entity[scope][member_type] ||= {}
-                @@bindings_by_entity[scope][member_type][member_id] ||= []
-                @@bindings_by_entity[scope][member_type][member_id] << binding.role
+
+                @@bindings_by_role[binding.role][scopetype][scope][member_type] ||= []
+                @@bindings_by_role[binding.role][scopetype][scope][member_type] << member_id
+                @@bindings_by_scope[scopetype][scope][binding.role][member_type] ||= []
+                @@bindings_by_scope[scopetype][scope][binding.role][member_type] << member_id
+                @@bindings_by_entity[member_type] ||= {}
+                @@bindings_by_entity[member_type][member_id] ||= {}
+                @@bindings_by_entity[member_type][member_id][binding.role] ||= {}
+                @@bindings_by_entity[member_type][member_id][binding.role][scopetype] ||= []
+                @@bindings_by_entity[member_type][member_id][binding.role][scopetype] << scope
               }
             end
 
             resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(my_org.name)
             resp.bindings.each { |binding|
-              insertBinding(my_org.name, binding)
+              insertBinding("organizations", my_org.name, binding)
             }
 
             MU::Cloud::Google::Folder.find(credentials: credentials).keys.each { |folder|
               MU::Cloud::Google::Folder.bindings(folder, credentials: credentials).each { |binding|
-                insertBinding(folder, binding)
+                insertBinding("folders", folder, binding)
               }
             }
             MU::Cloud::Google::Habitat.find(credentials: credentials).keys.each { |project|
               MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
-                insertBinding(project, binding)
+                insertBinding("projects", project, binding)
               }
             }
 
-            {
+            return {
               "by_role" => @@bindings_by_role,
+              "by_scope" => @@bindings_by_scope,
               "by_entity" => @@bindings_by_entity
             }
           }
+        end
+
+        def self.entityBindingsToSchema(roles, credentials: nil)
+          my_org = MU::Cloud::Google.getOrg(credentials)
+          role_cfg = []
+          roles.each_pair { |role, scopes|
+            rolemap = { }
+            rolemap["role"] = if role.match(/^roles\//)
+              # generally referring to a canned GCP role
+              { "id" => role }
+            else
+              # Possi-probably something we're declaring elsewhere in this
+              # adopted Mu stack
+              MU::Config::Ref.get(
+                id: role,
+                cloud: "Google",
+                credentials: credentials,
+                type: "roles"
+              )
+            end
+            scopes.each_pair { |scopetype, places|
+              if places.size > 0
+                rolemap[scopetype] = []
+                if scopetype == "organizations"
+                  places.each { |org|
+                    rolemap[scopetype] << ((org == my_org.name and credentials) ? credentials : org)
+                  }
+                else
+                  places.each { |place|
+                    mu_type = scopetype == "projects" ? "habitats" : scopetype
+                    rolemap[scopetype] << MU::Config::Ref.get(
+                      id: place,
+                      cloud: "Google",
+                      credentials: credentials,
+                      type: mu_type
+                    )
+                  }
+                end
+              end
+            }
+            role_cfg << rolemap
+          }
+
+          role_cfg
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.

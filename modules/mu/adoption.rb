@@ -331,7 +331,6 @@ MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cf
         if bok[attrs[:cfg_plural]]
           bok[attrs[:cfg_plural]].each { |kitten|
 
-          puts kitten['cloud_id']
             if !@scraped[typename][kitten['cloud_id']]
               MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR, details: kitten
               next

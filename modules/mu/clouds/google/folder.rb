@@ -300,12 +300,12 @@ end
           }
 
           bok['display_name'] = cloud_desc.display_name
-          bok['cloud_id'] = cloud_desc.name.sub(/^folders\//, "")
+          bok['cloud_id'] = cloud_desc.name
           bok['name'] = cloud_desc.display_name#+bok['cloud_id'] # only way to guarantee uniqueness
           if cloud_desc.parent.match(/^folders\/(.*)/)
 MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_desc.parent
             bok['parent'] = MU::Config::Ref.get(
-              id: Regexp.last_match[1],
+              id: cloud_desc.parent,
               cloud: "Google",
               credentials: @config['credentials'],
               type: "folders"

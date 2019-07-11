@@ -108,6 +108,7 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         def toKitten(rootparent: nil, billing: nil)
+
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
@@ -124,11 +125,11 @@ module MU
               type: "users"
             )
           }
-          bok['roles'] = []
-
-# go get role bindings and list here? That'd be nice
-          pp cloud_desc
-          exit
+          group_roles = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
+          if group_roles["group"] and group_roles["group"][bok['cloud_id']] and
+             group_roles["group"][bok['cloud_id']].size > 0
+            bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(group_roles["group"][bok['cloud_id']], credentials: @config['credentials'])
+          end
 
           bok
        end
@@ -145,16 +146,7 @@ module MU
             },
             "roles" => {
               "type" => "array",
-              "description" => "One or more Google IAM roles to associate with this group.",
-              "default" => ["roles/viewer"],
-              "items" => {
-                "type" => "string",
-                "description" => "One or more Google IAM roles to associate with this group. Google Cloud groups are not created directly; pre-existing Google Groups are associated with a project by being bound to one or more roles in that project. If no roles are specified, we default to +roles/viewer+, which permits read-only access project-wide."
-              }
-            },
-            "project" => {
-              "type" => "string",
-              "description" => "The project into which to deploy resources"
+              "items" => MU::Cloud::Google::Role.ref_schema
             }
           }
           [toplevel_required, schema]

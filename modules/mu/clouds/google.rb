@@ -1056,7 +1056,7 @@ module MU
               else
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym}"
               end
-            rescue ::Google::Apis::RateLimitError, ::Google::Apis::TransmissionError, ::ThreadError => e
+            rescue ::Google::Apis::RateLimitError, ::Google::Apis::TransmissionError, ::ThreadError, ::Google::Apis::ServerError => e
               if retries <= 10
                 sleep wait_backoff
                 retries += 1

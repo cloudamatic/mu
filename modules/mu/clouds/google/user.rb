@@ -30,6 +30,8 @@ module MU
               @config['type'] = "interactive"
             elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
               @config['type'] = "service"
+              @config['name'] = args[:from_cloud_desc].display_name
+              @cloud_id = args[:from_cloud_desc].name
             else
               puts args[:from_cloud_desc].class.name
               pp @config
@@ -95,12 +97,13 @@ module MU
 
             if resp and resp.accounts
               resp.accounts.each { |sa|
-                if sa.display_name and sa.display_name == @mu_name
+                if (sa.display_name and sa.display_name == @mu_name) or (sa.name and sa.name == @cloud_id)
                   return sa
                 end
               }
             end
           end
+          nil
         end
 
         # Return the metadata for this user configuration
@@ -173,8 +176,8 @@ module MU
 
             if resp and resp.accounts
               resp.accounts.each { |sa|
-                if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id])
-                  found[sa.display_name] = sa
+                if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id]) or (sa.name and sa.name == args[:cloud_id])
+                  found[sa.name] = sa
                 end
               }
             end
@@ -208,6 +211,20 @@ module MU
             "credentials" => @config['credentials']
           }
 
+          # TODO fill in other stock service accounts which we can ignore
+          if ["Compute Engine default service account",
+              "App Engine default service account"].include?(@config['name'])
+              pp cloud_desc
+            return nil
+          end
+
+          user_roles = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
+
+          if cloud_desc.nil?
+            MU.log "FAILED TO FIND CLOUD DESCRIPTOR FOR #{self}", MU::ERR, details: @config
+            return nil
+          end
+
           bok['name'] = @config['name']
           bok['cloud_id'] = @cloud_id
           bok['type'] = @config['type']
@@ -215,13 +232,19 @@ module MU
           if bok['type'] == "service"
             bok['project'] = @project_id
             bok['cloud_id'] = cloud_desc.name
-            pp bok
-            pp cloud_desc
-            puts "================"
-          # XXX set create_api_key if appropriate
-            MU.log "service account #{@cloud_id}", MU::NOTICE, details: MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account_iam_policy(cloud_desc.name)
+#            MU.log "service account #{@cloud_id}", MU::NOTICE, details: MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account_iam_policy(cloud_desc.name)
+            if user_roles["serviceAccount"] and
+               user_roles["serviceAccount"][bok['cloud_id']] and
+               user_roles["serviceAccount"][bok['cloud_id']].size > 0
+              bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["serviceAccount"][bok['cloud_id']])
+            end
+          else
+            if user_roles["user"] and
+               user_roles["user"][bok['cloud_id']] and
+               user_roles["user"][bok['cloud_id']].size > 0
+              bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["user"][bok['cloud_id']], credentials: @config['credentials'])
+            end
           end
-          bok['roles'] = [] # We'll allow Role/Group to deal with membership
 
           bok['use_if_exists'] = true # don't try to step on existing accounts with the same names
 
@@ -246,15 +269,7 @@ module MU
             "roles" => {
               "type" => "array",
               "description" => "One or more Google IAM roles to associate with this user.",
-              "default" => ["roles/viewer"],
-              "items" => {
-                "type" => "string",
-                "description" => "One or more Google IAM roles to associate with this user. Google Cloud human user accounts (as distinct from service accounts) are not created directly; pre-existing Google accounts are associated with a project by being bound to one or more roles in that project. If no roles are specified, we default to +roles/viewer+, which permits read-only access project-wide."
-              }
-            },
-            "project" => {
-              "type" => "string",
-              "description" => "The project into which to deploy resources"
+              "items" => MU::Cloud::Google::Role.ref_schema
             }
           }
           [toplevel_required, schema]

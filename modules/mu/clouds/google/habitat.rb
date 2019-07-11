@@ -301,7 +301,7 @@ module MU
           if cloud_desc.parent and cloud_desc.parent.id
             if cloud_desc.parent.type == "folder"
               bok['parent'] = MU::Config::Ref.get(
-                id: cloud_desc.parent.id,
+                id: "folders/"+cloud_desc.parent.id, # honestly, Google, make up your mind about your identifiers
                 cloud: "Google",
                 credentials: @config['credentials'],
                 type: "folders"
