@@ -133,7 +133,7 @@ Smoke Test:
 
 Dockerbuild:
   stage: Dockerbuild
-  image: docker:latest
+  image: docker:dind
   dependencies:
   - Gem Build
   script:
