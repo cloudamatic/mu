@@ -142,6 +142,8 @@ Dockerbuild:
     - master
     - development
     - docker_test
+  tags:
+    - docker-build
 
 Gen Docs:
   stage: Merge/Tag
