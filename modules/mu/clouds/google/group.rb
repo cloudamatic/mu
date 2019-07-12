@@ -28,6 +28,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+
 # XXX all of the below only applicable for masqueraded read-write credentials with GSuite or Cloud Identity
           if !@config['email']
             domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
@@ -35,7 +36,8 @@ module MU
           end
           group_obj = MU::Cloud::Google.admin_directory(:Group).new(
             name: @mu_name,
-            email: @config['email']
+            email: @config['email'],
+            description: @deploy.deploy_id
           )
 
           MU.log "Creating group #{@mu_name}", details: group_obj

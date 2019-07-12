@@ -49,7 +49,31 @@ module MU
           if @config['type'] == "interactive"
 # XXX bind_human_user is really some logic that belongs in Role; what goes here
 # is logic to create GSuite or CLoud Identity accounts, assuming adequate privileges.
-            bind_human_user
+#            bind_human_user
+# XXX all of the below only applicable for masqueraded read-write credentials with GSuite or Cloud Identity
+            if !@config['email']
+              domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
+              @config['email'] = @config['name'].gsub(/@.*/, "")+"@"+domains.domains.first.domain_name
+            end
+
+            username_obj = MU::Cloud::Google.admin_directory(:UserName).new(
+              given_name: @config['name'],              
+              family_name: @deploy.deploy_id,
+              full_name: @mu_name
+            )
+
+            user_obj = MU::Cloud::Google.admin_directory(:User).new(
+              name: username_obj,
+              primary_email: @config['email'],
+              change_password_at_next_login: true,
+              password: MU.generateWindowsPassword
+            )
+
+            MU.log "Creating user #{@mu_name}", details: user_obj
+pp user_obj
+            resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_user(user_obj)
+            pp resp
+            @cloud_id = resp.primary_email
           else
             req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
               account_id: @deploy.getResourceName(@config["name"], max_length: 30).downcase,
@@ -68,7 +92,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['type'] == "interactive"
-            bind_human_user
+#            bind_human_user
           else
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
