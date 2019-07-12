@@ -14,8 +14,6 @@ RUN yum install -y centos-release-scl-rh
 RUN yum install -y rh-ruby25-ruby-devel
 RUN gem update --system
 RUN gem install ./cloud-mu-*.gem -N
+RUN rm cloud-mu-*.gem
 
-RUN gem list
-
-CMD ["/usr/sbin/init"]
-#CMD systemctl start mu-momma-cat
+CMD /usr/sbin/init
