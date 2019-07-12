@@ -124,32 +124,53 @@ end
 
           bok[res_class.cfg_plural] ||= []
 
-          resources.each_pair { |cloud_id, obj|
-            resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
+          class_semaphore = Mutex.new
+          threads = []
 
-            if resource_bok
-              resource_bok.delete("credentials") if @destination
-              # If we've got duplicate names in here, try to deal with it
-              bok[res_class.cfg_plural].each { |sibling|
-                if sibling['name'] == resource_bok['name']
-                  MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
-                  if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
-                    resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
-                  elsif resource_bok['project']
-                    resource_bok['name'] = resource_bok['name']+resource_bok['project']
-                  elsif resource_bok['cloud_id']
-                    resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
-                  else
-                    raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
-                  end
-                  MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
-                  break
-                end
-              }
-              bok[res_class.cfg_plural] << resource_bok
-              count += 1
+          Thread.abort_on_exception = true
+          resources.each_pair { |cloud_id_thr, obj_thr|
+            if threads.size >= 10
+              sleep 1
+              begin
+                threads.each { |t|
+                  t.join(0.1)
+                }
+                threads.reject! { |t| !t.status }
+              end while threads.size >= 10
             end
+            threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
 
+              resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
+              if resource_bok
+                resource_bok.delete("credentials") if @destination
+
+                # If we've got duplicate names in here, try to deal with it
+                class_semaphore.synchronize {
+                  bok[res_class.cfg_plural].each { |sibling|
+                    if sibling['name'] == resource_bok['name']
+                      MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
+                      if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
+                        resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
+                      elsif resource_bok['project']
+                        resource_bok['name'] = resource_bok['name']+resource_bok['project']
+                      elsif resource_bok['cloud_id']
+                        resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+                      else
+                        raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
+                      end
+                      MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
+                      break
+                    end
+                  }
+                  bok[res_class.cfg_plural] << resource_bok
+                }
+                count += 1
+              end
+            }
+          }
+
+          threads.each { |t|
+            t.join
           }
         }
       }

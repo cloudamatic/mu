@@ -28,9 +28,12 @@ module MU
           # If we're being reverse-engineered from a cloud descriptor, use that
           # to determine what sort of account we are.
           if args[:from_cloud_desc]
+            @cloud_desc_cache = args[:from_cloud_desc]
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::Role
               @config['role_source'] = "directory"
-#            elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
+            elsif args[:from_cloud_desc].name.match(/^roles\/(.*)/)
+              @config['role_source'] = "canned"
+              @config['name'] = Regexp.last_match[1]
             elsif args[:from_cloud_desc].name.match(/^organizations\/\d+\/roles\/(.*)/)
               @config['role_source'] = "org"
               @config['name'] = Regexp.last_match[1]
@@ -55,17 +58,22 @@ module MU
         end
 
         def cloud_desc
+          return @cloud_desc_cache if @cloud_desc_cache
+
           customer = MU::Cloud::Google.customerID(@config['credentials'])
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
 
-          if @config['role_source'] == "directory"
+          @cloud_desc_cache = if @config['role_source'] == "directory"
             MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_role(customer, @cloud_id)
+          elsif @config['role_source'] == "canned"
+            MU::Cloud::Google.iam(credentials: @config['credentials']).get_role(@cloud_id)
           elsif @config['role_source'] == "project"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
           elsif @config['role_source'] == "org"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_organization_role(@cloud_id)
           end
 
+          @cloud_desc_cache
         end
 
         # Return the metadata for this group configuration
@@ -142,7 +150,11 @@ module MU
 #              resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_role_assignments(MU::Cloud::Google.customerID(args[:credentials]))
             end
 #            These are the canned roles
-#            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles
+            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles
+            resp.roles.each { |role|
+              found[role.name] = role
+            }
+
             resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
             if resp and resp.roles
               resp.roles.each { |role|
@@ -161,15 +173,14 @@ module MU
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials'],
-            "cloud_id" => @cloud_id,
-            "role_source" => @config['type']
+            "cloud_id" => @cloud_id
           }
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
- 
+
           # GSuite or Cloud Identity role
           if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role
-            bok['role_source'] = "directory"
             bok["name"] = @config['name'].gsub(/[^a-z0-9]/i, '-').downcase
+            bok['role_source'] = "directory"
             bok["display_name"] = @config['name']
             if !cloud_desc.role_description.empty?
               bok["description"] = cloud_desc.role_description
@@ -181,18 +192,28 @@ module MU
               }
             end
           else # otherwise it's a GCP IAM role of some kind
-            cloud_desc.name.match(/^([^\/]+?)\/([^\/]+?)\/roles\/(.*)/)
-            junk, type, parent, name = Regexp.last_match.to_a
-            bok['role_source'] = type == "organizations" ? "org" : "project"
-            bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
-            if bok['role_source'] == "project"
-              bok['project'] = parent
+
+            if cloud_desc.name.match(/^roles\/([^\/]+)$/)
+              name = Regexp.last_match[1]
+              bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
+              bok['role_source'] = "canned"
+            elsif cloud_desc.name.match(/^([^\/]+?)\/([^\/]+?)\/roles\/(.*)/)
+              junk, type, parent, name = Regexp.last_match.to_a
+              bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
+              bok['role_source'] = type == "organizations" ? "org" : "project"
+              if bok['role_source'] == "project"
+                bok['project'] = parent
+              end
+            else
+              raise MuError, "I don't know how to parse GCP IAM role identifier #{cloud_desc.name}"
             end
+
             if !cloud_desc.description.nil? and !cloud_desc.description.empty?
               bok["description"] = cloud_desc.description
             end
             bok["display_name"] = cloud_desc.title
-            if !cloud_desc.included_permissions.empty?
+            if !cloud_desc.included_permissions.nil? and
+               !cloud_desc.included_permissions.empty?
               bok['import'] = []
               cloud_desc.included_permissions.each { |priv|
                 bok["import"] << priv
@@ -201,34 +222,48 @@ module MU
 
             bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
 
-            if bindings and bindings["domain"]
-              bindings["domain"].each_pair { |domain, roles|
-                if roles[cloud_desc.name]
-                  bok["bindings"] ||= []
-                  newbinding = {
-                    "entity" => { "id" => domain }
-                  }
-                  roles[cloud_desc.name].each_pair { |scopetype, places|
-                    mu_type = scopetype == "projects" ? "habitats" : scopetype
-                    newbinding[scopetype] = []
-                    if scopetype == "organizations"
-                      places.each { |org|
-                        newbinding[scopetype] << ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org)
-                      }
-                    else
-                      places.each { |scope|
-                        newbinding[scopetype] << MU::Config::Ref.new(
-                          id: scope,
-                          type: mu_type
-                        )
-                      }
-                    end
-                  }
-                  bok["bindings"] << newbinding
-                end
-              }
+
+            if bindings 
+              # XXX In theory, for non-canned roles, bindings are already
+              # covered by our sibling user and group resources, but what if
+              # we're not adopting those resource types today? Hm. We'd have to
+              # somehow know whether a resource was being toKitten'd somewhere
+              # else outside of this method's visibility.
+
+              if bindings["domain"]
+                bindings["domain"].each_pair { |domain, roles|
+                  if roles[cloud_desc.name]
+                    bok["bindings"] ||= []
+                    newbinding = {
+                      "entity" => { "id" => domain }
+                    }
+                    roles[cloud_desc.name].each_pair { |scopetype, places|
+                      mu_type = scopetype == "projects" ? "habitats" : scopetype
+                      newbinding[scopetype] = []
+                      if scopetype == "organizations"
+                        places.each { |org|
+                          newbinding[scopetype] << ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org)
+                        }
+                      else
+                        places.each { |scope|
+                          newbinding[scopetype] << MU::Config::Ref.new(
+                            id: scope,
+                            type: mu_type
+                          )
+                        }
+                      end
+                    }
+                    bok["bindings"] << newbinding
+                  end
+                }
+              end
             end
           end
+
+          # Our only reason for declaring canned roles is so we can put their
+          # domain bindings somewhere. If there aren't any, then we don't need
+          # to bother with them.
+          return nil if bok['role_source'] == "canned" and bok['bindings'].nil?
 
           bok
         end
@@ -246,7 +281,7 @@ module MU
             "role_source" => {
               "type" => "string",
               "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys",
-              "enum" => ["directory", "org", "project"]
+              "enum" => ["directory", "org", "project", "canned"]
             },
             "description" => {
               "type" => "string",
