@@ -28,12 +28,28 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          bind_group
+# XXX all of the below only applicable for masqueraded read-write credentials with GSuite or Cloud Identity
+          if !@config['email']
+            domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
+            @config['email'] = @mu_name.downcase+"@"+domains.domains.first.domain_name
+          end
+          group_obj = MU::Cloud::Google.admin_directory(:Group).new(
+            name: @mu_name,
+            email: @config['email']
+          )
+
+          MU.log "Creating group #{@mu_name}", details: group_obj
+
+          resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_group(group_obj)
+          @cloud_id = resp.email
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          bind_group
+          if @config['project']
+# XXX this is nonsense, what we really want is to follow the list of role bindings
+            bind_group
+          end
         end
 
         # Retrieve a list of users (by cloud id) of this group
@@ -93,6 +109,7 @@ module MU
           # we'll go ahead and respect that.
           if args[:cloud_id]
             resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_group(args[:cloud_id])
+            pp resp
             found[resp.email] = resp if resp
           else
             resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_groups(customer: MU::Cloud::Google.customerID(args[:credentials]))

@@ -744,7 +744,8 @@ module MU
         require 'google/apis/admin_directory_v1'
     
         if subclass.nil?
-          @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+# XXX gracefully handle fallback to read-only
+          @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema', 'admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
           return @@admin_directory_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
@@ -933,6 +934,10 @@ module MU
               @api.authorization.fetch_access_token!
             rescue Signet::AuthorizationError => e
               MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::ERROR, details: @scopes
+              if e.message.match(/client not authorized for any of the scopes requested/)
+# XXX it'd be helpful to list *all* scopes we like, as well as the API client's numeric id
+                MU.log "To grant access to API scopes for this service account, see:", MU::ERR, details: "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"
+              end
               raise e
             end
           end
@@ -1079,8 +1084,13 @@ module MU
               if enable_on_fail and retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
 
-                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject(@credentials)
-                if !MU::Cloud::Google::Habitat.isLive?(project, @credentials) and method_sym == :delete
+                project = if arguments.size > 0 and arguments.first.is_a?(String)
+                  arguments.first
+                else
+                  MU::Cloud::Google.defaultProject(@credentials)
+                end
+# XXX validate that this actually looks like a project id, maybe
+                if method_sym == :delete and !MU::Cloud::Google::Habitat.isLive?(project, @credentials)
                   MU.log "Got accessNotConfigured while attempting to delete a resource in #{project}", MU::WARN
                    
                   return
@@ -1164,6 +1174,12 @@ module MU
                         arguments.first, # there's always a project id
                         retval.name
                       )
+                      retval = resp
+                    elsif retval.class.name.match(/::Servicemanagement[^:]*::/)
+                      resp = MU::Cloud::Google.service_manager(credentials: @credentials).get_operation(
+                        retval.name
+                      )
+                      pp resp
                       retval = resp
                     elsif retval.class.name.match(/::Cloudresourcemanager[^:]*::/)
                       resp = MU::Cloud::Google.resource_manager(credentials: @credentials).get_operation(
