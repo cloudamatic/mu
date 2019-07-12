@@ -31,6 +31,9 @@ module MU
             elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
               @config['type'] = "service"
               @config['name'] = args[:from_cloud_desc].display_name
+              if @config['name'].nil? or @config['name'].empty?
+                @config['name'] = args[:from_cloud_desc].name.sub(/.*?\/([^\/@]+)(?:@[^\/]*)?$/, '\1')
+              end
               @cloud_id = args[:from_cloud_desc].name
             else
               puts args[:from_cloud_desc].class.name
@@ -211,10 +214,9 @@ module MU
             "credentials" => @config['credentials']
           }
 
-          # TODO fill in other stock service accounts which we can ignore
+          # TODO fill in other stock service accounts which we should ignore
           if ["Compute Engine default service account",
               "App Engine default service account"].include?(@config['name'])
-              pp cloud_desc
             return nil
           end
 
@@ -231,7 +233,11 @@ module MU
           bok['type'] ||= "service"
           if bok['type'] == "service"
             bok['project'] = @project_id
-            bok['cloud_id'] = cloud_desc.name
+            keys = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(@cloud_id)
+
+            if keys and keys.keys and keys.keys.size > 0
+              bok['create_api_key'] = true
+            end
 #            MU.log "service account #{@cloud_id}", MU::NOTICE, details: MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account_iam_policy(cloud_desc.name)
             if user_roles["serviceAccount"] and
                user_roles["serviceAccount"][bok['cloud_id']] and
