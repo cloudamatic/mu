@@ -29,16 +29,16 @@ module MU
           # to determine what sort of account we are.
           if args[:from_cloud_desc]
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::Role
-              @config['type'] = "directory"
+              @config['role_source'] = "directory"
 #            elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
             elsif args[:from_cloud_desc].name.match(/^organizations\/\d+\/roles\/(.*)/)
-              @config['type'] = "org"
+              @config['role_source'] = "org"
               @config['name'] = Regexp.last_match[1]
             elsif args[:from_cloud_desc].name.match(/^projects\/([^\/]+?)\/roles\/(.*)/)
               @config['project'] = Regexp.last_match[1]
               @config['name'] = Regexp.last_match[2]
               @project_id = @config['project']
-              @config['type'] = "project"
+              @config['role_source'] = "project"
             else
               MU.log "I don't know what to do with this #{args[:from_cloud_desc].class.name}", MU::ERR, details: args[:from_cloud_desc]
               raise MuError, "I don't know what to do with this #{args[:from_cloud_desc].class.name}"
@@ -58,11 +58,11 @@ module MU
           customer = MU::Cloud::Google.customerID(@config['credentials'])
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
 
-          if @config['type'] == "directory"
+          if @config['role_source'] == "directory"
             MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_role(customer, @cloud_id)
-          elsif @config['type'] == "project"
+          elsif @config['role_source'] == "project"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
-          elsif @config['type'] == "org"
+          elsif @config['role_source'] == "org"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_organization_role(@cloud_id)
           end
 
@@ -162,13 +162,13 @@ module MU
             "cloud" => "Google",
             "credentials" => @config['credentials'],
             "cloud_id" => @cloud_id,
-            "type" => @config['type']
+            "role_source" => @config['type']
           }
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
  
           # GSuite or Cloud Identity role
           if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role
-            bok['type'] = "directory"
+            bok['role_source'] = "directory"
             bok["name"] = @config['name'].gsub(/[^a-z0-9]/i, '-').downcase
             bok["display_name"] = @config['name']
             if !cloud_desc.role_description.empty?
@@ -183,9 +183,9 @@ module MU
           else # otherwise it's a GCP IAM role of some kind
             cloud_desc.name.match(/^([^\/]+?)\/([^\/]+?)\/roles\/(.*)/)
             junk, type, parent, name = Regexp.last_match.to_a
-            bok['type'] = type == "organizations" ? "org" : "project"
+            bok['role_source'] = type == "organizations" ? "org" : "project"
             bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
-            if bok['type'] == "project"
+            if bok['role_source'] == "project"
               bok['project'] = parent
             end
             if !cloud_desc.description.nil? and !cloud_desc.description.empty?
@@ -205,27 +205,26 @@ module MU
               bindings["domain"].each_pair { |domain, roles|
                 if roles[cloud_desc.name]
                   bok["bindings"] ||= []
-                  bok["bindings"] << {
+                  newbinding = {
                     "entity" => { "id" => domain }
                   }
                   roles[cloud_desc.name].each_pair { |scopetype, places|
                     mu_type = scopetype == "projects" ? "habitats" : scopetype
-                    bok["bindings"][scopetype] = []
+                    newbinding[scopetype] = []
                     if scopetype == "organizations"
                       places.each { |org|
-                        bok["bindings"][scopetype] << ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org)
+                        newbinding[scopetype] << ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org)
                       }
                     else
                       places.each { |scope|
-                        bok["bindings"][scopetype] << MU::Config::Ref.new(
+                        newbinding[scopetype] << MU::Config::Ref.new(
                           id: scope,
                           type: mu_type
                         )
                       }
                     end
                   }
-pp bok
-exit
+                  bok["bindings"] << newbinding
                 end
               }
             end
@@ -244,7 +243,7 @@ exit
               "type" => "string",
               "description" => "A human readable name for this role. If not specified, will default to our long-form deploy-generated name."
             },
-            "type" => {
+            "role_source" => {
               "type" => "string",
               "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys",
               "enum" => ["directory", "org", "project"]
