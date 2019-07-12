@@ -1,5 +1,9 @@
 image: ruby:2.5
 
+variables:
+   DOCKER_HOST: tcp://docker:2375/
+   DOCKER_DRIVER: overlay2
+
 stages:
   - Lint Test
   - Test
@@ -133,11 +137,14 @@ Smoke Test:
 
 Dockerbuild:
   stage: Dockerbuild
-  image: docker:dind
+  image: docker:stable
+  services:
+     - docker:dind
   dependencies:
   - Gem Build
   script:
     - docker build -t mu:latest .
+    #- docker run my-docker-image /script/to/run/tests
   only:
     - master
     - development
