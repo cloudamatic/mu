@@ -18,8 +18,8 @@ module MU
       # A user as configured in {MU::Config::BasketofKittens::users}
       class User < MU::Cloud::User
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::users}
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
 
@@ -100,19 +100,20 @@ module MU
           MU::Cloud::ALPHA
         end
 
-        # Remove all users associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
+        # Stub method. Azure resources are cleaned up by removing the parent
+        # resource group.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(**args)
         end
 
-        # Locate an existing user.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
+        # Locate and return cloud provider descriptors of this resource type
+        # which match the provided parameters, or all visible resources if no
+        # filters are specified. At minimum, implementations of +find+ must
+        # honor +credentials+ and +cloud_id+ arguments. We may optionally
+        # support other search methods, such as +tag_key+ and +tag_value+, or
+        # cloud-specific arguments like +project+. See also {MU::MommaCat.findStray}.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           found = {}
 
@@ -160,11 +161,12 @@ module MU
             "region" => MU::Config.region_primitive,
             "name" => {
               "type" => "string",
-              "description" => "This must be the email address of an existing Azure user account (+foo@gmail.com+), or of a federated GSuite or Cloud Identity domain account from your organization."
+              "description" => "The name of a account to create. Currently, +service+ is the only account type we support in Azure."
             },
             "type" => {
               "type" => "string",
-              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys"
+              "description" => "'service' will create a service account (machine credentials) and generate API keys",
+              "enum" => ["service"]
             },
             "roles" => {
               "type" => "array",

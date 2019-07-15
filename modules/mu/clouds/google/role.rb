@@ -18,8 +18,8 @@ module MU
       # A role as configured in {MU::Config::BasketofKittens::roles}
       class Role < MU::Cloud::Role
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::roles}
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
 
@@ -116,11 +116,14 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
         end
 
-        # Locate an existing group group.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching group group.
+        # Locate and return cloud provider descriptors of this resource type
+        # which match the provided parameters, or all visible resources if no
+        # filters are specified. At minimum, implementations of +find+ must
+        # honor +credentials+ and +cloud_id+ arguments. We may optionally
+        # support other search methods, such as +tag_key+ and +tag_value+, or
+        # cloud-specific arguments like +project+. See also {MU::MommaCat.findStray}.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           credcfg = MU::Cloud::Google.credConfig(args[:credentials])
           customer = MU::Cloud::Google.customerID(args[:credentials])
@@ -463,7 +466,7 @@ module MU
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.
-        # @param group [Hash]: The resource to process and validate
+        # @param role [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(role, configurator)

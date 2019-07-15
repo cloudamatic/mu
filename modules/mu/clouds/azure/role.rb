@@ -18,8 +18,8 @@ module MU
       # A user as configured in {MU::Config::BasketofKittens::roles}
       class Role < MU::Cloud::Role
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::roles}
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
           if !mu_name.nil?
@@ -72,7 +72,7 @@ module MU
 
         # Assign a role to a particular principal (create a RoleAssignment). We
         # support multiple ways of referring to a role
-        # @param principal_id [MU::Cloud::Azure::Id]
+        # @param principal [MU::Cloud::Azure::Id]
         def self.assignTo(principal, role_name: nil, role_id: nil, credentials: nil)
 # XXX subscription might need extraction
           if !role_name and !role_id
@@ -120,8 +120,14 @@ end
         @@role_list_cache = {}
         @@role_list_semaphore = Mutex.new
 
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
+        # Locate and return cloud provider descriptors of this resource type
+        # which match the provided parameters, or all visible resources if no
+        # filters are specified. At minimum, implementations of +find+ must
+        # honor +credentials+ and +cloud_id+ arguments. We may optionally
+        # support other search methods, such as +tag_key+ and +tag_value+, or
+        # cloud-specific arguments like +project+. See also {MU::MommaCat.findStray}.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           found = {}
 
@@ -164,12 +170,10 @@ end
           found
         end
 
-        # Remove all users associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
+        # Stub method. Azure resources are cleaned up by removing the parent
+        # resource group.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(**args)
         end
 
         # Cloud-specific configuration properties.
@@ -183,7 +187,7 @@ end
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.
-        # @param user [Hash]: The resource to process and validate
+        # @param role [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(role, configurator)

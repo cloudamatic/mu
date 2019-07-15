@@ -13,10 +13,15 @@
 # limitations under the License.
 
 module MU
+
+  # Scrape cloud providers for existing resources, and reverse-engineer them
+  # into runnable {MU::Config} descriptors and/or {MU::MommaCat} deploy objects.
   class Adoption
 
     attr_reader :found
 
+    # Error class for objects which fail to fully resolve (e.g. references to 
+    # other objects which are not found)
     class Incomplete < MU::MuNonFatal; end
 
     def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, destination: nil)
@@ -30,6 +35,7 @@ module MU
       @destination = destination
     end
 
+    # Walk cloud providers with available credentials to discover resources
     def scrapeClouds()
       @default_parent = nil
 
@@ -104,6 +110,9 @@ end
 
     end
 
+    # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
+    # cloud objects.
+    # @return [Hash]
     def generateBasket(appname: "mu")
       bok = { "appname" => appname }
       if @destination

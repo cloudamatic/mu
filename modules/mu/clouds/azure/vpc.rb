@@ -20,8 +20,8 @@ module MU
       class VPC < MU::Cloud::VPC
         attr_reader :cloud_desc_cache
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
           @subnets = []
@@ -72,12 +72,14 @@ module MU
           @cloud_desc_cache
         end
 
-        # Locate an existing VPC or VPCs and return an array containing matching Azure cloud resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
+        # Locate and return cloud provider descriptors of this resource type
+        # which match the provided parameters, or all visible resources if no
+        # filters are specified. At minimum, implementations of +find+ must
+        # honor +credentials+ and +cloud_id+ arguments. We may optionally
+        # support other search methods, such as +tag_key+ and +tag_value+, or
+        # cloud-specific arguments like +project+. See also {MU::MommaCat.findStray}.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           found = {}
 
@@ -224,12 +226,10 @@ module MU
           MU::Cloud::ALPHA
         end
 
-        # Remove all VPC resources associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
+        # Stub method. Azure resources are cleaned up by removing the parent
+        # resource group.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(**args)
         end
 
         # Reverse-map our cloud description into a runnable config hash.
@@ -588,10 +588,13 @@ module MU
             nil
           end
 
+          # Describe this VPC Subnet
+          # @return [Hash]
           def notify
             MU.structToHash(cloud_desc)
           end
 
+          # Describe this VPC Subnet from the cloud platform's perspective
           def cloud_desc
             if @parent.cloud_desc and @parent.cloud_desc.subnets
               @parent.cloud_desc.subnets.each { |s|

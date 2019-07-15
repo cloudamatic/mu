@@ -476,7 +476,7 @@ module MU
       # various subnets and NAT hosts to live resources.
       # @param vpc_block [Hash]:
       # @param parent_type [String]:
-      # @param parent_name [String]:
+      # @param parent [MU::Cloud::VPC]:
       # @param configurator [MU::Config]:
       # @param is_sibling [Boolean]:
       # @param sibling_vpcs [Array]:

@@ -18,8 +18,8 @@ module MU
       # A user as configured in {MU::Config::BasketofKittens::users}
       class User < MU::Cloud::User
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::users}
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
 
@@ -186,11 +186,14 @@ pp user_obj
           end
         end
 
-        # Locate an existing user.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
+        # Locate and return cloud provider descriptors of this resource type
+        # which match the provided parameters, or all visible resources if no
+        # filters are specified. At minimum, implementations of +find+ must
+        # honor +credentials+ and +cloud_id+ arguments. We may optionally
+        # support other search methods, such as +tag_key+ and +tag_value+, or
+        # cloud-specific arguments like +project+. See also {MU::MommaCat.findStray}.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           cred_cfg = MU::Cloud::Google.credConfig(args[:credentials])
 
@@ -290,15 +293,17 @@ pp user_obj
           schema = {
             "name" => {
               "type" => "string",
-              "description" => "If the type of account is not +service+ this can include an optional @domain component (<tt>foo@example.com</tt>). The following applies to +directory+ (non-<tt>service</tt>) accounts only:
+              "description" => "If the +type+ of this account is not +service+, this can include an optional @domain component (<tt>foo@example.com</tt>). The following rules apply to +directory+ (non-<tt>service</tt>) accounts only:
 
 If the domain portion is not specified, and we manage exactly one GSuite or Cloud Identity domain, we will attempt to create the user in that domain.
 
-If we do not manage any domains, and none are specified, we will assume <tt>@gmail.com</tt> for the domain and attempt to bind an existing external GMail user to roles under our jurisdiction, if any are specified.
+If we do not manage any domains, and none are specified, we will assume <tt>@gmail.com</tt> for the domain and attempt to bind an existing external GMail user to roles under our jurisdiction.
 
 If the domain portion is specified, and our credentials can manage that domain via GSuite or Cloud Identity, we will attempt to create the user in that domain.
 
-If it is a domain we do not manage (often <tt>user@gmail.com</tt>), we will attempt to bind an existing external user from that domain to roles under our jurisdiction, if any are specified.
+If it is a domain we do not manage, we will attempt to bind an existing external user from that domain to roles under our jurisdiction.
+
+If we are binding (rather than creating) a user and no roles are specified, we will default to +roles/viewer+ at the organization scope. If our credentials do not manage an organization, we will grant this role in our default project.
 
 "
             },

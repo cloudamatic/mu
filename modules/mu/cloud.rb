@@ -51,7 +51,27 @@ module MU
     # Class methods which the base of a cloud implementation must implement
     generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
 
-    # Public attributes which will be available on all instantiated cloud resources
+    # Public attributes which will be available on all instantiated cloud resource objects
+    #
+    # +:config+: The fully-resolved {MU::Config} hash describing the object, aka the Basket of Kittens entry
+    #
+    # +:mu_name+: The unique internal name of the object, if one already exists
+    #
+    # +:cloud+: The cloud in which this object is resident
+    #
+    # +:cloud_id+: The cloud provider's official identifier for this object
+    #
+    # +:environment+: The declared environment string for the deployment of which this object is a member
+    #
+    # +:deploy:+ The {MU::MommaCat} object representing the deployment of which this object is a member
+    #
+    # +:deploy_id:+ The unique string which identifies the deployment of which this object is a member
+    #
+    # +:deploydata:+ A Hash containing all metadata reported by resources in this deploy method, via their +notify+ methods
+    #
+    # +:appname:+ The declared application name of this deployment
+    #
+    # +:credentials:+ The name of the cloud provider credential set from +mu.yaml+ which is used to manage this object
     PUBLIC_ATTRS = [:config, :mu_name, :cloud, :cloud_id, :environment, :deploy, :deploy_id, :deploydata, :appname, :credentials]
 
     # Initialize empty classes for each of these. We'll fill them with code
