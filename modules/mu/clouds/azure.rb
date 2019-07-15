@@ -27,6 +27,8 @@ module MU
       @@default_subscription = nil
       @@regions = []
 
+      # Module used by {MU::Cloud} to insert additional instance methods into
+      # instantiated resources in this cloud layer.
       module AdditionalResourceMethods
       end
 

@@ -81,6 +81,10 @@ module MU
           true
         end
 
+        # Return the list of "container" resource types in which this resource
+        # can reside. The list will include an explicit nil if this resource
+        # can exist outside of any container.
+        # @return [Array<Symbol,nil>]
         def self.canLiveIn
           [nil]
         end

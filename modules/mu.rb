@@ -778,7 +778,7 @@ module MU
     safe_metachars = Regexp.escape('!@#$%^&*()') # Azure constraints
 #    safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
     begin
-      if attempts > 25
+      if attempts > 100 # XXX might be time to replace this gem
         MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
         raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
       end

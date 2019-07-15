@@ -111,6 +111,7 @@ pp user_obj
         end
 
         # Retrieve the cloud descriptor for this resource.
+        # @return [Google::Apis::Core::Hashable]
         def cloud_desc
           if @config['type'] == "interactive" or
              !@config['type'] and !@project_id

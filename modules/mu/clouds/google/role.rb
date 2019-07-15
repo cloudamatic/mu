@@ -57,6 +57,8 @@ module MU
         def groom
         end
 
+        # Return the cloud descriptor for the Role
+        # @return [Google::Apis::Core::Hashable]
         def cloud_desc
           return @cloud_desc_cache if @cloud_desc_cache
 
@@ -92,6 +94,10 @@ module MU
           true
         end
 
+        # Return the list of "container" resource types in which this resource
+        # can reside. The list will include an explicit nil if this resource
+        # can exist outside of any container.
+        # @return [Array<Symbol,nil>]
         def self.canLiveIn
           [nil, :Habitat, :Folder]
         end
@@ -305,6 +311,7 @@ module MU
                   "organizations" => {
                     "type" => "array",
                     "items" => {
+                      "type" => "string",
                       "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials, which can be used as an alias to the organization to which they authenticate."
                     }
                   }
@@ -335,7 +342,8 @@ module MU
               "organizations" => {
                 "type" => "array",
                 "items" => {
-                  "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials, which can be used as an alias to the organization to which they authenticate."
+                  "type" => "string",
+                  "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials listed in +mu.yaml+, which can be used as an alias to the organization to which they authenticate."
                 }
               }
             }
@@ -406,6 +414,10 @@ module MU
           }
         end
 
+        # Convert a list of bindings of the type returned by {MU::Cloud::Google::Role.getAllBindings} into valid configuration language.
+        # @param roles [Hash]
+        # @param credentials [String]
+        # @return [Hash]
         def self.entityBindingsToSchema(roles, credentials: nil)
           my_org = MU::Cloud::Google.getOrg(credentials)
           role_cfg = []

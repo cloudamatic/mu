@@ -95,10 +95,6 @@ module MU
 
         end
 
-        # Wrapper that fetches the API's description of one of these things
-        def cloud_desc
-        end
-
         # Return the metadata for this LoadBalancer
         # @return [Hash]
         def notify

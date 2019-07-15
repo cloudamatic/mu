@@ -910,6 +910,8 @@ next if !create
 #          nil
 #        end
 
+        # Return the cloud provider's description for this virtual machine
+        # @return [Google::Apis::Core::Hashable]
         def cloud_desc
           MU::Cloud::Google::Server.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
         end

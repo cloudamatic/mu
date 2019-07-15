@@ -30,7 +30,12 @@ module MU
       @@acct_to_profile_map = {}
       @@enable_semaphores = {}
 
+      # Module used by {MU::Cloud} to insert additional instance methods into
+      # instantiated resources in this cloud layer.
       module AdditionalResourceMethods
+        # Google Cloud url attribute, found in some form on most GCP cloud
+        # resources.
+        # @return [String]
         def url
           desc = cloud_desc
           (desc and desc.self_link) ? desc.self_link : nil

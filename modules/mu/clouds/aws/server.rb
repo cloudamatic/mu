@@ -1246,6 +1246,8 @@ module MU
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":instance/"+@cloud_id
         end
 
+        # Return the cloud provider's description for this instance
+        # @return [Openstruct]
         def cloud_desc
           max_retries = 5
           retries = 0

@@ -20,7 +20,11 @@ module MU
       class FirewallRule < MU::Cloud::FirewallRule
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
+
+        # Firewall protocols supported by GCP as of early 2019
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
+
+        # Our default subset of supported firewall protocols
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
