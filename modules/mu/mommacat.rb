@@ -369,14 +369,28 @@ module MU
       seen.uniq
     end
 
+    # Assay this deployment for a list of credentials (from mu.yaml) which are
+    # used. Our Cleanup module can leverage this to skip unnecessary checks.
+    # @return [Array<String>]
     def credsUsed
       seen = []
+      clouds = []
       seen << @original_config['credentials'] if @original_config['credentials']
+      defaultcloud = @original_config['cloud']
       MU::Cloud.resource_types.each_pair { |res_type, attrs|
         type = attrs[:cfg_plural]
         if @original_config.has_key?(type)
           @original_config[type].each { |resource|
-            seen << resource['credentials'] if resource['credentials']
+            if resource['credentials']
+              seen << resource['credentials']
+            else
+              cloudclass = if @original_config['cloud']
+                Object.const_get("MU").const_get("Cloud").const_get(@original_config['cloud'])
+              else
+                Object.const_get("MU").const_get("Cloud").const_get(MU::Config.defaultCloud)
+              end
+              seen << cloudclass.credConfig(name_only: true)
+            end
           }
         end
       }
@@ -1718,6 +1732,9 @@ end
         "MU-MASTER-IP" => MU.mu_public_ip
       }
     end
+    # List the name/value pairs for our mandatory standard set of resource tags
+    # for this deploy.
+    # @return [Hash<String,String>]
     def listStandardTags
       {
         "MU-ID" => @deploy_id,
