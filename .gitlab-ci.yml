@@ -134,8 +134,6 @@ Smoke Test:
 
 Dockerbuild:
   stage: Dockerbuild
-  variables:
-    DOCKER_DRIVER: overlay2
   services:
   - docker:dind
   before_script:
