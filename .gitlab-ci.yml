@@ -135,13 +135,10 @@ Smoke Test:
 Dockerbuild:
   stage: Dockerbuild
   variables:
-    DOCKER_HOST: tcp://docker:2375/
     DOCKER_DRIVER: overlay2
   services:
   - docker:dind
   before_script:
-  - apk --no-cache add bind-tools
-  - dig @127.0.0.11 +nssearch docker
   - docker info
   image: docker:stable
   dependencies:
