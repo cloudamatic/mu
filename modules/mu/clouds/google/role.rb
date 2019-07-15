@@ -96,6 +96,12 @@ module MU
         @@role_bind_scope_semaphores = {}
 
         # Attach a role to an entity
+        # @param role_id [String]: The cloud identifier of the role to which we're binding
+        # @param entity_type [String]: The kind of entity to bind; typically user, group, or domain
+        # @param entity_id [String]: The cloud identifier of the entity
+        # @param scope_type [String]: The kind of scope in which this binding will be valid; typically project, folder, or organization
+        # @param scope_id [String]: The cloud identifier of the scope in which this binding will be valid
+        # @param credentials [String]:
         def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
           @@role_bind_semaphore.synchronize {
             @@role_bind_scope_semaphores[scope_id] ||= Mutex.new
@@ -152,6 +158,10 @@ module MU
         end
 
         # Remove all bindings for the specified entity
+        # @param entity_type [String]: The kind of entity to bind; typically user, group, or domain
+        # @param entity_id [String]: The cloud identifier of the entity
+        # @param credentials [String]:
+        # @param noop [Boolean]: Just say what we'd do without doing it
         def self.removeBindings(entity_type, entity_id, credentials: nil, noop: false)
 
           scopes = {}
@@ -222,14 +232,15 @@ module MU
           }
         end
 
+        # Add role bindings for a given entity from its BoK config
+        # @param entity_type [String]: The kind of entity to bind; typically user, group, or domain
+        # @param entity_id [String]: The cloud identifier of the entity
+        # @param cfg [Hash]: A configuration block confirming to our own {MU::Cloud::Google::Role.ref_schema}
+        # @param credentials [String]:
         def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil)
           bindings = []
 
           return if !cfg
-          if !entity_type or !entity_id
-            MU.log "bindFromConfig(#{entity_type}, #{entity_id}, cfg, credentials: #{credentials})", MU::ERR, details: caller
-            raise "wtf"
-          end
 
           cfg.each { |binding|
             ["organizations", "projects", "folders"].each { |scopetype|

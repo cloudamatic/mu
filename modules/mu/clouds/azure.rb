@@ -32,10 +32,8 @@ module MU
       module AdditionalResourceMethods
       end
 
+      # Exception class for exclusive use by {MU::Cloud::Azure::SDKClient::ClientCallWrapper}
       class APIError < MU::MuError
-#        def initialize(**args)
-#          super
-#        end
       end
 
       # A hook that is always called just before any of the instance method of
@@ -113,6 +111,7 @@ module MU
           end
         end
 
+        # Return a reasonable string representation of this {MU::Cloud::Azure::Id}
         def to_s
           @name
         end
@@ -523,30 +522,67 @@ module MU
       end
 
 # BEGIN SDK STUBS
-      def self.subs(model = nil, alt_object: nil, credentials: nil)
+#
+      # Azure Subscription Manager API
+      # @param model [<Azure::Apis::Subscriptions::Mgmt::V2015_11_01::Models>]: If specified, will return the class ::Azure::Apis::Subscriptions::Mgmt::V2015_11_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]:
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.subs(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_11_01")
         require 'azure_mgmt_subscriptions'
 
-        @@subscriptions_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, subclass: alt_object)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Subscriptions").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@subscriptions_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, subclass: alt_object)
+        end
 
         return @@subscriptions_api[credentials]
       end
 
-      def self.subfactory(model = nil, alt_object: nil, credentials: nil)
+      # An alternative version of the Azure Subscription Manager API, which appears to support subscription creation
+      # @param model [<Azure::Apis::Subscriptions::Mgmt::V2018_03_01_preview::Models>]: If specified, will return the class ::Azure::Apis::Subscriptions::Mgmt::V2018_03_01_preview::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]:
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.subfactory(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_03_01_preview")
         require 'azure_mgmt_subscriptions'
 
-        @@subscriptions_factory_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, profile: "V2018_03_01_preview", subclass: alt_object)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Subscriptions").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@subscriptions_factory_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Subscriptions", credentials: credentials, profile: "V2018_03_01_preview", subclass: alt_object)
+        end
 
         return @@subscriptions_factory_api[credentials]
       end
 
-      def self.compute(model = nil, alt_object: nil, credentials: nil)
+      # The Azure Compute API
+      # @param model [<Azure::Apis::Compute::Mgmt::V2019_04_01::Models>]: If specified, will return the class ::Azure::Apis::Compute::Mgmt::V2019_04_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]:
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.compute(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_04_01")
         require 'azure_mgmt_compute'
 
-        @@compute_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Compute", credentials: credentials, subclass: alt_object)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Compute").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@compute_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Compute", credentials: credentials, subclass: alt_object)
+        end
 
         return @@compute_api[credentials]
       end
 
+      # The Azure Network API
+      # @param model [<Azure::Apis::Network::Mgmt::V2019_02_01::Models>]: If specified, will return the class ::Azure::Apis::Network::Mgmt::V2019_02_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]:
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.network(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_02_01")
         require 'azure_mgmt_network'
 
@@ -707,7 +743,7 @@ module MU
       @@apis_api = {}
       @@service_identity_api = {}
 
-
+      # Generic wrapper for connections to Azure APIs
       class SDKClient
         @api = nil
         @credentials = nil
@@ -752,6 +788,9 @@ module MU
           end
         end
 
+        # For method calls into the Azure API
+        # @param method_sym [Symbol]
+        # @param arguments [Array]
         def method_missing(method_sym, *arguments)
           @wrapper_semaphore.synchronize {
             if !@wrappers[method_sym]
@@ -768,6 +807,10 @@ module MU
           }
         end
 
+        # The Azure SDK embeds several "sub-APIs" in each SDK client, and most
+        # API calls are made from these second-tier objects. We add an extra
+        # wrapper layer for these so that we can gracefully handle errors,
+        # retries, etc.
         class ClientCallWrapper
 
           def initialize(myobject, myname, parent)
@@ -777,6 +820,9 @@ module MU
             @parentname = parent.subclass
           end
 
+          # For method calls into the Azure API
+          # @param method_sym [Symbol]
+          # @param arguments [Array]
           def method_missing(method_sym, *arguments)
             MU.log "Calling #{@parentname}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
             begin
