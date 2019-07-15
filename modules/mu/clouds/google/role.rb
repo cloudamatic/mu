@@ -87,6 +87,141 @@ module MU
           base
         end
 
+        # Wrapper for #{MU::Cloud::Google::Role.bindTo}
+        def bindTo(entity_type, entity_id, scope_type, scope_id)
+          MU::Cloud::Google::Role.bindTo(@cloud_id, entity_type, entity_id, bindings, scope_type, scope_id, credentials: @config['credentials'])
+        end
+
+        @@role_bind_semaphore = Mutex.new
+        @@role_bind_scope_semaphores = {}
+
+        # Attach a role to an entity
+        def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
+          @@role_bind_semaphore.synchronize {
+            @@role_bind_scope_semaphores[scope_id] ||= Mutex.new
+          }
+
+          @@role_bind_scope_semaphores[scope_id].synchronize {
+            entity = entity_type.sub(/s$/, "")+":"+entity_id
+            policy = if scope_type == "organizations"
+              MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(scope_id)
+            elsif scope_type == "folders"
+              MU::Cloud::Google.resource_manager(credentials: credentials).get_folder_iam_policy(scope_id)
+            elsif scope_type == "projects"
+              MU::Cloud::Google.resource_manager(credentials: credentials).get_project_iam_policy(scope_id)
+            end
+
+            saw_role = false
+            policy.bindings.each { |binding|
+              if binding.role == role_id 
+                saw_role = true
+                if binding.members.include?(entity)
+                  return # it's already bound, nothing needs doing
+                else
+                  binding.members << entity
+                end
+              end
+            }
+            if !saw_role
+              policy.bindings <<  MU::Cloud::Google.resource_manager(:Binding).new(
+                role: role_id,
+                members: [entity]
+              )
+            end
+            MU.log "Granting #{role_id} to #{entity} in #{scope_id}", MU::NOTICE
+            req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
+              policy: policy
+            )
+            policy = if scope_type == "organizations"
+              MU::Cloud::Google.resource_manager(credentials: credentials).set_organization_iam_policy(
+                scope_id,
+                req_obj
+              )
+            elsif scope_type == "folders"
+              MU::Cloud::Google.resource_manager(credentials: credentials).set_folder_iam_policy(
+                scope_id,
+                req_obj
+              )
+            elsif scope_type == "projects"
+              MU::Cloud::Google.resource_manager(credentials: credentials).set_project_iam_policy(
+                scope_id,
+                req_obj
+              )
+            end
+          }
+        end
+
+        # Remove all bindings for the specified entity
+        def self.removeBindings(entity_type, entity_id, credentials: nil)
+
+          scopes = {}
+
+          my_org = MU::Cloud::Google.getOrg(credentials)
+          if my_org
+            scopes["organizations"] = [my_org.name]
+            folders = MU::Cloud::Google::Folder.find(credentials: credentials)
+            if folders and folders.size > 0
+              scopes["folders"] = folders.keys
+            end
+          end
+
+          projects = MU::Cloud::Google::Habitat.find(credentials: credentials)
+          if projects and projects.size > 0
+            scopes["projects"] = projects.keys
+          end
+
+          scopes.each_pair { |scope_type, scope_ids|
+            scope_ids.each { |scope_id|
+              @@role_bind_semaphore.synchronize {
+                @@role_bind_scope_semaphores[scope_id] ||= Mutex.new
+              }
+
+              @@role_bind_scope_semaphores[scope_id].synchronize {
+                entity = entity_type.sub(/s$/, "")+":"+entity_id
+                policy = if scope_type == "organizations"
+                  MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(my_org.name)
+                elsif scope_type == "folders"
+                  MU::Cloud::Google.resource_manager(credentials: credentials).get_folder_iam_policy(scope_id)
+                elsif scope_type == "projects"
+                  MU::Cloud::Google.resource_manager(credentials: credentials).get_project_iam_policy(scope_id)
+                end
+
+                need_update = false
+                policy.bindings.each { |binding|
+                  if binding.members.include?(entity)
+                    MU.log "Removing #{binding.role} from #{entity} in #{scope_id}"
+                    need_update = true
+                    binding.members.delete(entity)
+                  end
+                }
+# XXX maybe drop bindings with 0 members?
+                next if !need_update
+                req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
+                  policy: policy
+                )
+
+                policy = if scope_type == "organizations"
+                  MU::Cloud::Google.resource_manager(credentials: credentials).set_organization_iam_policy(
+                    scope_id,
+                    req_obj
+                  )
+                elsif scope_type == "folders"
+                  MU::Cloud::Google.resource_manager(credentials: credentials).set_folder_iam_policy(
+                    scope_id,
+                    req_obj
+                  )
+                elsif scope_type == "projects"
+                  MU::Cloud::Google.resource_manager(credentials: credentials).set_project_iam_policy(
+                    scope_id,
+                    req_obj
+                  )
+                end
+              }
+
+            }
+          }
+        end
+
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]

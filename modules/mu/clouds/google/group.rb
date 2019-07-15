@@ -101,6 +101,22 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          my_domains = MU::Cloud::Google.getDomains(credentials)
+          my_org = MU::Cloud::Google.getOrg(credentials)
+
+          if my_org
+            groups = MU::Cloud::Google.admin_directory(credentials: credentials).list_groups(customer: MU::Cloud::Google.customerID(credentials)).groups
+            if groups
+              groups.each { |group|
+                if group.description == MU.deploy_id
+                  MU.log "Deleting group #{group.name} from #{my_org.display_name}", details: group
+                  if !noop
+                    MU::Cloud::Google.admin_directory(credentials: credentials).delete_group(group.id)
+                  end
+                end
+              }
+            end
+          end
         end
 
         # Locate and return cloud provider descriptors of this resource type

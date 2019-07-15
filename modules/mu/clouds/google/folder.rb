@@ -252,12 +252,10 @@ module MU
           parent = if args[:flags] and args[:flags]['parent_id']
             args[:flags]['parent_id']
           else
-# XXX handle lack of org correctly? or wait, can folders even exist without one?
             my_org = MU::Cloud::Google.getOrg(args[:credentials])
             my_org.name
           end
-begin
-raw_id = nil
+
           if args[:cloud_id]
             raw_id = args[:cloud_id].sub(/^folders\//, "")
             resp = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
@@ -288,9 +286,6 @@ raw_id = nil
               }
             end
           end
-rescue ::Google::Apis::ClientError => e
-MU.log "FAILSAUCE IN FOLDER FIND folders/#{raw_id}: #{e.message}", MU::WARN, details: args
-end
 
           found
         end

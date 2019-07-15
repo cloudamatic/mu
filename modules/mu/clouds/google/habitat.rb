@@ -198,7 +198,7 @@ module MU
         # @param project_id [String]
         # @return [Boolean]
         def self.isLive?(project_id, credentials = nil)
-          project = MU::Cloud::Google::Habitat.find(cloud_id: project_id).values.first
+          project = MU::Cloud::Google::Habitat.find(cloud_id: project_id, credentials: credentials).values.first
           return false if project.nil? or project.lifecycle_state != "ACTIVE"
 
           begin
@@ -259,6 +259,7 @@ module MU
             resp = MU::Cloud::Google.resource_manager(credentials: args[:credentials]).list_projects(
               filter: "id:#{args[:cloud_id]}"
             )
+
             if resp and resp.projects and resp.projects.size == 1
               found[args[:cloud_id]] = resp.projects.first if resp and resp.projects
             else

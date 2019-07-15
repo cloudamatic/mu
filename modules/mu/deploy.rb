@@ -641,7 +641,10 @@ MESSAGE_END
               if service['#MUOBJECT'].nil?
                 if @mommacat
                   ext_obj = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_plural, name: service['name'], credentials: service['credentials'], created_only: true, return_all: false)
-                  ext_obj.config!(service) if @updating
+                  if @updating
+                    raise MuError, "Failed to findLitterMate(type: #{service["#MU_CLOUDCLASS"].cfg_plural}, name: #{service['name']}, credentials: #{service['credentials']}, created_only: true, return_all: false) in deploy #{@mommacat.deploy_id}" if !ext_obj
+                    ext_obj.config!(service)
+                  end
                   service['#MUOBJECT'] = ext_obj
                 end
                 service['#MUOBJECT'] ||= service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)

@@ -146,6 +146,7 @@ module MU
                   projects << "" # dummy
                   MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
                 end
+                projects.uniq!
 
                 # We do these in an order that unrolls dependent resources
                 # sensibly, and we hit :Collection twice because AWS

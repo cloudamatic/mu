@@ -36,8 +36,7 @@ module MU
               end
               @cloud_id = args[:from_cloud_desc].name
             else
-              puts args[:from_cloud_desc].class.name
-              pp @config
+              raise MuError, "Google::User got from_cloud_desc arg of class #{args[:from_cloud_desc].class.name}, but doesn't know what to do with it"
             end
           end
 
@@ -46,11 +45,23 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          if @config['type'] == "interactive"
-# XXX bind_external_user is really some logic that belongs in Role; what goes here
-# is logic to create GSuite or CLoud Identity accounts, assuming adequate privileges.
-#            bind_external_user
-# XXX all of the below only applicable for masqueraded read-write credentials with GSuite or Cloud Identity
+          if @config['type'] == "service"
+            req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
+              account_id: @deploy.getResourceName(@config["name"], max_length: 30).downcase,
+              service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
+                display_name: @mu_name
+              )
+            )
+            MU.log "Creating service account #{@mu_name}"
+            resp = MU::Cloud::Google.iam(credentials: @config['credentials']).create_service_account(
+              "projects/"+@config['project'],
+              req_obj
+            )
+            @cloud_id = resp.name
+          elsif @config['external']
+            @cloud_id = @config['email']
+            bind_to_roles
+          else
             if !@config['email']
               domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
               @config['email'] = @config['name'].gsub(/@.*/, "")+"@"+domains.domains.first.domain_name
@@ -70,29 +81,19 @@ module MU
             )
 
             MU.log "Creating user #{@mu_name}", details: user_obj
-pp user_obj
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_user(user_obj)
-            pp resp
             @cloud_id = resp.primary_email
-          else
-            req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
-              account_id: @deploy.getResourceName(@config["name"], max_length: 30).downcase,
-              service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
-                display_name: @mu_name
-              )
-            )
-            MU.log "Creating service account #{@mu_name}"
-            MU::Cloud::Google.iam(credentials: @config['credentials']).create_service_account(
-              "projects/"+@config['project'],
-              req_obj
-            )
+            bind_to_roles
           end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          if @config['type'] == "interactive"
-#            bind_external_user
+          if @config['external']
+            bind_to_roles
+          elsif @config['type'] == "interactive"
+# XXX update miscellaneous fields
+            bind_to_roles
           else
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
@@ -113,37 +114,31 @@ pp user_obj
         # Retrieve the cloud descriptor for this resource.
         # @return [Google::Apis::Core::Hashable]
         def cloud_desc
-          if @config['type'] == "interactive" or
-             !@config['type'] and !@project_id
-            @config['type'] ||= "interactive"
-            return MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
+          if @config['type'] == "interactive" or !@config['type']
+             @config['type'] ||= "interactive"
+            if !@config['external']
+              return MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
+            else
+              return nil
+            end
           else
             @config['type'] ||= "service"
-            resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_accounts(
-              "projects/"+@project_id
-            )
-
-            if resp and resp.accounts
-              resp.accounts.each { |sa|
-                if (sa.display_name and sa.display_name == @mu_name) or (sa.name and sa.name == @cloud_id)
-                  return sa
-                end
-              }
-            end
+            return MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
           end
-          nil
+
+          raise "Failed to generate a description for #{self}"
         end
 
         # Return the metadata for this user configuration
         # @return [Hash]
         def notify
-          description = MU.structToHash(cloud_desc)
-          if description
-            description.delete(:etag)
-            return description
+          description = if !@config['external']
+            MU.structToHash(cloud_desc)
+          else
+            {}
           end
-          {
-          }
+          description.delete(:etag)
+          description
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -156,7 +151,7 @@ pp user_obj
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Remove all users associated with the currently loaded deployment.
@@ -165,6 +160,32 @@ pp user_obj
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          my_domains = MU::Cloud::Google.getDomains(credentials)
+          my_org = MU::Cloud::Google.getOrg(credentials)
+
+          # We don't have a good way of tagging directory users, so we rely
+          # on the known parameter, which is pulled from deployment metadata
+          if flags['known'] and my_org
+            dir_users = MU::Cloud::Google.admin_directory(credentials: credentials).list_users(customer: MU::Cloud::Google.customerID(credentials)).users
+            if dir_users
+              dir_users.each { |user|
+                if flags['known'].include?(user.primary_email)
+                  MU.log "Deleting user #{user.primary_email} from #{my_org.display_name}", details: user
+                  if !noop
+                    MU::Cloud::Google.admin_directory(credentials: credentials).delete_user(user.id)
+                  end
+                end
+              }
+
+              flags['known'].each { |user_email|
+                next if !user_email.match(/^[^\/]+@[^\/]+$/)
+
+                MU::Cloud::Google::Role.removeBindings("user", user_email, credentials: credentials)
+              }
+
+            end
+          end
+
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(
             "projects/"+flags["project"]
@@ -307,10 +328,19 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
 "
             },
+            "domain" => {
+              "type" => "string",
+              "description" => "If creating or binding an +interactive+ user, this is the domain of which the user should be a member. This can instead be embedded in the {name} field: +foo@example.com+."
+            },
+            "external" => {
+              "type" => "boolean",
+              "description" => "Explicitly flag this user as originating from an external domain. This should always autodetect correctly."
+            },
             "type" => {
               "type" => "string",
               "description" => "'interactive' will either attempt to bind an existing user to a role under our jurisdiction, or create a new directory user, depending on the domain of the user specified and whether we manage any directories; 'service' will create a service account and generate API keys.",
-              "enum" => ["interactive", "service"]
+              "enum" => ["interactive", "service"],
+              "default" => "interactive"
             },
             "roles" => {
               "type" => "array",
@@ -333,13 +363,18 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
           if user['name'].match(/@(.*+)$/)
             domain = Regexp.last_match[1].downcase
+            if domain and user['domain'] and domain != user['domain'].downcase
+              MU.log "User #{user['name']} had a domain component, but the domain field was also specified (#{user['domain']}) and they don't match."
+              ok = false
+            end
+            user['domain'] = domain
             if user['type'] == "service"
               MU.log "Username #{user['name']} appears to be a directory or external username, cannot use with 'service'", MU::ERR
               ok = false
             else
               user['type'] = "interactive"
               if !my_domains or !my_domains.include?(domain)
-                user['project'] ||= MU::Cloud::Google.defaultProject(user['credentials'])
+                user['external'] = true
 
                 if !["gmail.com", "google.com"].include?(domain)
                   MU.log "#{user['name']} appears to be a member of a domain that our credentials (#{user['credentials']}) do not manage; attempts to grant access for this user may fail!", MU::WARN
@@ -365,16 +400,30 @@ If we are binding (rather than creating) a user and no roles are specified, we w
               else # this is actually targeting a domain we manage! yay!
               end
             end
+          elsif user['type'] != "service"
+            if !user['domain']
+              if my_domains.size == 1
+                user['domain'] = my_domains.first
+              elsif my_domains.size > 1
+                MU.log "Google interactive User #{user['name']} did not specify a domain, and we have multiple defaults available. Must specify exactly one.", MU::ERR, details: my_domains
+                ok = false
+              else
+                user['domain'] = "gmail.com"
+              end
+            end
           end
 
-          if MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as'] and user['type'] != "service"
-            # XXX flesh this check out, need to test with a GSuite site
-            # what exactly do we need to check though? write privs? existence?
+          if user['domain']
+            user['email'] ||= user['name'].gsub(/@.*/, "")+"@"+user['domain']
           end
 
           if user['groups'] and user['groups'].size > 0 and my_org.nil?
             MU.log "Cannot change Google group memberships with credentials that do not manage GSuite or Cloud Identity.\nVisit https://groups.google.com to manage groups.", MU::ERR
             ok = false
+          end
+
+          if user['type'] == "service"
+            user['project'] ||= MU::Cloud::Google.defaultProject(user['credentials'])
           end
 
           if user['type'] != "service" and user["create_api_key"]
@@ -387,51 +436,32 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
         private
 
-        def bind_external_user
+        def bind_to_roles
           bindings = []
-          ext_policy = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).get_project_iam_policy(
-            @config['project']
-          )
+          username = @config['name'].gsub(/@.*/, "")+"."+@config['domain']
 
-          change_needed = false
-          @config['roles'].each { |role|
-            seen = false
-            ext_policy.bindings.each { |b|
-              if b.role == role
-                seen = true
-                if !b.members.include?("user:"+@config['name'])
-                  change_needed = true
-                  b.members << "user:"+@config['name']
-                end
-              end
+          return if !@config['roles']
+
+          @config['roles'].each { |binding|
+            ["organizations", "projects", "folders"].each { |scopetype|
+              next if !binding[scopetype]
+
+              binding[scopetype].each { |scope|
+# XXX resolution of Ref bits (roles, projects, and folders anyway; organizations and domains are direct)
+                MU::Cloud::Google::Role.bindTo(
+                  binding["role"]["id"],
+                  "user",
+                  @cloud_id,
+                  scopetype,
+                  scope,
+                  credentials: @config['credentials']
+                )
+              }
             }
-            if !seen
-              ext_policy.bindings << MU::Cloud::Google.resource_manager(:Binding).new(
-                role: role,
-                members: ["user:"+@config['name']]
-              )
-              change_needed = true
-            end
           }
 
-          if change_needed
-            req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
-              policy: ext_policy
-            )
-            MU.log "Adding #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
+# XXX whattabout GSuite-tier roles?
 
-            begin
-              MU::Cloud::Google.resource_manager(credentials: @config['credentials']).set_project_iam_policy(
-                @config['project'],
-                req_obj
-              )
-            rescue ::Google::Apis::ClientError => e
-              if e.message.match(/does not exist/i) and !MU::Cloud::Google.credConfig(@config['credentials'])['masquerade_as']
-                raise MuError, "User #{@config['name']} does not exist, and we cannot create Google user in non-GSuite environments.\nVisit https://accounts.google.com to create new accounts."
-              end
-              raise e
-            end
-          end
         end
 
       end

@@ -1909,6 +1909,15 @@ end
         schema_fields << "region"
       end
 
+      kitten['credentials'] ||= @config['credentials']
+      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
+
+      kitten['us_only'] ||= @config['us_only']
+      kitten['us_only'] ||= false
+
+      kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
+      kitten['scrub_mu_isms'] ||= false
+
       if kitten['cloud'] == "Google"
 # TODO this should be cloud-generic (handle AWS accounts, Azure subscriptions)
         if resclass.canLiveIn.include?(:Habitat)
@@ -1930,16 +1939,9 @@ end
         kitten['region'] ||= MU::Cloud::AWS.myRegion
       end
 
-      kitten['us_only'] ||= @config['us_only']
-      kitten['us_only'] ||= false
-
-      kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
-      kitten['scrub_mu_isms'] ||= false
 
       kitten['billing_acct'] ||= @config['billing_acct'] if @config['billing_acct']
 
-      kitten['credentials'] ||= @config['credentials']
-      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
 
       kitten["dependencies"] ||= []
 
