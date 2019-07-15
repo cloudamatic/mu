@@ -84,6 +84,7 @@ Gem Build:
     - master
     - development
     - gen_docs
+    - docker_test
     - /^gem-.*$/
     - /^cicd-.*$/
   artifacts:
@@ -140,7 +141,6 @@ Dockerbuild:
   dependencies:
   - Gem Build
   script:
-    - cd $CI_PROJECT_DIR
     - docker build -t mu:latest .
     #- docker run my-docker-image /script/to/run/tests
   only:
