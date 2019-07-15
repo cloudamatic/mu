@@ -856,6 +856,17 @@ module MU
         end
       end
 
+      # Retrieve the domains, if any, which these credentials can manage via
+      # GSuite or Cloud Identity.
+      # @param credentials [String]
+      # @return [Array<String>],nil]
+      def self.getDomains(credentials = nil)
+        my_org = getOrg(credentials)
+        return nil if !my_org
+
+        resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_domains(MU::Cloud::Google.customerID(credentials))
+        resp.domains.map { |d| d.domain_name.downcase }
+      end
 
       # Retrieve the organization, if any, to which these credentials belong.
       # @param credentials [String]

@@ -47,9 +47,9 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           if @config['type'] == "interactive"
-# XXX bind_human_user is really some logic that belongs in Role; what goes here
+# XXX bind_external_user is really some logic that belongs in Role; what goes here
 # is logic to create GSuite or CLoud Identity accounts, assuming adequate privileges.
-#            bind_human_user
+#            bind_external_user
 # XXX all of the below only applicable for masqueraded read-write credentials with GSuite or Cloud Identity
             if !@config['email']
               domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
@@ -92,7 +92,7 @@ pp user_obj
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['type'] == "interactive"
-#            bind_human_user
+#            bind_external_user
           else
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
@@ -289,11 +289,21 @@ pp user_obj
           schema = {
             "name" => {
               "type" => "string",
-              "description" => "This must be the email address of an existing Google user account (+foo@gmail.com+), or of a federated GSuite or Cloud Identity domain account from your organization."
+              "description" => "If the type of account is not +service+ this can include an optional @domain component (<tt>foo@example.com</tt>). The following applies to +directory+ (non-<tt>service</tt>) accounts only:
+
+If the domain portion is not specified, and we manage exactly one GSuite or Cloud Identity domain, we will attempt to create the user in that domain.
+
+If we do not manage any domains, and none are specified, we will assume <tt>@gmail.com</tt> for the domain and attempt to bind an existing external GMail user to roles under our jurisdiction, if any are specified.
+
+If the domain portion is specified, and our credentials can manage that domain via GSuite or Cloud Identity, we will attempt to create the user in that domain.
+
+If it is a domain we do not manage (often <tt>user@gmail.com</tt>), we will attempt to bind an existing external user from that domain to roles under our jurisdiction, if any are specified.
+
+"
             },
             "type" => {
               "type" => "string",
-              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys",
+              "description" => "'interactive' will either attempt to bind an existing user to a role under our jurisdiction, or create a new directory user, depending on the domain of the user specified and whether we manage any directories; 'service' will create a service account and generate API keys.",
               "enum" => ["interactive", "service"]
             },
             "roles" => {
@@ -312,14 +322,52 @@ pp user_obj
         def self.validateConfig(user, configurator)
           ok = true
 
+          my_domains = MU::Cloud::Google.getDomains(user['credentials'])
+          my_org = MU::Cloud::Google.getOrg(user['credentials'])
+
+          if user['name'].match(/@(.*+)$/)
+            domain = Regexp.last_match[1].downcase
+            if user['type'] == "service"
+              MU.log "Username #{user['name']} appears to be a directory or external username, cannot use with 'service'", MU::ERR
+              ok = false
+            else
+              user['type'] = "interactive"
+              if !my_domains or !my_domains.include?(domain)
+                user['project'] ||= MU::Cloud::Google.defaultProject(user['credentials'])
+
+                if !["gmail.com", "google.com"].include?(domain)
+                  MU.log "#{user['name']} appears to be a member of a domain that our credentials (#{user['credentials']}) do not manage; attempts to grant access for this user may fail!", MU::WARN
+                end
+
+                if !user['roles'] or user['roles'].empty?
+                  user['roles'] = [
+                    {
+                      "role" => {
+                        "id" => "roles/viewer"
+                      }
+                    }
+                  ]
+                  if my_org
+                    user['roles'][0]["organizations"] = [my_org.name]
+                  else
+                    user['roles'][0]["projects"] = {
+                      "id" => user["project"]
+                    }
+                  end
+                  MU.log "External Google user specified with no role binding, will grant 'viewer' in #{my_org ? "organization #{my_org.display_name}" : "project #{user['project']}"}", MU::WARN
+                end
+              else # this is actually targeting a domain we manage! yay!
+              end
+            end
+          end
+
           if MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as'] and user['type'] != "service"
             # XXX flesh this check out, need to test with a GSuite site
             # what exactly do we need to check though? write privs? existence?
           end
 
-          if user['groups'] and user['groups'].size > 0 and
-             !MU::Cloud::Google.credConfig(user['credentials'])['masquerade_as']
-            MU.log "Cannot change Google group memberships in non-GSuite environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
+          if user['groups'] and user['groups'].size > 0 and my_org.nil?
+            MU.log "Cannot change Google group memberships with credentials that do not manage GSuite or Cloud Identity.\nVisit https://groups.google.com to manage groups.", MU::ERR
             ok = false
           end
 
@@ -333,7 +381,7 @@ pp user_obj
 
         private
 
-        def bind_human_user
+        def bind_external_user
           bindings = []
           ext_policy = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).get_project_iam_policy(
             @config['project']
