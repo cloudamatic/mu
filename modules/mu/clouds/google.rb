@@ -763,6 +763,9 @@ module MU
         require 'google/apis/cloudresourcemanager_v1'
 
         if subclass.nil?
+          if !MU::Cloud::Google.credConfig(credentials)
+            raise MuError, "No such credential set #{credentials} defined in mu.yaml!"
+          end
           @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)

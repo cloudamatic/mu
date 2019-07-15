@@ -152,7 +152,7 @@ module MU
         end
 
         # Remove all bindings for the specified entity
-        def self.removeBindings(entity_type, entity_id, credentials: nil)
+        def self.removeBindings(entity_type, entity_id, credentials: nil, noop: false)
 
           scopes = {}
 
@@ -195,7 +195,7 @@ module MU
                   end
                 }
 # XXX maybe drop bindings with 0 members?
-                next if !need_update
+                next if !need_update or noop
                 req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
                   policy: policy
                 )
@@ -220,6 +220,37 @@ module MU
 
             }
           }
+        end
+
+        def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil)
+          bindings = []
+
+          return if !cfg
+          if !entity_type or !entity_id
+            MU.log "bindFromConfig(#{entity_type}, #{entity_id}, cfg, credentials: #{credentials})", MU::ERR, details: caller
+            raise "wtf"
+          end
+
+          cfg.each { |binding|
+            ["organizations", "projects", "folders"].each { |scopetype|
+              next if !binding[scopetype]
+
+              binding[scopetype].each { |scope|
+# XXX resolution of Ref bits (roles, projects, and folders anyway; organizations and domains are direct)
+#        def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
+                MU::Cloud::Google::Role.bindTo(
+                  binding["role"]["id"],
+                  entity_type,
+                  entity_id,
+                  scopetype,
+                  scope,
+                  credentials: credentials
+                )
+              }
+            }
+          }
+
+# XXX whattabout GSuite-tier roles?
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or

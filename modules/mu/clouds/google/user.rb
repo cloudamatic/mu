@@ -60,7 +60,7 @@ module MU
             @cloud_id = resp.name
           elsif @config['external']
             @cloud_id = @config['email']
-            bind_to_roles
+            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           else
             if !@config['email']
               domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
@@ -83,17 +83,17 @@ module MU
             MU.log "Creating user #{@mu_name}", details: user_obj
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_user(user_obj)
             @cloud_id = resp.primary_email
-            bind_to_roles
+            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['external']
-            bind_to_roles
+            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           elsif @config['type'] == "interactive"
 # XXX update miscellaneous fields
-            bind_to_roles
+            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           else
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
@@ -180,7 +180,7 @@ module MU
               flags['known'].each { |user_email|
                 next if !user_email.match(/^[^\/]+@[^\/]+$/)
 
-                MU::Cloud::Google::Role.removeBindings("user", user_email, credentials: credentials)
+                MU::Cloud::Google::Role.removeBindings("user", user_email, credentials: credentials, noop: noop)
               }
 
             end
@@ -435,34 +435,6 @@ If we are binding (rather than creating) a user and no roles are specified, we w
         end
 
         private
-
-        def bind_to_roles
-          bindings = []
-          username = @config['name'].gsub(/@.*/, "")+"."+@config['domain']
-
-          return if !@config['roles']
-
-          @config['roles'].each { |binding|
-            ["organizations", "projects", "folders"].each { |scopetype|
-              next if !binding[scopetype]
-
-              binding[scopetype].each { |scope|
-# XXX resolution of Ref bits (roles, projects, and folders anyway; organizations and domains are direct)
-                MU::Cloud::Google::Role.bindTo(
-                  binding["role"]["id"],
-                  "user",
-                  @cloud_id,
-                  scopetype,
-                  scope,
-                  credentials: @config['credentials']
-                )
-              }
-            }
-          }
-
-# XXX whattabout GSuite-tier roles?
-
-        end
 
       end
     end

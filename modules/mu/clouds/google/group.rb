@@ -28,30 +28,31 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          if !@config['external']
+            if !@config['email']
+              domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
+              @config['email'] = @mu_name.downcase+"@"+domains.domains.first.domain_name
+            end
+            group_obj = MU::Cloud::Google.admin_directory(:Group).new(
+              name: @mu_name,
+              email: @config['email'],
+              description: @deploy.deploy_id
+            )
 
-# XXX all of the below only applicable for masqueraded read-write credentials with GSuite or Cloud Identity
-          if !@config['email']
-            domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
-            @config['email'] = @mu_name.downcase+"@"+domains.domains.first.domain_name
+            MU.log "Creating group #{@mu_name}", details: group_obj
+
+            resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_group(group_obj)
+            @cloud_id = resp.email
+
+            MU::Cloud::Google::Role.bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'])
+          else
+            @cloud_id = @config['name'].sub(/@.*/, "")+"@"+@config['domain']
           end
-          group_obj = MU::Cloud::Google.admin_directory(:Group).new(
-            name: @mu_name,
-            email: @config['email'],
-            description: @deploy.deploy_id
-          )
-
-          MU.log "Creating group #{@mu_name}", details: group_obj
-
-          resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_group(group_obj)
-          @cloud_id = resp.email
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          if @config['project']
-# XXX this is nonsense, what we really want is to follow the list of role bindings
-            bind_group
-          end
+          MU::Cloud::Google::Role.bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'])
         end
 
         # Retrieve a list of users (by cloud id) of this group
@@ -68,8 +69,10 @@ module MU
         # Return the metadata for this group configuration
         # @return [Hash]
         def notify
-          base = MU.structToHash(cloud_desc)
-          base["cloud_id"] = @cloud_id
+          if !@config['external']
+            base = MU.structToHash(cloud_desc)
+          end
+          base ||= {}
 
           base
         end
@@ -117,6 +120,12 @@ module MU
               }
             end
           end
+
+          if flags['known']
+            flags['known'].each { |group|
+              MU::Cloud::Google::Role.removeBindings("group", group, credentials: credentials, noop: noop)
+            }
+          end
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -134,7 +143,6 @@ module MU
           # we'll go ahead and respect that.
           if args[:cloud_id]
             resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_group(args[:cloud_id])
-            pp resp
             found[resp.email] = resp if resp
           else
             resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_groups(customer: MU::Cloud::Google.customerID(args[:credentials]))
@@ -142,7 +150,7 @@ module MU
               found = Hash[resp.groups.map { |g| [g.email, g] }]
             end
           end
-# XXX what about Google Groups groups? Where do we fish for those?
+# XXX what about Google Groups groups and other external groups? Where do we fish for those? Do we even need to?
           found
         end
 
@@ -184,8 +192,29 @@ module MU
           schema = {
             "name" => {
               "type" => "string",
-              "description" => "This must be the email address of an existing Google Group (+foo@googlegroups.com+), or of a federated GSuite or Cloud Identity domain group from your organization."
+              "description" => "This can include an optional @domain component (<tt>foo@example.com</tt>).
+
+If the domain portion is not specified, and we manage exactly one GSuite or Cloud Identity domain, we will attempt to create the group in that domain.
+
+If we do not manage any domains, and none are specified, we will assume <tt>@googlegroups.com</tt> for the domain and attempt to bind an existing external Google Group to roles under our jurisdiction.
+
+If the domain portion is specified, and our credentials can manage that domain via GSuite or Cloud Identity, we will attempt to create the group in that domain.
+
+If it is a domain we do not manage, we will attempt to bind an existing external group from that domain to roles under our jurisdiction.
+
+If we are binding (rather than creating) a group and no roles are specified, we will default to +roles/viewer+ at the organization scope. If our credentials do not manage an organization, we will grant this role in our default project.
+
+"
             },
+            "domain" => {
+              "type" => "string",
+              "description" => "The domain from which the group originates or in which it should be created. This can instead be embedded in the {name} field: +foo@example.com+."
+            },
+            "external" => {
+              "type" => "boolean",
+              "description" => "Explicitly flag this group as originating from an external domain. This should always autodetect correctly."
+            },
+
             "roles" => {
               "type" => "array",
               "items" => MU::Cloud::Google::Role.ref_schema
@@ -201,11 +230,63 @@ module MU
         def self.validateConfig(group, configurator)
           ok = true
 
+          my_domains = MU::Cloud::Google.getDomains(group['credentials'])
+          my_org = MU::Cloud::Google.getOrg(group['credentials'])
+
+          if group['name'].match(/@(.*+)$/)
+            domain = Regexp.last_match[1].downcase
+            if domain and group['domain'] and domain != group['domain'].downcase
+              MU.log "Group #{group['name']} had a domain component, but the domain field was also specified (#{group['domain']}) and they don't match."
+              ok = false
+            end
+            group['domain'] = domain
+
+            if !my_domains or !my_domains.include?(domain)
+              group['external'] = true
+
+              if !["googlegroups.com", "google.com"].include?(domain)
+                MU.log "#{group['name']} appears to be a member of a domain that our credentials (#{group['credentials']}) do not manage; attempts to grant access for this group may fail!", MU::WARN
+              end
+
+              if !group['roles'] or group['roles'].empty?
+                group['roles'] = [
+                  {
+                    "role" => {
+                      "id" => "roles/viewer"
+                    }
+                  }
+                ]
+                if my_org
+                  group['roles'][0]["organizations"] = [my_org.name]
+                else
+                  group['roles'][0]["projects"] = {
+                    "id" => group["project"]
+                  }
+                end
+                MU.log "External Google group specified with no role binding, will grant 'viewer' in #{my_org ? "organization #{my_org.display_name}" : "project #{group['project']}"}", MU::WARN
+              end
+            end
+          else
+            if !group['domain']
+              if my_domains.size == 1
+                group['domain'] = my_domains.first
+              elsif my_domains.size > 1
+                MU.log "Google interactive User #{group['name']} did not specify a domain, and we have multiple defaults available. Must specify exactly one.", MU::ERR, details: my_domains
+                ok = false
+              else
+                group['domain'] = "googlegroups.com"
+              end
+            end
+          end
+
+
           credcfg = MU::Cloud::Google.credConfig(group['credentials'])
 
-          if group['members'] and group['members'].size > 0 and
-             !credcfg['masquerade_as']
-            MU.log "Cannot change Google group memberships in non-directory environments.\nVisit https://groups.google.com to manage groups.", MU::ERR
+          if group['external'] and group['members']
+            MU.log "Cannot manage memberships for external group #{group['name']}", MU::ERR
+            if group['domain'] == "googlegroups.com"
+              MU.log "Visit https://groups.google.com to manage Google Groups.", MU::ERR
+            end
             ok = false
           end
 
@@ -213,53 +294,6 @@ module MU
         end
 
         private
-
-        def bind_group
-          bindings = []
-          ext_policy = MU::Cloud::Google.resource_manager(credentials: @config['credentials']).get_project_iam_policy(
-            @config['project']
-          )
-
-          change_needed = false
-          @config['roles'].each { |role|
-            seen = false
-            ext_policy.bindings.each { |b|
-              if b.role == role
-                seen = true
-                if !b.members.include?("user:"+@config['name'])
-                  change_needed = true
-                  b.members << "group:"+@config['name']
-                end
-              end
-            }
-            if !seen
-              ext_policy.bindings << MU::Cloud::Google.resource_manager(:Binding).new(
-                role: role,
-                members: ["group:"+@config['name']]
-              )
-              change_needed = true
-            end
-          }
-
-          if change_needed
-            req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
-              policy: ext_policy
-            )
-            MU.log "Adding group #{@config['name']} to Google Cloud project #{@config['project']}", details: @config['roles']
-
-            begin
-              MU::Cloud::Google.resource_manager(credentials: @config['credentials']).set_project_iam_policy(
-                @config['project'],
-                req_obj
-              )
-            rescue ::Google::Apis::ClientError => e
-              if e.message.match(/does not exist/i) and !MU::Cloud::Google.credConfig(@config['credentials'])['masquerade_as']
-                raise MuError, "Group #{@config['name']} does not exist, and we cannot create Google groups in non-GSuite environments.\nVisit https://groups.google.com to manage groups."
-              end
-              raise e
-            end
-          end
-        end
 
       end
     end
