@@ -51,7 +51,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-validate_directory_privileges(@config['import'])
+map_directory_privileges(@config['import'])
           @config['display_name'] ||= @mu_name
           if @config['role_source'] == "directory"
             role_obj = MU::Cloud::Google.admin_directory(:Role).new(
@@ -410,8 +410,14 @@ puts @cloud_id
             end
             if !cloud_desc.role_privileges.nil? and !cloud_desc.role_privileges.empty?
               bok['import'] = []
+              ids, names, privs = MU::Cloud::Google::Role.privilege_service_to_name(@config['credentials'])
               cloud_desc.role_privileges.each { |priv|
-                bok["import"] << priv.service_id+"/"+priv.privilege_name
+                if !ids[priv.service_id]
+                  MU.log "Role privilege defined for a service id with no name I can find, writing with raw id", MU::WARN, details: priv
+                  bok["import"] << priv.service_id+"/"+priv.privilege_name
+                else
+                  bok["import"] << ids[priv.service_id]+"/"+priv.privilege_name
+                end
               }
             end
           else # otherwise it's a GCP IAM role of some kind
@@ -427,6 +433,8 @@ puts @cloud_id
               if bok['role_source'] == "project"
                 bok['project'] = parent
               end
+              pp cloud_desc
+              raise "feck orf"
             else
               raise MuError, "I don't know how to parse GCP IAM role identifier #{cloud_desc.name}"
             end
@@ -693,43 +701,70 @@ puts @cloud_id
 
         private
 
-        # given a list of admin_directory role privileges, compare to the
-        # output of list_privileges and remark on/toss anything that doesn't
-        # exist
-        def validate_directory_privileges(privs)
-          resp = MU::Cloud::Google.admin_directory(credentials: @credentials).list_privileges(@customer)
-          by_id = {}
+        @@service_id_to_name = {}
+        @@service_id_to_privs = {}
+        @@service_name_to_id = {}
+        @@service_name_map_semaphore = Mutex.new
 
-          # stupid API response has children
-          def recurse(items)
-            id_map = {}
-            items.each { |p|
-              id_map[p.service_id] ||= []
-              id_map[p.service_id] << p.privilege_name
-              if p.child_privileges
-                children = recurse(p.child_privileges)
-                children.each_pair { |svc, privs|
-                  id_map[svc] ||= []
-                  id_map[svc].concat(privs)
+        def self.privilege_service_to_name(credentials = nil)
+
+          customer = MU::Cloud::Google.customerID(credentials)
+          @@service_name_map_semaphore.synchronize {
+            if !@@service_id_to_name[credentials] or
+               !@@service_id_to_privs[credentials] or
+               !@@service_name_to_id[credentials]
+              @@service_id_to_name[credentials] ||= {}
+              @@service_id_to_privs[credentials] ||= {}
+              @@service_name_to_id[credentials] ||= {}
+              resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_privileges(customer)
+
+              def self.id_map_recurse(items, parent_name = nil)
+                id_to_name = {}
+                name_to_id = {}
+                id_to_privs = {}
+
+                items.each { |p|
+                  svcname = p.service_name || parent_name
+                  if svcname
+                    id_to_name[p.service_id] ||= svcname
+                    name_to_id[svcname] ||= p.service_id
+                  else
+#                    MU.log "FREAKING #{p.service_id} HAS NO NAME", MU::WARN
+                  end
+                  id_to_privs[p.service_id] ||= []
+                  id_to_privs[p.service_id] << p.privilege_name
+                  if p.child_privileges
+                    ids, names, privs = id_map_recurse(p.child_privileges, svcname)
+                    id_to_name.merge!(ids)
+                    name_to_id.merge!(names)
+                    privs.each_pair { |id, childprivs|
+                      id_to_privs[id] ||= []
+                      id_to_privs[id].concat(childprivs)
+                    }
+                  end
                 }
+
+                [id_to_name, name_to_id, id_to_privs]
               end
-            }
-            id_map
-          end
 
-          by_id = recurse(resp.items)
-          pp by_id
-
-          privs.each { |p|
-            service, privilege = p.split(/\//)
-            if !by_id[service]
-              MU.log "Service #{service} doesn't seem to exist", MU::WARN
-            elsif !by_id[service].include?(privilege)
-              MU.log "Service #{service} exists by has no privilege named #{privilege}", MU::WARN
+              @@service_id_to_name[credentials], @@service_id_to_privs[credentials], @@service_name_to_id[credentials] = self.id_map_recurse(resp.items)
             end
+exit
+            return [@@service_id_to_name[credentials], @@service_id_to_privs[credentials], @@service_name_to_id[credentials]]
           }
-          raise "shush"
         end
+
+#          if privs
+#            privs.each { |p|
+#              service, privilege = p.split(/\//)
+#              if !by_id[service]
+#                MU.log "Service #{service} doesn't seem to exist", MU::WARN
+#              elsif !by_id[service].include?(privilege)
+#                MU.log "Service #{service} exists by has no privilege named #{privilege}", MU::WARN
+#              end
+#            }
+#            raise "shush"
+#          end
 
       end
     end
