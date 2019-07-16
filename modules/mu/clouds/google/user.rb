@@ -63,7 +63,7 @@ module MU
             MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           else
             if !@config['email']
-              domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
+              domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(@customer)
               @config['email'] = @config['name'].gsub(/@.*/, "")+"@"+domains.domains.first.domain_name
             end
 

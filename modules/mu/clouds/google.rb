@@ -59,10 +59,13 @@ module MU
       def self.resourceInitHook(cloudobj, deploy)
         class << self
           attr_reader :project_id
+          attr_reader :customer
           # url is too complex for an attribute (we get it from the cloud API),
           # so it's up in AdditionalResourceMethods instead
         end
         return if !cloudobj
+
+        cloudobj.instance_variable_set(:@customer, MU::Cloud::Google.customerID(cloudobj.config['credentials']))
 
 # XXX ensure @cloud_id and @project_id if this is a habitat
 # XXX skip project_id if this is a folder or group

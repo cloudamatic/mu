@@ -30,7 +30,7 @@ module MU
         def create
           if !@config['external']
             if !@config['email']
-              domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(MU::Cloud::Google.customerID(@credentials))
+              domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(@customer)
               @config['email'] = @mu_name.downcase+"@"+domains.domains.first.domain_name
             end
             group_obj = MU::Cloud::Google.admin_directory(:Group).new(

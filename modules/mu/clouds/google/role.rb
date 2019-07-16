@@ -51,10 +51,48 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+validate_directory_privileges(@config['import'])
+          @config['display_name'] ||= @mu_name
+          if @config['role_source'] == "directory"
+            role_obj = MU::Cloud::Google.admin_directory(:Role).new(
+              role_name: @mu_name,
+              role_description: @config['display_name'],
+              privileges: []
+            )
+            MU.log "Creating directory role #{@mu_name}", details: role_obj
+
+            resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_role(@customer, role_obj)
+            @cloud_id = resp.role_id
+puts @cloud_id
+          elsif @config['role_source'] == "org"
+          elsif @config['role_source'] == "project"
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          if @config['role_source'] == "directory"
+            privs = if @config['import']
+              @config['import'].map { |p|
+                service, privilege = p.split(/\//)
+                MU::Cloud::Google.admin_directory(:Role)::RolePrivilege.new(
+                  privilege_name: privilege,
+                  service_id: service
+                )
+              }
+            else
+              nil
+            end
+            role_obj = MU::Cloud::Google.admin_directory(:Role).new(
+              role_privileges: privs
+            )
+            MU.log "Updating directory role #{@mu_name}", MU::NOTICE, details: role_obj
+            MU::Cloud::Google.admin_directory(credentials: @credentials).patch_role(@customer, @cloud_id, role_obj)
+          elsif @config['role_source'] == "org"
+          elsif @config['role_source'] == "project"
+          elsif @config['role_source'] == "canned"
+# XXX I'm just here for the bindings ma'am
+          end
         end
 
         # Return the cloud descriptor for the Role
@@ -62,11 +100,10 @@ module MU
         def cloud_desc
           return @cloud_desc_cache if @cloud_desc_cache
 
-          customer = MU::Cloud::Google.customerID(@config['credentials'])
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
 
           @cloud_desc_cache = if @config['role_source'] == "directory"
-            MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_role(customer, @cloud_id)
+            MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_role(@customer, @cloud_id)
           elsif @config['role_source'] == "canned"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_role(@cloud_id)
           elsif @config['role_source'] == "project"
@@ -655,6 +692,44 @@ module MU
         end
 
         private
+
+        # given a list of admin_directory role privileges, compare to the
+        # output of list_privileges and remark on/toss anything that doesn't
+        # exist
+        def validate_directory_privileges(privs)
+          resp = MU::Cloud::Google.admin_directory(credentials: @credentials).list_privileges(@customer)
+          by_id = {}
+
+          # stupid API response has children
+          def recurse(items)
+            id_map = {}
+            items.each { |p|
+              id_map[p.service_id] ||= []
+              id_map[p.service_id] << p.privilege_name
+              if p.child_privileges
+                children = recurse(p.child_privileges)
+                children.each_pair { |svc, privs|
+                  id_map[svc] ||= []
+                  id_map[svc].concat(privs)
+                }
+              end
+            }
+            id_map
+          end
+
+          by_id = recurse(resp.items)
+          pp by_id
+
+          privs.each { |p|
+            service, privilege = p.split(/\//)
+            if !by_id[service]
+              MU.log "Service #{service} doesn't seem to exist", MU::WARN
+            elsif !by_id[service].include?(privilege)
+              MU.log "Service #{service} exists by has no privilege named #{privilege}", MU::WARN
+            end
+          }
+          raise "shush"
+        end
 
       end
     end
