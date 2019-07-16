@@ -404,6 +404,7 @@ puts @cloud_id
                   bok["import"] << ids[priv.service_id]+"/"+priv.privilege_name
                 end
               }
+              bok['import'].sort! # at least be legible
             end
           else # otherwise it's a GCP IAM role of some kind
 
@@ -741,23 +742,32 @@ puts @cloud_id
 
         def map_directory_privileges
           rolepriv_objs = []
+          notfound = []
           if @config['import']
             ids, names, privlist = MU::Cloud::Google::Role.privilege_service_to_name(@credentials)
             pp names
             pp ids
             @config['import'].each { |p|
               service, privilege = p.split(/\//)
-              if !names[service]
-                MU.log "Service #{service} not visible for #{@credentials}, skipping for role #{@mu_name}", MU::WARN
+              if !names[service] and !ids[service]
+                notfound << service
               elsif !privlist[names[service]].include?(privilege)
-                MU.log "Service #{service} exists by has no privilege named #{privilege}", MU::WARN
-              else
+                notfound << p
+              elsif names[service]
                 rolepriv_objs << MU::Cloud::Google.admin_directory(:Role)::RolePrivilege.new(
                   privilege_name: privilege,
                   service_id: names[service]
                 )
+              else
+                rolepriv_objs << MU::Cloud::Google.admin_directory(:Role)::RolePrivilege.new(
+                  privilege_name: privilege,
+                  service_id: service
+                )
               end
             }
+            if notfound.size > 0
+              MU.log "Role #{@config['name']} unable to map some declared services/privileges to available services/privileges in this account", MU::WARN, details: notfound.uniq.sort
+            end
           end
           rolepriv_objs
         end
