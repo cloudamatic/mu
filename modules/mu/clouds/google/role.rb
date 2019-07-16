@@ -51,13 +51,12 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-map_directory_privileges(@config['import'])
           @config['display_name'] ||= @mu_name
           if @config['role_source'] == "directory"
             role_obj = MU::Cloud::Google.admin_directory(:Role).new(
               role_name: @mu_name,
               role_description: @config['display_name'],
-              privileges: []
+              privileges: map_directory_privileges
             )
             MU.log "Creating directory role #{@mu_name}", details: role_obj
 
@@ -72,22 +71,8 @@ puts @cloud_id
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['role_source'] == "directory"
-            privs = if @config['import']
-              @config['import'].map { |p|
-                service, privilege = p.split(/\//)
-                MU::Cloud::Google.admin_directory(:Role)::RolePrivilege.new(
-                  privilege_name: privilege,
-                  service_id: service
-                )
-              }
-            else
-              nil
-            end
-            role_obj = MU::Cloud::Google.admin_directory(:Role).new(
-              role_privileges: privs
-            )
-            MU.log "Updating directory role #{@mu_name}", MU::NOTICE, details: role_obj
-            MU::Cloud::Google.admin_directory(credentials: @credentials).patch_role(@customer, @cloud_id, role_obj)
+#            MU.log "Updating directory role #{@mu_name}", MU::NOTICE, details: role_obj
+#            MU::Cloud::Google.admin_directory(credentials: @credentials).patch_role(@customer, @cloud_id, role_obj)
           elsif @config['role_source'] == "org"
           elsif @config['role_source'] == "project"
           elsif @config['role_source'] == "canned"
@@ -749,22 +734,33 @@ puts @cloud_id
 
               @@service_id_to_name[credentials], @@service_id_to_privs[credentials], @@service_name_to_id[credentials] = self.id_map_recurse(resp.items)
             end
-exit
+
             return [@@service_id_to_name[credentials], @@service_id_to_privs[credentials], @@service_name_to_id[credentials]]
           }
         end
 
-#          if privs
-#            privs.each { |p|
-#              service, privilege = p.split(/\//)
-#              if !by_id[service]
-#                MU.log "Service #{service} doesn't seem to exist", MU::WARN
-#              elsif !by_id[service].include?(privilege)
-#                MU.log "Service #{service} exists by has no privilege named #{privilege}", MU::WARN
-#              end
-#            }
-#            raise "shush"
-#          end
+        def map_directory_privileges
+          rolepriv_objs = []
+          if @config['import']
+            ids, names, privlist = MU::Cloud::Google::Role.privilege_service_to_name(@credentials)
+            pp names
+            pp ids
+            @config['import'].each { |p|
+              service, privilege = p.split(/\//)
+              if !names[service]
+                MU.log "Service #{service} not visible for #{@credentials}, skipping for role #{@mu_name}", MU::WARN
+              elsif !privlist[names[service]].include?(privilege)
+                MU.log "Service #{service} exists by has no privilege named #{privilege}", MU::WARN
+              else
+                rolepriv_objs << MU::Cloud::Google.admin_directory(:Role)::RolePrivilege.new(
+                  privilege_name: privilege,
+                  service_id: names[service]
+                )
+              end
+            }
+          end
+          rolepriv_objs
+        end
 
       end
     end
