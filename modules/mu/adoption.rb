@@ -281,6 +281,8 @@ MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cf
           else
             cfg.to_h
           end
+        elsif cfg.id # reference to raw cloud ids is reasonable
+          cfg = { "type" => cfg.type, "id" => cfg.id }
         else
           pp parent.cloud_desc
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"

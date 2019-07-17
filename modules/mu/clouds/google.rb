@@ -29,6 +29,8 @@ module MU
       @@authorizers = {}
       @@acct_to_profile_map = {}
       @@enable_semaphores = {}
+      @@readonly_semaphore = Mutex.new
+      @@readonly = {}
 
       # Module used by {MU::Cloud} to insert additional instance methods into
       # instantiated resources in this cloud layer.
@@ -753,18 +755,26 @@ module MU
 
         writescopes = ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema']
         readscopes = ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly']
-    
-        if subclass.nil?
-          begin
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes+writescopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-          rescue Signet::AuthorizationError => e
-            MU.log "Falling back to read-only access to DirectoryService API for credentail set '#{credentials}'", MU::WARN
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+        @@readonly_semaphore.synchronize {
+          use_scopes = readscopes+writescopes
+          if @@readonly[credentials] and @@readonly[credentials]["AdminDirectoryV1"]
+            use_scopes = readscopes.dup
           end
-          return @@admin_directory_api[credentials]
-        elsif subclass.is_a?(Symbol)
-          return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
-        end
+
+          if subclass.nil?
+            begin
+              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+            rescue Signet::AuthorizationError => e
+              MU.log "Falling back to read-only access to DirectoryService API for credential set '#{credentials}'", MU::WARN
+              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+              @@readonly[credentials] ||= {}
+              @@readonly[credentials]["AdminDirectoryV1"] = true
+            end
+            return @@admin_directory_api[credentials]
+          elsif subclass.is_a?(Symbol)
+            return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
+          end
+        }
       end
 
       # Google's Cloud Resource Manager API

@@ -335,7 +335,7 @@ puts @cloud_id
                     MU::Cloud::Google.admin_directory(credentials: credentials).delete_role(customer, id)
                   end
                 end
-                pp resp
+
               end
             }
           end
@@ -380,30 +380,30 @@ puts @cloud_id
           else
             if credcfg['masquerade_as']
               if args[:cloud_id]
-                resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_role(customer, args[:cloud_id])
+                resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_role(customer, args[:cloud_id].to_i)
                 if resp
-                  found[args[:cloud_id]] = resp
+                  found[args[:cloud_id].to_s] = resp
                 end
               else
                 resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_roles(customer)
                 if resp and resp.items
                   resp.items.each { |role|
-                    found[role.role_id] = role
+                    found[role.role_id.to_s] = role
                   }
                 end
               end
-#              resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_role_assignments(MU::Cloud::Google.customerID(args[:credentials]))
+
             end
 #            These are the canned roles
             resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles
             resp.roles.each { |role|
-#              found[role.name] = role
+              found[role.name] = role
             }
 
             resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
             if resp and resp.roles
               resp.roles.each { |role|
-#                found[role.name] = role
+                found[role.name] = role
               }
             end
           end
@@ -458,8 +458,8 @@ puts @cloud_id
               if bok['role_source'] == "project"
                 bok['project'] = parent
               end
-              pp cloud_desc
-              raise "feck orf"
+#              pp cloud_desc
+#              raise "feck orf"
             else
               raise MuError, "I don't know how to parse GCP IAM role identifier #{cloud_desc.name}"
             end
@@ -618,38 +618,73 @@ puts @cloud_id
               }
             end
 
-            def self.insertBinding(scopetype, scope, binding)
+            def self.insertBinding(scopetype, scope, binding = nil, member_type: nil, member_id: nil, role_id: nil)
+              role_id = binding.role if binding
               @@bindings_by_scope[scopetype] ||= {}
               @@bindings_by_scope[scopetype][scope] ||= {}
-              @@bindings_by_scope[scopetype][scope][binding.role] ||= {}
-              @@bindings_by_role[binding.role] ||= {}
-              @@bindings_by_role[binding.role][scopetype] ||= {}
-              @@bindings_by_role[binding.role][scopetype][scope] ||= {}
-              binding.members.each { |member|
-                member_type, member_id = member.split(/:/)
+              @@bindings_by_scope[scopetype][scope][role_id] ||= {}
+              @@bindings_by_role[role_id] ||= {}
+              @@bindings_by_role[role_id][scopetype] ||= {}
+              @@bindings_by_role[role_id][scopetype][scope] ||= {}
 
-                @@bindings_by_role[binding.role][scopetype][scope][member_type] ||= []
-                @@bindings_by_role[binding.role][scopetype][scope][member_type] << member_id
-                @@bindings_by_scope[scopetype][scope][binding.role][member_type] ||= []
-                @@bindings_by_scope[scopetype][scope][binding.role][member_type] << member_id
-                @@bindings_by_entity[member_type] ||= {}
-                @@bindings_by_entity[member_type][member_id] ||= {}
-                @@bindings_by_entity[member_type][member_id][binding.role] ||= {}
-                @@bindings_by_entity[member_type][member_id][binding.role][scopetype] ||= []
-                @@bindings_by_entity[member_type][member_id][binding.role][scopetype] << scope
+              do_binding = Proc.new { |type, id|
+                @@bindings_by_role[role_id][scopetype][scope][type] ||= []
+                @@bindings_by_role[role_id][scopetype][scope][type] << id
+                @@bindings_by_scope[scopetype][scope][role_id][type] ||= []
+                @@bindings_by_scope[scopetype][scope][role_id][type] << id
+                @@bindings_by_entity[type] ||= {}
+                @@bindings_by_entity[type][id] ||= {}
+                @@bindings_by_entity[type][id][role_id] ||= {}
+                @@bindings_by_entity[type][id][role_id][scopetype] ||= []
+                @@bindings_by_entity[type][id][role_id][scopetype] << scope
               }
+
+              if binding
+                binding.members.each { |member|
+                  member_type, member_id = member.split(/:/)
+                  do_binding.call(member_type, member_id)
+                }
+              elsif member_type and member_id
+                do_binding.call(member_type, member_id)
+              end
+
             end
 
-            resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(my_org.name)
-            resp.bindings.each { |binding|
-              insertBinding("organizations", my_org.name, binding)
-            }
+            if my_org
+              resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_role_assignments(MU::Cloud::Google.customerID(credentials))
 
-            MU::Cloud::Google::Folder.find(credentials: credentials).keys.each { |folder|
-              MU::Cloud::Google::Folder.bindings(folder, credentials: credentials).each { |binding|
-                insertBinding("folders", folder, binding)
+              resp.items.each { |binding|
+
+                begin
+                  user = MU::Cloud::Google.admin_directory(credentials: credentials).get_user(binding.assigned_to)
+                  insertBinding("directories", my_org.name, member_id: user.primary_email, member_type: "user", role_id: binding.role_id.to_s)
+                  next
+                rescue ::Google::Apis::ClientError # notFound
+                end
+
+                begin
+                  group = MU::Cloud::Google.admin_directory(credentials: credentials).get_group(binding.assigned_to)
+                  MU.log "GROUP", MU::NOTICE, details: group
+#                  insertBinding("directories", my_org.name, member_id: group.primary_email, member_type: "group", role_id: binding.role_id.to_s)
+                  next
+                rescue ::Google::Apis::ClientError # notFound
+                end
+
+                role = MU::Cloud::Google.admin_directory(credentials: credentials).get_role(MU::Cloud::Google.customerID(credentials), binding.role_id)
+                MU.log "Failed to find entity #{binding.assigned_to} referenced in GSuite/Cloud Identity binding to role #{role.role_name}", MU::WARN, details: role
               }
-            }
+
+              resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(my_org.name)
+              resp.bindings.each { |binding|
+                insertBinding("organizations", my_org.name, binding)
+              }
+
+              MU::Cloud::Google::Folder.find(credentials: credentials).keys.each { |folder|
+                MU::Cloud::Google::Folder.bindings(folder, credentials: credentials).each { |binding|
+                  insertBinding("folders", folder, binding)
+                }
+              }
+            end
             MU::Cloud::Google::Habitat.find(credentials: credentials).keys.each { |project|
               MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
                 insertBinding("projects", project, binding)
@@ -671,11 +706,12 @@ puts @cloud_id
         def self.entityBindingsToSchema(roles, credentials: nil)
           my_org = MU::Cloud::Google.getOrg(credentials)
           role_cfg = []
+
           roles.each_pair { |role, scopes|
             rolemap = { }
-            rolemap["role"] = if role.match(/^roles\//)
+            rolemap["role"] = if !role.is_a?(Integer) and role.match(/^roles\//)
               # generally referring to a canned GCP role
-              { "id" => role }
+              { "id" => role.to_s }
             else
               # Possi-probably something we're declaring elsewhere in this
               # adopted Mu stack
@@ -689,7 +725,7 @@ puts @cloud_id
             scopes.each_pair { |scopetype, places|
               if places.size > 0
                 rolemap[scopetype] = []
-                if scopetype == "organizations"
+                if scopetype == "organizations" or scopetype == "directories"
                   places.each { |org|
                     rolemap[scopetype] << ((org == my_org.name and credentials) ? credentials : org)
                   }
@@ -718,8 +754,7 @@ puts @cloud_id
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(role, configurator)
           ok = true
-pp find(credentials: role['credentials'])
-exit
+
           credcfg = MU::Cloud::Google.credConfig(role['credentials'])
 
           if role['role_source'] == "directory" and role['import'] and
