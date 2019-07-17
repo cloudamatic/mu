@@ -56,8 +56,9 @@ module MU
             role_obj = MU::Cloud::Google.admin_directory(:Role).new(
               role_name: @mu_name,
               role_description: @config['display_name'],
-              privileges: map_directory_privileges
+              role_privileges: MU::Cloud::Google::Role.map_directory_privileges(@config['import'], credentials: @credentials).first
             )
+            pp role_obj
             MU.log "Creating directory role #{@mu_name}", details: role_obj
 
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_role(@customer, role_obj)
@@ -313,6 +314,42 @@ puts @cloud_id
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          customer = MU::Cloud::Google.customerID(credentials)
+          my_org = MU::Cloud::Google.getOrg(credentials)
+
+          if flags['known']
+            flags['known'].each { |id|
+              # Gsuite and Cloud Identity roles don't have a useful field for
+              # packing in our deploy id, so if we have metadata to leverage
+              # for this, use it.
+              if my_org and id.is_a?(Integer)
+                begin
+                resp = MU::Cloud::Google.admin_directory(credentials: credentials).get_role(customer, id)
+                rescue ::Google::Apis::ClientError => e
+                  next if e.message.match(/notFound/)
+                  raise e
+                end
+                if resp
+                  MU.log "Deleting directory role #{resp.role_name}"
+                  if !noop
+                    MU::Cloud::Google.admin_directory(credentials: credentials).delete_role(customer, id)
+                  end
+                end
+                pp resp
+              end
+            }
+          end
+
+          if my_org and MU.deploy_id and !MU.deploy_id.empty?
+            resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_roles(customer)
+            if resp and resp.items
+              resp.items.each { |role|
+                if role.name.match(/^#{Regex.match(MU.deploy_id)}/)
+                end
+              }
+            end
+          end
+
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -360,13 +397,13 @@ puts @cloud_id
 #            These are the canned roles
             resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles
             resp.roles.each { |role|
-              found[role.name] = role
+#              found[role.name] = role
             }
 
             resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
             if resp and resp.roles
               resp.roles.each { |role|
-                found[role.name] = role
+#                found[role.name] = role
               }
             end
           end
@@ -387,6 +424,8 @@ puts @cloud_id
 
           # GSuite or Cloud Identity role
           if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role
+            return nil if cloud_desc.is_system_role
+
             bok["name"] = @config['name'].gsub(/[^a-z0-9]/i, '-').downcase
             bok['role_source'] = "directory"
             bok["display_name"] = @config['name']
@@ -679,8 +718,20 @@ puts @cloud_id
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(role, configurator)
           ok = true
-
+pp find(credentials: role['credentials'])
+exit
           credcfg = MU::Cloud::Google.credConfig(role['credentials'])
+
+          if role['role_source'] == "directory" and role['import'] and
+             role['import'].size > 0
+            mappings, missing = map_directory_privileges(role['import'], credentials: role['credentials'])
+            if mappings.size == 0
+              MU.log "None of the directory service privileges available to credentials #{role['credentials']} map to the ones declared for role #{role['name']}", MU::ERR, details: role['import'].sort
+              ok = false
+            elsif missing.size > 0
+              MU.log "Some directory service privileges declared for role #{role['name']} aren't available to credentials #{role['credentials']}, will skip", MU::WARN, details: missing
+            end
+          end
 
           ok
         end
@@ -740,14 +791,12 @@ puts @cloud_id
           }
         end
 
-        def map_directory_privileges
+        def self.map_directory_privileges(roles, credentials: nil)
           rolepriv_objs = []
           notfound = []
-          if @config['import']
-            ids, names, privlist = MU::Cloud::Google::Role.privilege_service_to_name(@credentials)
-            pp names
-            pp ids
-            @config['import'].each { |p|
+          if roles
+            ids, names, privlist = MU::Cloud::Google::Role.privilege_service_to_name(credentials)
+            roles.each { |p|
               service, privilege = p.split(/\//)
               if !names[service] and !ids[service]
                 notfound << service
@@ -765,11 +814,8 @@ puts @cloud_id
                 )
               end
             }
-            if notfound.size > 0
-              MU.log "Role #{@config['name']} unable to map some declared services/privileges to available services/privileges in this account", MU::WARN, details: notfound.uniq.sort
-            end
           end
-          rolepriv_objs
+          [rolepriv_objs, notfound.uniq.sort]
         end
 
       end

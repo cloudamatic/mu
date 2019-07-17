@@ -739,7 +739,7 @@ module MU
         require 'google/apis/iam_v1'
 
         if subclass.nil?
-          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['cloud-platform'], credentials: credentials)
+          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials)
           return @@iam_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
