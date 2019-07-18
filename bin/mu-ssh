@@ -18,8 +18,9 @@ require 'mu'
 argument = ARGV[0]
 puts argument
 avail_deploys = MU::MommaCat.listAllNodes
-if avail_deploys.include?(argument)
-	  system("ssh #{argument}")
-else
-	abort "#{argument} cannot be found in the list of deployed nodes.."
+check = avail_deploys.keys
+
+check.grep(*/#{argument}/).each do |n|
+	puts n
+ 	system("ssh #{n}")
 end
