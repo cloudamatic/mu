@@ -1504,7 +1504,7 @@ end
           end
           return nil
         end
-        MU.log indent+"START findLitterMate(#{argstring}), caller: #{caller[2]}", loglevel, details: @kittens[type].keys.map { |k| k.to_s+": "+@kittens[type][k].keys.join(", ") }
+        MU.log indent+"START findLitterMate(#{argstring}), caller: #{caller[2]}", loglevel, details: @kittens[type].keys.map { |hab| hab.to_s+": "+@kittens[type][hab].keys.join(", ") }
         matches = []
 
         @kittens[type].each { |habitat_group, sib_classes|
@@ -1549,11 +1549,14 @@ end
             }
           else
 
-            MU.log indent+"CHECKING AGAINST findLitterMate data.cloud_id: #{data.cloud_id}, data.credentials: #{data.credentials}, sib_class: #{sib_class}, virtual_name: #{virtual_name}", loglevel, details: argstring
+            MU.log indent+"CHECKING AGAINST findLitterMate #{habitat_group}/#{type}/#{sib_class} data.cloud_id: #{data.cloud_id}, data.credentials: #{data.credentials}, sib_class: #{sib_class}, virtual_name: #{virtual_name}", loglevel, details: argstring
+
             data_cloud_id = data.cloud_id.nil? ? nil : data.cloud_id.to_s
+
             MU.log indent+"(name.nil? or sib_class == name or virtual_name == name)", loglevel, details: (name.nil? or sib_class == name or virtual_name == name).to_s
-            MU.log indent+"(cloud_id.nil? or cloud_id == data_cloud_id)", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
-            MU.log indent+"(credentials.nil? or data.credentials.nil? or credentials == data.credentials)", loglevel, details: (credentials.nil? or data.credentials.nil? or credentials == data.credentials).to_s
+            MU.log indent+"(cloud_id.nil? or cloud_id[#{cloud_id.class.name}:#{cloud_id.to_s}] == data_cloud_id[#{data_cloud_id.class.name}:#{data_cloud_id}])", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
+            MU.log indent+"(credentials.nil? or data.credentials.nil? or credentials[#{credentials.class.name}:#{credentials}] == data.credentials[#{data.credentials.class.name}:#{data.credentials}])", loglevel, details: (credentials.nil? or data.credentials.nil? or credentials == data.credentials).to_s
+
             if (name.nil? or sib_class == name.to_s or virtual_name == name.to_s) and
                 (cloud_id.nil? or cloud_id.to_s == data_cloud_id) and
                 (credentials.nil? or data.credentials.nil? or credentials.to_s == data.credentials.to_s)

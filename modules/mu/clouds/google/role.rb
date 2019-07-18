@@ -712,6 +712,20 @@ puts @cloud_id
             rolemap["role"] = if !role.is_a?(Integer) and role.match(/^roles\//)
               # generally referring to a canned GCP role
               { "id" => role.to_s }
+            elsif role.is_a?(Integer) or role.match(/^\d+$/)
+              # If this is a GSuite/Cloud Identity system role, reference it by
+              # its human-readable name intead of its numeric id
+              role_desc = MU::Cloud::Google::Role.find(cloud_id: role, credentials: credentials).values.first
+              if role_desc.is_system_role
+                { "id" => role_desc.role_name }
+              else
+                MU::Config::Ref.get(
+                  id: role,
+                  cloud: "Google",
+                  credentials: credentials,
+                  type: "roles"
+                )
+              end
             else
               # Possi-probably something we're declaring elsewhere in this
               # adopted Mu stack
