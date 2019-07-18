@@ -329,8 +329,7 @@ module MU
             created_generic_loggroup = false
 
             @config['containers'].each { |c|
-              container_name = @mu_name+"-"+c['name'].upcase
-              service_name = c['service'] ? container_name : @mu_name
+              service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name
               tasks[service_name] ||= []
               tasks[service_name] << c
             }
