@@ -83,7 +83,6 @@ module MU
             MU.log "Creating user #{@mu_name}", details: user_obj
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_user(user_obj)
             @cloud_id = resp.primary_email
-            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           end
         end
 
@@ -93,7 +92,7 @@ module MU
             MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           elsif @config['type'] == "interactive"
 # XXX update miscellaneous fields
-            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
+            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'], deploy: @deploy)
           else
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
@@ -178,6 +177,7 @@ module MU
               }
 
               flags['known'].each { |user_email|
+                next if user_email.nil?
                 next if !user_email.match(/^[^\/]+@[^\/]+$/)
 
                 MU::Cloud::Google::Role.removeBindings("user", user_email, credentials: credentials, noop: noop)
@@ -429,6 +429,19 @@ If we are binding (rather than creating) a user and no roles are specified, we w
           if user['type'] != "service" and user["create_api_key"]
             MU.log "Only service accounts can have API keys in Google Cloud", MU::ERR
             ok = false
+          end
+
+          user['dependencies'] ||= []
+          if user['roles']
+            user['roles'].each { |r|
+              if r['role'] and r['role']['name'] and
+                 (!r['role']['deploy_id'] and !r['role']['id'])
+                user['dependencies'] << {
+                  "type" => "role",
+                  "name" => r['role']['name']
+                }
+              end
+            }
           end
 
           ok

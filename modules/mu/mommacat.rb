@@ -2601,8 +2601,9 @@ MESSAGE_END
             MU.log "Getting lock to write #{deploy_dir}/deployment.json", MU::DEBUG
             deploy.flock(File::LOCK_EX)
             deploy.puts JSON.pretty_generate(@deployment, max_nesting: false)
-          rescue JSON::NestingError => e
-            raise MuError, e.inspect+"\n\n"+@deployment.to_s
+          rescue JSON::NestingError, Encoding::UndefinedConversionError => e
+            MU.log e.inspect, MU::ERR, details: @deployment
+            raise MuError, "Got #{e.inspect} trying to save deployment"
           end
           deploy.flock(File::LOCK_UN)
           deploy.close

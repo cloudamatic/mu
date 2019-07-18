@@ -58,13 +58,25 @@ module MU
               role_description: @config['display_name'],
               role_privileges: MU::Cloud::Google::Role.map_directory_privileges(@config['import'], credentials: @credentials).first
             )
-            pp role_obj
             MU.log "Creating directory role #{@mu_name}", details: role_obj
 
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_role(@customer, role_obj)
-            @cloud_id = resp.role_id
-puts @cloud_id
+            @cloud_id = resp.role_id.to_s
+
           elsif @config['role_source'] == "org"
+            create_role_obj = MU::Cloud::Google.iam(:CreateRoleRequest).new(
+              role: MU::Cloud::Google.iam(:Role).new(
+                title: @config['display_name'],
+                description: @config['description']
+              ),
+              role_id: MU::Cloud::Google.nameStr(@deploy.getResourceName(@config["name"], max_length: 64)).gsub(/[^a-zA-Z0-9_\.]/, "_")
+            )
+
+            my_org = MU::Cloud::Google.getOrg(@config['credentials'])
+            MU.log "Creating IAM organization role #{@mu_name}", details: create_role_obj
+            resp = MU::Cloud::Google.iam(credentials: @credentials).create_organization_role(my_org.name, create_role_obj)
+            @cloud_id = resp.name
+
           elsif @config['role_source'] == "project"
           end
         end
@@ -93,7 +105,7 @@ puts @cloud_id
           elsif @config['role_source'] == "canned"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_role(@cloud_id)
           elsif @config['role_source'] == "project"
-            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
+#            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
           elsif @config['role_source'] == "org"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_organization_role(@cloud_id)
           end
@@ -105,6 +117,7 @@ puts @cloud_id
         # @return [Hash]
         def notify
           base = MU.structToHash(cloud_desc)
+          base.delete(:etag)
           base["cloud_id"] = @cloud_id
 
           base
@@ -126,6 +139,16 @@ puts @cloud_id
         # @param scope_id [String]: The cloud identifier of the scope in which this binding will be valid
         # @param credentials [String]:
         def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
+
+          # scope_id might actually be the name of a credential set; if so, we
+          # map it back to an actual organization on the fly
+          if scope_type == "organizations"
+            my_org = MU::Cloud::Google.getOrg(scope_id)
+            if my_org
+              scope_id = my_org.name
+            end
+          end
+
           @@role_bind_semaphore.synchronize {
             @@role_bind_scope_semaphores[scope_id] ||= Mutex.new
           }
@@ -260,7 +283,7 @@ puts @cloud_id
         # @param entity_id [String]: The cloud identifier of the entity
         # @param cfg [Hash]: A configuration block confirming to our own {MU::Cloud::Google::Role.ref_schema}
         # @param credentials [String]:
-        def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil)
+        def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil, deploy: nil)
           bindings = []
 
           return if !cfg
@@ -272,6 +295,10 @@ puts @cloud_id
               binding[scopetype].each { |scope|
 # XXX resolution of Ref bits (roles, projects, and folders anyway; organizations and domains are direct)
 #        def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
+                if deploy and binding["role"]["name"] and !binding["role"]["id"]
+                  role_obj = deploy.findLitterMate(name: binding["role"]["name"], type: "roles")
+                  binding["role"]["id"] = role_obj.cloud_id if role_obj
+                end
                 MU::Cloud::Google::Role.bindTo(
                   binding["role"]["id"],
                   entity_type,
@@ -344,7 +371,11 @@ puts @cloud_id
             resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_roles(customer)
             if resp and resp.items
               resp.items.each { |role|
-                if role.name.match(/^#{Regex.match(MU.deploy_id)}/)
+                if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
+                  MU.log "Deleting directory role #{role.role_name}"
+                  if !noop
+                    MU::Cloud::Google.admin_directory(credentials: credentials).delete_role(customer, role.role_id)
+                  end
                 end
               }
             end
