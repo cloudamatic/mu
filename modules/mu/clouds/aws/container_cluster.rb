@@ -343,6 +343,7 @@ module MU
               lbs = []
 
               container_definitions = containers.map { |c|
+                container_name = @mu_name+"-"+c['service'].upcase
                 cpu_total += c['cpu']
                 mem_total += c['memory']
 
