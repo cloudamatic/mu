@@ -16,11 +16,11 @@
 require 'mu'
 
 argument = ARGV[0]
-puts argument
+
 avail_deploys = MU::MommaCat.listAllNodes
 check = avail_deploys.keys
 
-check.grep(*/#{argument}/).each do |n|
-	puts n
- 	system("ssh #{n}")
+check.grep(*/#{argument}*/).each do |n|
+  puts n
+  system("ssh #{n}")
 end
