@@ -20,7 +20,7 @@ argument = ARGV[0]
 avail_deploys = MU::MommaCat.listAllNodes
 check = avail_deploys.keys
 
-check.grep(*/#{argument}*/).each do |n|
+check.grep(*/#{argument}*/i).each do |n|
   puts n
   system("ssh #{n}")
 end
