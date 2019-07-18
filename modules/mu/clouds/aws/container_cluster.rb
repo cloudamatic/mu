@@ -329,7 +329,8 @@ module MU
             created_generic_loggroup = false
 
             @config['containers'].each { |c|
-              service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name+"-"+c['name'].upcase
+              container_name = @mu_name+"-"+c['service'].upcase
+              service_name = c['service'] ? container_name : @mu_name
               tasks[service_name] ||= []
               tasks[service_name] << c
             }
@@ -368,7 +369,7 @@ module MU
                   c['loadbalancers'].each {|lb|
                     found = @deploy.findLitterMate(name: lb['name'], type: "loadbalancer")
                     if found
-                      MU.log "Mapping LB #{found.mu_name} to service #{service_name}", MU::INFO
+                      MU.log "Mapping LB #{found.mu_name} to service #{c['name']}", MU::INFO
                       if found.cloud_desc.type != "classic"
                         elb_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
                             load_balancer_arn: found.cloud_desc.load_balancer_arn
@@ -383,11 +384,11 @@ module MU
                             end 
                           }
                           if matching_target_groups.length >= 1
-                            MU.log "#{matching_target_groups.length} matching target groups found. Mapping #{service_name} to target group #{matching_target_groups.first['name']}", MU::INFO
+                            MU.log "#{matching_target_groups.length} matching target groups found. Mapping #{container_name} to target group #{matching_target_groups.first['name']}", MU::INFO
                             lbs << {
-                              container_name: service_name,
+                              container_name: container_name,
                               container_port: lb['container_port'],
-                              target_group_arn: matching_target_groups.first['arn']
+                              target_group_arn: matching_target_groups.first[:arn]
                             }
                           else
                             raise MuError, "No matching target groups found"
@@ -395,9 +396,9 @@ module MU
                       elsif @config['flavor'] == "Fargate" && found.cloud_desc.type == "classic"
                         raise MuError, "Classic Load Balancers are not supported with Fargate."
                       else
-                        MU.log "Mapping Classic LB #{found.mu_name} to service #{service_name}", MU::INFO
+                        MU.log "Mapping Classic LB #{found.mu_name} to service #{container_name}", MU::INFO
                         lbs << {
-                          container_name: service_name,
+                          container_name: container_name,
                           container_port: lb['container_port'],
                           load_balancer_name: found.mu_name
                         }
