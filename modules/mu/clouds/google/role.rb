@@ -63,7 +63,12 @@ module MU
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_role(@customer, role_obj)
             @cloud_id = resp.role_id.to_s
 
-          elsif @config['role_source'] == "org"
+          elsif @config['role_source'] == "canned"
+            @cloud_id = @config['name']
+            if !@cloud_id.match(/^roles\//)
+              @cloud_id = "roles/"+@cloud_id
+            end
+          else
             create_role_obj = MU::Cloud::Google.iam(:CreateRoleRequest).new(
               role: MU::Cloud::Google.iam(:Role).new(
                 title: @config['display_name'],
@@ -72,12 +77,20 @@ module MU
               role_id: MU::Cloud::Google.nameStr(@deploy.getResourceName(@config["name"], max_length: 64)).gsub(/[^a-zA-Z0-9_\.]/, "_")
             )
 
-            my_org = MU::Cloud::Google.getOrg(@config['credentials'])
-            MU.log "Creating IAM organization role #{@mu_name}", details: create_role_obj
-            resp = MU::Cloud::Google.iam(credentials: @credentials).create_organization_role(my_org.name, create_role_obj)
+            resp = if @config['role_source'] == "org"
+              my_org = MU::Cloud::Google.getOrg(@config['credentials'])
+              MU.log "Creating IAM organization role #{@mu_name} in #{my_org.display_name}", details: create_role_obj
+              resp = MU::Cloud::Google.iam(credentials: @credentials).create_organization_role(my_org.name, create_role_obj)
+            elsif @config['role_source'] == "project"
+              if !@project_id
+                raise MuError, "Role #{@mu_name} is supposed to be in project #{@config['project']}, but no such project was found"
+              end
+              MU.log "Creating IAM project role #{@mu_name} in #{@project_id}", details: create_role_obj
+              MU::Cloud::Google.iam(credentials: @credentials).create_project_role("projects/"+@project_id, create_role_obj)
+            end
+
             @cloud_id = resp.name
 
-          elsif @config['role_source'] == "project"
           end
         end
 
@@ -105,7 +118,7 @@ module MU
           elsif @config['role_source'] == "canned"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_role(@cloud_id)
           elsif @config['role_source'] == "project"
-#            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
+            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_role(@cloud_id)
           elsif @config['role_source'] == "org"
             MU::Cloud::Google.iam(credentials: @config['credentials']).get_organization_role(@cloud_id)
           end
@@ -160,7 +173,16 @@ module MU
             elsif scope_type == "folders"
               MU::Cloud::Google.resource_manager(credentials: credentials).get_folder_iam_policy(scope_id)
             elsif scope_type == "projects"
-              MU::Cloud::Google.resource_manager(credentials: credentials).get_project_iam_policy(scope_id)
+              if !scope_id
+                raise MuError, "Google::Role.bindTo was called without a scope_id"
+              elsif scope_id.is_a?(Hash)
+                if scope_id["id"]
+                  scope_id = scope_id["id"]
+                else
+                  raise MuError, "Google::Role.bindTo was called with a scope_id Ref hash that has no id field"
+                end
+              end
+              MU::Cloud::Google.resource_manager(credentials: credentials).get_project_iam_policy(scope_id.sub(/^projects\//, ""))
             end
 
             saw_role = false
@@ -245,7 +267,7 @@ module MU
                 need_update = false
                 policy.bindings.each { |binding|
                   if binding.members.include?(entity)
-                    MU.log "Removing #{binding.role} from #{entity} in #{scope_id}"
+                    MU.log "Unbinding #{binding.role} from #{entity} in #{scope_id}"
                     need_update = true
                     binding.members.delete(entity)
                   end
@@ -346,12 +368,14 @@ module MU
 
           if flags['known']
             flags['known'].each { |id|
-              # Gsuite and Cloud Identity roles don't have a useful field for
-              # packing in our deploy id, so if we have metadata to leverage
-              # for this, use it.
-              if my_org and id.is_a?(Integer)
+              # GCP roles don't have a useful field for packing in our deploy
+              # id, so if we have metadata to leverage for this, use it. For
+              # directory roles, we try to make it into the name field, so
+              # we'll check that later, but for org and project roles this is 
+              # our only option.
+              if my_org and id.is_a?(Integer) or id.match(/^\d+/)
                 begin
-                resp = MU::Cloud::Google.admin_directory(credentials: credentials).get_role(customer, id)
+                  resp = MU::Cloud::Google.admin_directory(credentials: credentials).get_role(customer, id)
                 rescue ::Google::Apis::ClientError => e
                   next if e.message.match(/notFound/)
                   raise e
@@ -362,7 +386,32 @@ module MU
                     MU::Cloud::Google.admin_directory(credentials: credentials).delete_role(customer, id)
                   end
                 end
-
+              elsif id.match(/^projects\//)
+                begin
+                  resp = MU::Cloud::Google.iam(credentials: credentials).get_project_role(id)
+                rescue ::Google::Apis::ClientError => e
+                  next if e.message.match(/notFound/)
+                  raise e
+                end
+                if resp
+                  MU.log "Deleting project role #{resp.name}"
+                  if !noop
+                    MU::Cloud::Google.iam(credentials: credentials).delete_project_role(id)
+                  end
+                end
+              elsif id.match(/^organizations\//)
+                begin
+                  resp = MU::Cloud::Google.iam(credentials: credentials).get_organization_role(id)
+                rescue ::Google::Apis::ClientError => e
+                  next if e.message.match(/notFound/)
+                  raise e
+                end
+                if resp
+                  MU.log "Deleting organization role #{resp.name}"
+                  if !noop
+                    MU::Cloud::Google.iam(credentials: credentials).delete_organization_role(id)
+                  end
+                end
               end
             }
           end
@@ -555,53 +604,6 @@ module MU
           bok
         end
 
-        # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
-        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
-          toplevel_required = []
-          schema = {
-            "display_name" => {
-              "type" => "string",
-              "description" => "A human readable name for this role. If not specified, will default to our long-form deploy-generated name."
-            },
-            "role_source" => {
-              "type" => "string",
-              "description" => "'interactive' will attempt to bind an existing user; 'service' will create a service account and generate API keys",
-              "enum" => ["directory", "org", "project", "canned"]
-            },
-            "description" => {
-              "type" => "string",
-              "description" => "Detailed human-readable description of this role's purpose"
-            },
-            "bindings" => {
-              "type" => "array",
-              "items" => {
-                "type" => "object",
-                "description" => "One or more entities (+user+, +group+, etc) to associate with this role. IAM roles in Google can be associated at the project (+Habitat+), folder, or organization level, so we must specify not only the target entity, but each container in which it is granted to the entity in question.",
-                "properties" => {
-                  "entity" => MU::Config::Ref.schema,
-                  "projects" => {
-                    "type" => "array",
-                    "items" => MU::Config::Ref.schema(type: "habitats")
-                  },
-                  "folders" => {
-                    "type" => "array",
-                    "items" => MU::Config::Ref.schema(type: "folders")
-                  },
-                  "organizations" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "string",
-                      "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials, which can be used as an alias to the organization to which they authenticate."
-                    }
-                  }
-                }
-              }
-            }
-          }
-          [toplevel_required, schema]
-        end
 
         # Schema used by +user+ and +group+ entities to reference role
         # assignments and their scopes.
@@ -793,6 +795,67 @@ module MU
           role_cfg
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "name" => {
+              "pattern" => '^[a-zA-Z0-9\-\.\/]+$'
+            },
+            "display_name" => {
+              "type" => "string",
+              "description" => "A human readable name for this role. If not specified, will default to our long-form deploy-generated name."
+            },
+            "role_source" => {
+              "type" => "string",
+              "description" => "Google effectively has four types of roles:
+              
++directory+: An admin role in GSuite or Cloud Identity
+
++org+: A custom organization-level IAM role. Note that these are only valid in GSuite or Cloud Identity environments
+
++project+: A custom project-level IAM role.
+
++canned+: A reference to one of the standard pre-defined IAM roles, usually only declared to apply {bindings} to other artifacts.
+
+If this value is not specified, and the role name matches the name of an existing +canned+ role, we will assume it should be +canned+. If it does not, and we have credentials which map to a valid organization, we will assume +org+; if the credentials do not map to an organization, we will assume +project+.",
+              "enum" => ["directory", "org", "project", "canned"]
+            },
+            "description" => {
+              "type" => "string",
+              "description" => "Detailed human-readable description of this role's purpose"
+            },
+            "bindings" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "One or more entities (+user+, +group+, etc) to associate with this role. IAM roles in Google can be associated at the project (+Habitat+), folder, or organization level, so we must specify not only the target entity, but each container in which it is granted to the entity in question.",
+                "properties" => {
+                  "entity" => MU::Config::Ref.schema,
+                  "projects" => {
+                    "type" => "array",
+                    "items" => MU::Config::Ref.schema(type: "habitats")
+                  },
+                  "folders" => {
+                    "type" => "array",
+                    "items" => MU::Config::Ref.schema(type: "folders")
+                  },
+                  "organizations" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "Either an organization cloud identifier, like +organizations/123456789012+, or the name of set of Mu credentials, which can be used as an alias to the organization to which they authenticate."
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.
         # @param role [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -802,14 +865,55 @@ module MU
 
           credcfg = MU::Cloud::Google.credConfig(role['credentials'])
 
-          if role['role_source'] == "directory" and role['import'] and
-             role['import'].size > 0
-            mappings, missing = map_directory_privileges(role['import'], credentials: role['credentials'])
-            if mappings.size == 0
-              MU.log "None of the directory service privileges available to credentials #{role['credentials']} map to the ones declared for role #{role['name']}", MU::ERR, details: role['import'].sort
+          my_org = MU::Cloud::Google.getOrg(role['credentials'])
+          if !role['role_source']
+            begin
+              lookup_name = role['name'].dup
+              if !lookup_name.match(/^roles\//)
+                lookup_name = "roles/"+lookup_name
+              end
+              canned = MU::Cloud::Google.iam(credentials: role['credentials']).get_role(lookup_name)
+              MU.log "Role #{role['name']} appears to be a referenced to canned role #{role.name} (#{role.title})", MU::NOTICE
+              role['role_source'] = "canned"
+            rescue ::Google::Apis::ClientError
+              role['role_source'] = my_org ? "org" : "project"
+            end
+          end
+
+          if role['role_source'] == "canned"
+            if role['bindings'].nil? or role['bindings'].empty?
+              MU.log "Role #{role['name']} appears to refer to a canned role, but does not have any bindings declared- this will effectively do nothing.", MU::WARN
+            end
+          end
+
+          if role['role_source'] == "directory" 
+
+            if role['import'] and role['import'].size > 0
+              mappings, missing = map_directory_privileges(role['import'], credentials: role['credentials'])
+              if mappings.size == 0
+                MU.log "None of the directory service privileges available to credentials #{role['credentials']} map to the ones declared for role #{role['name']}", MU::ERR, details: role['import'].sort
+                ok = false
+              elsif missing.size > 0
+                MU.log "Some directory service privileges declared for role #{role['name']} aren't available to credentials #{role['credentials']}, will skip", MU::WARN, details: missing
+              end
+            end
+          end
+
+          if role['role_source'] == "directory" or role['role_source'] == "org"
+            if !my_org
+              MU.log "Role #{role['name']} requires an organization/directory, but credential set #{role['credentials']} doesn't appear to have access to one", MU::ERR
               ok = false
-            elsif missing.size > 0
-              MU.log "Some directory service privileges declared for role #{role['name']} aren't available to credentials #{role['credentials']}, will skip", MU::WARN, details: missing
+            end
+          end
+
+          if role['role_source'] == "project"
+            role['project'] ||= MU::Cloud::Google.defaultProject(role['credentials'])
+            if configurator.haveLitterMate?(role['project'], "habitats")
+              role['dependencies'] ||= []
+              role['dependencies'] << {
+                "type" => "habitats",
+                "name" => role['project']
+              }
             end
           end
 
