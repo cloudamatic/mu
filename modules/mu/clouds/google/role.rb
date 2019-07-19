@@ -527,6 +527,8 @@ module MU
             end
           else # otherwise it's a GCP IAM role of some kind
 
+            return nil if cloud_desc.stage == "DISABLED"
+
             if cloud_desc.name.match(/^roles\/([^\/]+)$/)
               name = Regexp.last_match[1]
               bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
@@ -538,8 +540,10 @@ module MU
               if bok['role_source'] == "project"
                 bok['project'] = parent
               end
-#              pp cloud_desc
-#              raise "feck orf"
+              if cloud_desc.included_permissions and cloud_desc.included_permissions.size > 0
+                bok['import'] = cloud_desc.included_permissions
+              end
+MU.log cloud_desc.name, MU::WARN, details: cloud_desc
             else
               raise MuError, "I don't know how to parse GCP IAM role identifier #{cloud_desc.name}"
             end
@@ -548,13 +552,6 @@ module MU
               bok["description"] = cloud_desc.description
             end
             bok["display_name"] = cloud_desc.title
-            if !cloud_desc.included_permissions.nil? and
-               !cloud_desc.included_permissions.empty?
-              bok['import'] = []
-              cloud_desc.included_permissions.each { |priv|
-                bok["import"] << priv
-              }
-            end
 
             bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
 
