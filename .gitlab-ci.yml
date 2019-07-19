@@ -15,7 +15,7 @@ Rubocop:
   stage: Lint Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - rubocop modules/
     - rubocop bin/
@@ -25,7 +25,7 @@ Cookstyle:
   stage: Lint Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - cookstyle cookbooks/
   allow_failure: true
@@ -34,7 +34,7 @@ Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
 
@@ -42,7 +42,7 @@ Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
 
@@ -50,7 +50,7 @@ ChefSpec:
   stage: Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
@@ -69,7 +69,7 @@ New_Berks:
   stage: Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
@@ -81,7 +81,7 @@ Berks:
   stage: Test
   image: chef/chefdk:latest
   variables:
-    CHEF_LICENSE:"accept"
+    - CHEF_LICENSE: "accept"
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
