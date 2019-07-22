@@ -771,14 +771,13 @@ module MU
 
   # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
   # return [String]: A password string.
-  def self.generateWindowsPassword
+  def self.generateWindowsPassword(safe_pattern: '~!@#%^&*_-+=`|(){}[]:;<>,.?', retries: 25)
     # We have dopey complexity requirements, be stringent here.
     # I'll be nice and not condense this into one elegant-but-unreadable regular expression
     attempts = 0
-    safe_metachars = Regexp.escape('!@#$%^&*()') # Azure constraints
-#    safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
+    safe_metachars = Regexp.escape(safe_pattern)
     begin
-      if attempts > 100 # XXX might be time to replace this gem
+      if attempts > retries
         MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
         raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
       end

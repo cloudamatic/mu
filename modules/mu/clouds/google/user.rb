@@ -40,7 +40,12 @@ module MU
             end
           end
 
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+          @mu_name ||= if @config['unique_name'] or @config['type'] == "service"
+            @deploy.getResourceName(@config["name"])
+          else
+            @config['name']
+          end
+
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -64,20 +69,22 @@ module MU
           else
             if !@config['email']
               domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(@customer)
-              @config['email'] = @config['name'].gsub(/@.*/, "")+"@"+domains.domains.first.domain_name
+              @config['email'] = @mu_name.gsub(/@.*/, "")+"@"+domains.domains.first.domain_name
             end
 
             username_obj = MU::Cloud::Google.admin_directory(:UserName).new(
-              given_name: @config['name'],              
-              family_name: @deploy.deploy_id,
+              given_name: (@config['given_name'] || @config['name']),
+              family_name: (@config['family_name'] || @deploy.deploy_id),
               full_name: @mu_name
             )
 
             user_obj = MU::Cloud::Google.admin_directory(:User).new(
               name: username_obj,
               primary_email: @config['email'],
-              change_password_at_next_login: true,
-              password: MU.generateWindowsPassword
+              suspended: @config['suspend'],
+              is_admin: @config['admin'],
+              password: MU.generateWindowsPassword,
+              change_password_at_next_login: (@config.has_key?('force_password_change') ? @config['force_password_change'] : true)
             )
 
             MU.log "Creating user #{@mu_name}", details: user_obj
@@ -91,8 +98,52 @@ module MU
           if @config['external']
             MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           elsif @config['type'] == "interactive"
-# XXX update miscellaneous fields
+
             MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'], deploy: @deploy)
+            need_update = false
+
+            if @config['force_password_change'] and !cloud_desc.change_password_at_next_login
+              MU.log "Forcing #{@mu_name} to change their password at next login", MU::NOTICE
+              need_update = true
+            elsif @config.has_key?("force_password_change") and
+                  !@config['force_password_change'] and
+                  cloud_desc.change_password_at_next_login
+              MU.log "No longer forcing #{@mu_name} to change their password at next login", MU::NOTICE
+              need_update = true
+            end
+            if @config['admin'] != cloud_desc.is_admin
+              MU.log "Setting 'is_admin' flag to #{@config['admin'].to_s} for directory user #{@mu_name}", MU::NOTICE
+              MU::Cloud::Google.admin_directory(credentials: @credentials).make_user_admin(@cloud_id, MU::Cloud::Google.admin_directory(:UserMakeAdmin).new(status: @config['admin']))
+            end
+
+            if @config['suspend'] != cloud_desc.suspended
+              need_update = true
+            end
+            if cloud_desc.name.given_name != (@config['given_name'] || @config['name']) or
+               cloud_desc.name.family_name != (@config['family_name'] || @deploy.deploy_id) or
+               cloud_desc.primary_email != @config['email']
+              need_update = true
+            end
+
+            if need_update
+              username_obj = MU::Cloud::Google.admin_directory(:UserName).new(
+                given_name: (@config['given_name'] || @config['name']),
+                family_name: (@config['family_name'] || @deploy.deploy_id),
+                full_name: @mu_name
+              )
+              user_obj = MU::Cloud::Google.admin_directory(:User).new(
+                name: username_obj,
+                primary_email: @config['email'],
+                suspended: @config['suspend'],
+                change_password_at_next_login: (@config.has_key?('force_password_change') ? @config['force_password_change'] : true)
+              )
+
+              MU.log "Updating directory user #{@mu_name}", MU::NOTICE, details: user_obj
+
+              resp = MU::Cloud::Google.admin_directory(credentials: @credentials).update_user(@cloud_id, user_obj)
+              @cloud_id = resp.primary_email
+            end
+
           else
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
@@ -299,9 +350,14 @@ module MU
                user_roles["user"][bok['cloud_id']].size > 0
               bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["user"][bok['cloud_id']], credentials: @config['credentials'])
             end
+            bok['given_name'] = cloud_desc.given_name
+            bok['family_name'] = cloud_desc.family_name
+            bok['email'] = cloud_desc.primary_email
+            bok['suspend'] = cloud_desc.suspended
+            bok['admin'] = cloud_desc.is_admin
           end
 
-          bok['use_if_exists'] = true # don't try to step on existing accounts with the same names
+          bok['use_if_exists'] = true
 
           bok
        end
@@ -314,7 +370,7 @@ module MU
           schema = {
             "name" => {
               "type" => "string",
-              "description" => "If the +type+ of this account is not +service+, this can include an optional @domain component (<tt>foo@example.com</tt>). The following rules apply to +directory+ (non-<tt>service</tt>) accounts only:
+              "description" => "If the +type+ of this account is not +service+, this can include an optional @domain component (<tt>foo@example.com</tt>), which is equivalent to the +domain+ configuration option. The following rules apply to +directory+ (non-<tt>service</tt>) accounts only:
 
 If the domain portion is not specified, and we manage exactly one GSuite or Cloud Identity domain, we will attempt to create the user in that domain.
 
@@ -332,9 +388,39 @@ If we are binding (rather than creating) a user and no roles are specified, we w
               "type" => "string",
               "description" => "If creating or binding an +interactive+ user, this is the domain of which the user should be a member. This can instead be embedded in the {name} field: +foo@example.com+."
             },
+            "given_name" => {
+              "type" => "string",
+              "description" => "Optionally set the +given_name+ field of a +directory+ account. Ignored for +service+ accounts."
+            },
+            "first_name" => {
+              "type" => "string",
+              "description" => "Alias for +given_name+"
+            },
+            "family_name" => {
+              "type" => "string",
+              "description" => "Optionally set the +family_name+ field of a +directory+ account. Ignored for +service+ accounts."
+            },
+            "last_name" => {
+              "type" => "string",
+              "description" => "Alias for +family_name+"
+            },
+            "email" => {
+              "type" => "string",
+              "description" => "Canonical email address for a +directory+ user. If not specified, will be set to +name@domain+."
+            },
             "external" => {
               "type" => "boolean",
               "description" => "Explicitly flag this user as originating from an external domain. This should always autodetect correctly."
+            },
+            "admin" => {
+              "type" => "boolean",
+              "description" => "If the user is +interactive+ and resides in a domain we manage, set their +is_admin+ flag.",
+              "default" => false
+            },
+            "suspend" => {
+              "type" => "boolean",
+              "description" => "If the user is +interactive+ and resides in a domain we manage, this can be used to lock their account.",
+              "default" => false
             },
             "type" => {
               "type" => "string",
@@ -360,6 +446,13 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
           my_domains = MU::Cloud::Google.getDomains(user['credentials'])
           my_org = MU::Cloud::Google.getOrg(user['credentials'])
+
+          # Deal with these name alias fields, here for the convenience of your
+          # easily confused english-centric type of person
+          user['given_name'] ||= user['first_name']
+          user['family_name'] ||= user['last_name']
+          user.delete("first_name")
+          user.delete("last_name")
 
           if user['name'].match(/@(.*+)$/)
             domain = Regexp.last_match[1].downcase
