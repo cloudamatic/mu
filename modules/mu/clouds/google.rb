@@ -899,11 +899,18 @@ module MU
       # Retrieve the organization, if any, to which these credentials belong.
       # @param credentials [String]
       # @return [Array<OpenStruct>],nil]
-      def self.getOrg(credentials = nil)
+      def self.getOrg(credentials = nil, with_id: nil)
         resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
         if resp and resp.organizations
           # XXX no idea if it's possible to be a member of multiple orgs
-          return resp.organizations.first
+          if !with_id
+            return resp.organizations.first
+          else
+            resp.organizations.each { |org|
+              return org if org.name == with_id
+            }
+            return nil
+          end
         end
 
         creds = MU::Cloud::Google.credConfig(credentials)

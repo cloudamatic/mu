@@ -52,7 +52,45 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          MU::Cloud::Google::Role.bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'])
+          MU::Cloud::Google::Role.bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'], debug: true)
+
+          if @config['members']
+            resolved_desired = []
+            @config['members'].each { |m|
+              sibling_user = @deploy.findLitterMate(name: m, type: "users")
+              usermail = if sibling_user
+                sibling_user.cloud_id
+              elsif !m.match(/@/)
+                domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(@customer)
+                m+"@"+domains.domains.first.domain_name
+              else
+                m
+              end
+              resolved_desired << usermail
+              next if members.include?(usermail)
+              MU.log "Adding user #{usermail} to group #{@mu_name}"
+              MU::Cloud::Google.admin_directory(credentials: @credentials).insert_member(
+                @cloud_id,
+                MU::Cloud::Google.admin_directory(:Member).new(
+                  email: usermail
+                )
+              )
+            }
+
+            deletia = members - resolved_desired
+            deletia.each { |m|
+              MU.log "Removing user #{m} from group #{@mu_name}", MU::NOTICE
+              MU::Cloud::Google.admin_directory(credentials: @credentials).delete_member(@cloud_id, m)
+            }
+
+            # Theoretically there can be a delay
+            begin
+              if members.sort != resolved_desired.sort
+                sleep 3
+              end
+            end while members.sort != resolved_desired.sort
+          end
+
         end
 
         # Retrieve a list of users (by cloud id) of this group
@@ -288,6 +326,31 @@ If we are binding (rather than creating) a group and no roles are specified, we 
               MU.log "Visit https://groups.google.com to manage Google Groups.", MU::ERR
             end
             ok = false
+          end
+
+          if group['members']
+            group['members'].each { |m|
+              if configurator.haveLitterMate?(m, "users")
+                group['dependencies'] ||= []
+                group['dependencies'] << {
+                  "name" => m,
+                  "type" => "user"
+                }
+              end
+            }
+          end
+
+          if group['roles']
+            group['roles'].each { |r|
+              if r['role'] and r['role']['name'] and
+                 (!r['role']['deploy_id'] and !r['role']['id'])
+                group['dependencies'] ||= []
+                group['dependencies'] << {
+                  "type" => "role",
+                  "name" => r['role']['name']
+                }
+              end
+            }
           end
 
           ok

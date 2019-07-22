@@ -136,9 +136,9 @@ module MU
           base
         end
 
-        # Wrapper for #{MU::Cloud::Google::Role.bindTo}
-        def bindTo(entity_type, entity_id, scope_type, scope_id)
-          MU::Cloud::Google::Role.bindTo(@cloud_id, entity_type, entity_id, bindings, scope_type, scope_id, credentials: @config['credentials'])
+        # Wrapper for #{MU::Cloud::Google::Role.bindToIAM}
+        def bindToIAM(entity_type, entity_id, scope_type, scope_id)
+          MU::Cloud::Google::Role.bindToIAM(@cloud_id, entity_type, entity_id, bindings, scope_type, scope_id, credentials: @config['credentials'])
         end
 
         @@role_bind_semaphore = Mutex.new
@@ -151,7 +151,10 @@ module MU
         # @param scope_type [String]: The kind of scope in which this binding will be valid; typically project, folder, or organization
         # @param scope_id [String]: The cloud identifier of the scope in which this binding will be valid
         # @param credentials [String]:
-        def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
+        def self.bindToIAM(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil, debug: false)
+          loglevel = debug ? MU::NOTICE : MU::DEBUG
+
+          MU.log "Google::Role.bindToIAM(role_id: #{role_id}, entity_type: #{entity_type}, entity_id: #{entity_id}, scope_type: #{scope_type}, scope_id: #{scope_id}, credentials: #{credentials})", loglevel
 
           # scope_id might actually be the name of a credential set; if so, we
           # map it back to an actual organization on the fly
@@ -174,15 +177,17 @@ module MU
               MU::Cloud::Google.resource_manager(credentials: credentials).get_folder_iam_policy(scope_id)
             elsif scope_type == "projects"
               if !scope_id
-                raise MuError, "Google::Role.bindTo was called without a scope_id"
+                raise MuError, "Google::Role.bindToIAM was called without a scope_id"
               elsif scope_id.is_a?(Hash)
                 if scope_id["id"]
                   scope_id = scope_id["id"]
                 else
-                  raise MuError, "Google::Role.bindTo was called with a scope_id Ref hash that has no id field"
+                  raise MuError, "Google::Role.bindToIAM was called with a scope_id Ref hash that has no id field"
                 end
               end
               MU::Cloud::Google.resource_manager(credentials: credentials).get_project_iam_policy(scope_id.sub(/^projects\//, ""))
+            else
+              puts "WTF DO WIT #{scope_type}"
             end
 
             saw_role = false
@@ -305,23 +310,25 @@ module MU
         # @param entity_id [String]: The cloud identifier of the entity
         # @param cfg [Hash]: A configuration block confirming to our own {MU::Cloud::Google::Role.ref_schema}
         # @param credentials [String]:
-        def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil, deploy: nil)
+        def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil, deploy: nil, debug: false)
+          loglevel = debug ? MU::NOTICE : MU::DEBUG
+
           bindings = []
 
           return if !cfg
+          MU.log "Google::Role::bindFromConfig binding called for #{entity_type} #{entity_id}", loglevel, details: cfg
 
           cfg.each { |binding|
+            if deploy and binding["role"]["name"] and !binding["role"]["id"]
+              role_obj = deploy.findLitterMate(name: binding["role"]["name"], type: "roles")
+              binding["role"]["id"] = role_obj.cloud_id if role_obj
+            end
             ["organizations", "projects", "folders"].each { |scopetype|
               next if !binding[scopetype]
 
               binding[scopetype].each { |scope|
 # XXX resolution of Ref bits (roles, projects, and folders anyway; organizations and domains are direct)
-#        def self.bindTo(role_id, entity_type, entity_id, scope_type, scope_id, credentials: nil)
-                if deploy and binding["role"]["name"] and !binding["role"]["id"]
-                  role_obj = deploy.findLitterMate(name: binding["role"]["name"], type: "roles")
-                  binding["role"]["id"] = role_obj.cloud_id if role_obj
-                end
-                MU::Cloud::Google::Role.bindTo(
+                MU::Cloud::Google::Role.bindToIAM(
                   binding["role"]["id"],
                   entity_type,
                   entity_id,
@@ -331,6 +338,76 @@ module MU
                 )
               }
             }
+            if binding["directories"]
+              binding["directories"].each { |dir|
+                # this is either an organization cloud_id, or the name of one
+                # of our credential sets, which we must map to an organization
+                # cloud id
+                creds = MU::Cloud::Google.credConfig(dir)
+
+                customer = if creds
+                  my_org = MU::Cloud::Google.getOrg(dir)
+                  if !my_org
+                    raise MuError, "Google directory role binding specified directory #{dir}, which looks like one of our credential sets, but does not appear to map to an organization!"
+                  end
+                  my_org.owner.directory_customer_id
+                elsif dir.match(/^organizations\//)
+                  # Not sure if there's ever a case where we can do this with
+                  # an org that's different from the one our credentials go with
+                  my_org = MU::Cloud::Google.getOrg(credentials, with_id: dir)
+                  if !my_org
+                    raise MuError, "Failed to retrieve #{dir} with credentials #{credentials} in Google directory role binding for role #{binding["role"].to_s}"
+                  end
+                  my_org.owner.directory_customer_id
+                else
+                  # assume it's a raw customer id and hope for the best
+                  dir
+                end
+
+                if !binding["role"]["id"].match(/^\d+$/)
+                  resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_roles(customer)
+                  if resp and resp.items
+                    resp.items.each { |role|
+                      if role.role_name == binding["role"]["id"]
+                        binding["role"]["id"] = role.role_id
+                        break
+                      end
+                    }
+                  end
+                end
+
+                # Ensure we're using the stupid internal id, instead of the
+                # email field (which is the "real" id most of the time)
+                real_id = nil
+                if entity_type == "group"
+                  found = MU::Cloud::Google::Group.find(cloud_id: entity_id, credentials: credentials)
+                  if found[entity_id]
+                    real_id = found[entity_id].id
+                  end
+                elsif entity_type == "user"
+                  found = MU::Cloud::Google::User.find(cloud_id: entity_id, credentials: credentials)
+                  if found[entity_id]
+                    real_id = found[entity_id].id
+                  end
+                else
+                  raise MuError, "I don't know how to identify entity type #{entity_type} with id #{entity_id} in directory role binding"
+                end
+                real_id ||= entity_id # fingers crossed
+
+                assign_obj = MU::Cloud::Google.admin_directory(:RoleAssignment).new(
+                  assigned_to: real_id,
+                  role_id: binding["role"]["id"],
+                  scope_type: "CUSTOMER"
+                )
+# XXX guard this mess
+                MU.log "Binding directory role #{(binding["role"]["name"] || binding["role"]["id"])} to #{entity_type} #{entity_id} in #{dir}", details: assign_obj
+                MU::Cloud::Google.admin_directory(credentials: credentials).insert_role_assignment(
+                  customer,
+                  assign_obj
+                )
+
+              }
+            end
           }
 
 # XXX whattabout GSuite-tier roles?
@@ -354,7 +431,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Remove all roles associated with the currently loaded deployment.
