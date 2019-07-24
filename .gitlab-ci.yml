@@ -162,7 +162,7 @@ Dockerbuild:
   dependencies:
   - Gem Build
   script:
-    - export MU_VERSION=$(grep -P '\.version' cloud-mu.gemspec | grep -oP "'[^']+'")
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'.*'")
     - echo $MU_VERSION
     - docker build -t mu:latest -t mu:$MU_VERSION .
     #- docker run my-docker-image /script/to/run/tests
