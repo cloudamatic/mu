@@ -298,6 +298,17 @@ module MU
           found
         end
 
+        # Try to determine whether the given string looks like a pre-configured
+        # GCP service account, as distinct from one we might create or manage
+        def self.cannedServiceAcctName?(name)
+          return false if !name
+          name.match(/^\d+\-compute@developer\.gserviceaccount\.com$/) or
+          name.match(/^project-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
+          name.match(/^\d+@cloudbuild\.gserviceaccount\.com$/) or
+          name.match(/^service-\d+@cloud-tpu\.iam\.gserviceaccount\.com$/) or
+          name.match(/^p\d+\-\d+@gcp-sa-logging\.iam\.gserviceaccount\.com$/)
+        end
+
         # We can either refer to a service account, which is scoped to a project
         # (a +Habitat+ in Mu parlance), or a "real" user, which comes from
         # an external directory like GMail, GSuite, or Cloud Identity.
