@@ -165,6 +165,7 @@ Dockerbuild:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - echo $MU_VERSION
     - docker build -t mu:latest -t mu:$MU_VERSION .
+    - docker push egtlabs/mu:latest
     #- docker run my-docker-image /script/to/run/tests
   only:
     - master
