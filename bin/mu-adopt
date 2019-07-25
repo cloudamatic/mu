@@ -27,12 +27,14 @@ available_clouds.reject! { |cloud|
   cloudclass.listCredentials.nil? or cloudclass.listCredentials.size == 0
 }
 
+available_types = MU::Cloud.resource_types.keys.map { |t| t.to_s }
+
 $opt = Optimist::options do
   banner <<-EOS
 #{$0}
   EOS
   opt :appname, "The overarching name of the application stack we will generate", :required => false, :default => "mu", :type => :string
-  opt :types, "The resource types to scan and import. Valid types: #{MU::Cloud.resource_types.keys.map { |t| t.to_s }.join(", ")}", :required => true, :type => :strings
+  opt :types, "The resource types to scan and import. Valid types: #{available_types.join(", ")}", :required => false, :type => :strings, :default => available_types
   opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => available_clouds
   opt :parent, "Where applicable, resources which reside in the root folder or organization are configured with the specified parent in our target BoK", :required => false, :type => :string
   opt :billing, "Force-set this billing entity on created resources, instead of copying from the live resources", :required => false, :type => :string
@@ -87,20 +89,23 @@ if !ok
   exit 1
 end
 
+
 adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], destination: $opt[:destination])
 adoption.scrapeClouds
-MU.log "Generating basket"
-bok = adoption.generateBasket
+MU.log "Generating baskets"
+boks = adoption.generateBaskets(prefix: $opt[:appname])
 
-MU.log "Writing to #{$opt[:appname]}.yaml"
-File.open("#{$opt[:appname]}.yaml", "w") { |f|
-  f.write JSON.parse(JSON.generate(bok)).to_yaml
+boks.each_pair { |appname, bok|
+  MU.log "Writing to #{appname}.yaml"
+  File.open("#{appname}.yaml", "w") { |f|
+    f.write JSON.parse(JSON.generate(bok)).to_yaml
+  }
+  conf_engine = MU::Config.new("#{appname}.yaml")
+  stack_conf = conf_engine.config
+  puts stack_conf.to_yaml
+  MU.log("#{appname}.yaml validated successfully")
 }
-
-conf_engine = MU::Config.new("#{$opt[:appname]}.yaml")
-stack_conf = conf_engine.config
-puts stack_conf.to_yaml
-MU.log("#{$opt[:appname]}.yaml validated successfully")
+exit
 
 MU::Cloud.resource_types.each_pair { |type, cfg|
   if bok[cfg[:cfg_plural]]

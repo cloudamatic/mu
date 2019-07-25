@@ -29,6 +29,7 @@ module MU
       @clouds = clouds
       @types = types
       @parent = parent
+      @boks = {}
       @billing = billing
       @reference_map = {}
       @sources = sources
@@ -52,7 +53,6 @@ module MU
 
         cloudclass.listCredentials.each { |credset|
           next if @sources and !@sources.include?(credset)
-          puts cloud+" "+credset
 
           if @parent
 # TODO handle different inputs (cloud_id, etc)
@@ -73,7 +73,15 @@ module MU
           end
 
           @types.each { |type|
-            resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+            begin
+              resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+            rescue ::MU::Cloud::MuCloudResourceNotImplemented
+              next
+            end
+            if !resclass.instance_methods.include?(:toKitten)
+              MU.log "Skipping MU::Cloud::#{cloud}::#{type} (resource has not implemented #toKitten)", MU::WARN
+              next
+            end
             MU.log "Scraping #{cloud}/#{credset} for #{resclass.cfg_plural}"
             found = MU::MommaCat.findStray(
               cloud,
@@ -107,89 +115,103 @@ end
       if @parent and !@default_parent
         MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
       end
-
     end
 
     # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
     # cloud objects.
     # @return [Hash]
-    def generateBasket(appname: "mu")
-      bok = { "appname" => appname }
-      if @destination
-        bok["credentials"] = @destination
-      end
+    def generateBaskets(prefix: "")
+      groupings = {
+        "spaces" => ["folders", "habitats"],
+        "people" => ["users", "groups", "roles"],
+        "network" => ["vpcs", "firewall_rules", "dnszones"],
+        "storage" => ["storage_pools", "buckets"],
+      }
+      # "the movie star/and the rest"
+      groupings["services"] = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] } - groupings.values.flatten
 
-      count = 0
+      groupings.each_pair { |appname, types|
+        bok = { "appname" => prefix+appname }
+        if @destination
+          bok["credentials"] = @destination
+        end
 
-      @clouds.each { |cloud|
-        @scraped.each_pair { |type, resources|
-          res_class = begin
-            MU::Cloud.loadCloudType(cloud, type)
-          rescue MU::Cloud::MuCloudResourceNotImplemented => e
-            # XXX I don't think this can actually happen
-            next
-          end
-          MU.log "Generating #{resources.size.to_s} #{res_class.cfg_plural} kittens from #{cloud}"
+        count = 0
 
-          bok[res_class.cfg_plural] ||= []
-
-          class_semaphore = Mutex.new
-          threads = []
-
-          Thread.abort_on_exception = true
-          resources.each_pair { |cloud_id_thr, obj_thr|
-            if threads.size >= 10
-              sleep 1
-              begin
-                threads.each { |t|
-                  t.join(0.1)
-                }
-                threads.reject! { |t| !t.status }
-              end while threads.size >= 10
+        @clouds.each { |cloud|
+          @scraped.each_pair { |type, resources|
+            res_class = begin
+              MU::Cloud.loadCloudType(cloud, type)
+            rescue MU::Cloud::MuCloudResourceNotImplemented => e
+              # XXX I don't think this can actually happen
+              next
             end
-            threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
+            next if !types.include?(res_class.cfg_plural)
+            MU.log "Generating #{resources.size.to_s} #{res_class.cfg_plural} kittens from #{cloud}"
 
-              resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
-              if resource_bok
-                resource_bok.delete("credentials") if @destination
+            bok[res_class.cfg_plural] ||= []
 
-                # If we've got duplicate names in here, try to deal with it
-                class_semaphore.synchronize {
-                  bok[res_class.cfg_plural].each { |sibling|
-                    if sibling['name'] == resource_bok['name']
-                      MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
-                      if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
-                        resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
-                      elsif resource_bok['project']
-                        resource_bok['name'] = resource_bok['name']+resource_bok['project']
-                      elsif resource_bok['cloud_id']
-                        resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
-                      else
-                        raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
-                      end
-                      MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
-                      break
-                    end
+            class_semaphore = Mutex.new
+            threads = []
+
+            Thread.abort_on_exception = true
+            resources.each_pair { |cloud_id_thr, obj_thr|
+              if threads.size >= 10
+                sleep 1
+                begin
+                  threads.each { |t|
+                    t.join(0.1)
                   }
-                  bok[res_class.cfg_plural] << resource_bok
-                }
-                count += 1
+                  threads.reject! { |t| !t.status }
+                end while threads.size >= 10
               end
+              threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
+
+                resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
+                if resource_bok
+                  resource_bok.delete("credentials") if @destination
+
+                  # If we've got duplicate names in here, try to deal with it
+                  class_semaphore.synchronize {
+                    bok[res_class.cfg_plural].each { |sibling|
+                      if sibling['name'] == resource_bok['name']
+                        MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
+                        if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
+                          resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
+                        elsif resource_bok['project']
+                          resource_bok['name'] = resource_bok['name']+resource_bok['project']
+                        elsif resource_bok['cloud_id']
+                          resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+                        else
+                          raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
+                        end
+                        MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
+                        break
+                      end
+                    }
+                    bok[res_class.cfg_plural] << resource_bok
+                  }
+                  count += 1
+                end
+              }
+            }
+
+            threads.each { |t|
+              t.join
             }
           }
-
-          threads.each { |t|
-            t.join
-          }
         }
-      }
 
+        # No matching resources isn't necessarily an error
+        next if count == 0
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
-      MU.log "Minimizing footprint of #{count.to_s} found resources"
+        MU.log "Minimizing footprint of #{count.to_s} found resources"
 
-      vacuum(bok)
+        @boks[appname] = vacuum(bok)
+      }
+      @boks
     end
 
     private

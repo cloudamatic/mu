@@ -361,8 +361,8 @@ module MU
                user_roles["user"][bok['cloud_id']].size > 0
               bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["user"][bok['cloud_id']], credentials: @config['credentials'])
             end
-            bok['given_name'] = cloud_desc.given_name
-            bok['family_name'] = cloud_desc.family_name
+            bok['given_name'] = cloud_desc.name.given_name
+            bok['family_name'] = cloud_desc.name.family_name
             bok['email'] = cloud_desc.primary_email
             bok['suspend'] = cloud_desc.suspended
             bok['admin'] = cloud_desc.is_admin
