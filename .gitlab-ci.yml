@@ -166,6 +166,8 @@ Dockerbuild:
   - Gem Build
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - cat /etc/hosts
+    - cat /etc/resolv.conf
     - docker info
     - docker build -t mu:latest -t mu:$MU_VERSION .
     - cat ~/my_password.txt | docker login --username zr2d2 --password-stdin
