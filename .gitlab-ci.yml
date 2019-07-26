@@ -161,14 +161,13 @@ Dockerbuild:
   image: docker:stable
   variables:
     DOCKER_HOST: tcp://docker:2375/
-    DOCKER_DRIVER: overlay2
   dependencies:
   - Gem Build
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - docker info
     - docker build -t mu:latest -t mu:$MU_VERSION .
-    - docker login -u $CI_REGISTRY_USER -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker login -u zr2d2
     - docker push egtlabs/mu:latest
     #- docker run my-docker-image /script/to/run/tests
   only:
