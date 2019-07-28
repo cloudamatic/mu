@@ -1294,6 +1294,7 @@ module MU
             # This atrocity appends the pages of list_* results
             if overall_retval
               if method_sym.to_s.match(/^list_(.*)/)
+                require 'google/apis/iam_v1'
                 what = Regexp.last_match[1].to_sym
                 whatassign = (Regexp.last_match[1]+"=").to_sym
                 if overall_retval.class == ::Google::Apis::IamV1::ListServiceAccountsResponse

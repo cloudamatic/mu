@@ -324,7 +324,7 @@ module MU
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
-return nil if @cloud_id != "plecsmb@ncbi.nlm.nih.gov"
+
           # TODO fill in other stock service accounts which we should ignore
           if ["Compute Engine default service account",
               "App Engine default service account"].include?(@config['name'])

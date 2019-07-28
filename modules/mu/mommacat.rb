@@ -2591,9 +2591,9 @@ MESSAGE_END
 
     # Synchronize all in-memory information related to this to deployment to
     # disk.
-    def save!(triggering_node = nil)
+    def save!(triggering_node = nil, force: false)
 
-      return if @no_artifacts
+      return if @no_artifacts and !force
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 

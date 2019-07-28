@@ -28,6 +28,10 @@ available_clouds.reject! { |cloud|
 }
 
 available_types = MU::Cloud.resource_types.keys.map { |t| t.to_s }
+grouping_options = {
+  "logical" => "Group resources in logical layers (folders and habitats together, users/roles/groups together, network resources together, etc)",
+  "omnibus" => "Jam everything into one monolothic configuration"
+}
 
 $opt = Optimist::options do
   banner <<-EOS
@@ -39,7 +43,9 @@ $opt = Optimist::options do
   opt :parent, "Where applicable, resources which reside in the root folder or organization are configured with the specified parent in our target BoK", :required => false, :type => :string
   opt :billing, "Force-set this billing entity on created resources, instead of copying from the live resources", :required => false, :type => :string
   opt :sources, "One or more sets of credentials to use when importing resources. By default we will search and import from all sets of available credentials for each cloud provider specified with --clouds", :required => false, :type => :strings
-  opt :destination, "Override the 'credentials' value in our generated Baskets of Kittens to target a single, specific account. Our default behavior is to set each resource to deploy into the account from which it was sourced.", :required => false, :type => :string
+  opt :credentials, "Override the 'credentials' value in our generated Baskets of Kittens to target a single, specific account. Our default behavior is to set each resource to deploy into the account from which it was sourced.", :required => false, :type => :string
+  opt :gendeploys, "Generate actual deployment metadata in #{MU.dataDir}/deployments, as though the resources we found were created with mu-deploy. If we are generating more than one configuration, and a resource needs to reference another resource (e.g. to declare a VPC in which to reside), this will allow us to reference them as virtual resource, rather than by raw cloud identifier.", :required => false, :type => :boolean, :default => true
+  opt :grouping, "Methods for grouping found resources into separate Baskets.\n\n"+MU::Adoption::GROUPMODES.keys.map { |g| "* "+g.to_s+": "+MU::Adoption::GROUPMODES[g] }.join("\n")+"\n\n", :required => false, :type => :string, :default => "logical"
 end
 
 ok = true
@@ -90,7 +96,7 @@ if !ok
 end
 
 
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], destination: $opt[:destination])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, gendeploys: $opt[:gendeploys])
 adoption.scrapeClouds
 MU.log "Generating baskets"
 boks = adoption.generateBaskets(prefix: $opt[:appname])
@@ -103,11 +109,11 @@ boks.each_pair { |appname, bok|
   conf_engine = MU::Config.new("#{appname}.yaml")
   stack_conf = conf_engine.config
 #  puts stack_conf.to_yaml
-  MU.log("#{appname}.yaml validated successfully")
+  MU.log "#{appname}.yaml validated successfully", MU::NOTICE
+  MU::Cloud.resource_types.each_pair { |type, cfg|
+    if bok[cfg[:cfg_plural]]
+      MU.log "#{bok[cfg[:cfg_plural]].size.to_s} #{cfg[:cfg_plural]}", MU::NOTICE
+    end
+  }
 }
 
-MU::Cloud.resource_types.each_pair { |type, cfg|
-  if bok[cfg[:cfg_plural]]
-    MU.log "#{bok[cfg[:cfg_plural]].size.to_s} #{cfg[:cfg_plural]}", MU::NOTICE
-  end
-}

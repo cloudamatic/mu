@@ -986,7 +986,7 @@ If this value is not specified, and the role name matches the name of an existin
             if configurator.haveLitterMate?(role['project'], "habitats")
               role['dependencies'] ||= []
               role['dependencies'] << {
-                "type" => "habitats",
+                "type" => "habitat",
                 "name" => role['project']
               }
             end

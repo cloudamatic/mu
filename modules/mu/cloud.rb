@@ -708,7 +708,7 @@ module MU
         # @return [String]: Our new +deploy_id+
         def intoDeploy(mommacat, force: false)
           if force or (!@deploy)
-            MU.log "Inserting #{self} (#{self.object_id}) into #{mommacat.deploy_id}"
+            MU.log "Inserting #{self} (#{self.object_id}) into #{mommacat.deploy_id}", MU::DEBUG
             @deploy = mommacat
             @deploy_id = @deploy.deploy_id
             @cloudobj.intoDeploy(mommacat, force: force) if @cloudobj
