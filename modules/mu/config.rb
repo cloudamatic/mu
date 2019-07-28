@@ -289,7 +289,7 @@ module MU
       # @param cfg [Hash]: 
       # @return [MU::Config::Ref]
       def self.get(cfg)
-        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat]
+        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat, :deploy_id]
         required = [:id, :type]
 
         @@ref_semaphore.synchronize {
@@ -338,6 +338,8 @@ module MU
 
         if @deploy_id and !@mommacat
           @mommacat = MU::MommaCat.new(@deploy_id, set_context_to_me: false, create: false)
+        elsif @mommacat and !@deploy_id
+          @deploy_id = @mommacat.deploy_id
         end
 
         kitten if @mommacat # try to populate the actual cloud object for this
@@ -439,18 +441,26 @@ module MU
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
       def kitten(mommacat = @mommacat)
-        return @obj if @obj
+        if @obj
+          @deploy_id ||= @obj.deploy_id
+          @id ||= @obj.cloud_id
+          @name ||= @obj.config['name']
+          return @obj
+        end
 
         if mommacat
           @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: false)
           if @obj # initialize missing attributes, if we can
             @id ||= @obj.cloud_id
+            @mommacat ||= mommacat
+            @obj.intoDeploy(@mommacat) # make real sure these are set
+            @deploy_id ||= mommacat.deploy_id
             if !@name
               if @obj.config and @obj.config['name']
                 @name = @obj.config['name']
               elsif @obj.mu_name
 if @type == "folders"
-MU.log "would assign name #{@obj.mu_name}", MU::WARN, details: self.to_h
+MU.log "would assign name '#{@obj.mu_name}' in ref to this folder if I were feeling aggressive", MU::WARN, details: self.to_h
 end
 #                @name = @obj.mu_name
               end
@@ -461,7 +471,23 @@ end
           end
         end
 
-        # XXX findStray this mess
+        @obj ||= MU::MommaCat.findStray(
+          @cloud,
+          @type,
+          name: @name,
+          cloud_id: @id,
+          deploy_id: @deploy_id,
+          region: @region,
+          credentials: @credentials,
+          dummy_ok: (@type == "habitats")
+        ).first
+
+        if @obj
+          @deploy_id ||= @obj.deploy_id
+          @id ||= @obj.cloud_id
+          @name ||= @obj.config['name']
+        end
+
         @obj
       end
 

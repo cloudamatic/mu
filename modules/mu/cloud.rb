@@ -700,6 +700,21 @@ module MU
           return fullname
         end
 
+        # Set our +deploy+ and +deploy_id+ attributes, optionally doing so even
+        # if they have already been set.
+        #
+        # @param mommacat [MU::MommaCat]: The deploy to which we're being told we belong
+        # @param force [Boolean]: Set even if we already have a deploy object
+        # @return [String]: Our new +deploy_id+
+        def intoDeploy(mommacat, force: false)
+          if force or (!@deploy)
+            MU.log "Inserting #{self} (#{self.object_id}) into #{mommacat.deploy_id}"
+            @deploy = mommacat
+            @deploy_id = @deploy.deploy_id
+            @cloudobj.intoDeploy(mommacat, force: force) if @cloudobj
+          end
+          @deploy_id
+        end
 
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
@@ -737,11 +752,12 @@ module MU
               mu_name: args[:mu_name]
             )
             raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
-
 # These should actually call the method live instead of caching a static value
             PUBLIC_ATTRS.each { |a|
               instance_variable_set(("@"+a.to_s).to_sym, @cloudobj.send(a))
             }
+            @deploy ||= args[:mommacat]
+            @deploy_id ||= @deploy.deploy_id if @deploy
 
             # Register with the containing deployment
             if !@deploy.nil? and !@cloudobj.mu_name.nil? and
@@ -885,7 +901,6 @@ module MU
               end 
             end
           end
-
 
         end
 

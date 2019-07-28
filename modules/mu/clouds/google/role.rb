@@ -620,7 +620,7 @@ module MU
               if cloud_desc.included_permissions and cloud_desc.included_permissions.size > 0
                 bok['import'] = cloud_desc.included_permissions
               end
-MU.log cloud_desc.name, MU::WARN, details: cloud_desc
+
             else
               raise MuError, "I don't know how to parse GCP IAM role identifier #{cloud_desc.name}"
             end
@@ -656,8 +656,9 @@ MU.log cloud_desc.name, MU::WARN, details: cloud_desc
                         }
                       else
                         places.each { |scope|
-                          newbinding[scopetype] << MU::Config::Ref.new(
+                          newbinding[scopetype] << MU::Config::Ref.get(
                             id: scope,
+                            cloud: "Google",
                             type: mu_type
                           )
                         }

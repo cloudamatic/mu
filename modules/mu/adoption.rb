@@ -185,7 +185,7 @@ end
                         else
                           raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
                         end
-                        MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
+                        MU.log "De-duplication: Renamed #{res_class.cfg_name} name '#{sibling['name']}' => '#{resource_bok['name']}'", MU::NOTICE
                         break
                       end
                     }
@@ -282,8 +282,8 @@ end
     end
 
     def resolveReferences(cfg, deploy, parent)
-
       if cfg.is_a?(MU::Config::Ref)
+
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
           cfg = if littermate
@@ -291,19 +291,22 @@ if !littermate.config['name']
 MU.log "FAILED TO GET A NAME FROM REFERENCE", MU::WARN, details: cfg
 end
             { "type" => cfg.type, "name" => littermate.config['name'] }
+          elsif cfg.deploy_id and cfg.name
+            { "type" => cfg.type, "name" => cfg.name, "deploy_id" => cfg.deploy_id }
           elsif cfg.id
             littermate = deploy.findLitterMate(type: cfg.type, cloud_id: cfg.id, habitat: cfg.habitat)
             if littermate
 MU.log "ID LITTERMATE MATCH => #{littermate.config['name']}", MU::WARN, details: {type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat}
               { "type" => cfg.type, "name" => littermate.config['name'] }
             else
-MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat}
+MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WARN, details: cfg if cfg.type == "habitats"
               cfg.to_h
             end
           else
             cfg.to_h
           end
         elsif cfg.id # reference to raw cloud ids is reasonable
+        MU.log "STUCK WITH RAW ID FOR REFERENCE TO #{cfg.type} #{cfg.id}", MU::WARN, details: cfg if cfg.type == "habitats"
           cfg = { "type" => cfg.type, "id" => cfg.id }
         else
           pp parent.cloud_desc

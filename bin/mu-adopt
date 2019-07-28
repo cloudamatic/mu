@@ -102,10 +102,9 @@ boks.each_pair { |appname, bok|
   }
   conf_engine = MU::Config.new("#{appname}.yaml")
   stack_conf = conf_engine.config
-  puts stack_conf.to_yaml
+#  puts stack_conf.to_yaml
   MU.log("#{appname}.yaml validated successfully")
 }
-exit
 
 MU::Cloud.resource_types.each_pair { |type, cfg|
   if bok[cfg[:cfg_plural]]

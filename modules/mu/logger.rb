@@ -102,6 +102,7 @@ module MU
       # We get passed literal quoted newlines sometimes, fix 'em. Get Windows'
       # ugly line feeds too.
       if !details.nil?
+        details = details.dup # in case it's frozen or something
         details.gsub!(/\\n/, "\n")
         details.gsub!(/(\\r|\r)/, "")
       end
