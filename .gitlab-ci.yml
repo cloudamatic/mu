@@ -168,7 +168,7 @@ Dockerbuild:
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
     - docker build -t mu:latest -t mu:$MU_VERSION -t egtlabs/mu:latest -t mu:$MU_VERSION-$OS -t mu:$OS .
     - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
-    - docker push egtlabs/mu
+    - echo "mu:latest" "mu:$MU_VERSION" "egtlabs/mu:latest" "mu:$MU_VERSION-$OS" "mu:$OS" | xargs -n 1 docker push
     #- docker run my-docker-image /script/to/run/tests
   only:
     - master
