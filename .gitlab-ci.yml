@@ -165,7 +165,7 @@ Dockerbuild:
   - Gem Build
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
-    - export OS=$(grep -P 'FROM' Dockerfile | grep -oP " [\w:0-9)]+" | tr -d " " | tr -t ":" "-")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr -t ":" "-")
     - docker build -t mu:latest -t mu:$MU_VERSION -t egtlabs/mu:latest -t mu:$MU_VERSION-$OS -t mu:$OS
     - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
     - docker push egtlabs/mu
