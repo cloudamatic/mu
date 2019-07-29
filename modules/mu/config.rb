@@ -198,7 +198,7 @@ module MU
           next if required.size == 0 and res_schema.size == 0
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
-            cfg["description"] = "+"+cloud.upcase+"+: "+cfg["description"]
+            cfg["description"] = "\n# +"+cloud.upcase+"+: "+cfg["description"]
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
@@ -326,7 +326,7 @@ module MU
       end
       # Walk like a String
       def to_s
-        @prefix+@value+@suffix
+        @prefix.to_s+@value.to_s+@suffix.to_s
       end
       # Quack like a String
       def to_str
@@ -634,7 +634,7 @@ module MU
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
 
       # Convert parameter entries that constitute whole config keys into
-      # MU::Config::Tail objects.
+      # {MU::Config::Tail} objects.
       def resolveTails(tree, indent= "")
         if tree.is_a?(Hash)
           tree.each_pair { |key, val|
@@ -896,8 +896,8 @@ module MU
       end
 
       # Make sure a sensible region has been targeted, if applicable
+      classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
       if descriptor["region"]
-        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
           MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
@@ -1001,6 +1001,7 @@ module MU
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
+        acl['region'] ||= classobj.myRegion(acl['credentials'])
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
@@ -1182,7 +1183,8 @@ module MU
     @@allregions = []
     MU::Cloud.supportedClouds.each { |cloud|
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      @@allregions.concat(cloudclass.listRegions())
+      regions = cloudclass.listRegions()
+      @@allregions.concat(regions) if regions
     }
 
     # Configuration chunk for choosing a provider region
