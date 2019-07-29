@@ -22,6 +22,7 @@ require 'rubygems'
 require 'bundler/setup'
 require 'erb'
 require 'tempfile'
+require 'fileutils'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
@@ -53,6 +54,10 @@ end
 File.umask 0022
 
 Dir.chdir(MU.myRoot) do
+  imgs = %w{alpha.png beta.png release.png}
+  FileUtils.cp(imgs.map { |f| "extras/"+f }, docdir)
+  FileUtils.chmod(0644, imgs.map { |f| docdir+"/"+f })
+
   readme = File.read("README.md")
   readme += <<EOF
 
@@ -89,6 +94,8 @@ EOF
   }
   readme += "</tr>\n"
 
+  icon_style = 'height:2.2em;width:2.2em;padding:0px;'
+
   MU::Cloud.resource_types.keys.sort_by { |t| t.to_s }.each { |type|
     readme += "<tr><td><strong>{MU::Config::BasketofKittens::#{MU::Cloud.resource_types[type][:cfg_plural]} #{type.to_s}}</strong></td>"
     cloudlist.each { |cloud|
@@ -97,11 +104,11 @@ EOF
         myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
         case myclass.quality
         when MU::Cloud::RELEASE
-          readme += "Release"
-        when MU::Cloud::ALPHA
-          readme += "Alpha"
+          readme += "<img src='release.png' style='#{icon_style}' title='Release Quality' alt='[Release Quality]'>"
         when MU::Cloud::BETA
-          readme += "Beta"
+          readme += "<img src='beta.png' style='#{icon_style}' title='Beta Quality' alt='[Beta Quality]'>"
+        when MU::Cloud::ALPHA
+          readme += "<img src='alpha.png' style='#{icon_style}' title='Alpha Quality' alt='[Alpha Quality]'>"
         else
           readme += "?"
         end
@@ -118,8 +125,11 @@ EOF
   idx.write(readme)
   idx.rewind
   idx.close
+  idx_short = idx.path.gsub(/.*?\/([^\/]+)$/, '\1')
 
-  system(%Q{#{yard} doc modules --readme #{idx.path.gsub(/.*?\/([^\/]+)$/, '\1')} --markup markdown --output-dir #{docdir}})
+  system(%Q{#{yard} doc modules --readme #{idx_short} --markup markdown --output-dir #{docdir}})
+  # --exclude seems to just... not work
+  FileUtils.rm(docdir+"/file."+idx_short+".html")
 
   if Process.uid == 0
     system(%Q{chcon -R -h -t httpd_sys_script_exec_t /var/www/html/})
