@@ -56,11 +56,11 @@ module MU
       # @param subobjects [Boolean]: Whether the returned schema should include a +path+ parameter
       # @param grant_to [Boolean]: Whether the returned schema should include an explicit +grant_to+ parameter
       # @return [Hash]
-      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false)
+      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false, targets_optional: false)
         cfg = {
           "type" => "object",
           "description" => "Policies which grant or deny permissions.",
-          "required" => ["name", "targets"],
+          "required" => ["name"],
 #          "additionalProperties" => false,
           "properties" => {
             "name" => {
@@ -106,28 +106,17 @@ module MU
         }
 
         cfg["required"] << "permissions" if !permissions_optional
+        cfg["required"] << "targets" if !targets_optional
+
+        schema_aliases = [
+          { "identifier" => "id" },
+        ]
 
         if grant_to
           cfg["properties"]["grant_to"] = {
             "type" => "array",
             "default" => [ { "identifier" => "*" } ],
-            "items" => {
-              "type" => "object",
-              "description" => "Entities to which this policy will grant or deny access.",
-              "required" => ["identifier"],
-              "additionalProperties" => false,
-              "properties" => {
-                "type" => {
-                  "type" => "string",
-                  "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
-                  "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
-                },
-                "identifier" => {
-                  "type" => "string",
-                  "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an Amazon ARN or email-address-formatted Google Cloud username. Wildcards (+*+) are valid if supported by the cloud provider."
-                }
-              }
-            }
+            "items" => MU::Config::Ref.schema(schema_aliases, desc: "Entities to which this policy will grant or deny access.")
           }
         end
 

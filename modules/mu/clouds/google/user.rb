@@ -298,6 +298,17 @@ module MU
           found
         end
 
+        # Try to determine whether the given string looks like a pre-configured
+        # GCP service account, as distinct from one we might create or manage
+        def self.cannedServiceAcctName?(name)
+          return false if !name
+          name.match(/^\d+\-compute@developer\.gserviceaccount\.com$/) or
+          name.match(/^project-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
+          name.match(/^\d+@cloudbuild\.gserviceaccount\.com$/) or
+          name.match(/^service-\d+@cloud-tpu\.iam\.gserviceaccount\.com$/) or
+          name.match(/^p\d+\-\d+@gcp-sa-logging\.iam\.gserviceaccount\.com$/)
+        end
+
         # We can either refer to a service account, which is scoped to a project
         # (a +Habitat+ in Mu parlance), or a "real" user, which comes from
         # an external directory like GMail, GSuite, or Cloud Identity.
@@ -350,8 +361,8 @@ module MU
                user_roles["user"][bok['cloud_id']].size > 0
               bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["user"][bok['cloud_id']], credentials: @config['credentials'])
             end
-            bok['given_name'] = cloud_desc.given_name
-            bok['family_name'] = cloud_desc.family_name
+            bok['given_name'] = cloud_desc.name.given_name
+            bok['family_name'] = cloud_desc.name.family_name
             bok['email'] = cloud_desc.primary_email
             bok['suspend'] = cloud_desc.suspended
             bok['admin'] = cloud_desc.is_admin

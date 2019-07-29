@@ -165,15 +165,12 @@ module MU
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           found = {}
-          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project], max_results: 100)
+          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project])
           if resp and resp.items
             resp.items.each { |fw|
               next if !args[:cloud_id].nil? and fw.name != args[:cloud_id]
               found[fw.name] = fw
             }
-            if resp.items.size >= 99
-              MU.log "BIG-ASS LIST_FIREWALLS RESULT FROM #{args[:project]}", MU::WARN, resp
-            end
           end
 
           found

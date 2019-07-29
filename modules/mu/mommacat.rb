@@ -348,11 +348,10 @@ module MU
 
 # XXX this .owned? method may get changed by the Ruby maintainers
 #     if !@@litter_semaphore.owned?
-#       @@litter_semaphore.synchronize {
-#         @@litters[@deploy_id] = self
-#       }
-#     end
-    end
+      @@litter_semaphore.synchronize {
+        @@litters[@deploy_id] = self
+      }
+    end # end of initialize()
 
     # List all the cloud providers declared by resources in our deploy.
     def cloudsUsed
@@ -525,6 +524,7 @@ module MU
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
+      object.intoDeploy(self)
 
       @kitten_semaphore.synchronize {
         @kittens[type] ||= {}
@@ -1147,7 +1147,8 @@ raise "NAH"
     # @param dummy_ok [Boolean]: Permit return of a faked {MU::Cloud} object if we don't have enough information to identify a real live one.
     # @param flags [Hash]: Other cloud or resource type specific options to pass to that resource's find() method
     # @return [Array<MU::Cloud>]
-    def self.findStray(cloud,
+    def self.findStray(
+        cloud,
         type,
         deploy_id: nil,
         name: nil,
@@ -1214,16 +1215,38 @@ raise "NAH"
         kittens = {}
         # Search our other deploys for matching resources
         if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
-          MU.log "findStray: searching my deployments", loglevel
-          mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
+          MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name})", loglevel
+
+          # Check our in-memory cache of live deploys before resorting to
+          # metadata
+          @@litter_semaphore.synchronize {
+            @@litters.each_pair { |cur_deploy, momma|
+              next if deploy_id and deploy_id != cur_deploy
+              
+              straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
+              if straykitten
+                MU.log "Found matching kitten #{straykitten.mu_name} in-memory", loglevel
+                # Peace out if we found the exact resource we want
+                if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
+                  return [straykitten]
+                elsif mu_name and straykitten.mu_name == mu_name
+                  return [straykitten]
+                else
+                  kittens[straykitten.cloud_id] ||= straykitten
+                end
+              end
+            }
+          }
+
+          mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name, cloud_id: cloud_id)
 
           mu_descs.each_pair { |deploy_id, matches|
             MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches", loglevel
             next if matches.nil? or matches.size == 0
 
             momma = MU::MommaCat.getLitter(deploy_id)
-            straykitten = nil
 
+            straykitten = nil
 
             # If we found exactly one match in this deploy, use its metadata to
             # guess at resource names we weren't told.
@@ -1255,13 +1278,14 @@ raise "NAH"
             end
 
             next if straykitten.nil?
+            straykitten.intoDeploy(momma)
 
             if straykitten.cloud_id.nil?
               MU.log "findStray: kitten #{straykitten.mu_name} came back with nil cloud_id", MU::WARN
               next
             end
 
-            kittens[straykitten.cloud_id] = straykitten
+            kittens[straykitten.cloud_id] ||= straykitten
 
             # Peace out if we found the exact resource we want
             if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
@@ -2567,9 +2591,9 @@ MESSAGE_END
 
     # Synchronize all in-memory information related to this to deployment to
     # disk.
-    def save!(triggering_node = nil)
+    def save!(triggering_node = nil, force: false)
 
-      return if @no_artifacts
+      return if @no_artifacts and !force
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 
@@ -2741,12 +2765,26 @@ MESSAGE_END
 
     # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
     # @return [Hash,Array<Hash>]
-    def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
+    def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil, cloud_id: nil)
       if type.nil?
         raise MuError, "Can't call getResourceMetadata without a type argument"
       end
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       type = cfg_plural
+
+      # first, check our in-memory deploys, which may or may not have been
+      # written to disk yet.
+
+      @@litter_semaphore.synchronize {
+        @@litters.each_pair { |deploy, momma|
+          @@deploy_struct_semaphore.synchronize {
+            @deploy_cache[deploy] = {
+              "mtime" => Time.now,
+              "data" => momma.deployment
+            }
+          }
+        }
+      }
 
       deploy_root = File.expand_path(MU.dataDir+"/deployments")
       MU::MommaCat.deploy_struct_semaphore.synchronize {
@@ -2827,10 +2865,10 @@ MESSAGE_END
           next if !@deploy_cache[deploy]['data'].has_key?(type)
           if !name.nil?
             next if @deploy_cache[deploy]['data'][type][name].nil?
-            matches[deploy] = [] if !matches.has_key?(deploy)
+            matches[deploy] ||= []
             matches[deploy] << @deploy_cache[deploy]['data'][type][name].dup
           else
-            matches[deploy] = [] if !matches.has_key?(deploy)
+            matches[deploy] ||= []
             matches[deploy].concat(@deploy_cache[deploy]['data'][type].values)
           end
         }
@@ -2840,7 +2878,7 @@ MESSAGE_END
             !@deploy_cache[deploy_id]['data'][type].nil?
           if !name.nil?
             if !@deploy_cache[deploy_id]['data'][type][name].nil?
-              matches[deploy_id] = [] if !matches.has_key?(deploy_id)
+              matches[deploy_id] ||= []
               matches[deploy_id] << @deploy_cache[deploy_id]['data'][type][name].dup
             else
               return matches # nothing, actually

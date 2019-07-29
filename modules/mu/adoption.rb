@@ -24,15 +24,23 @@ module MU
     # other objects which are not found)
     class Incomplete < MU::MuNonFatal; end
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, destination: nil)
+    GROUPMODES = {
+      :logical => "Group resources in logical layers (folders and habitats together, users/roles/groups together, network resources together, etc)",
+      :omnibus => "Jam everything into one monolothic configuration"
+    }
+
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, gendeploys: true)
       @scraped = {}
       @clouds = clouds
       @types = types
       @parent = parent
+      @boks = {}
       @billing = billing
       @reference_map = {}
       @sources = sources
-      @destination = destination
+      @target_creds = credentials
+      @group_by = group_by
+      @gendeploys = gendeploys
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -43,8 +51,8 @@ module MU
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         next if cloudclass.listCredentials.nil?
 
-        if cloud == "Google" and !@parent and @destination
-          dest_org = MU::Cloud::Google.getOrg(@destination)
+        if cloud == "Google" and !@parent and @target_creds
+          dest_org = MU::Cloud::Google.getOrg(@target_creds)
           if dest_org
             @default_parent = dest_org.name
           end
@@ -52,7 +60,6 @@ module MU
 
         cloudclass.listCredentials.each { |credset|
           next if @sources and !@sources.include?(credset)
-          puts cloud+" "+credset
 
           if @parent
 # TODO handle different inputs (cloud_id, etc)
@@ -73,7 +80,15 @@ module MU
           end
 
           @types.each { |type|
-            resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+            begin
+              resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+            rescue ::MU::Cloud::MuCloudResourceNotImplemented
+              next
+            end
+            if !resclass.instance_methods.include?(:toKitten)
+              MU.log "Skipping MU::Cloud::#{cloud}::#{type} (resource has not implemented #toKitten)", MU::WARN
+              next
+            end
             MU.log "Scraping #{cloud}/#{credset} for #{resclass.cfg_plural}"
             found = MU::MommaCat.findStray(
               cloud,
@@ -107,89 +122,113 @@ end
       if @parent and !@default_parent
         MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
       end
-
     end
 
     # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
     # cloud objects.
     # @return [Hash]
-    def generateBasket(appname: "mu")
-      bok = { "appname" => appname }
-      if @destination
-        bok["credentials"] = @destination
-      end
-
-      count = 0
-
-      @clouds.each { |cloud|
-        @scraped.each_pair { |type, resources|
-          res_class = begin
-            MU::Cloud.loadCloudType(cloud, type)
-          rescue MU::Cloud::MuCloudResourceNotImplemented => e
-            # XXX I don't think this can actually happen
-            next
-          end
-          MU.log "Generating #{resources.size.to_s} #{res_class.cfg_plural} kittens from #{cloud}"
-
-          bok[res_class.cfg_plural] ||= []
-
-          class_semaphore = Mutex.new
-          threads = []
-
-          Thread.abort_on_exception = true
-          resources.each_pair { |cloud_id_thr, obj_thr|
-            if threads.size >= 10
-              sleep 1
-              begin
-                threads.each { |t|
-                  t.join(0.1)
-                }
-                threads.reject! { |t| !t.status }
-              end while threads.size >= 10
-            end
-            threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
-
-              resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
-              if resource_bok
-                resource_bok.delete("credentials") if @destination
-
-                # If we've got duplicate names in here, try to deal with it
-                class_semaphore.synchronize {
-                  bok[res_class.cfg_plural].each { |sibling|
-                    if sibling['name'] == resource_bok['name']
-                      MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
-                      if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
-                        resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
-                      elsif resource_bok['project']
-                        resource_bok['name'] = resource_bok['name']+resource_bok['project']
-                      elsif resource_bok['cloud_id']
-                        resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
-                      else
-                        raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
-                      end
-                      MU.log "De-duplication: Renamed #{res_class.cfg_name} name #{sibling['name']} #{resource_bok['name']}", MU::NOTICE
-                      break
-                    end
-                  }
-                  bok[res_class.cfg_plural] << resource_bok
-                }
-                count += 1
-              end
-            }
-          }
-
-          threads.each { |t|
-            t.join
-          }
-        }
+    def generateBaskets(prefix: "")
+      groupings = {
+        "" =>  MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
       }
 
+      # XXX as soon as we come up with a method that isn't about what resource
+      # type you are, this code will stop making sense
+      if @group_by == :logical
+        groupings = {
+          "spaces" => ["folders", "habitats"],
+          "people" => ["users", "groups", "roles"],
+          "network" => ["vpcs", "firewall_rules", "dnszones"],
+          "storage" => ["storage_pools", "buckets"],
+        }
+        # "the movie star/and the rest"
+        groupings["services"] = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] } - groupings.values.flatten
+      elsif @group_by == :omnibus
+        prefix = "mu" if prefix.empty? # so that appnames aren't ever empty
+      end
+
+      groupings.each_pair { |appname, types|
+        bok = { "appname" => prefix+appname }
+        if @target_creds
+          bok["credentials"] = @target_creds
+        end
+
+        count = 0
+
+        @clouds.each { |cloud|
+          @scraped.each_pair { |type, resources|
+            res_class = begin
+              MU::Cloud.loadCloudType(cloud, type)
+            rescue MU::Cloud::MuCloudResourceNotImplemented => e
+              # XXX I don't think this can actually happen
+              next
+            end
+            next if !types.include?(res_class.cfg_plural)
+            MU.log "Generating #{resources.size.to_s} #{res_class.cfg_plural} kittens from #{cloud}"
+
+            bok[res_class.cfg_plural] ||= []
+
+            class_semaphore = Mutex.new
+            threads = []
+
+            Thread.abort_on_exception = true
+            resources.each_pair { |cloud_id_thr, obj_thr|
+              if threads.size >= 10
+                sleep 1
+                begin
+                  threads.each { |t|
+                    t.join(0.1)
+                  }
+                  threads.reject! { |t| !t.status }
+                end while threads.size >= 10
+              end
+              threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
+
+                resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
+                if resource_bok
+                  resource_bok.delete("credentials") if @target_creds
+
+                  # If we've got duplicate names in here, try to deal with it
+                  class_semaphore.synchronize {
+                    bok[res_class.cfg_plural].each { |sibling|
+                      if sibling['name'] == resource_bok['name']
+                        MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
+                        if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
+                          resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
+                        elsif resource_bok['project']
+                          resource_bok['name'] = resource_bok['name']+resource_bok['project']
+                        elsif resource_bok['cloud_id']
+                          resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+                        else
+                          raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
+                        end
+                        MU.log "De-duplication: Renamed #{res_class.cfg_name} name '#{sibling['name']}' => '#{resource_bok['name']}'", MU::NOTICE
+                        break
+                      end
+                    }
+                    bok[res_class.cfg_plural] << resource_bok
+                  }
+                  count += 1
+                end
+              }
+            }
+
+            threads.each { |t|
+              t.join
+            }
+          }
+        }
+
+        # No matching resources isn't necessarily an error
+        next if count == 0
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
-      MU.log "Minimizing footprint of #{count.to_s} found resources"
+        MU.log "Minimizing footprint of #{count.to_s} found resources"
 
-      vacuum(bok)
+        @boks[bok['appname']] = vacuum(bok)
+      }
+      @boks
     end
 
     private
@@ -256,26 +295,31 @@ end
         }
       }
 
+      if @gendeploys
+        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE
+        deploy.save!(force: true)
+      end
+
       bok
     end
 
     def resolveReferences(cfg, deploy, parent)
-
       if cfg.is_a?(MU::Config::Ref)
+
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
           cfg = if littermate
-if !littermate.config['name']
-MU.log "FAILED TO GET A NAME FROM REFERENCE", MU::WARN, details: cfg
-end
             { "type" => cfg.type, "name" => littermate.config['name'] }
+          elsif cfg.deploy_id and cfg.name and @gendeploys
+            { "type" => cfg.type, "name" => cfg.name, "deploy_id" => cfg.deploy_id }
           elsif cfg.id
             littermate = deploy.findLitterMate(type: cfg.type, cloud_id: cfg.id, habitat: cfg.habitat)
             if littermate
-MU.log "ID LITTERMATE MATCH => #{littermate.config['name']}", MU::WARN, details: {type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat}
               { "type" => cfg.type, "name" => littermate.config['name'] }
+            elsif !@gendeploys
+              cfg = { "type" => cfg.type, "id" => cfg.id }
             else
-MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat}
+MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WARN, details: cfg if cfg.type == "habitats"
               cfg.to_h
             end
           else
@@ -355,7 +399,7 @@ MU.log "FAILED TO GET A LITTERMATE FROM REFERENCE", MU::WARN, details: {type: cf
         appname: bok['appname'].upcase,
         timestamp: timestamp,
         nocleanup: true,
-        no_artifacts: true,
+        no_artifacts: !(@gendeploys),
         set_context_to_me: true,
         mu_user: MU.mu_user
       )
