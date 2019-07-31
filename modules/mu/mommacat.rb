@@ -460,7 +460,7 @@ module MU
           return false
         end
       rescue OpenSSL::PKey::RSAError => e
-        MU.log e.inspect, MU::ERR
+        MU.log "Error decrypting provided ciphertext using private key from #{deploy_dir}/private_key: #{e.message}", MU::ERR, details: ciphertext
         return false
       end
     end

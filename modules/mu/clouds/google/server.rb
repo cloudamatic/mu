@@ -975,7 +975,8 @@ next if !create
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        def addVolume(dev, size, type: "pd-standard")
+        # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
+        def addVolume(dev, size, type: "pd-standard", delete_on_termination: false)
           devname = dev.gsub(/.*?\/([^\/]+)$/, '\1')
           resname = MU::Cloud::Google.nameStr(@mu_name+"-"+devname)
           MU.log "Creating disk #{resname}"
@@ -1011,7 +1012,8 @@ next if !create
             auto_delete: true,
             device_name: devname,
             source: newdisk.self_link,
-            type: "PERSISTENT"
+            type: "PERSISTENT",
+            auto_delete: delete_on_termination
           )
           attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
             @project_id,

@@ -1615,7 +1615,8 @@ module MU
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        def addVolume(dev, size, type: "gp2")
+        # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
+        def addVolume(dev, size, type: "gp2", delete_on_termination: false)
           if @cloud_id.nil? or @cloud_id.empty?
             MU.log "#{self} didn't have a cloud id, couldn't determine 'active?' status", MU::ERR
             return true
@@ -1626,10 +1627,26 @@ module MU
           ).reservations.each { |resp|
             if !resp.nil? and !resp.instances.nil?
               resp.instances.each { |instance|
-              az = instance.placement.availability_zone
-                instance.block_device_mappings.each { |vol|
-                  if vol.device_name == dev
+                az = instance.placement.availability_zone
+                d_o_t_changed = true
+                mappings = MU.structToHash(instance.block_device_mappings)
+                mappings.each { |vol|
+                  if vol[:ebs]
+                    vol[:ebs].delete(:attach_time)
+                    vol[:ebs].delete(:status)
+                  end
+                }
+                mappings.each { |vol|
+                  if vol[:device_name] == dev
                     MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
+                    if vol[:ebs][:delete_on_termination] != delete_on_termination
+                      vol[:ebs][:delete_on_termination] = delete_on_termination
+                      MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
+                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+                        instance_id: @cloud_id,
+                        block_device_mappings: mappings
+                      )
+                    end
                     return
                   end
                 }
@@ -1670,6 +1687,32 @@ module MU
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
           end while attachment.state != "attached"
+
+          # Set delete_on_termination, which for some reason is an instance
+          # attribute and not on the attachment
+          mappings = MU.structToHash(cloud_desc.block_device_mappings)
+          changed = false
+
+          mappings.each { |mapping|
+            if mapping[:ebs]
+              mapping[:ebs].delete(:attach_time)
+              mapping[:ebs].delete(:status)
+            end
+            if mapping[:device_name] == dev and 
+               mapping[:ebs][:delete_on_termination] != delete_on_termination
+              changed = true
+              mapping[:ebs][:delete_on_termination] = delete_on_termination
+            end
+          }
+
+          if changed
+            MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+              instance_id: @cloud_id,
+              block_device_mappings: mappings
+            )
+          end
+
         end
 
         # Determine whether the node in question exists at the Cloud provider

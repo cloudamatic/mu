@@ -180,19 +180,19 @@ when 'rhel'
 
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0]
-  when '6'
+  case node['platform_version'].split('.')[0].to_i
+  when 6
     basepackages.concat(["mysql-devel"])
     removepackages = ["nagios"]
 
-  when '7'
+  when 7
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
     removepackages = ['nagios', 'firewalld']
 
-  when '8'
-    raise "Mu currently does not suport RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+  when 8
+    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
   else
-    raise "Mu does not suport RHEL #{node['platform_version']}"
+    raise "Mu does not support RHEL #{node['platform_version']} (matched on #{node['platform_version'].split('.')[0]})"
   end
 
 when 'amazon'

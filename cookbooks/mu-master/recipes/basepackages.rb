@@ -34,7 +34,7 @@ case node['platform_family']
 when 'rhel'
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0]
+  case node['platform_version'].split('.')[0].to_i
   when 6
     basepackages.concat(["java-1.5.0-gcj", "mysql-server", "autoconf"])
 
@@ -42,9 +42,9 @@ when 'rhel'
     basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
 
   when 8
-    raise "Mu currently does not suport RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
   else
-    raise "Mu does not suport RHEL #{node['platform_version']}"
+    raise "Mu does not support RHEL #{node['platform_version']}"
   end
 
 when 'amazon'
@@ -58,7 +58,7 @@ when 'amazon'
     basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
 
   else
-    raise "Mu does not suport Amazon #{node['platform_version']}"
+    raise "Mu does not support Amazon #{node['platform_version']}"
   end
 
 else
