@@ -18,7 +18,7 @@ module MU
   class Groomer
 
     # An exception denoting a Groomer run that has failed
-    class RunError < MuError
+    class RunError < StandardError
     end
 
     # An exception denoting nonexistent secret

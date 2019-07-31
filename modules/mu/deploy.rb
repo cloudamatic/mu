@@ -404,19 +404,7 @@ module MU
         }
       end
 
-      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
-         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
-        require 'slack-notifier'
-        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
-
-        slack.ping "Mu deployment #{MU.appname} *\"#{MU.handle}\"* (`#{MU.deploy_id}`) successfully completed on *#{$MU_CFG['hostname']}* (#{$MU_CFG['public_address']})", channel: $MU_CFG['slack']['channel']
-        if MU.summary.size > 0
-          MU.summary.each { |msg|
-            slack.ping msg, channel: $MU_CFG['slack']['channel']
-          }
-        end
-      end
-
+      @mommacat.sendAdminSlack("Deploy completed succesfully", msg: MU.summary.join("\n"))
     end
 
     private

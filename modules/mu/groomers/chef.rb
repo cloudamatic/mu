@@ -296,7 +296,24 @@ module MU
                 puts data
                 output << data
                 raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
-                raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+                if data.match(/#{error_signal}/)
+                  error_msg = ""
+                  clip = false
+                  output.each { |chunk|
+                    chunk.split(/\n/).each { |line|
+                      if !clip and line.match(/^========+/)
+                        clip = true
+                      elsif clip and line.match(/^Running handlers:/)
+                        break
+                      end
+
+                      if clip and line.match(/[a-z0-9]/)
+                        error_msg += line.gsub(/\e\[(\d+)m/, '')+"\n"
+                      end
+                    }
+                  }
+                  raise MU::Groomer::RunError, error_msg
+                end
               }
             }
           else
@@ -397,10 +414,12 @@ module MU
             sleep 30
             retry
           else
+            @server.deploy.sendAdminSlack("Chef run '#{purpose}' failed on `#{@server.mu_name}` :crying_cat_face:", msg: e.message)
             raise MU::Groomer::RunError, "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times, last error was: #{e.message}"
           end
         rescue Exception => e
-          raise MU::Groomer::RunError, "Caught unexpected #{e.inspect} on #{@server.mu_name} in @groomer.run"
+          @server.deploy.sendAdminSlack("Chef run '#{purpose}' failed on `#{@server.mu_name}` :crying_cat_face:", msg: e.inspect)
+          raise MU::Groomer::RunError, "Caught unexpected #{e.inspect} on #{@server.mu_name} in @groomer.run at #{e.backtrace[0]}"
 
         end
 
@@ -812,6 +831,7 @@ retry
         begin
           chef_node = ::Chef::Node.load(@server.mu_name)
         rescue Net::HTTPServerException
+          @server.deploy.sendAdminSlack("Couldn't load Chef metadata on `#{@server.mu_name}` :crying_cat_face:")
           raise MU::Groomer::RunError, "Couldn't load Chef node #{@server.mu_name}"
         end
 
