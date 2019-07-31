@@ -43,6 +43,9 @@ rescue
 end
 
 docdir = Process.uid == 0 ? "/var/www/html/docs" : MU.dataDir+"/docs"
+if !Dir.exists?(docdir)
+  FileUtils.mkdir_p(docdir, mode: 0755)
+end
 
 MU::Config.emitSchemaAsRuby
 if Process.uid == 0
