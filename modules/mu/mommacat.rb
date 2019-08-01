@@ -1360,8 +1360,14 @@ module MU
       loadDeploy(true) # make sure we're saving the latest and greatest
       have_deploy = true
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
-      type = cfg_plural
-      has_multiples = attrs[:has_multiples]
+      has_multiples = false
+
+      # it's not always the case that we're logging data for a legal resource
+      # type, though that's what we're usually for
+      if cfg_plural
+        type = cfg_plural
+        has_multiples = attrs[:has_multiples]
+      end
 
       if mu_name.nil?
         if !data.nil? and !data["mu_name"].nil?

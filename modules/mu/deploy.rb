@@ -50,6 +50,9 @@ module MU
     # We just pass this flag to MommaCat, telling it not to save any metadata.
     attr_reader :no_artifacts
 
+    # The deployment object we create for our stack
+    attr_reader :mommacat
+
     # Indicates whether we are updating an existing deployment, as opposed to
     # creating a new one.
     attr_reader :updating

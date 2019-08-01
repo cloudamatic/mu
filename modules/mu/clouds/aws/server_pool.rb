@@ -1084,8 +1084,9 @@ module MU
             @config['basis']['launch_config']["ami_id"] = MU::Cloud::AWS::Server.createImage(
               name: @mu_name,
               instance_id: @config['basis']['launch_config']["instance_id"],
-              credentials: @config['credentials']
-            )
+              credentials: @config['credentials'],
+              region: @config['region']
+            )[@config['region']]
           end
           MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
 
