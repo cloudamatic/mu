@@ -67,22 +67,27 @@ Dir.chdir(MU.myRoot) do
 # Supported resources
 EOF
 
+  impl_counts = {}
   cloudlist = MU::Cloud.supportedClouds.sort { |a, b|
     counts = {
       a => 0,
       b => 0
     }
     MU::Cloud.resource_types.each_pair { |type, cfg|
+      impl_counts[type] ||= 0
       [a, b].each { |cloud|
         begin
           myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
           case myclass.quality
           when MU::Cloud::RELEASE
             counts[cloud] += 4
+            impl_counts[type] += 4
           when MU::Cloud::BETA
             counts[cloud] += 2
+            impl_counts[type] += 2
           when MU::Cloud::ALPHA
             counts[cloud] += 1
+            impl_counts[type] += 1
           end
         rescue MU::Cloud::MuCloudResourceNotImplemented
         end
@@ -98,8 +103,7 @@ EOF
   readme += "</tr>\n"
 
   icon_style = 'height:2.2em;width:2.2em;padding:0px;'
-
-  MU::Cloud.resource_types.keys.sort_by { |t| t.to_s }.each { |type|
+  MU::Cloud.resource_types.keys.sort { |a, b| impl_counts[b] <=> impl_counts[a] }.each { |type|
     readme += "<tr><td><strong>{MU::Config::BasketofKittens::#{MU::Cloud.resource_types[type][:cfg_plural]} #{type.to_s}}</strong></td>"
     cloudlist.each { |cloud|
       readme += "<td><center>"

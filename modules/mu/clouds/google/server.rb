@@ -1009,7 +1009,6 @@ next if !create
           end
 
           attachobj = MU::Cloud::Google.compute(:AttachedDisk).new(
-            auto_delete: true,
             device_name: devname,
             source: newdisk.self_link,
             type: "PERSISTENT",
