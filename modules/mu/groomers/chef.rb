@@ -789,6 +789,15 @@ retry
           rescue Net::HTTPServerException
           end
         end
+        MU.log "knife data bag delete #{node}"
+        if !noop
+          knife_cd = ::Chef::Knife::ClientDelete.new(['data', 'bag', 'delete', node])
+          knife_cd.config[:yes] = true
+          begin
+            knife_cd.run
+          rescue Net::HTTPServerException
+          end
+        end
 
         return if nodeonly
 

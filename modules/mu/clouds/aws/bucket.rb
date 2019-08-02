@@ -173,6 +173,10 @@ module MU
           end
 
           begin
+puts data
+puts acl
+puts bucket
+puts path
             MU.log "Writing #{path} to S3 bucket #{bucket}"
             MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
               acl: acl,
