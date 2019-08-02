@@ -14,5 +14,4 @@ servers:
     image_then_destroy: true
     public: true
     copy_to_regions:
-    - "us-west-1"
-#    - "#ALL"
+    - "#ALL"

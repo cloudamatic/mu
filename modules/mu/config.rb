@@ -535,7 +535,7 @@ module MU
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil)
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil, default_credentials: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -553,6 +553,7 @@ module MU
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
       @updating = updating
+      @default_credentials = default_credentials
 
       ok = true
       params.each_pair { |name, value|
@@ -665,6 +666,8 @@ module MU
           }
         ]
       end
+
+      @config['credentials'] ||= @default_credentials
 
       types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 

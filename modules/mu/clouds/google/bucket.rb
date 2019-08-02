@@ -123,6 +123,14 @@ module MU
           end
         end
 
+        # Upload a file to a bucket.
+        # @param url [String]: Target URL, of the form gs://bucket/folder/file
+        # @param acl [String]: Canned ACL permission to assign to the object we upload
+        # @param file [String]: Path to a local file to write to our target location. One of +file+ or +data+ must be specified.
+        # @param data [String]: Data to write to our target location. One of +file+ or +data+ must be specified.
+        def self.upload(url, acl: "private", file: nil, data: nil, credentials: nil)
+        end
+
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]

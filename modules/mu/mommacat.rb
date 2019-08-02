@@ -1753,10 +1753,8 @@ module MU
     # Send a Slack notification to a deployment's administrators.
     # @param subject [String]: The subject line of the message.
     # @param msg [String]: The message body.
-    # @param data [Array]: Supplemental data to add to the message body.
-    # @param debug [Boolean]: If set, will include the full deployment structure and original {MU::Config}-parsed configuration.
     # @return [void]
-    def sendAdminSlack(subject, msg: "", kitten: nil)
+    def sendAdminSlack(subject, msg: "")
       if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
          (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
         require 'slack-notifier'

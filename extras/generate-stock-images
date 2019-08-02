@@ -36,34 +36,57 @@ Dir.foreach(bok_dir) { |d|
   }
 }
 
-
 $opts = Optimist::options do
   banner <<-EOS
 Usage:
-#{$0} [-c <cloud>] [-p <platform]
+#{$0} [-c <cloud>] [-p <platform>]
   EOS
   opt :clouds, "Clouds for which to generate images", :require => false, :type => :strings, :default => available_clouds.keys
   opt :platforms, "Platforms for which to generate images", :require => false, :type => :strings, :default => available_clouds.values.flatten.sort.uniq
+  opt :environment, "Environment with which to tag our generated images.", :require => false, :type => :string, :default => "prod"
+  if available_clouds.keys.include?("AWS")
+    opt :upload_to, "AWS S3 bucket and path to which we should upload our updated image list.", :require => false, :type => :string, :default => "s3://"+MU::Cloud::BASE_IMAGE_BUCKET+MU::Cloud::BASE_IMAGE_PATH
+  end
+  available_clouds.keys.each { |cloud|
+    opt (cloud.downcase+"_creds").to_sym, "Credentials to use when creating images in #{cloud}.", :require => false, :type => :string
+  }
 end
 
 pwd = Dir.pwd
+
+if !available_clouds.keys.include?("AWS") # XXX or if we don't have permissions to write $opt[:upload_to]
+  MU.log "No AWS credentials available- I have nowhere to upload new imaged lists. Will print to STDOUT instead.", MU::WARN
+end
 
 $opts[:clouds].each { |cloud|
   current_images = MU::Cloud.getStockImage(cloud, fail_hard: true)
   $opts[:platforms].each { |platform|
     if File.exists?(bok_dir+"/"+cloud+"/"+platform+".yaml")
-      conf_engine = MU::Config.new(bok_dir+"/"+cloud+"/"+platform+".yaml")
+      conf_engine = MU::Config.new(
+        bok_dir+"/"+cloud+"/"+platform+".yaml",
+        default_credentials: $opts[(cloud.downcase+"_creds").to_sym]
+      )
       stack_conf = conf_engine.config
 
       deployer = MU::Deploy.new(
-        "dev",
+        $opts[:environment],
         stack_conf: stack_conf
       )
       deployer.run
       MU.log "New images for #{cloud}:#{platform}", MU::NOTICE, details: deployer.mommacat.deployment['images']
-      system(%Q{/opt/mu/lib/bin/mu-cleanup #{deployer.mommacat.deploy_id}})
+      current_images[platform] ||= {}
+      current_images.deep_merge!(deployer.mommacat.deployment['images'])
+
+      # Scrub any loose metadata left over from our image deployment. It's ok,
+      # this won't touch the images we just made.
+      MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
     end
   }
+
+  if !available_clouds.keys.include?("AWS") # XXX or if we don't have permissions
+    puts current_images.to_yaml
+  else
+    MU::Cloud::AWS::Bucket.upload($opts[:upload_to]+"/"+cloud, data: current_images.to_yaml, credentials: $opts[:aws_creds], acl: "public")
+  end
 }
 
-Dir.chdir(pwd)

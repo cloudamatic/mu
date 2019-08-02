@@ -403,8 +403,8 @@ module MU
         :interface => self.const_get("Bucket"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
-        :class => generic_class_methods,
-        :instance => generic_instance_methods + [:groom]
+        :class => generic_class_methods + [:upload],
+        :instance => generic_instance_methods + [:groom, :upload]
       },
       :NoSQLDB => {
         :has_multiples => false,
@@ -419,9 +419,12 @@ module MU
       }
     }.freeze
 
-    # The public URL where we expect to find YAML files listing our standard
-    # base images for various platforms.
-    BASE_IMAGE_SRC = "http://cloudamatic.s3-website-us-east-1.amazonaws.com/images"
+    # The public AWS S3 bucket where we expect to find YAML files listing our
+    # standard base images for various platforms.
+    BASE_IMAGE_BUCKET = "cloudamatic"
+    # The path in the AWS S3 bucket where we expect to find YAML files listing
+    # our standard base images for various platforms.
+    BASE_IMAGE_PATH = "/images"
 
     # Aliases for platform names, in case we don't have actual images built for
     # them.
@@ -455,7 +458,7 @@ module MU
         raise MuError, "'#{cloud}' is not a supported cloud provider!"
       end
 
-      urls = [BASE_IMAGE_SRC]
+      urls = ["http://"+BASE_IMAGE_BUCKET+".s3-website-us-east-1.amazonaws.com"+BASE_IMAGE_PATH]
       if $MU_CFG and $MU_CFG['custom_images_url']
         urls << $MU_CFG['custom_images_url']
       end
