@@ -516,6 +516,9 @@ for repo in $REPOS;do
     purge_manifest $repo_name $artifact
     if [ -e "$artifact_source/$artifact" ];then
       # Overwrite anything from earlier in the stream with a conflicting name
+      if [ ! -d "$repo_name/$artifact/$shortname" ];then
+        continue
+      fi
       for f in `ls $artifact_source/$artifact/`;do
         if [ "$artifact" == "environments" -o "$artifact" == "roles" ];then
           shortname="`echo $f | sed -e 's/\.json//'`"
