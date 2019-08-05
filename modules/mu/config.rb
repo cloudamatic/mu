@@ -64,49 +64,6 @@ module MU
     attr_accessor :nat_routes
     attr_reader :skipinitialupdates
 
-    attr_reader :google_images
-    @@google_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/google_images.yaml"))
-    if File.exists?("#{MU.etcDir}/google_images.yaml")
-      custom = YAML.load(File.read("#{MU.etcDir}/google_images.yaml"))
-      @@google_images.merge!(custom) { |key, oldval, newval|
-        if !oldval.is_a?(Hash) and !newval.nil?
-          if !newval.nil?
-            newval
-          else
-            oldval
-          end
-        else
-          oldval.merge(newval)
-        end
-      }
-    end
-    # The list of known Google Images which we can use for a given platform
-    def self.google_images
-      @@google_images
-    end
-
-    attr_reader :amazon_images
-    @@amazon_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/amazon_images.yaml"))
-    if File.exists?("#{MU.etcDir}/amazon_images.yaml")
-      custom = YAML.load(File.read("#{MU.etcDir}/amazon_images.yaml"))
-      @@amazon_images.merge!(custom) { |key, oldval, newval|
-        if !oldval.is_a?(Hash) and !newval.nil?
-          if !newval.nil?
-            newval
-          else
-            oldval
-          end
-        else
-          oldval.merge(newval)
-        end
-      }
-    end
-    # The list of known Amazon AMIs, by region, which we can use for a given
-    # platform.
-    def self.amazon_images
-      @@amazon_images
-    end
-
     @@config_path = nil
     # The path to the most recently loaded configuration file
     attr_reader :config_path

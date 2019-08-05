@@ -2287,9 +2287,9 @@ module MU
           server['ami_id'] ||= server['image_id']
 
           if server['ami_id'].nil?
-            if MU::Config.amazon_images.has_key?(server['platform']) and
-                MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+            img_id = MU::Cloud.getStockImage("AWS", platform: server['platform'], region: server['region'])
+            if img_id
+              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: img_id, prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
             else
               MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
               ok = false
