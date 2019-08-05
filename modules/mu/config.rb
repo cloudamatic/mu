@@ -586,7 +586,7 @@ module MU
         MU.log "Passing variable '#{name}' into #{path} with value '#{val}'"
       }
       raise DeployParamError, "One or more invalid parameters specified" if !ok
-      $parameters = @@parameters
+      $parameters = @@parameters.dup
       $parameters.freeze
 
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
