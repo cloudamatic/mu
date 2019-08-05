@@ -223,7 +223,7 @@ pages:
   - gen_docs
 
 Base Images:
-  stage: do_the_thing
+  stage: Deploy
   script:
   - /opt/mu/lib/extras/generate-stock-images -d
   tags:
