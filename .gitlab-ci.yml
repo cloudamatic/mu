@@ -17,6 +17,9 @@ Rubocop:
     - rubocop modules/
     - rubocop bin/
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Cookstyle:
   stage: Lint Test
@@ -24,18 +27,27 @@ Cookstyle:
   script:
     - cookstyle cookbooks/
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 ChefSpec:
   stage: Test
@@ -43,6 +55,9 @@ ChefSpec:
   script:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .Rspec:
   stage: Test
@@ -53,6 +68,9 @@ ChefSpec:
     - cd ../
     - rspec
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 New_Berks:
   stage: Test
@@ -74,6 +92,9 @@ Berks:
     - berks install
     - berks verify
     - berks outdated
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Gem Build:
   stage: Build
@@ -88,6 +109,9 @@ Gem Build:
   artifacts:
     paths:
     - cloud-mu-*.gem
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .Muby Build:
   stage: Build
@@ -102,6 +126,9 @@ Gem Build:
     - master
     - development
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Gem Parser Test:
   stage: Smoke Test
@@ -118,6 +145,9 @@ Gem Parser Test:
     - /^gem-.*$/
     - /^cicd-.*$/
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Smoke Test:
   stage: Smoke Test
@@ -130,6 +160,9 @@ Smoke Test:
     - master
     - development
   when: manual
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .Dockerbuild:
   stage: Dockerbuild
@@ -139,6 +172,9 @@ Smoke Test:
   only:
     - master
     - development
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Gen Docs:
   stage: Merge/Tag
@@ -158,6 +194,9 @@ Gen Docs:
   artifacts:
     paths:
     - public/
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .GitHub Pages:
   stage: Deploy
@@ -178,6 +217,9 @@ Gen Docs:
   - master
   - gen_docs
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Upload Gem:
   stage: Deploy
@@ -192,6 +234,9 @@ Upload Gem:
   - Gem Build
   only:
   - master
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Upload Gem Manual:
   stage: Deploy
@@ -208,6 +253,9 @@ Upload Gem Manual:
   - development
   - /^gem-.*$/
   - /^cicd-.*$/
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 pages:
   stage: Deploy
@@ -221,6 +269,9 @@ pages:
   only:
   - master
   - gen_docs
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Base Images:
   stage: Deploy
