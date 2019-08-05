@@ -129,12 +129,26 @@ module MU
         # @return [Google::Apis::ComputeBeta::Image]
         def self.fetchImage(image_id, credentials: nil)
           img_proj = img_name = nil
-          begin
-            img_proj = image_id.gsub(/.*?\/?projects\/([^\/]+)\/.*/, '\1')
+          if image_id.match(/\//)
+            img_proj = image_id.gsub(/.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
             img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
+          else
+            img_name = image_id
+          end
+
+          begin
+            return MU::Cloud::Google.compute(credentials: credentials).get_image_from_family(img_proj, img_name)
+          rescue ::Google::Apis::ClientError
+            # This is fine- we don't know that what we asked for is really an
+            # image family name, instead of just an image.
+          end
+
+          begin
             img = MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
             if !img.deprecated.nil? and !img.deprecated.replacement.nil?
               image_id = img.deprecated.replacement
+              img_proj = image_id.gsub(/.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
+              img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
             end
           end while !img.deprecated.nil? and img.deprecated.state == "DEPRECATED" and !img.deprecated.replacement.nil?
           MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
