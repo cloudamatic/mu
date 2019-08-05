@@ -221,3 +221,13 @@ pages:
   only:
   - master
   - gen_docs
+
+Base Images:
+  stage: do_the_thing
+  script:
+  - /opt/mu/lib/extras/generate-stock-images -d
+  tags:
+  - mu-gitlab-runner
+  only:
+    variables:
+    - $IMAGE_BUILD == "yaass"
