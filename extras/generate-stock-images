@@ -44,6 +44,7 @@ Usage:
   opt :clouds, "Clouds for which to generate images", :require => false, :type => :strings, :default => available_clouds.keys
   opt :platforms, "Platforms for which to generate images", :require => false, :type => :strings, :default => available_clouds.values.flatten.sort.uniq
   opt :environment, "Environment with which to tag our generated images.", :require => false, :type => :string, :default => "prod"
+  opt :age, "Minimum age, in days, at which we will replace existing images. Set to 0 to force a new build regardless of age.", :require => false, :type => :integer, :default => 30
   if available_clouds.keys.include?("AWS")
     opt :upload_to, "AWS S3 bucket and path to which we should upload our updated image list.", :require => false, :type => :string, :default => "s3://"+MU::Cloud::BASE_IMAGE_BUCKET+MU::Cloud::BASE_IMAGE_PATH
   end
@@ -59,10 +60,33 @@ if !available_clouds.keys.include?("AWS") # XXX or if we don't have permissions 
   MU.log "No AWS credentials available- I have nowhere to upload new imaged lists. Will print to STDOUT instead.", MU::WARN
 end
 
+now = DateTime.now
+
 $opts[:clouds].each { |cloud|
   current_images = MU::Cloud.getStockImage(cloud, fail_hard: true)
   $opts[:platforms].each { |platform|
     if File.exists?(bok_dir+"/"+cloud+"/"+platform+".yaml")
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Server")
+      if current_images[platform].is_a?(String)
+        age = cloudclass.imageTimeStamp(current_images[platform])
+        if (now - age) >= $opts[:age]
+          MU.log "#{cloud} image for #{platform} was last built #{age.to_s}, refreshing", MU::NOTICE
+        else
+          next
+        end
+      else
+        needed = false
+        current_images[platform].each_pair { |r, img_id|
+          age = cloudclass.imageTimeStamp(img_id, region: r)
+          if (now - age) >= $opts[:age]
+            MU.log "#{cloud} image for #{platform} was last built #{age.to_s}, refreshing", MU::NOTICE
+            needed = true
+            break
+          end
+        }
+        exit
+        next if !needed
+      end
       conf_engine = MU::Config.new(
         bok_dir+"/"+cloud+"/"+platform+".yaml",
         default_credentials: $opts[(cloud.downcase+"_creds").to_sym]

@@ -2317,6 +2317,21 @@ module MU
           ok
         end
 
+        # Return the date/time a machine image was created.
+        # @param ami_id [String]: AMI identifier of an Amazon Machine Image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(ami_id, credentials: nil, region: nil)
+          begin
+            img = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_images(image_ids: [ami_id]).images.first
+            return DateTime.new if img.nil?
+            return DateTime.parse(img.creation_date)
+          rescue Aws::EC2::Errors::InvalidAMIIDNotFound => e
+          end
+
+          return DateTime.new
+        end
+
         private
 
         # Destroy a volume.

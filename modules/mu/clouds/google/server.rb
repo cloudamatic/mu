@@ -122,10 +122,26 @@ module MU
           )
         end
 
+        # Return the date/time a machine image was created.
+        # @param image_id [String]: URL to a Google disk image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(image_id, credentials: nil)
+          begin
+            img = fetchImage(image_id, credentials: credentials)
+            return DateTime.new if img.nil?
+            return DateTime.parse(img.creation_timestamp)
+          rescue ::Google::Apis::ClientError => e
+          end
+
+          return DateTime.new
+        end
+
         # Retrieve the cloud descriptor for this machine image, which can be
         # a whole or partial URL. Will follow deprecation notices and retrieve
         # the latest version, if applicable.
         # @param image_id [String]: URL to a Google disk image
+        # @param credentials [String]
         # @return [Google::Apis::ComputeBeta::Image]
         def self.fetchImage(image_id, credentials: nil)
           img_proj = img_name = nil
