@@ -1636,6 +1636,9 @@ module MU
         schema_fields << "region"
       end
 
+      kitten['credentials'] ||= @config['credentials']
+      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
+
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
         schema_fields << "project"
@@ -1659,9 +1662,6 @@ module MU
 
       kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
       kitten['scrub_mu_isms'] ||= false
-
-      kitten['credentials'] ||= @config['credentials']
-      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
 
       kitten["dependencies"] ||= []
 

@@ -146,7 +146,7 @@ module MU
         def self.fetchImage(image_id, credentials: nil)
           img_proj = img_name = nil
           if image_id.match(/\//)
-            img_proj = image_id.gsub(/.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
+            img_proj = image_id.gsub(/(?:https?:\/\/.*?\.googleapis\.com\/compute\/.*?\/)?.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
             img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
           else
             img_name = image_id
@@ -1197,6 +1197,8 @@ next if !create
         def self.validateConfig(server, configurator)
           ok = true
 
+          server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
+
           server['size'] = validateInstanceType(server["size"], server["region"])
           ok = false if server['size'].nil?
 
@@ -1207,7 +1209,7 @@ next if !create
 
           subnets = nil
           if !server['vpc']
-            vpcs = MU::Cloud::Google::VPC.find
+            vpcs = MU::Cloud::Google::VPC.find(credentials: server['credentials'])
             if vpcs["default"]
               server["vpc"] ||= {}
               server["vpc"]["vpc_id"] = vpcs["default"].self_link
