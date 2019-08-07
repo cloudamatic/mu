@@ -279,7 +279,7 @@ pages:
 Base Images:
   stage: Deploy
   script:
-  - /opt/mu/lib/extras/generate-stock-images -d
+  - /opt/mu/lib/extras/generate-stock-images -d -c AWS
   tags:
   - mu-gitlab-runner
   only:
