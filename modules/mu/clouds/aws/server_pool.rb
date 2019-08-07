@@ -1096,7 +1096,8 @@ module MU
 
           userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
-            cloud: "aws",
+            cloud: "AWS",
+            credentials: @config['credentials'],
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,

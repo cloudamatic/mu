@@ -48,7 +48,8 @@ module MU
           if @deploy
             @userdata = MU::Cloud.fetchUserdata(
               platform: @config["platform"],
-              cloud: "google",
+              cloud: "Google",
+              credentials: @config['credentials'],
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                 "deploySSHKey" => @deploy.ssh_public_key,
@@ -1044,6 +1045,8 @@ next if !create
             type: "PERSISTENT",
             auto_delete: delete_on_termination
           )
+
+          MU.log "Attaching disk #{resname} to #{@cloud_id} at #{devname}"
           attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
             @project_id,
             @config['availability_zone'],

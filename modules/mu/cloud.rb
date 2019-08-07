@@ -659,7 +659,7 @@ module MU
     # @param template_variables [Hash]: A list of variable substitutions to pass as globals to the ERB parser when loading the userdata script.
     # @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
     # @return [String]
-    def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, cloud: "aws", scrub_mu_isms: false)
+    def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, cloud: "AWS", scrub_mu_isms: false, credentials: nil)
       return nil if platform.nil? or platform.empty?
       userdata_mutex.synchronize {
         script = ""
@@ -667,8 +667,9 @@ module MU
           if template_variables.nil? or !template_variables.is_a?(Hash)
             raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
           end
+          template_variables["credentials"] ||= credentials
           $mu = OpenStruct.new(template_variables)
-          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud}/userdata")
+          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}/userdata")
           platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
           platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
           erbfile = "#{userdata_dir}/#{platform}.erb"

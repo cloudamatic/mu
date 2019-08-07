@@ -850,6 +850,7 @@ retry
 
         chef_node.normal.app = @config['application_cookbook'] if !@config['application_cookbook'].nil?
         chef_node.normal["service_name"] = @config["name"]
+        chef_node.normal["credentials"] = @config["credentials"]
         chef_node.normal["windows_admin_username"] = @config['windows_admin_username']
         chef_node.chef_environment = MU.environment.downcase
         if @server.config['cloud'] == "AWS"
