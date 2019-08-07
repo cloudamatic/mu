@@ -46,8 +46,8 @@ MU::Cloud::AWS.listRegions.each { | r|
 			}
 			MU.log "Deregistering #{ami.name} (#{ami.creation_date})", MU::WARN, details: snaps
 			MU::Cloud::AWS.ec2(region: r, credentials: credentials).deregister_image(image_id: ami.image_id)
-			snaps.each { |snap_id|
-				MU::Cloud::AWS.ec2(region: r, credentials: credentials).delete_snapshot(snapshot_id: snap_id)
+ 		  snaps.each { |snap_id|
+			  MU::Cloud::AWS.ec2(region: r, credentials: credentials).delete_snapshot(snapshot_id: snap_id)
 			}
 		end
   }

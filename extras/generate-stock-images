@@ -1,0 +1,121 @@
+#!/usr/local/ruby-current/bin/ruby
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/../bin/mu-load-config.rb"))
+# now we have our global config available as the read-only hash $MU_CFG
+
+require 'rubygems'
+require 'bundler/setup'
+require 'optimist'
+require 'mu'
+
+bok_dir = MU.myRoot+"/extras/image-generators"
+
+available_clouds = {}
+Dir.foreach(bok_dir) { |d|
+  next if d == "." or d == ".."
+  next if !Dir.exist?(MU.myRoot+"/extras/image-generators/"+d)
+  available_clouds[d] = []
+  Dir.foreach(bok_dir+"/"+d) { |yamlfile|
+    next if !yamlfile.match(/(.+?)\.yaml$/)
+    platform = Regexp.last_match[1]
+    available_clouds[d] << platform
+  }
+}
+
+$opts = Optimist::options do
+  banner <<-EOS
+Usage:
+#{$0} [-c <cloud>] [-p <platform>]
+  EOS
+  opt :clouds, "Clouds for which to generate images", :require => false, :type => :strings, :default => available_clouds.keys
+  opt :platforms, "Platforms for which to generate images", :require => false, :type => :strings, :default => available_clouds.values.flatten.sort.uniq
+  opt :environment, "Environment with which to tag our generated images.", :require => false, :type => :string, :default => "prod"
+  opt :age, "Minimum age, in days, at which we will replace existing images. Set to 0 to force a new build regardless of age.", :require => false, :type => :integer, :default => 30
+  if available_clouds.keys.include?("AWS")
+    opt :upload_to, "AWS S3 bucket and path to which we should upload our updated image list.", :require => false, :type => :string, :default => "s3://"+MU::Cloud::BASE_IMAGE_BUCKET+MU::Cloud::BASE_IMAGE_PATH
+  end
+  available_clouds.keys.each { |cloud|
+    opt (cloud.downcase+"_creds").to_sym, "Credentials to use when creating images in #{cloud}.", :require => false, :type => :string
+  }
+  opt :dryrun, "Don't actually run our deploy.", :require => false, :type => :boolean, :default => false
+end
+
+pwd = Dir.pwd
+
+if !available_clouds.keys.include?("AWS") # XXX or if we don't have permissions to write $opt[:upload_to]
+  MU.log "No AWS credentials available- I have nowhere to upload new imaged lists. Will print to STDOUT instead.", MU::WARN
+end
+
+now = DateTime.now
+
+$opts[:clouds].each { |cloud|
+  current_images = MU::Cloud.getStockImage(cloud, fail_hard: true)
+  $opts[:platforms].each { |platform|
+    if File.exists?(bok_dir+"/"+cloud+"/"+platform+".yaml")
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Server")
+      if current_images[platform].is_a?(String)
+        age = cloudclass.imageTimeStamp(current_images[platform])
+        if (now - age) >= $opts[:age]
+          MU.log "#{cloud} image for #{platform} was last built #{age.to_s}, refreshing", MU::NOTICE
+        else
+          next
+        end
+      else
+        needed = false
+        current_images[platform].each_pair { |r, img_id|
+          age = cloudclass.imageTimeStamp(img_id, region: r)
+          if (now - age) >= $opts[:age]
+            MU.log "#{cloud} image for #{platform} was last built #{age.to_s}, refreshing", MU::NOTICE
+            needed = true
+            break
+          end
+        }
+        exit
+        next if !needed
+      end
+      conf_engine = MU::Config.new(
+        bok_dir+"/"+cloud+"/"+platform+".yaml",
+        default_credentials: $opts[(cloud.downcase+"_creds").to_sym]
+      )
+      stack_conf = conf_engine.config
+
+      if $opts[:dryrun]
+        puts stack_conf.to_yaml
+      else
+        deployer = MU::Deploy.new(
+          $opts[:environment],
+          stack_conf: stack_conf
+        )
+        deployer.run
+        MU.log "New images for #{cloud}:#{platform}", MU::NOTICE, details: deployer.mommacat.deployment['images']
+        current_images[platform] ||= {}
+        current_images.deep_merge!(deployer.mommacat.deployment['images'])
+
+        # Scrub any loose metadata left over from our image deployment. It's ok,
+        # this won't touch the images we just made.
+        MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
+      end
+    end
+  }
+
+  if !available_clouds.keys.include?("AWS") # XXX or if we don't have permissions
+    puts current_images.to_yaml
+  elsif !$opts[:dryrun]
+    MU::Cloud::AWS::Bucket.upload($opts[:upload_to]+"/"+cloud+".yaml", data: current_images.to_yaml, credentials: $opts[:aws_creds], acl: "public-read")
+  end
+}
+

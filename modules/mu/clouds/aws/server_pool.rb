@@ -862,9 +862,9 @@ module MU
             end
             launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
-              if MU::Config.amazon_images.has_key?(pool['platform']) and
-                  MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-                launch['ami_id'] = configurator.getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+              img_id = MU::Cloud.getStockImage("AWS", platform: pool['platform'], region: pool['region'])
+              if img_id
+                launch['ami_id'] = configurator.getTail("pool"+pool['name']+"AMI", value: img_id, prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
   
               else
                 ok = false
@@ -1070,8 +1070,9 @@ module MU
             @config['basis']['launch_config']["ami_id"] = MU::Cloud::AWS::Server.createImage(
               name: @mu_name,
               instance_id: @config['basis']['launch_config']["instance_id"],
-              credentials: @config['credentials']
-            )
+              credentials: @config['credentials'],
+              region: @config['region']
+            )[@config['region']]
           end
           MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
 
@@ -1081,7 +1082,8 @@ module MU
 
           userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
-            cloud: "aws",
+            cloud: "AWS",
+            credentials: @config['credentials'],
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,

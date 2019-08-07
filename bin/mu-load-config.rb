@@ -119,6 +119,11 @@ def loadMuConfig(default_cfg_overrides = nil)
     default_cfg.delete("scratchpad")
     default_cfg.delete("libdir")
     default_cfg.delete("installdir")
+  else
+    if File.exists?("/opt/mu/etc/mu.yaml")
+      default_cfg.merge!(YAML.load(File.read("/opt/mu/etc/mu.yaml")))
+      default_cfg["config_files"] = ["/opt/mu/etc/mu.yaml"]
+    end
   end
 
   default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides

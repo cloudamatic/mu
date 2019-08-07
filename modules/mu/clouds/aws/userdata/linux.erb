@@ -163,7 +163,7 @@ fi
 <% end %>
 
 if [ "$AWSCLI" != "" ];then
-  $AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+  $AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName("AWS", credentials: $mu.credentials) %>/<%= $mu.muID %>-secret .
 fi
 
 echo '
