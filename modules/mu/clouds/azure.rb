@@ -833,6 +833,9 @@ module MU
               else
                 retval = @myobject.method(method_sym).call
               end
+            rescue ::Net::ReadTimeout => e
+              sleep 5
+              retry
             rescue ::MsRestAzure::AzureOperationError => e
               MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
               begin

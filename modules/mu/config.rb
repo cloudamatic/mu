@@ -428,7 +428,7 @@ end
           end
         end
 
-        @obj ||= MU::MommaCat.findStray(
+        found = MU::MommaCat.findStray(
           @cloud,
           @type,
           name: @name,
@@ -437,7 +437,8 @@ end
           region: @region,
           credentials: @credentials,
           dummy_ok: (@type == "habitats")
-        ).first
+        )
+        @obj ||= found.first if found
 
         if @obj
           @deploy_id ||= @obj.deploy_id

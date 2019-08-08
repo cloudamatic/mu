@@ -73,17 +73,17 @@ module MU
               arg = $?.exitstatus == 0 ? "replace" : "create"
               cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" #{arg} -f #{blobfile}}
               MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", MU::NOTICE, details: cmd
-#              output = %x{#{cmd} 2>&1}
-#              if $?.exitstatus == 0
-#                MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
-#              else
-#                MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
-#              end
+              output = %x{#{cmd} 2>&1}
+              if $?.exitstatus == 0
+                MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
+              else
+                MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
+              end
               count += 1
             }
           end
 
-          MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+          MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
 
         end
 
