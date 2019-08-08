@@ -396,6 +396,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
+          acl['project'] ||= MU::Cloud::Google.defaultProject(acl['credentials'])
 
           if acl['vpc']
             acl['vpc']['project'] ||= acl['project']

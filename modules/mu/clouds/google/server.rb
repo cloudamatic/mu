@@ -37,7 +37,8 @@ module MU
           if @deploy
             @userdata = MU::Cloud.fetchUserdata(
               platform: @config["platform"],
-              cloud: "google",
+              cloud: "Google",
+              credentials: @config['credentials'],
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                 "deploySSHKey" => @deploy.ssh_public_key,
@@ -104,19 +105,49 @@ module MU
           )
         end
 
+        # Return the date/time a machine image was created.
+        # @param image_id [String]: URL to a Google disk image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(image_id, credentials: nil)
+          begin
+            img = fetchImage(image_id, credentials: credentials)
+            return DateTime.new if img.nil?
+            return DateTime.parse(img.creation_timestamp)
+          rescue ::Google::Apis::ClientError => e
+          end
+
+          return DateTime.new
+        end
+
         # Retrieve the cloud descriptor for this machine image, which can be
         # a whole or partial URL. Will follow deprecation notices and retrieve
         # the latest version, if applicable.
         # @param image_id [String]: URL to a Google disk image
+        # @param credentials [String]
         # @return [Google::Apis::ComputeBeta::Image]
         def self.fetchImage(image_id, credentials: nil)
           img_proj = img_name = nil
-          begin
-            img_proj = image_id.gsub(/.*?\/?projects\/([^\/]+)\/.*/, '\1')
+          if image_id.match(/\//)
+            img_proj = image_id.gsub(/(?:https?:\/\/.*?\.googleapis\.com\/compute\/.*?\/)?.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
             img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
+          else
+            img_name = image_id
+          end
+
+          begin
+            return MU::Cloud::Google.compute(credentials: credentials).get_image_from_family(img_proj, img_name)
+          rescue ::Google::Apis::ClientError
+            # This is fine- we don't know that what we asked for is really an
+            # image family name, instead of just an image.
+          end
+
+          begin
             img = MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
             if !img.deprecated.nil? and !img.deprecated.replacement.nil?
               image_id = img.deprecated.replacement
+              img_proj = image_id.gsub(/.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
+              img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
             end
           end while !img.deprecated.nil? and img.deprecated.state == "DEPRECATED" and !img.deprecated.replacement.nil?
           MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
@@ -959,7 +990,8 @@ next if !create
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        def addVolume(dev, size, type: "pd-standard")
+        # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
+        def addVolume(dev, size, type: "pd-standard", delete_on_termination: false)
           devname = dev.gsub(/.*?\/([^\/]+)$/, '\1')
           resname = MU::Cloud::Google.nameStr(@mu_name+"-"+devname)
           MU.log "Creating disk #{resname}"
@@ -992,11 +1024,13 @@ next if !create
           end
 
           attachobj = MU::Cloud::Google.compute(:AttachedDisk).new(
-            auto_delete: true,
             device_name: devname,
             source: newdisk.self_link,
-            type: "PERSISTENT"
+            type: "PERSISTENT",
+            auto_delete: delete_on_termination
           )
+
+          MU.log "Attaching disk #{resname} to #{@cloud_id} at #{devname}"
           attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
             @project_id,
             @config['availability_zone'],
@@ -1163,7 +1197,7 @@ next if !create
 
           subnets = nil
           if !server['vpc']
-            vpcs = MU::Cloud::Google::VPC.find
+            vpcs = MU::Cloud::Google::VPC.find(credentials: server['credentials'])
             if vpcs["default"]
               server["vpc"] ||= {}
               server["vpc"]["vpc_id"] = vpcs["default"].self_link
@@ -1195,8 +1229,9 @@ next if !create
           end
 
           if server['image_id'].nil?
-            if MU::Config.google_images.has_key?(server['platform'])
-              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: MU::Config.google_images[server['platform']], prettyname: "server"+server['name']+"Image", cloudtype: "Google::::Apis::ComputeBeta::Image")
+            img_id = MU::Cloud.getStockImage("Google", platform: server['platform'])
+            if img_id
+              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::::Apis::ComputeBeta::Image")
             else
               MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
               ok = false

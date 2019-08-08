@@ -50,6 +50,9 @@ module MU
     # We just pass this flag to MommaCat, telling it not to save any metadata.
     attr_reader :no_artifacts
 
+    # The deployment object we create for our stack
+    attr_reader :mommacat
+
     # Indicates whether we are updating an existing deployment, as opposed to
     # creating a new one.
     attr_reader :updating
@@ -417,19 +420,7 @@ module MU
         }
       end
 
-      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
-         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
-        require 'slack-notifier'
-        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
-
-        slack.ping "Mu deployment #{MU.appname} *\"#{MU.handle}\"* (`#{MU.deploy_id}`) successfully completed on *#{$MU_CFG['hostname']}* (#{$MU_CFG['public_address']})", channel: $MU_CFG['slack']['channel']
-        if MU.summary.size > 0
-          MU.summary.each { |msg|
-            slack.ping msg, channel: $MU_CFG['slack']['channel']
-          }
-        end
-      end
-
+      @mommacat.sendAdminSlack("Deploy completed succesfully", msg: MU.summary.join("\n"))
     end
 
     private

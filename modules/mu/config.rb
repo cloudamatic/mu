@@ -67,49 +67,6 @@ module MU
     attr_accessor :nat_routes
     attr_reader :skipinitialupdates
 
-    attr_reader :google_images
-    @@google_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/google_images.yaml"))
-    if File.exists?("#{MU.etcDir}/google_images.yaml")
-      custom = YAML.load(File.read("#{MU.etcDir}/google_images.yaml"))
-      @@google_images.merge!(custom) { |key, oldval, newval|
-        if !oldval.is_a?(Hash) and !newval.nil?
-          if !newval.nil?
-            newval
-          else
-            oldval
-          end
-        else
-          oldval.merge(newval)
-        end
-      }
-    end
-    # The list of known Google Images which we can use for a given platform
-    def self.google_images
-      @@google_images
-    end
-
-    attr_reader :amazon_images
-    @@amazon_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/amazon_images.yaml"))
-    if File.exists?("#{MU.etcDir}/amazon_images.yaml")
-      custom = YAML.load(File.read("#{MU.etcDir}/amazon_images.yaml"))
-      @@amazon_images.merge!(custom) { |key, oldval, newval|
-        if !oldval.is_a?(Hash) and !newval.nil?
-          if !newval.nil?
-            newval
-          else
-            oldval
-          end
-        else
-          oldval.merge(newval)
-        end
-      }
-    end
-    # The list of known Amazon AMIs, by region, which we can use for a given
-    # platform.
-    def self.amazon_images
-      @@amazon_images
-    end
-
     @@config_path = nil
     # The path to the most recently loaded configuration file
     attr_reader :config_path
@@ -766,7 +723,7 @@ end
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil)
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil, default_credentials: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -784,6 +741,7 @@ end
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
       @updating = updating
+      @default_credentials = default_credentials
 
       ok = true
       params.each_pair { |name, value|
@@ -859,7 +817,7 @@ end
         MU.log "Passing variable '#{name}' into #{path} with value '#{val}'"
       }
       raise DeployParamError, "One or more invalid parameters specified" if !ok
-      $parameters = @@parameters
+      $parameters = @@parameters.dup
       $parameters.freeze
 
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
@@ -896,6 +854,8 @@ end
           }
         ]
       end
+
+      @config['credentials'] ||= @default_credentials
 
       types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 
@@ -1968,7 +1928,6 @@ end
 
 
       kitten['billing_acct'] ||= @config['billing_acct'] if @config['billing_acct']
-
 
       kitten["dependencies"] ||= []
 

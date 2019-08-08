@@ -338,7 +338,9 @@ module MU
                   attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
                 end
               rescue Exception => e
-                MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
+                if e.class != MU::Cloud::MuCloudResourceNotImplemented
+                  MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
+                end
               end
             }
 
@@ -560,7 +562,7 @@ module MU
           return false
         end
       rescue OpenSSL::PKey::RSAError => e
-        MU.log e.inspect, MU::ERR
+        MU.log "Error decrypting provided ciphertext using private key from #{deploy_dir}/private_key: #{e.message}", MU::ERR, details: ciphertext
         return false
       end
     end
@@ -851,12 +853,12 @@ raise "NAH"
         MU::MommaCat.unlockAll
         if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+cloud_id) and !File.exists?(deploy_dir+"/.cleanup")
           MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
-#         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-#           msg: e.inspect,
-#           kitten: kitten,
-#           data: e.backtrace,
-#           debug: true
-#         )
+          sendAdminSlack("Grooming FAILED for `#{kitten.mu_name}` with `#{e.message}` :crying_cat_face:", msg: e.backtrace.join("\n"))
+         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+           msg: e.inspect,
+           data: e.backtrace,
+           debug: true
+         )
           raise e if reraise_fail
         else
           MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
@@ -877,7 +879,8 @@ raise "NAH"
       FileUtils.touch(MU.dataDir+"/deployments/#{MU.deploy_id}/#{name}_done.txt")
       MU::MommaCat.unlockAll
       if first_groom
-        sendAdminMail("Grooming complete for '#{name}' (#{mu_name}) on deploy \"#{MU.handle}\" (#{MU.deploy_id})", kitten: kitten)
+        sendAdminSlack("Grooming complete for #{mu_name} :heart_eyes_cat:")
+        sendAdminMail("Grooming complete for '#{name}' (#{mu_name}) on deploy \"#{MU.handle}\" (#{MU.deploy_id})")
       end
       return
     end
@@ -1091,19 +1094,20 @@ raise "NAH"
               servers.each_pair { |mu_name, server|
                 server.describe
                 if !server.cloud_id
-                  MU.log "Checking for deletion of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
+                  MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
                 elsif !server.active?
                   next if File.exists?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
                   deletia << mu_name
-                  MU.log "Deleting #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::NOTICE
+                  MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
                   begin
                     server.destroy
-                    deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
+                    deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
+                    deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
                   rescue Exception => e
                     MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
                     next
                   end
-                  MU.log "Deletion of #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
+                  MU.log "Cleanup of metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
                   purged = purged + 1
                   purged_this_deploy = purged_this_deploy + 1
                 end
@@ -1621,8 +1625,14 @@ end
 
       have_deploy = true
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
-      type = cfg_plural
-      has_multiples = attrs[:has_multiples]
+      has_multiples = false
+
+      # it's not always the case that we're logging data for a legal resource
+      # type, though that's what we're usually for
+      if cfg_plural
+        type = cfg_plural
+        has_multiples = attrs[:has_multiples]
+      end
 
       if mu_name.nil?
         if !data.nil? and !data["mu_name"].nil?
@@ -2024,7 +2034,26 @@ end
       MU.log("Added to /etc/hosts: #{public_ip} #{chef_name} #{system_name}")
     end
 
-    # Send a notification to a deployment's administrators.
+
+    # Send a Slack notification to a deployment's administrators.
+    # @param subject [String]: The subject line of the message.
+    # @param msg [String]: The message body.
+    # @return [void]
+    def sendAdminSlack(subject, msg: "")
+      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
+         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
+        require 'slack-notifier'
+        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
+
+        if msg and !msg.empty?
+          slack.ping "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}:\n\n```#{msg}\n```", channel: $MU_CFG['slack']['channel']
+        else
+          slack.ping "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}", channel: $MU_CFG['slack']['channel']
+        end
+      end
+    end
+
+    # Send an email notification to a deployment's administrators.
     # @param subject [String]: The subject line of the message.
     # @param msg [String]: The message body.
     # @param data [Array]: Supplemental data to add to the message body.

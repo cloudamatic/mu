@@ -137,6 +137,51 @@ module MU
           end
         end
 
+        # Upload a file to a bucket.
+        # @param url [String]: Target URL, of the form s3://bucket/folder/file
+        # @param acl [String]: Canned ACL permission to assign to the object we upload
+        # @param file [String]: Path to a local file to write to our target location. One of +file+ or +data+ must be specified.
+        # @param data [String]: Data to write to our target location. One of +file+ or +data+ must be specified.
+        def self.upload(url, acl: "private", file: nil, data: nil, credentials: nil, region: nil)
+          if (!file or file.empty?) and !data
+            raise MuError, "Must specify a file or some data to upload to bucket #{s3_url}"
+          end
+
+          if file and !file.empty?
+            if !File.exists?(file) or !File.readable?(file)
+              raise MuError, "Unable to read #{file} for upload to #{url}"
+            else
+              data = File.read(file)
+            end
+          end
+
+          url.match(/^(?:s3:\/\/)([^\/:]+?)[\/:]\/?(.+)?/)
+          bucket = Regexp.last_match[1]
+          path = Regexp.last_match[2]
+          if !path 
+            if !file
+              raise MuError, "Unable to determine upload path from url #{url}"
+            end
+          end
+
+          begin
+puts data
+puts acl
+puts bucket
+puts path
+            MU.log "Writing #{path} to S3 bucket #{bucket}"
+            MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
+              acl: acl,
+              bucket: bucket,
+              key: path,
+              body: data
+            )
+          rescue Aws::S3::Errors => e
+            raise MuError, "Got #{e.inspect} trying to write #{path} to #{bucket} (region: #{region}, credentials: #{credentials})"
+          end
+
+        end
+
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
