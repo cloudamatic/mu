@@ -527,7 +527,7 @@ module MU
                   ext_subnet.address_prefix != subnet_obj.address_prefix or
                   ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
                   (!ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
-              MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", MU::NOTICE, details: subnet_obj
+              MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
               need_apply = true
 
             end

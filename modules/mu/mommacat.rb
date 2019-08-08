@@ -57,14 +57,25 @@ module MU
 # XXX this caching may be harmful, causing stale resource objects to stick
 # around. Have we fixed this? Sort of. Bad entries seem to have no kittens,
 # so force a reload if we see that. That's probably not the root problem.
-      @@litter_semaphore.synchronize {
-        if !use_cache or !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
+      littercache = nil
+      begin
+        @@litter_semaphore.synchronize {
+          littercache = @@litters.dup
+        }
+      rescue ThreadError => e
+        # already locked by a parent caller and this is a read op, so this is ok
+        raise e if !e.message.match(/recursive locking/)
+        littercache = @@litters.dup
+      end
+      if !use_cache or !littercache.has_key?(deploy_id) or littercache[deploy_id].kittens.nil?
+        # This, we have to synchronize, as it's a write
+        @@litter_semaphore.synchronize {
           @@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-        elsif set_context_to_me
-          MU::MommaCat.setThreadContext(@@litters[deploy_id])
-        end
-        return @@litters[deploy_id]
-      }
+        }
+      elsif set_context_to_me
+        MU::MommaCat.setThreadContext(@@litters[deploy_id])
+      end
+      return @@litters[deploy_id]
 #     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
     end
 
@@ -270,6 +281,8 @@ module MU
       @appname ||= appname
       @timestamp ||= timestamp
 
+      @@litters[@deploy_id] ||= self
+
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
       # existing deploy instead of creating a new one.
@@ -350,9 +363,6 @@ module MU
 
 # XXX this .owned? method may get changed by the Ruby maintainers
 #     if !@@litter_semaphore.owned?
-      @@litter_semaphore.synchronize {
-        @@litters[@deploy_id] = self
-      }
     end # end of initialize()
 
     # List all the cloud providers declared by resources in our deploy.
@@ -1223,23 +1233,33 @@ raise "NAH"
 
           # Check our in-memory cache of live deploys before resorting to
           # metadata
-          @@litter_semaphore.synchronize {
-            @@litters.each_pair { |cur_deploy, momma|
-              next if deploy_id and deploy_id != cur_deploy
-              
-              straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
-              if straykitten
-                MU.log "Found matching kitten #{straykitten.mu_name} in-memory", loglevel
-                # Peace out if we found the exact resource we want
-                if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
-                  return [straykitten]
-                elsif mu_name and straykitten.mu_name == mu_name
-                  return [straykitten]
-                else
-                  kittens[straykitten.cloud_id] ||= straykitten
-                end
-              end
+          littercache = nil
+          # Sometimes we're called inside a locked thread, sometimes not. Deal
+          # with locking gracefully.
+          begin
+            @@litter_semaphore.synchronize {
+              littercache = @@litters.dup
             }
+          rescue ThreadError => e
+            raise e if !e.message.match(/recursive locking/)
+            littercache = @@litters.dup
+          end
+
+          littercache.each_pair { |cur_deploy, momma|
+            next if deploy_id and deploy_id != cur_deploy
+            
+            straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
+            if straykitten
+              MU.log "Found matching kitten #{straykitten.mu_name} in-memory", loglevel
+              # Peace out if we found the exact resource we want
+              if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
+                return [straykitten]
+              elsif mu_name and straykitten.mu_name == mu_name
+                return [straykitten]
+              else
+                kittens[straykitten.cloud_id] ||= straykitten
+              end
+            end
           }
 
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name, cloud_id: cloud_id)
@@ -2803,14 +2823,21 @@ MESSAGE_END
 
       # first, check our in-memory deploys, which may or may not have been
       # written to disk yet.
-
-      @@litter_semaphore.synchronize {
-        @@litters.each_pair { |deploy, momma|
-          @@deploy_struct_semaphore.synchronize {
-            @deploy_cache[deploy] = {
-              "mtime" => Time.now,
-              "data" => momma.deployment
-            }
+      littercache = nil
+      begin
+        @@litter_semaphore.synchronize {
+          littercache = @@litters.dup
+        }
+      rescue ThreadError => e
+        # already locked by a parent caller and this is a read op, so this is ok
+        raise e if !e.message.match(/recursive locking/)
+        littercache = @@litters.dup
+      end
+      littercache.each_pair { |deploy, momma|
+        @@deploy_struct_semaphore.synchronize {
+          @deploy_cache[deploy] = {
+            "mtime" => Time.now,
+            "data" => momma.deployment
           }
         }
       }
