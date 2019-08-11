@@ -426,6 +426,7 @@ module MU
 
             if !ext_rtb
               MU.log "Creating route table #{rtb_name} in VPC #{@mu_name}", details: rtb_obj
+              need_apply = true
             elsif ext_rtb.location != rtb_obj.location or
                   ext_rtb.tags != rtb_obj.tags
               need_apply = true

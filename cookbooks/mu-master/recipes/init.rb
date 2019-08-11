@@ -586,5 +586,6 @@ bash "fix extras directory permissions" do
   code <<-EOH
     find #{MU_BASE}/lib/extras -type d -exec chmod go+rx {} \\;
     find #{MU_BASE}/lib/extras -type f -exec chmod go+r {} \\;
+    chmod go+rx #{MU_BASE}/lib/extras/generate-stock-images #{MU_BASE}/lib/extras/list-stock-amis #{MU_BASE}/lib/extras/clean-stock-amis
   EOH
 end
