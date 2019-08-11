@@ -158,7 +158,7 @@ module MU
             ).route_tables
             tagme.concat(rtbs.map { |r| r.route_table_id } )
             main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
-            tagme << main_sg.cloud_id
+            tagme << main_sg.cloud_id if main_sg
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])

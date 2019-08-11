@@ -553,9 +553,9 @@ module MU
               end
 
               if (!defined? rule['hosts'] or !rule['hosts'].is_a?(Array)) and
-                  (!defined? rule['sgs'] or !rule['sgs'].is_a?(Array)) and
-                  (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
-                raise MuError, "One of 'hosts', 'sgs', or 'lbs' in rules provided to createEc2SG must be an array."
+                 (!defined? rule['sgs'] or !rule['sgs'].is_a?(Array)) and
+                 (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
+                rule['hosts'] = ["0.0.0.0/0"]
               end
               ec2_rule[:ip_ranges] = []
               ec2_rule[:user_id_group_pairs] = []

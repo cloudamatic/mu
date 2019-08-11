@@ -1474,7 +1474,11 @@ module MU
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
               if args[:region] and cloudbase.respond_to?(:listRegions)
-                next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
+                if !cloudbase.listRegions(credentials: args[:credentials])
+                  MU.log "Failed to get region list for credentials #{args[:credentials]} in cloud #{cloud}", MU::ERR
+                else
+                  next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
+                end
               end
               begin
                 cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
