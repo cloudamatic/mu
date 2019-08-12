@@ -1476,6 +1476,7 @@ module MU
               # skip this cloud if we have a region argument that makes no
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty?
               if args[:region] and cloudbase.respond_to?(:listRegions)
                 if !cloudbase.listRegions(credentials: args[:credentials])
                   MU.log "Failed to get region list for credentials #{args[:credentials]} in cloud #{cloud}", MU::ERR
