@@ -67,10 +67,11 @@ module MU
         raise e if !e.message.match(/recursive locking/)
         littercache = @@litters.dup
       end
-      if !use_cache or !littercache.has_key?(deploy_id) or littercache[deploy_id].kittens.nil?
+      if !use_cache or littercache[deploy_id].nil?
+        newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         # This, we have to synchronize, as it's a write
         @@litter_semaphore.synchronize {
-          @@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+          @@litters[deploy_id] ||= newlitter
         }
       elsif set_context_to_me
         MU::MommaCat.setThreadContext(@@litters[deploy_id])
@@ -79,6 +80,7 @@ module MU
 #     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
     end
 
+    attr_reader :initializing
     attr_reader :public_key
     attr_reader :deploy_secret
     attr_reader :deployment
@@ -179,6 +181,7 @@ module MU
         raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
       end
       set_context_to_me = true if create
+      @initializing = true
 
       @deploy_id = deploy_id
       @mu_user = mu_user.dup
@@ -281,7 +284,9 @@ module MU
       @appname ||= appname
       @timestamp ||= timestamp
 
-      @@litters[@deploy_id] ||= self
+      @@litter_semaphore.synchronize {
+        @@litters[@deploy_id] ||= self
+      }
 
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
@@ -360,6 +365,8 @@ module MU
           end
         }
       end
+
+      @initializing = false
 
 # XXX this .owned? method may get changed by the Ruby maintainers
 #     if !@@litter_semaphore.owned?
