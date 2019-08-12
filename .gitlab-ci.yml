@@ -290,12 +290,22 @@ pages:
     variables:
     - $IMAGE_BUILD
 
-Base Images:
+Base Images Linux:
   stage: Deploy
   script:
-  - /opt/mu/lib/extras/generate-stock-images -d -c AWS
+  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms centos6 centos7 rhel7
   tags:
   - mu-gitlab-runner
   only:
     variables:
-    - $IMAGE_BUILD == "yaass"
+    - $IMAGE_BUILD == "do_linux"
+
+Base Images Windows:
+  stage: Deploy
+  script:
+  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms win2k12 win2k16
+  tags:
+  - mu-gitlab-runner
+  only:
+    variables:
+    - $IMAGE_BUILD == "do_windows"
