@@ -18,11 +18,6 @@ module MU
       # A ContainerCluster as configured in {MU::Config::BasketofKittens::container_clusters}
       class ContainerCluster < MU::Cloud::ContainerCluster
 
-        # Return the list of regions where we know EKS is supported.
-        def self.EKSRegions
-          # XXX would prefer to query service API for this
-          ["us-east-1", "us-west-2", "eu-west-1"]
-        end
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
@@ -611,11 +606,13 @@ MU.log c.name, MU::NOTICE, details: t
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
               name: @mu_name
             )
+            pp resp
             resp.cluster
           else
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_clusters(
               clusters: [@mu_name]
             )
+            pp resp
             resp.clusters.first
           end
         end
@@ -658,21 +655,36 @@ MU.log c.name, MU::NOTICE, details: t
             # XXX this is absurd, but these don't appear to be available from an API anywhere
             # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
             amis = {
-              "us-east-1" => "ami-0abcb9f9190e867ab",
-              "us-east-2" => "ami-04ea7cb66af82ae4a",
-              "us-west-2" => "ami-0923e4b35a30a5f53",
-              "eu-west-1" => "ami-08716b70cac884aaa",
-              "eu-west-2" => "ami-0c7388116d474ee10",
-              "eu-west-3" => "ami-0560aea042fec8b12",
-              "ap-northeast-1" => "ami-0bfedee6a7845c26d",
-              "ap-northeast-2" => "ami-0a904348b703e620c",
-              "ap-south-1" => "ami-09c3eb35bb3be46a4",
-              "ap-southeast-1" => "ami-07b922b9b94d9a6d2",
-              "ap-southeast-2" => "ami-0f0121e9e64ebd3dc"
+              "us-east-2" => "ami-0485258c2d1c3608f",
+              "us-east-1" => "ami-0f2e8e5663e16b436",
+              "us-west-2" => "ami-03a55127c613349a7",
+              "ap-east-1" => "ami-032850771ac6f8ae2",
+              "ap-south-1" => "ami-0a9b1c1807b1a40ab",
+              "ap-northeast-1" => "ami-0fde798d17145fae1",
+              "ap-northeast-2" => "ami-07fd7609df6c8e39b",
+              "ap-southeast-1" => "ami-0361e14efd56a71c7",
+              "ap-southeast-2" => "ami-0237d87bc27daba65",
+              "eu-central-1" => "ami-0b7127e7a2a38802a",
+              "eu-west-1" => "ami-00ac2e6b3cb38a9b9",
+              "eu-west-2" => "ami-0147919d2ff9a6ad5",
+              "eu-west-3" => "ami-0537ee9329c1628a2",
+              "eu-north-1" => "ami-0fd05922165907b85"
             }
+
             return amis[region]
           end
           nil
+        end
+
+        # Return the list of regions where we know EKS is supported.
+        def self.EKSRegions(credentials = nil)
+          eks_regions = []
+          MU::Cloud::AWS.listRegions(credentials: credentials).each { |r|
+            ami = getECSImageId("EKS", r)
+            eks_regions << r if ami
+          }
+
+          eks_regions
         end
 
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
@@ -862,7 +874,7 @@ MU.log c.name, MU::NOTICE, details: t
               "default" => "ECS"
             },
             "kubernetes" => {
-              "default" => { "version" => "1.11" }
+              "default" => { "version" => "1.13" }
             },
             "platform" => {
               "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else. Only valid for EKS and ECS flavors.",

@@ -209,13 +209,18 @@ puts path
                 if @@region_cache[bucket.name]
                   next if @@region_cache[bucket.name] != region
                 else
-                  location = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_location(bucket: bucket.name).location_constraint
-
-                  if location.nil? or location.empty?
-                    @@region_cache[bucket.name] = region
-                  else
-                    @@region_cache[bucket.name] = location
+                  begin
+                    location = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_location(bucket: bucket.name).location_constraint
+                    if location.nil? or location.empty?
+                      @@region_cache[bucket.name] = region
+                    else
+                      @@region_cache[bucket.name] = location
+                    end
+                  rescue Aws::S3::Errors::AccessDenied => e
+                    # this is routine- we saw a bucket that's not our business
+                    next
                   end
+
                 end
               }
 

@@ -1042,7 +1042,10 @@ module MU
             end
 
             if ["Server", "ServerPool"].include?(self.class.shortname)
-              @groomer = MU::Groomer.new(self)
+              @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: @config.has_key?("basis"))
+              if self.class.shortname == "Server"
+                @groomer = MU::Groomer.new(self)
+              end
               @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
               if windows? or @config['active_directory'] and !@mu_windows_name
@@ -1516,7 +1519,7 @@ module MU
           end
         end
 
-        if shortname == "Server"
+        if shortname == "Server" or shortname == "ServerPool"
           def windows?
             return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
             begin

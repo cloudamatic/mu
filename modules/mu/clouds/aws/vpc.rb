@@ -673,13 +673,13 @@ module MU
               rtb['routes'].each { |route|
                 if !route['nat_host_id'].nil? or !route['nat_host_name'].nil?
                   route_config = {
-                      :route_table_id => route_table_id,
-                      :destination_cidr_block => route['destination_network']
+                    :route_table_id => route_table_id,
+                    :destination_cidr_block => route['destination_network']
                   }
 
                   nat_instance = findBastion(
-                      nat_name: route["nat_host_name"],
-                      nat_cloud_id: route["nat_host_id"]
+                    nat_name: route["nat_host_name"],
+                    nat_cloud_id: route["nat_host_id"]
                   )
                   if nat_instance.nil?
                     raise MuError, "VPC #{vpc_name} is configured to use #{route} as a route, but I can't find a matching bastion host!"
@@ -1363,6 +1363,7 @@ module MU
                   "name" => route['nat_host_name']
                 }
               elsif route['gateway'] == '#NAT'
+                vpc['create_nat_gateway'] = true
                 private_rtbs << table['name']
               elsif route['gateway'] == '#INTERNET'
                 public_rtbs << table['name']
@@ -1528,8 +1529,8 @@ module MU
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?
               route_config = {
-                  :route_table_id => route_table_id,
-                  :destination_cidr_block => route['destination_network']
+                :route_table_id => route_table_id,
+                :destination_cidr_block => route['destination_network']
               }
               if !route['peer_id'].nil?
                 route_config[:vpc_peering_connection_id] = route['peer_id']
@@ -1560,12 +1561,21 @@ module MU
 
           gateways.each { |gateway|
             gateway.attachments.each { |attachment|
-              MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
+              tried_interfaces = false
               begin
+                MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
                 MU::Cloud::AWS.ec2(credentials: credentials, region: region).detach_internet_gateway(
                   internet_gateway_id: gateway.internet_gateway_id,
                   vpc_id: attachment.vpc_id
                 ) if !noop
+              rescue Aws::EC2::Errors::DependencyViolation => e
+                if !tried_interfaces
+                  purge_interfaces(noop, [{name: "vpc-id", values: [attachment.vpc_id]}], region: region, credentials: credentials)
+                  tried_interfaces = true
+                  sleep 2
+                  retry
+                end
+                MU.log e.message, MU::ERR
               rescue Aws::EC2::Errors::GatewayNotAttached => e
                 MU.log "Gateway #{gateway.internet_gateway_id} was already detached", MU::WARN
               end
@@ -1772,9 +1782,22 @@ module MU
             begin
               if iface.attachment and iface.attachment.status == "attached"
                 MU.log "Detaching Network Interface #{iface.network_interface_id} from #{iface.attachment.instance_owner_id}"
+                tried_lbs = false
                 begin
                   MU::Cloud::AWS.ec2(credentials: credentials, region: region).detach_network_interface(attachment_id: iface.attachment.attachment_id) if !noop
+                rescue Aws::EC2::Errors::InvalidAttachmentIDNotFound => e
+                  # suits me just fine
                 rescue Aws::EC2::Errors::AuthFailure => e
+                  if !tried_lbs and iface.attachment.instance_owner_id == "amazon-elb"
+                    MU::Cloud::AWS::LoadBalancer.cleanup(
+                      noop: noop,
+                      region: region,
+                      credentials: credentials,
+                      flags: {"vpc_id" => iface.vpc_id}
+                    )
+                    tried_lbs = true
+                    retry
+                  end
                   MU.log e.message, MU::ERR, details: iface.attachment
                 end
               end
@@ -1918,9 +1941,9 @@ module MU
               end
             }
 
-            MU.log "Deleting VPC #{vpc.vpc_id}"
             retries = 0
             begin
+              MU.log "Deleting VPC #{vpc.vpc_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
@@ -1928,6 +1951,13 @@ module MU
               MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
               if retries < 5
                 retries += 1
+                # fry some common rogue resources
+                MU::Cloud::AWS::FirewallRule.cleanup(
+                  noop: noop,
+                  region: region,
+                  credentials: credentials,
+                  flags: { "vpc_id" => vpc.vpc_id }
+                )
                 sleep 10
                 retry
               else

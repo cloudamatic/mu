@@ -21,8 +21,8 @@ module MU
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
-          @mu_name ||= @deploy.getResourceName(@config['name'])
           super
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
