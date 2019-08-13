@@ -99,18 +99,22 @@ $opts[:clouds].each { |cloud|
       if $opts[:dryrun]
         puts stack_conf.to_yaml
       else
-        deployer = MU::Deploy.new(
-          $opts[:environment],
-          stack_conf: stack_conf
-        )
-        deployer.run
-        MU.log "New images for #{cloud}:#{platform}", MU::NOTICE, details: deployer.mommacat.deployment['images']
-        current_images[platform] ||= {}
-        current_images.deep_merge!(deployer.mommacat.deployment['images'])
+        begin
+          deployer = MU::Deploy.new(
+            $opts[:environment],
+            stack_conf: stack_conf
+          )
+          deployer.run
+          MU.log "New images for #{cloud}:#{platform}", MU::NOTICE, details: deployer.mommacat.deployment['images']
+          current_images[platform] ||= {}
+          current_images.deep_merge!(deployer.mommacat.deployment['images'])
 
-        # Scrub any loose metadata left over from our image deployment. It's ok,
-        # this won't touch the images we just made.
-        MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
+          # Scrub any loose metadata left over from our image deployment. It's
+          # ok, this won't touch the images we just made.
+          MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
+        rescue Exception => e
+          MU.log e.message, MU::ERR
+        end
       end
     end
   }

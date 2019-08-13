@@ -438,6 +438,7 @@ module MU
       $str += JSON.pretty_generate(@mommacat.deployment)
 
       admin_addrs = @admins.map { |admin|
+        admin['name'] ||= ""
         admin['name']+" <"+admin['email']+">"
       }
 
