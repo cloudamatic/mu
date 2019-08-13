@@ -956,9 +956,16 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
-# XXX put that 'ip' value into opts
-          ip ||= flags['ip']
+#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        def self.find(**args)
+          ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
+
+          cloud_id = args[:cloud_id]
+          region = args[:region]
+          credentials = args[:credentials]
+          tag_key = args[:tag_key]
+          tag_value = args[:tag_value]
+
           instance = nil
           if !region.nil?
             regions = [region]

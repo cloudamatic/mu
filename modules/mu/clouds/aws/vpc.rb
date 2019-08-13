@@ -1580,9 +1580,19 @@ module MU
                 MU.log "Gateway #{gateway.internet_gateway_id} was already detached", MU::WARN
               end
             }
-            MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
+
+            tried_interfaces = false
             begin
+              MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
+            rescue Aws::EC2::Errors::DependencyViolation => e
+              if !tried_interfaces
+                purge_interfaces(noop, [{name: "vpc-id", values: [attachment.vpc_id]}], region: region, credentials: credentials)
+                tried_interfaces = true
+                sleep 2
+                retry
+              end
+              MU.log e.message, MU::ERR
             rescue Aws::EC2::Errors::InvalidInternetGatewayIDNotFound
               MU.log "Gateway #{gateway.internet_gateway_id} was already destroyed by the time I got to it", MU::WARN
             end
