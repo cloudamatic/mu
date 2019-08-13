@@ -115,8 +115,8 @@ module MU
             end
             @config['mu_name'] = @mu_name
 
-            @config['instance_secret'] = Password.random(50)
           end
+          @config['instance_secret'] ||= Password.random(50)
 
         end
 
@@ -369,6 +369,15 @@ module MU
           instance_descriptor[:block_device_mappings] = configured_storage
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
+
+          if @tags
+            instance_descriptor[:tag_specifications] = [{
+              :resource_type => "instance",
+              :tags => @tags.keys.map { |k|
+                { :key => k, :value => @tags[k] }
+              }
+            }]
+          end
 
           MU.log "Creating EC2 instance #{node}"
           MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
