@@ -582,10 +582,10 @@ end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
 }
-bash "fix extras directory permissions" do
+bash "fix misc permissions" do
   code <<-EOH
-    find #{MU_BASE}/lib/extras -type d -exec chmod go+rx {} \\;
-    find #{MU_BASE}/lib/extras -type f -exec chmod go+r {} \\;
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git" -type d -exec chmod go+r {} \\;
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+rx {} \\;
     chmod go+rx #{MU_BASE}/lib/extras/generate-stock-images #{MU_BASE}/lib/extras/list-stock-amis #{MU_BASE}/lib/extras/clean-stock-amis
   EOH
 end

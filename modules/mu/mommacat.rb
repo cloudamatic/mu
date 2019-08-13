@@ -719,7 +719,7 @@ raise "NAH"
     def saveNodeSecret(instance_id, raw_secret, type)
       return if @no_artifacts
       if instance_id.nil? or instance_id.empty? or raw_secret.nil? or raw_secret.empty? or type.nil? or type.empty?
-        raise SecretError, "saveNodeSecret requires instance_id, raw_secret, and type args"
+        raise SecretError, "saveNodeSecret requires instance_id (#{instance_id}), raw_secret (#{raw_secret}), and type (#{type}) args"
       end
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're not trampling deployment data
@@ -2563,7 +2563,7 @@ MESSAGE_END
     # Path to the PID file used by the Momma Cat daemon
     # @return [String]
     def self.daemonPidFile
-      base = Process.uid == 0 ? "/var" : MU.dataDir
+      base = (Process.uid == 0 or !MU.localOnly) ? "/var" : MU.dataDir
       "#{base}/run/mommacat.pid"
     end
 
@@ -2603,6 +2603,7 @@ MESSAGE_END
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
     def self.status
+
       if File.exists?(daemonPidFile)
         pid = File.read(daemonPidFile).chomp.to_i
         begin

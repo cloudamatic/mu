@@ -459,6 +459,7 @@ module MU
       # @return [Hash]
       def self.getSDKOptions(credentials = nil)
         cfg = credConfig(credentials)
+        return nil if !cfg
 
         map = { #... from mu.yaml-ese to Azure SDK-ese
           "directory_id" => :tenant_id,
