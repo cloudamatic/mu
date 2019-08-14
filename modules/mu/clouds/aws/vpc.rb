@@ -673,13 +673,13 @@ module MU
               rtb['routes'].each { |route|
                 if !route['nat_host_id'].nil? or !route['nat_host_name'].nil?
                   route_config = {
-                      :route_table_id => route_table_id,
-                      :destination_cidr_block => route['destination_network']
+                    :route_table_id => route_table_id,
+                    :destination_cidr_block => route['destination_network']
                   }
 
                   nat_instance = findBastion(
-                      nat_name: route["nat_host_name"],
-                      nat_cloud_id: route["nat_host_id"]
+                    nat_name: route["nat_host_name"],
+                    nat_cloud_id: route["nat_host_id"]
                   )
                   if nat_instance.nil?
                     raise MuError, "VPC #{vpc_name} is configured to use #{route} as a route, but I can't find a matching bastion host!"
@@ -1176,6 +1176,7 @@ module MU
               gwthreads << Thread.new {
                 purge_nat_gateways(noop, vpc_id: vpc.vpc_id, region: region, credentials: credentials)
                 purge_endpoints(noop, vpc_id: vpc.vpc_id, region: region, credentials: credentials)
+                purge_interfaces(noop, [{name: "vpc-id", values: [vpc.vpc_id]}], region: region, credentials: credentials)
               }
             }
             gwthreads.each { |t|
@@ -1362,6 +1363,7 @@ module MU
                   "name" => route['nat_host_name']
                 }
               elsif route['gateway'] == '#NAT'
+                vpc['create_nat_gateway'] = true
                 private_rtbs << table['name']
               elsif route['gateway'] == '#INTERNET'
                 public_rtbs << table['name']
@@ -1453,26 +1455,6 @@ module MU
           ok
         end
 
-        # Remove all network interfaces associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
-          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
-              filters: tagfilters
-          )
-          ifaces = resp.data.network_interfaces
-
-          return if ifaces.nil? or ifaces.size == 0
-
-          ifaces.each { |iface|
-            MU.log "Deleting Network Interface #{iface.network_interface_id}"
-            MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_network_interface(network_interface_id: iface.network_interface_id)
-          }
-        end
-
-
         private
 
         # List the route tables for each subnet in the given VPC
@@ -1547,8 +1529,8 @@ module MU
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?
               route_config = {
-                  :route_table_id => route_table_id,
-                  :destination_cidr_block => route['destination_network']
+                :route_table_id => route_table_id,
+                :destination_cidr_block => route['destination_network']
               }
               if !route['peer_id'].nil?
                 route_config[:vpc_peering_connection_id] = route['peer_id']
@@ -1573,25 +1555,46 @@ module MU
         # @return [void]
         def self.purge_gateways(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_internet_gateways(
-              filters: tagfilters
+            filters: tagfilters
           )
           gateways = resp.data.internet_gateways
 
           gateways.each { |gateway|
+            vpc_id = nil
             gateway.attachments.each { |attachment|
-              MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
+              vpc_id = attachment.vpc_id
+              tried_interfaces = false
               begin
+                MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
                 MU::Cloud::AWS.ec2(credentials: credentials, region: region).detach_internet_gateway(
-                    internet_gateway_id: gateway.internet_gateway_id,
-                    vpc_id: attachment.vpc_id
+                  internet_gateway_id: gateway.internet_gateway_id,
+                  vpc_id: attachment.vpc_id
                 ) if !noop
+              rescue Aws::EC2::Errors::DependencyViolation => e
+                if !tried_interfaces
+                  purge_interfaces(noop, [{name: "vpc-id", values: [attachment.vpc_id]}], region: region, credentials: credentials)
+                  tried_interfaces = true
+                  sleep 2
+                  retry
+                end
+                MU.log e.message, MU::ERR
               rescue Aws::EC2::Errors::GatewayNotAttached => e
                 MU.log "Gateway #{gateway.internet_gateway_id} was already detached", MU::WARN
               end
             }
-            MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
+
+            tried_interfaces = false
             begin
+              MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
+            rescue Aws::EC2::Errors::DependencyViolation => e
+              if !tried_interfaces and vpc_id
+                purge_interfaces(noop, [{name: "vpc-id", values: [vpc_id]}], region: region, credentials: credentials)
+                tried_interfaces = true
+                sleep 2
+                retry
+              end
+              MU.log e.message, MU::ERR
             rescue Aws::EC2::Errors::InvalidInternetGatewayIDNotFound
               MU.log "Gateway #{gateway.internet_gateway_id} was already destroyed by the time I got to it", MU::WARN
             end
@@ -1776,20 +1779,45 @@ module MU
 
         # Remove all network interfaces associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param filters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
-              filters: tagfilters
+            filters: tagfilters
           )
           ifaces = resp.data.network_interfaces
 
           return if ifaces.nil? or ifaces.size == 0
 
           ifaces.each { |iface|
-            MU.log "Deleting Network Interface #{iface.network_interface_id}"
-            MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_network_interface(network_interface_id: iface.network_interface_id)
+            begin
+              if iface.attachment and iface.attachment.status == "attached"
+                MU.log "Detaching Network Interface #{iface.network_interface_id} from #{iface.attachment.instance_owner_id}"
+                tried_lbs = false
+                begin
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).detach_network_interface(attachment_id: iface.attachment.attachment_id) if !noop
+                rescue Aws::EC2::Errors::InvalidAttachmentIDNotFound => e
+                  # suits me just fine
+                rescue Aws::EC2::Errors::AuthFailure => e
+                  if !tried_lbs and iface.attachment.instance_owner_id == "amazon-elb"
+                    MU::Cloud::AWS::LoadBalancer.cleanup(
+                      noop: noop,
+                      region: region,
+                      credentials: credentials,
+                      flags: {"vpc_id" => iface.vpc_id}
+                    )
+                    tried_lbs = true
+                    retry
+                  end
+                  MU.log e.message, MU::ERR, details: iface.attachment
+                end
+              end
+              MU.log "Deleting Network Interface #{iface.network_interface_id}"
+              MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_network_interface(network_interface_id: iface.network_interface_id) if !noop
+            rescue Aws::EC2::Errors::InvalidParameterValue => e
+              MU.log e.message, MU::ERR, details: iface
+            end
           }
         end
 
@@ -1925,9 +1953,9 @@ module MU
               end
             }
 
-            MU.log "Deleting VPC #{vpc.vpc_id}"
             retries = 0
             begin
+              MU.log "Deleting VPC #{vpc.vpc_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
@@ -1935,6 +1963,13 @@ module MU
               MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
               if retries < 5
                 retries += 1
+                # fry some common rogue resources
+                MU::Cloud::AWS::FirewallRule.cleanup(
+                  noop: noop,
+                  region: region,
+                  credentials: credentials,
+                  flags: { "vpc_id" => vpc.vpc_id }
+                )
                 sleep 10
                 retry
               else

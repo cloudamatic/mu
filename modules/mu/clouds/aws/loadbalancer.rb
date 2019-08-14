@@ -629,7 +629,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          raise MuError, "Can't touch ELBs without MU-ID" if MU.deploy_id.nil? or MU.deploy_id.empty?
+          if (MU.deploy_id.nil? or MU.deploy_id.empty?) and (!flags or !flags["vpc_id"])
+            raise MuError, "Can't touch ELBs without MU-ID or vpc_id flag"
+          end
 
           # Check for tags matching the current deploy identifier on an elb or 
           # elb2 resource.
@@ -677,19 +679,36 @@ module MU
             begin
               tags = []
               matched = false
-              if classic
-                matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic)
+              if flags and flags['vpc_id']
+                matched = true if lb.vpc_id == flags['vpc_id']
               else
-                matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic)
+                if classic
+                  matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic)
+                else
+                  matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic)
+                end
               end
               if matched
                 if !MU::Cloud::AWS.isGovCloud?
                   MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
                 end
-                MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
                 if classic
-                  MU::Cloud::AWS.elb(credentials: credentials, region: region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
+                  MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
+                  if !noop
+                    MU::Cloud::AWS.elb(credentials: credentials, region: region).delete_load_balancer(load_balancer_name: lb.load_balancer_name)
+                    stillhere = true
+                    begin
+                      ext_check = MU::Cloud::AWS.elb(credentials: credentials, region: region).describe_load_balancers(load_balancer_names: [lb.load_balancer_name])
+                      if !ext_check or
+                         !ext_check.load_balancer_descriptions or
+                         !ext_check.load_balancer_descriptions[0]
+                        sleep 3
+                      else stillhere = false
+                      end
+                    end while stillhere
+                  end
                 else
+                  MU.log "Removing Application Load Balancer #{lb.load_balancer_name}"
                   MU::Cloud::AWS.elb2(credentials: credentials, region: region).describe_listeners(
                     load_balancer_arn: lb.load_balancer_arn
                   ).listeners.each { |l|

@@ -1042,7 +1042,10 @@ module MU
             end
 
             if ["Server", "ServerPool"].include?(self.class.shortname)
-              @groomer = MU::Groomer.new(self)
+              @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: @config.has_key?("basis"))
+              if self.class.shortname == "Server"
+                @groomer = MU::Groomer.new(self)
+              end
               @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
               if windows? or @config['active_directory'] and !@mu_windows_name
@@ -1473,8 +1476,13 @@ module MU
               # skip this cloud if we have a region argument that makes no
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty?
               if args[:region] and cloudbase.respond_to?(:listRegions)
-                next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
+                if !cloudbase.listRegions(credentials: args[:credentials])
+                  MU.log "Failed to get region list for credentials #{args[:credentials]} in cloud #{cloud}", MU::ERR
+                else
+                  next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
+                end
               end
               begin
                 cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
@@ -1512,7 +1520,7 @@ module MU
           end
         end
 
-        if shortname == "Server"
+        if shortname == "Server" or shortname == "ServerPool"
           def windows?
             return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
             begin

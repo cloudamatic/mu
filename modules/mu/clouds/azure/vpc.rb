@@ -66,9 +66,9 @@ module MU
           if @cloud_desc_cache
             return @cloud_desc_cache
           end
-          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
-          @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @mu_name, resource_group: rgroup_name).values.first
-          @cloud_id = Id.new(@cloud_desc_cache.id)
+          @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @cloud_id, resource_group: @resource_group).values.first
+
+          @cloud_id ||= Id.new(@cloud_desc_cache.id)
           @cloud_desc_cache
         end
 
@@ -358,16 +358,16 @@ module MU
 
           my_fw = deploy.findLitterMate(type: "firewall_rule", name: @config['name']+"-defaultfw")
 
-          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
+          @resource_group = @deploy.deploy_id+"-"+@config['region'].upcase
 
           need_apply = false
           ext_vpc = nil
           begin
             ext_vpc = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.get(
-              rgroup_name,
+              @resource_group,
               @mu_name
             )
-          rescue ::MsRestAzure::AzureOperationError => e
+          rescue ::MU::Cloud::Azure::APIError => e
             if e.message.match(/: ResourceNotFound:/)
               need_apply = true
             else
@@ -378,6 +378,7 @@ module MU
 # tags, do that with .update_tags
           if !ext_vpc
             MU.log "Creating VPC #{@mu_name} (#{@config['ip_block']}) in #{@config['region']}", details: vpc_obj
+            need_apply = true
           elsif ext_vpc.location != vpc_obj.location or
                 ext_vpc.tags != vpc_obj.tags or
                 ext_vpc.address_space.address_prefixes != vpc_obj.address_space.address_prefixes
@@ -387,11 +388,12 @@ module MU
 
           if need_apply
             resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
-              rgroup_name,
+              @resource_group,
               @mu_name,
               vpc_obj
             )
             @cloud_id = Id.new(resp.id)
+            pp @cloud_id
           end
 
           # this is slow, so maybe thread it
@@ -410,11 +412,11 @@ module MU
             ext_rtb = nil
             begin
               ext_rtb = MU::Cloud::Azure.network(credentials: @config['credentials']).route_tables.get(
-                rgroup_name,
+                @resource_group,
                 rtb_name
               )
               rtb_map[rtb['name']] = ext_rtb
-            rescue ::MsRestAzure::AzureOperationError => e
+            rescue MU::Cloud::Azure::APIError => e
               if e.message.match(/: ResourceNotFound:/)
                 need_apply = true
               else
@@ -424,6 +426,7 @@ module MU
 
             if !ext_rtb
               MU.log "Creating route table #{rtb_name} in VPC #{@mu_name}", details: rtb_obj
+              need_apply = true
             elsif ext_rtb.location != rtb_obj.location or
                   ext_rtb.tags != rtb_obj.tags
               need_apply = true
@@ -432,7 +435,7 @@ module MU
 
             if need_apply
               rtb_map[rtb['name']] = MU::Cloud::Azure.network(credentials: @config['credentials']).route_tables.create_or_update(
-                rgroup_name,
+                @resource_group,
                 rtb_name,
                 rtb_obj
               )
@@ -461,12 +464,12 @@ module MU
               ext_route = nil
               begin
                 ext_route = MU::Cloud::Azure.network(credentials: @config['credentials']).routes.get(
-                  rgroup_name,
+                  @resource_group,
                   rtb_name,
                   routename
                 )
-              rescue ::MsRestAzure::AzureOperationError => e
-                if e.message.match(/: NotFound:/)
+              rescue MU::Cloud::Azure::APIError => e
+                if e.message.match(/\bNotFound\b/)
                   need_apply = true
                 else
                   raise e
@@ -483,7 +486,7 @@ module MU
 
               if need_apply
                 MU::Cloud::Azure.network(credentials: @config['credentials']).routes.create_or_update(
-                  rgroup_name,
+                  @resource_group,
                   rtb_name,
                   routename,
                   route_obj
@@ -504,34 +507,36 @@ module MU
             need_apply = false
             ext_subnet = nil
             begin
+
+
               ext_subnet = MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.get(
-                rgroup_name,
-                @mu_name,
+                @resource_group,
+                @cloud_id.to_s,
                 subnet_name
               )
-            rescue ::MsRestAzure::AzureOperationError => e
-              if e.message.match(/: NotFound:/)
+            rescue APIError => e
+              if e.message.match(/\bNotFound\b/)
                 need_apply = true
               else
-                raise e
+#                raise e
               end
             end
 
             if !ext_subnet
               MU.log "Creating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
-            elsif ext_subnet.route_table.id != subnet_obj.route_table.id or
+            elsif (!ext_subnet.route_table.nil? and !subnet_obj.route_table.nil? and ext_subnet.route_table.id != subnet_obj.route_table.id) or
                   ext_subnet.address_prefix != subnet_obj.address_prefix or
                   ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
-                  (ext_subnet.network_security_group and subnet_obj.network_security_group and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
-              MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", MU::NOTICE, details: subnet_obj
+                  (!ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
+              MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
               need_apply = true
 
             end
 
             if need_apply
               MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.create_or_update(
-                rgroup_name,
-                @mu_name,
+                @resource_group,
+                @cloud_id.to_s,
                 subnet_name,
                 subnet_obj
               )

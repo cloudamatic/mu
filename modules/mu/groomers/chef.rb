@@ -542,6 +542,7 @@ module MU
       def bootstrap
         self.class.loadChefLib
         stashHostSSLCertSecret
+        splunkVaultInit
         if !@config['cleaned_chef']
           begin
             leave_ours = @config['scrub_groomer'] ? false : true
@@ -674,7 +675,6 @@ retry
         }
         knifeAddToRunList("role[mu-node]")
 
-        splunkVaultInit
         grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?
         grantSecretAccess(@server.mu_name, "ssl_cert")
 

@@ -385,7 +385,7 @@ end
 $INITIALIZE = (!File.size?(cfgPath) or $opts[:force])
 
 $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM and Dir.exists?("/opt/mu/lib")
+if !AMROOT and !$HAVE_GLOBAL_CONFIG and !$IN_GEM and Dir.exists?("/opt/mu/lib")
   puts "Global configuration has not been initialized or is missing. Must run as root to correct."
   exit 1
 end
@@ -1135,6 +1135,7 @@ if $INITIALIZE
   end
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+  saveMuConfig($MU_SET_DEFAULTS)
 else
   if AMROOT
     $NEW_CFG = $MU_CFG.merge(setConfigTree)

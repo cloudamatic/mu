@@ -258,19 +258,26 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          tagfilters = [
+          filters = nil
+          if flags and flags["vpc_id"]
+            filters = [
+              {name: "vpc-id", values: [flags["vpc_id"]]}
+            ]
+          else
+            filters = [
               {name: "tag:MU-ID", values: [MU.deploy_id]}
-          ]
-          if !ignoremaster
-            tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
+            ]
+            if !ignoremaster
+              filters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
+            end
           end
 
           # Some services create sneaky rogue ENIs which then block removal of
           # associated security groups. Find them and fry them.
-          MU::Cloud::AWS::VPC.purge_interfaces(noop, tagfilters, region: region, credentials: credentials)
+          MU::Cloud::AWS::VPC.purge_interfaces(noop, filters, region: region, credentials: credentials)
 
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_security_groups(
-              filters: tagfilters
+            filters: filters
           )
 
           resp.data.security_groups.each { |sg|
@@ -355,6 +362,8 @@ module MU
             retries = 0
             begin
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_security_group(group_id: sg.group_id) if !noop
+            rescue Aws::EC2::Errors::CannotDelete => e
+              MU.log e.message, MU::WARN
             rescue Aws::EC2::Errors::InvalidGroupNotFound
               MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
@@ -553,9 +562,9 @@ module MU
               end
 
               if (!defined? rule['hosts'] or !rule['hosts'].is_a?(Array)) and
-                  (!defined? rule['sgs'] or !rule['sgs'].is_a?(Array)) and
-                  (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
-                raise MuError, "One of 'hosts', 'sgs', or 'lbs' in rules provided to createEc2SG must be an array."
+                 (!defined? rule['sgs'] or !rule['sgs'].is_a?(Array)) and
+                 (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
+                rule['hosts'] = ["0.0.0.0/0"]
               end
               ec2_rule[:ip_ranges] = []
               ec2_rule[:user_id_group_pairs] = []

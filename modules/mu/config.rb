@@ -428,16 +428,26 @@ end
           end
         end
 
-        @obj ||= MU::MommaCat.findStray(
-          @cloud,
-          @type,
-          name: @name,
-          cloud_id: @id,
-          deploy_id: @deploy_id,
-          region: @region,
-          credentials: @credentials,
-          dummy_ok: (@type == "habitats")
-        ).first
+        if !@obj
+          begin
+            found = MU::MommaCat.findStray(
+              @cloud,
+              @type,
+              name: @name,
+              cloud_id: @id,
+              deploy_id: @deploy_id,
+              region: @region,
+              credentials: @credentials,
+              dummy_ok: (@type == "habitats")
+            )
+            @obj ||= found.first if found
+          rescue ThreadError => e
+            # Sometimes MommaCat calls us in a potential deadlock situation;
+            # don't be the cause of a fatal error if so, we don't need this
+            # object that badly.
+            raise e if !e.message.match(/recursive locking/)
+          end
+        end
 
         if @obj
           @deploy_id ||= @obj.deploy_id

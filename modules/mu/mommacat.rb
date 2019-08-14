@@ -57,17 +57,30 @@ module MU
 # XXX this caching may be harmful, causing stale resource objects to stick
 # around. Have we fixed this? Sort of. Bad entries seem to have no kittens,
 # so force a reload if we see that. That's probably not the root problem.
-      @@litter_semaphore.synchronize {
-        if !use_cache or !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
-          @@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-        elsif set_context_to_me
-          MU::MommaCat.setThreadContext(@@litters[deploy_id])
-        end
-        return @@litters[deploy_id]
-      }
+      littercache = nil
+      begin
+        @@litter_semaphore.synchronize {
+          littercache = @@litters.dup
+        }
+      rescue ThreadError => e
+        # already locked by a parent caller and this is a read op, so this is ok
+        raise e if !e.message.match(/recursive locking/)
+        littercache = @@litters.dup
+      end
+      if !use_cache or littercache[deploy_id].nil?
+        newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+        # This, we have to synchronize, as it's a write
+        @@litter_semaphore.synchronize {
+          @@litters[deploy_id] ||= newlitter
+        }
+      elsif set_context_to_me
+        MU::MommaCat.setThreadContext(@@litters[deploy_id])
+      end
+      return @@litters[deploy_id]
 #     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
     end
 
+    attr_reader :initializing
     attr_reader :public_key
     attr_reader :deploy_secret
     attr_reader :deployment
@@ -168,6 +181,7 @@ module MU
         raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
       end
       set_context_to_me = true if create
+      @initializing = true
 
       @deploy_id = deploy_id
       @mu_user = mu_user.dup
@@ -270,6 +284,10 @@ module MU
       @appname ||= appname
       @timestamp ||= timestamp
 
+      @@litter_semaphore.synchronize {
+        @@litters[@deploy_id] ||= self
+      }
+
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
       # existing deploy instead of creating a new one.
@@ -290,16 +308,6 @@ module MU
                 }
               end
 
-              if orig_cfg.nil?
-                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
-                next
-              end
-              
-              if orig_cfg['vpc']
-                ref = MU::Config::Ref.get(orig_cfg['vpc'])
-                orig_cfg['vpc']['id'] = ref if ref.kitten
-              end
-
               # Some Server objects originated from ServerPools, get their
               # configs from there
               if type == "servers" and orig_cfg.nil? and
@@ -311,6 +319,17 @@ module MU
                   end
                 }
               end
+
+              if orig_cfg.nil?
+                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
+                next
+              end
+
+              if orig_cfg['vpc']
+                ref = MU::Config::Ref.get(orig_cfg['vpc'])
+                orig_cfg['vpc']['id'] = ref if ref.kitten
+              end
+
               begin
                 # Load up MU::Cloud objects for all our kittens in this deploy
                 orig_cfg['environment'] = @environment # not always set in old deploys
@@ -348,11 +367,10 @@ module MU
         }
       end
 
+      @initializing = false
+
 # XXX this .owned? method may get changed by the Ruby maintainers
 #     if !@@litter_semaphore.owned?
-      @@litter_semaphore.synchronize {
-        @@litters[@deploy_id] = self
-      }
     end # end of initialize()
 
     # List all the cloud providers declared by resources in our deploy.
@@ -523,6 +541,7 @@ module MU
       if !type or !name or !object or !object.mu_name
         raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
       end
+
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
@@ -702,7 +721,7 @@ raise "NAH"
     def saveNodeSecret(instance_id, raw_secret, type)
       return if @no_artifacts
       if instance_id.nil? or instance_id.empty? or raw_secret.nil? or raw_secret.empty? or type.nil? or type.empty?
-        raise SecretError, "saveNodeSecret requires instance_id, raw_secret, and type args"
+        raise SecretError, "saveNodeSecret requires instance_id (#{instance_id}), raw_secret (#{raw_secret}), and type (#{type}) args"
       end
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're not trampling deployment data
@@ -1089,33 +1108,35 @@ raise "NAH"
           deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
           purged_this_deploy = 0
           if deploy.kittens.has_key?("servers")
-            deploy.kittens["servers"].each_pair { |nodeclass, servers|
-              deletia = []
-              servers.each_pair { |mu_name, server|
-                server.describe
-                if !server.cloud_id
-                  MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
-                elsif !server.active?
-                  next if File.exists?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
-                  deletia << mu_name
-                  MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
-                  begin
-                    server.destroy
-                    deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
-                    deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
-                  rescue Exception => e
-                    MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
-                    next
+            deploy.kittens["servers"].each_pair { |habitat, nodeclasses|
+              nodeclasses.each_pair { |nodeclass, servers|
+                deletia = []
+                servers.each_pair { |mu_name, server|
+                  server.describe
+                  if !server.cloud_id
+                    MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
+                  elsif !server.active?
+                    next if File.exists?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
+                    deletia << mu_name
+                    MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
+                    begin
+                      server.destroy
+                      deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
+                      deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
+                    rescue Exception => e
+                      MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
+                      next
+                    end
+                    MU.log "Cleanup of metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
+                    purged = purged + 1
+                    purged_this_deploy = purged_this_deploy + 1
                   end
-                  MU.log "Cleanup of metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
-                  purged = purged + 1
-                  purged_this_deploy = purged_this_deploy + 1
+                }
+                if purged_this_deploy > 0
+                  # XXX some kind of filter (obey sync_siblings on nodes' configs)
+                  deploy.syncLitter(servers.keys)
                 end
               }
-              if purged_this_deploy > 0
-                # XXX some kind of filter (obey sync_siblings on nodes' configs)
-                deploy.syncLitter(servers.keys)
-              end
             }
           end
           MU.purgeGlobals
@@ -1223,23 +1244,33 @@ raise "NAH"
 
           # Check our in-memory cache of live deploys before resorting to
           # metadata
-          @@litter_semaphore.synchronize {
-            @@litters.each_pair { |cur_deploy, momma|
-              next if deploy_id and deploy_id != cur_deploy
-              
-              straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
-              if straykitten
-                MU.log "Found matching kitten #{straykitten.mu_name} in-memory", loglevel
-                # Peace out if we found the exact resource we want
-                if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
-                  return [straykitten]
-                elsif mu_name and straykitten.mu_name == mu_name
-                  return [straykitten]
-                else
-                  kittens[straykitten.cloud_id] ||= straykitten
-                end
-              end
+          littercache = nil
+          # Sometimes we're called inside a locked thread, sometimes not. Deal
+          # with locking gracefully.
+          begin
+            @@litter_semaphore.synchronize {
+              littercache = @@litters.dup
             }
+          rescue ThreadError => e
+            raise e if !e.message.match(/recursive locking/)
+            littercache = @@litters.dup
+          end
+
+          littercache.each_pair { |cur_deploy, momma|
+            next if deploy_id and deploy_id != cur_deploy
+            
+            straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
+            if straykitten
+              MU.log "Found matching kitten #{straykitten.mu_name} in-memory", loglevel
+              # Peace out if we found the exact resource we want
+              if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
+                return [straykitten]
+              elsif mu_name and straykitten.mu_name == mu_name
+                return [straykitten]
+              else
+                kittens[straykitten.cloud_id] ||= straykitten
+              end
+            end
           }
 
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name, cloud_id: cloud_id)
@@ -2206,19 +2237,21 @@ MESSAGE_END
             FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
             File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
             if deploy.kittens.has_key?("servers")
-              deploy.kittens["servers"].each_pair { |nodeclass, nodes|
-                nodes.each_pair { |mu_name, server|
-                  MU.dupGlobals(parent_thread_id)
-                  threads << Thread.new {
-                    MU::MommaCat.setThreadContext(deploy)
-                    MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
-                    MU::MommaCat.addHostToSSHConfig(
-                        server,
-                        ssh_dir: "#{@nagios_home}/.ssh",
-                        ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-                        ssh_owner: "nagios"
-                    )
-                    MU.purgeGlobals
+              deploy.kittens["servers"].each_pair { |habitat, nodeclasses|
+                nodeclasses.each_pair { |nodeclass, nodes|
+                  nodes.each_pair { |mu_name, server|
+                    MU.dupGlobals(parent_thread_id)
+                    threads << Thread.new {
+                      MU::MommaCat.setThreadContext(deploy)
+                      MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
+                      MU::MommaCat.addHostToSSHConfig(
+                          server,
+                          ssh_dir: "#{@nagios_home}/.ssh",
+                          ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
+                          ssh_owner: "nagios"
+                      )
+                      MU.purgeGlobals
+                    }
                   }
                 }
               }
@@ -2536,7 +2569,7 @@ MESSAGE_END
     # Path to the PID file used by the Momma Cat daemon
     # @return [String]
     def self.daemonPidFile
-      base = Process.uid == 0 ? "/var" : MU.dataDir
+      base = (Process.uid == 0 or !MU.localOnly) ? "/var" : MU.dataDir
       "#{base}/run/mommacat.pid"
     end
 
@@ -2576,6 +2609,7 @@ MESSAGE_END
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
     def self.status
+
       if File.exists?(daemonPidFile)
         pid = File.read(daemonPidFile).chomp.to_i
         begin
@@ -2803,14 +2837,21 @@ MESSAGE_END
 
       # first, check our in-memory deploys, which may or may not have been
       # written to disk yet.
-
-      @@litter_semaphore.synchronize {
-        @@litters.each_pair { |deploy, momma|
-          @@deploy_struct_semaphore.synchronize {
-            @deploy_cache[deploy] = {
-              "mtime" => Time.now,
-              "data" => momma.deployment
-            }
+      littercache = nil
+      begin
+        @@litter_semaphore.synchronize {
+          littercache = @@litters.dup
+        }
+      rescue ThreadError => e
+        # already locked by a parent caller and this is a read op, so this is ok
+        raise e if !e.message.match(/recursive locking/)
+        littercache = @@litters.dup
+      end
+      littercache.each_pair { |deploy, momma|
+        @@deploy_struct_semaphore.synchronize {
+          @deploy_cache[deploy] = {
+            "mtime" => Time.now,
+            "data" => momma.deployment
           }
         }
       }

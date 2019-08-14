@@ -92,6 +92,11 @@ module MU
               if !resolved_sgs.empty?
                 rule_obj.destination_application_security_groups = resolved_sgs
               end
+              if !rule_obj.destination_application_security_groups and
+                 !rule_obj.destination_address_prefix and
+                 !rule_obj.destination_address_prefixes
+                rule_obj.destination_address_prefixes = ["*"]
+              end
             else
               rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Inbound
               if rule["hosts"] and !rule["hosts"].empty?
@@ -104,6 +109,11 @@ module MU
               end
               if !resolved_sgs.empty?
                 rule_obj.source_application_security_groups = resolved_sgs
+              end
+              if !rule_obj.source_application_security_groups and
+                 !rule_obj.source_address_prefix and
+                 !rule_obj.source_address_prefixes
+                rule_obj.source_address_prefixes = ["*"]
               end
             end
 
@@ -181,6 +191,7 @@ module MU
               else
                 MU.log "Creating rule #{rname} in #{@mu_name}", details: rule_obj
               end
+
               resp = MU::Cloud::Azure.network(credentials: @config['credentials']).security_rules.create_or_update(@resource_group, @mu_name, rname, rule_obj)
               newrules[rname] = resp
             else
@@ -372,7 +383,7 @@ module MU
             if (!r['hosts'] or r['hosts'].empty?) and
                (!r['lbs'] or r['lbs'].empty?) and
                (!r['sgs'] or r['sgs'].empty?)
-              r["hosts"] = "*"
+              r["hosts"] = ["*"]
               MU.log "FirewallRule #{acl['name']} did not specify any hosts, sgs or lbs, defaulting this rule to allow 0.0.0.0/0", MU::NOTICE
             end
 
