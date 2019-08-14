@@ -1555,12 +1555,14 @@ module MU
         # @return [void]
         def self.purge_gateways(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_internet_gateways(
-              filters: tagfilters
+            filters: tagfilters
           )
           gateways = resp.data.internet_gateways
 
           gateways.each { |gateway|
+            vpc_id = nil
             gateway.attachments.each { |attachment|
+              vpc_id = attachment.vpc_id
               tried_interfaces = false
               begin
                 MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
@@ -1586,8 +1588,8 @@ module MU
               MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
             rescue Aws::EC2::Errors::DependencyViolation => e
-              if !tried_interfaces
-                purge_interfaces(noop, [{name: "vpc-id", values: [attachment.vpc_id]}], region: region, credentials: credentials)
+              if !tried_interfaces and vpc_id
+                purge_interfaces(noop, [{name: "vpc-id", values: [vpc_id]}], region: region, credentials: credentials)
                 tried_interfaces = true
                 sleep 2
                 retry

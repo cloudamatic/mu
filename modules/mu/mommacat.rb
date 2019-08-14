@@ -308,16 +308,6 @@ module MU
                 }
               end
 
-              if orig_cfg.nil?
-                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
-                next
-              end
-              
-              if orig_cfg['vpc']
-                ref = MU::Config::Ref.get(orig_cfg['vpc'])
-                orig_cfg['vpc']['id'] = ref if ref.kitten
-              end
-
               # Some Server objects originated from ServerPools, get their
               # configs from there
               if type == "servers" and orig_cfg.nil? and
@@ -329,6 +319,17 @@ module MU
                   end
                 }
               end
+
+              if orig_cfg.nil?
+                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
+                next
+              end
+
+              if orig_cfg['vpc']
+                ref = MU::Config::Ref.get(orig_cfg['vpc'])
+                orig_cfg['vpc']['id'] = ref if ref.kitten
+              end
+
               begin
                 # Load up MU::Cloud objects for all our kittens in this deploy
                 orig_cfg['environment'] = @environment # not always set in old deploys
@@ -540,6 +541,7 @@ module MU
       if !type or !name or !object or !object.mu_name
         raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
       end
+
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
@@ -1106,33 +1108,35 @@ raise "NAH"
           deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
           purged_this_deploy = 0
           if deploy.kittens.has_key?("servers")
-            deploy.kittens["servers"].each_pair { |nodeclass, servers|
-              deletia = []
-              servers.each_pair { |mu_name, server|
-                server.describe
-                if !server.cloud_id
-                  MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
-                elsif !server.active?
-                  next if File.exists?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
-                  deletia << mu_name
-                  MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
-                  begin
-                    server.destroy
-                    deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
-                    deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
-                  rescue Exception => e
-                    MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
-                    next
+            deploy.kittens["servers"].each_pair { |habitat, nodeclasses|
+              nodeclasses.each_pair { |nodeclass, servers|
+                deletia = []
+                servers.each_pair { |mu_name, server|
+                  server.describe
+                  if !server.cloud_id
+                    MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
+                  elsif !server.active?
+                    next if File.exists?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
+                    deletia << mu_name
+                    MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
+                    begin
+                      server.destroy
+                      deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
+                      deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
+                    rescue Exception => e
+                      MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
+                      next
+                    end
+                    MU.log "Cleanup of metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
+                    purged = purged + 1
+                    purged_this_deploy = purged_this_deploy + 1
                   end
-                  MU.log "Cleanup of metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
-                  purged = purged + 1
-                  purged_this_deploy = purged_this_deploy + 1
+                }
+                if purged_this_deploy > 0
+                  # XXX some kind of filter (obey sync_siblings on nodes' configs)
+                  deploy.syncLitter(servers.keys)
                 end
               }
-              if purged_this_deploy > 0
-                # XXX some kind of filter (obey sync_siblings on nodes' configs)
-                deploy.syncLitter(servers.keys)
-              end
             }
           end
           MU.purgeGlobals
@@ -2233,19 +2237,21 @@ MESSAGE_END
             FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
             File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
             if deploy.kittens.has_key?("servers")
-              deploy.kittens["servers"].each_pair { |nodeclass, nodes|
-                nodes.each_pair { |mu_name, server|
-                  MU.dupGlobals(parent_thread_id)
-                  threads << Thread.new {
-                    MU::MommaCat.setThreadContext(deploy)
-                    MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
-                    MU::MommaCat.addHostToSSHConfig(
-                        server,
-                        ssh_dir: "#{@nagios_home}/.ssh",
-                        ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-                        ssh_owner: "nagios"
-                    )
-                    MU.purgeGlobals
+              deploy.kittens["servers"].each_pair { |habitat, nodeclasses|
+                nodeclasses.each_pair { |nodeclass, nodes|
+                  nodes.each_pair { |mu_name, server|
+                    MU.dupGlobals(parent_thread_id)
+                    threads << Thread.new {
+                      MU::MommaCat.setThreadContext(deploy)
+                      MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
+                      MU::MommaCat.addHostToSSHConfig(
+                          server,
+                          ssh_dir: "#{@nagios_home}/.ssh",
+                          ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
+                          ssh_owner: "nagios"
+                      )
+                      MU.purgeGlobals
+                    }
                   }
                 }
               }

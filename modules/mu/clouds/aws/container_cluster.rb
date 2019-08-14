@@ -1586,12 +1586,10 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           cluster['ingress_rules'] ||= []
-          if cluster['flavor'] == "ECS"
-            cluster['ingress_rules'] << {
-              "sgs" => ["server_pool#{cluster['name']}workers"],
-              "port" => 443
-            }
-          end
+          cluster['ingress_rules'] << {
+            "sgs" => ["server_pool#{cluster['name']}workers"],
+            "port" => 443
+          }
           fwname = "container_cluster#{cluster['name']}"
 
           acl = {
