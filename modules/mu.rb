@@ -469,7 +469,9 @@ module MU
   def self.userEmail(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
     user = "mu" if user == "root"
-    if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
+    if Dir.exists?("#{MU.mainDataDir}/users/#{user}") and
+       File.readable?("#{MU.mainDataDir}/users/#{user}/email") and
+       File.size?("#{MU.mainDataDir}/users/#{user}/email")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
     elsif @userlist.has_key?(user)
       return @userlist[user]['email']
@@ -482,7 +484,9 @@ module MU
   # Fetch the real-world name of a given Mu user
   def self.userName(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
-    if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
+    if Dir.exists?("#{MU.mainDataDir}/users/#{user}") and
+       File.readable?("#{MU.mainDataDir}/users/#{user}/realname") and
+       File.size?("#{MU.mainDataDir}/users/#{user}/realname")
       return File.read("#{MU.mainDataDir}/users/#{user}/realname").chomp
     elsif @userlist.has_key?(user)
       return @userlist[user]['email']
