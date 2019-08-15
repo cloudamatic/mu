@@ -793,7 +793,7 @@ module MU
         MU.log "Creating #{ssh_dir}", MU::DEBUG
         Dir.mkdir(ssh_dir, 0700)
         if Process.uid == 0 and @mu_user != "mu"
-          ssh_dir.chown(Etc.getpwnam(@mu_user).uid, Etc.getpwnam(@mu_user).gid)
+          FileUtils.chown Etc.getpwnam(@mu_user).uid, Etc.getpwnam(@mu_user).gid, ssh_dir
         end
       end
       if !File.exists?("#{ssh_dir}/#{@ssh_key_name}")
@@ -2242,8 +2242,19 @@ MESSAGE_END
       origdir = Dir.getwd
       Dir.chdir(MU.myRoot+"/modules")
 
+      $IN_GEM = false
+
+      if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
+        $IN_GEM = true
+      end
+
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
-      cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      if $IN_GEM
+        cmd = %Q{thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      else
+        cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      end
+
       MU.log cmd, MU::DEBUG
       %x{#{cmd}}
       Dir.chdir(origdir)
