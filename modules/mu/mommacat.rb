@@ -2242,14 +2242,8 @@ MESSAGE_END
       origdir = Dir.getwd
       Dir.chdir(MU.myRoot+"/modules")
 
-      $IN_GEM = false
-
-      if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
-        $IN_GEM = true
-      end
-
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
-      if $IN_GEM
+      if MU.inGem?
         cmd = %Q{thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
       else
         cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}

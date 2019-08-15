@@ -129,7 +129,7 @@ module MU
 
             @config['instance_secret'] = Password.random(50)
           end
-          @groomer = MU::Groomer.new(self)
+          @groomer = MU::Groomer.new(self) unless MU.inGem?
 
         end
 
