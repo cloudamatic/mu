@@ -186,9 +186,8 @@ Dockerbuild Dev:
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker build -t egtlabs/mu:latest -t egtlabs/mu:$MU_VERSION -t egtlabs/mu:$MU_VERSION-$OS -t egtlabs/mu:$OS .
-    - echo $GITLAB_PASS | docker login --username zr2d2 --password-stdin registry.gitlab.com/cloudamatic/mu
-    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push registry.gitlab.com/cloudamatic/mu
+    - docker build -t registry.gitlab.com/cloudamatic/mu:latest -t registry.gitlab.com/cloudamatic/mu:$MU_VERSION -t registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS -t registry.gitlab.com/cloudamatic/mu:$OS .
+    - echo "registry.gitlab.com/cloudamatic/mu:latest" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS" "registry.gitlab.com/cloudamatic/mu:$OS" | xargs -n 1 docker push registry.gitlab.com/cloudamatic/mu
     #- docker run my-docker-image /script/to/run/tests
   only:
     - development
