@@ -100,7 +100,6 @@ Berks:
 Gem Build:
   stage: Build
   script:
-    - yum install -y centos-release-scl-rh
     - gem build cloud-mu.gemspec
   only:
     - master
