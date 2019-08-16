@@ -187,7 +187,7 @@ Dockerbuild Dev:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
     - docker build -t registry.gitlab.com/cloudamatic/mu:latest -t registry.gitlab.com/cloudamatic/mu:$MU_VERSION -t registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS -t registry.gitlab.com/cloudamatic/mu:$OS .
-    - echo "registry.gitlab.com/cloudamatic/mu:latest" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS" "registry.gitlab.com/cloudamatic/mu:$OS" | xargs -n 1 docker push registry.gitlab.com/cloudamatic/mu
+    - echo "registry.gitlab.com/cloudamatic/mu:latest" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS" "registry.gitlab.com/cloudamatic/mu:$OS" | xargs -n 1 docker push
     #- docker run my-docker-image /script/to/run/tests
   only:
     - development
