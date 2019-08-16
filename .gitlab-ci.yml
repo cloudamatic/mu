@@ -183,11 +183,13 @@ Dockerbuild Dev:
     DOCKER_HOST: tcp://docker:2375/
   dependencies:
   - Gem Build
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker build -t registry.gitlab.com/cloudamatic/mu:latest -t registry.gitlab.com/cloudamatic/mu:$MU_VERSION -t registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS -t registry.gitlab.com/cloudamatic/mu:$OS .
-    - echo "registry.gitlab.com/cloudamatic/mu:latest" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION" "registry.gitlab.com/cloudamatic/mu:$MU_VERSION-$OS" "registry.gitlab.com/cloudamatic/mu:$OS" | xargs -n 1 docker push
+    - docker build -t $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$MU_VERSION -t $CI_REGISTRY_IMAGE:$MU_VERSION-$OS -t $CI_REGISTRY_IMAGE:$OS -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
+    - echo "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest" "$CI_REGISTRY_IMAGE:$MU_VERSION" "$CI_REGISTRY_IMAGE:$MU_VERSION-$OS" "$CI_REGISTRY_IMAGE:$OS" | xargs -n 1 docker push
     #- docker run my-docker-image /script/to/run/tests
   only:
     - development
