@@ -15,5 +15,5 @@ RUN yum install -y rh-ruby25-ruby-devel gcc-c++
 RUN gem update --system
 RUN gem install ./cloud-mu-*.gem thin -N
 RUN rm cloud-mu-*.gem
-
+RUN yum remove -y centos-release-scl-rh
 CMD /usr/sbin/init
