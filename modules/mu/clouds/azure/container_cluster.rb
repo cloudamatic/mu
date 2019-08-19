@@ -69,16 +69,28 @@ module MU
               File.open(blobfile, "w") { |f|
                 f.puts blob.to_yaml
               }
-              %x{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" get -f #{blobfile} > /dev/null 2>&1}
-              arg = $?.exitstatus == 0 ? "replace" : "create"
-              cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" #{arg} -f #{blobfile}}
-              MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", MU::NOTICE, details: cmd
-              output = %x{#{cmd} 2>&1}
-              if $?.exitstatus == 0
-                MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
-              else
-                MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
-              end
+              done = false
+              retries = 0
+              begin
+                %x{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" get -f #{blobfile} > /dev/null 2>&1}
+                arg = $?.exitstatus == 0 ? "replace" : "create"
+                cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" #{arg} -f #{blobfile}}
+                MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", MU::NOTICE, details: cmd
+                output = %x{#{cmd} 2>&1}
+                if $?.exitstatus == 0
+                  MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
+                  done = true
+                else
+                  MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
+                  if retries < 5
+                    sleep 5
+                  else
+                    MU.log "Giving up on Kubernetes resource #{count.to_s} #{arg}"
+                    done = true
+                  end
+                  retries += 1
+                end
+              end while !done
               count += 1
             }
           end
