@@ -213,11 +213,15 @@ module MU
           config[key] = self.manxify(val)
         }
       elsif config.is_a?(Array)
+        newarray = []
         config.each { |val|
-          val = self.manxify(val)
+          newarray << self.manxify(val)
         }
+        config = newarray
       elsif config.is_a?(MU::Config::Tail)
         return config.to_s
+      elsif config.is_a?(MU::Config::Ref)
+        return config.to_h
       end
       return config
     end

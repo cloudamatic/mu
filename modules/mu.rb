@@ -38,6 +38,76 @@ end
 
 class Hash
 
+  # Recursively compare two hashes
+  def diff(with, on = self, level: 0, parents: [])
+    return if with.nil? and on.nil?
+    if with.nil? or on.nil? or with.class != on.class
+      return # XXX ...however we're flagging differences
+    end
+
+#    indent = (" " * level)
+    tree = ""
+    indentsize = 0
+    parents.each { |p|
+      tree += (" " * indentsize) + p + " => \n"
+      indentsize += p.length
+    }
+    indent = (" " * indentsize)
+
+    changes = []
+    if on.is_a?(Hash)
+      on_unique = (on.keys - with.keys)
+      with_unique = (with.keys - on.keys)
+      shared = (with.keys & on.keys)
+      shared.each { |k|
+        diff(with[k], on[k], level: level+1, parents: parents + [k])
+      }
+      on_unique.each { |k|
+        changes << "- "+PP.pp({k => on[k] }, '')
+      }
+      with_unique.each { |k|
+        changes << "+ "+PP.pp({k => with[k]}, '')
+      }
+    elsif on.is_a?(Array)
+      # special case- Basket of Kittens lists of declared resources of a type;
+      # we use this to decide if we can compare two array elements as if they
+      # should be equivalent
+      done = []
+      on.each { |elt|
+        if elt.is_a?(Hash) and elt['name']
+          with.each { |other_elt|
+            if other_elt['name'] == elt['name']
+              done << elt
+              done << other_elt
+              namestr = elt['type'] ? "#{elt['type']}[#{elt['name']}]" : elt['name']
+              diff(other_elt, elt, level: level+1, parents: parents + [namestr])
+            end
+          }
+        end
+      }
+      on_unique = (on - with) - done
+      with_unique = (with - on) - done
+      on_unique.each { |e|
+        changes << "- "+e.to_s
+      }
+      with_unique.each { |e|
+        changes << "+ "+e.to_s
+      }
+    else
+      if on != with
+        changes << "- #{on.to_s}"
+        changes << "+ #{with.to_s}"
+      end
+    end
+
+    if changes.size > 0
+      puts tree
+      changes.each { |c|
+        puts indent+c
+      }
+    end
+  end
+
   # Implement a merge! that just updates each hash leaf as needed, not 
   # trashing the branch on the way there.
   def deep_merge!(with, on = self)

@@ -29,7 +29,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, gendeploys: true)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: true, diff: false)
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -40,7 +40,8 @@ module MU
       @sources = sources
       @target_creds = credentials
       @group_by = group_by
-      @gendeploys = gendeploys
+      @savedeploys = savedeploys
+      @diff = diff
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -154,6 +155,14 @@ end
         end
 
         count = 0
+        allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
+        origin = {
+          "appname" => bok['appname'],
+          "types" => (types & allowed_types).sort,
+          "group_by" => @group_by.to_s
+        }
+
+        deploy = MU::MommaCat.findMatchingDeploy(origin)
 
         @clouds.each { |cloud|
           @scraped.each_pair { |type, resources|
@@ -184,37 +193,55 @@ end
               end
               threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
 
-                resource_bok = obj.toKitten(rootparent: @default_parent, billing: @billing)
-                if resource_bok
-                  resource_bok.delete("credentials") if @target_creds
-
-                  # If we've got duplicate names in here, try to deal with it
+                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing)
+                if kitten_cfg
+                  kitten_cfg.delete("credentials") if @target_creds
                   class_semaphore.synchronize {
-                    bok[res_class.cfg_plural].each { |sibling|
-                      if sibling['name'] == resource_bok['name']
-                        MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: resource_bok
-                        if resource_bok['parent'] and resource_bok['parent'].respond_to?(:id) and resource_bok['parent'].id
-                          resource_bok['name'] = resource_bok['name']+resource_bok['parent'].id
-                        elsif resource_bok['project']
-                          resource_bok['name'] = resource_bok['name']+resource_bok['project']
-                        elsif resource_bok['cloud_id']
-                          resource_bok['name'] = resource_bok['name']+resource_bok['cloud_id'].gsub(/[^a-z0-9]/i, "-")
-                        else
-                          raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
-                        end
-                        MU.log "De-duplication: Renamed #{res_class.cfg_name} name '#{sibling['name']}' => '#{resource_bok['name']}'", MU::NOTICE
-                        break
-                      end
-                    }
-                    bok[res_class.cfg_plural] << resource_bok
+                    bok[res_class.cfg_plural] << kitten_cfg
                   }
                   count += 1
                 end
               }
+
             }
 
             threads.each { |t|
               t.join
+            }
+            bok[res_class.cfg_plural].sort! { |a, b|
+              strs = [a, b].map { |x|
+                if x['cloud_id']
+                  x['cloud_id']
+                elsif x['parent'] and ['parent'].respond_to?(:id) and kitten_cfg['parent'].id
+                  x['name']+x['parent'].id
+                elsif x['project']
+                  x['name']+x['project']
+                else
+                  x['name']
+                end
+              }
+              strs[0] <=> strs[1]
+            }
+
+            # If we've got duplicate names in here, try to deal with it
+            bok[res_class.cfg_plural].each { |kitten_cfg|
+              bok[res_class.cfg_plural].each { |sibling|
+                next if kitten_cfg == sibling
+                if sibling['name'] == kitten_cfg['name']
+                  MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: kitten_cfg
+                  if kitten_cfg['parent'] and kitten_cfg['parent'].respond_to?(:id) and kitten_cfg['parent'].id
+                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['parent'].id
+                  elsif kitten_cfg['project']
+                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['project']
+                  elsif kitten_cfg['cloud_id']
+                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+                  else
+                    raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
+                  end
+                  MU.log "De-duplication: Renamed #{res_class.cfg_name} name '#{sibling['name']}' => '#{kitten_cfg['name']}'", MU::NOTICE
+                  break
+                end
+              }
             }
           }
         }
@@ -225,8 +252,7 @@ end
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
         MU.log "Minimizing footprint of #{count.to_s} found resources"
-
-        @boks[bok['appname']] = vacuum(bok)
+        @boks[bok['appname']] = vacuum(bok, origin, deploy: deploy)
       }
       @boks
     end
@@ -240,16 +266,26 @@ end
     # Do the same for our main objects: if they all use the same credentials,
     # for example, remove the explicit +credentials+ attributes and set that
     # value globally, once.
-    def vacuum(bok)
-      deploy = generateStubDeploy(bok)
-#      deploy.kittens["folders"].each_pair { |parent, children|
-#        puts "under #{parent.to_s}:"
-#        pp children.values.map { |o| o.mu_name+" "+o.cloud_id }
-#      }
-#      deploy.kittens["habitats"].each_pair { |parent, children|
-#        puts "under #{parent.to_s}:"
-#        pp children.values.map { |o| o.mu_name+" "+o.cloud_id }
-#      }
+    def vacuum(bok, origin, deploy: nil)
+      stubdeploy = generateStubDeploy(bok)
+#      pp stubdeploy.original_config
+
+      if deploy and @diff
+MU.log "DOIN THA BUTT"
+
+        prevcfg = MU::Config.manxify(deploy.original_config)
+File.open("0ld.json", "w") { |f|
+  f.puts JSON.pretty_generate(prevcfg)
+}
+        newcfg = MU::Config.manxify(stubdeploy.original_config)
+File.open("n00b.json", "w") { |f|
+  f.puts JSON.pretty_generate(newcfg)
+}
+        prevcfg.diff(newcfg)
+      exit
+      end
+
+      deploy ||= stubdeploy
 
       globals = {
         'cloud' => {},
@@ -271,9 +307,9 @@ end
                 counts[resource[field]] += 1
               end
             }
-            obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+            obj = stubdeploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
             begin
-              processed << resolveReferences(resource, deploy, obj)
+              processed << resolveReferences(resource, stubdeploy, obj)
             rescue Incomplete
             end
             resource.delete("cloud_id")
@@ -295,9 +331,9 @@ end
         }
       }
 
-      if @gendeploys
+      if @savedeploys
         MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE
-        deploy.save!(force: true)
+        deploy.save!(force: true, origin: origin)
       end
 
       bok
@@ -310,13 +346,13 @@ end
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
           cfg = if littermate
             { "type" => cfg.type, "name" => littermate.config['name'] }
-          elsif cfg.deploy_id and cfg.name and @gendeploys
+          elsif cfg.deploy_id and cfg.name and @savedeploys
             { "type" => cfg.type, "name" => cfg.name, "deploy_id" => cfg.deploy_id }
           elsif cfg.id
             littermate = deploy.findLitterMate(type: cfg.type, cloud_id: cfg.id, habitat: cfg.habitat)
             if littermate
               { "type" => cfg.type, "name" => littermate.config['name'] }
-            elsif !@gendeploys
+            elsif !@savedeploys
               cfg = { "type" => cfg.type, "id" => cfg.id }
             else
 MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WARN, details: cfg if cfg.type == "habitats"
@@ -399,7 +435,7 @@ MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WA
         appname: bok['appname'].upcase,
         timestamp: timestamp,
         nocleanup: true,
-        no_artifacts: !(@gendeploys),
+        no_artifacts: !(@savedeploys),
         set_context_to_me: true,
         mu_user: MU.mu_user
       )

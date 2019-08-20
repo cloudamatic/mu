@@ -196,7 +196,7 @@ module MU
       end
       @kitten_semaphore = Mutex.new
       @kittens = {}
-      @original_config = config
+      @original_config = MU::Config.manxify(config)
       @nocleanup = nocleanup
       @secret_semaphore = Mutex.new
       @notify_semaphore = Mutex.new
@@ -2652,9 +2652,28 @@ MESSAGE_END
       start
     end
 
+    # Locate and return the deploy, if any, which matches the provided origin
+    # description
+    # @param origin [Hash]
+    def self.findMatchingDeploy(origin)
+      MU::MommaCat.listDeploys.each { |deploy_id|
+        o_path = deploy_dir(deploy_id)+"/origin.json"
+        next if !File.exists?(o_path)
+        this_origin = JSON.parse(File.read(o_path))
+        if origin == this_origin
+          MU.log "Deploy #{deploy_id} matches origin hash, loading", details: origin
+          return MU::MommaCat.new(deploy_id)
+        end
+      }
+      nil
+    end
+
     # Synchronize all in-memory information related to this to deployment to
     # disk.
-    def save!(triggering_node = nil, force: false)
+    # @param triggering_node [MU::Cloud::Server]: If we're being triggered by the addition/removal/update of a node, this allows us to notify any sibling or dependent nodes of changes
+    # @param force [Boolean]: Save even if +no_artifacts+ is set
+    # @param origin [Hash]: Optional blob of data indicating how this deploy was created
+    def save!(triggering_node = nil, force: false, origin: nil)
 
       return if @no_artifacts and !force
       MU::MommaCat.deploy_struct_semaphore.synchronize {
@@ -2663,6 +2682,12 @@ MESSAGE_END
         if !Dir.exist?(deploy_dir)
           MU.log "Creating #{deploy_dir}", MU::DEBUG
           Dir.mkdir(deploy_dir, 0700)
+        end
+
+        if !origin.nil?
+          o_file = File.new("#{deploy_dir}/origin.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          o_file.puts JSON.pretty_generate(origin)
+          o_file.close
         end
 
         if !@private_key.nil?
@@ -2699,7 +2724,7 @@ MESSAGE_END
 
         if !@original_config.nil? and @original_config.is_a?(Hash)
           config = File.new("#{deploy_dir}/basket_of_kittens.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          config.puts JSON.pretty_generate(@original_config)
+          config.puts JSON.pretty_generate(MU::Config.manxify(@original_config))
           config.close
         end
 
