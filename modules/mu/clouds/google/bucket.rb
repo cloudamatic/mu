@@ -175,6 +175,9 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
+          args[:project] ||= args[:habitat]
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+
           found = {}
           if args[:cloud_id]
             found[args[:cloud_id]] = MU::Cloud::Google.storage(credentials: args[:credentials]).get_bucket(args[:cloud_id])

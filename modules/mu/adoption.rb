@@ -29,7 +29,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: true, diff: false)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: true, diff: false, habitats: [])
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -42,6 +42,8 @@ module MU
       @group_by = group_by
       @savedeploys = savedeploys
       @diff = diff
+      @habitats = habitats
+      @habitats ||= []
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -77,7 +79,6 @@ module MU
             if found and found.size == 1
               @default_parent = found.first
             end
-
           end
 
           @types.each { |type|
@@ -91,13 +92,15 @@ module MU
               next
             end
             MU.log "Scraping #{cloud}/#{credset} for #{resclass.cfg_plural}"
+
             found = MU::MommaCat.findStray(
               cloud,
               type,
               credentials: credset,
               allow_multi: true,
+              habitats: @habitats.dup,
               dummy_ok: true,
-#              debug: true
+              debug: false
             )
 
 
@@ -271,18 +274,17 @@ end
 #      pp stubdeploy.original_config
 
       if deploy and @diff
-MU.log "DOIN THA BUTT"
-
+        puts "DIFFGDGSFGHSHS"
         prevcfg = MU::Config.manxify(deploy.original_config)
-File.open("0ld.json", "w") { |f|
-  f.puts JSON.pretty_generate(prevcfg)
-}
+#File.open("0ld.json", "w") { |f|
+#  f.puts JSON.pretty_generate(prevcfg)
+#}
         newcfg = MU::Config.manxify(stubdeploy.original_config)
-File.open("n00b.json", "w") { |f|
-  f.puts JSON.pretty_generate(newcfg)
-}
+#File.open("n00b.json", "w") { |f|
+#  f.puts JSON.pretty_generate(newcfg)
+#}
         prevcfg.diff(newcfg)
-      exit
+        exit
       end
 
       deploy ||= stubdeploy

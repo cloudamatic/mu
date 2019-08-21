@@ -235,6 +235,7 @@ end
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
+          args[:project] ||= args[:habitat]
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
           resp = {}
           if args[:cloud_id] and args[:project]

@@ -21,11 +21,6 @@ require 'bundler/setup'
 require 'optimist'
 require 'mu'
 
-old = JSON.parse(File.read("/home/stangejm/mu/0ld.json"))
-new = JSON.parse(File.read("/home/stangejm/mu/n00b.json"))
-old.diff(new)
-exit
-
 available_clouds = MU::Cloud.supportedClouds
 available_clouds.reject! { |cloud|
   cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
@@ -52,6 +47,7 @@ $opt = Optimist::options do
   opt :savedeploys, "Generate actual deployment metadata in #{MU.dataDir}/deployments, as though the resources we found were created with mu-deploy. If we are generating more than one configuration, and a resource needs to reference another resource (e.g. to declare a VPC in which to reside), this will allow us to reference them as virtual resource, rather than by raw cloud identifier.", :required => false, :type => :boolean
   opt :diff, "List the differences between what we find and an existing, saved deploy from a previous run, if one exists.", :required => false, :type => :boolean
   opt :grouping, "Methods for grouping found resources into separate Baskets.\n\n"+MU::Adoption::GROUPMODES.keys.map { |g| "* "+g.to_s+": "+MU::Adoption::GROUPMODES[g] }.join("\n")+"\n\n", :required => false, :type => :string, :default => "logical"
+  opt :habitats, "Limit scope of research searching to the named accounts/projects/subscriptions, instead of search all habitats visible to our credentials.", :required => false, :type => :strings
 end
 
 ok = true
@@ -106,7 +102,7 @@ if !ok
 end
 
 
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats])
 adoption.scrapeClouds
 MU.log "Generating baskets"
 boks = adoption.generateBaskets(prefix: $opt[:appname])

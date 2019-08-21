@@ -31,13 +31,16 @@ module MU
             @cloud_desc_cache = args[:from_cloud_desc]
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::Role
               @config['role_source'] = "directory"
-            elsif args[:from_cloud_desc].name.match(/^roles\/(.*)/)
+            elsif args[:from_cloud_desc].name.match(/^roles\/(.*)/) or
+                  (@cloud_id and @cloud_id.match(/^roles\/(.*)/))
               @config['role_source'] = "canned"
               @config['name'] = Regexp.last_match[1]
-            elsif args[:from_cloud_desc].name.match(/^organizations\/\d+\/roles\/(.*)/)
+            elsif args[:from_cloud_desc].name.match(/^organizations\/\d+\/roles\/(.*)/) or
+                  (@cloud_id and @cloud_id.match(/^organizations\/\d+\/roles\/(.*)/))
               @config['role_source'] = "org"
               @config['name'] = Regexp.last_match[1]
-            elsif args[:from_cloud_desc].name.match(/^projects\/([^\/]+?)\/roles\/(.*)/)
+            elsif args[:from_cloud_desc].name.match(/^projects\/([^\/]+?)\/roles\/(.*)/) or
+                  (@cloud_id and @cloud_id.match(/^projects\/\d+\/roles\/(.*)/))
               @config['project'] = Regexp.last_match[1]
               @config['name'] = Regexp.last_match[2]
               @project_id = @config['project']
@@ -523,16 +526,22 @@ module MU
           my_org = MU::Cloud::Google.getOrg(args[:credentials])
 
           found = {}
+          args[:project] ||= args[:habitat]
 
           if args[:project]
+            canned = Hash[MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles.roles.map { |r| [r.name, r] }]
+            MU::Cloud::Google::Habitat.bindings(args[:project], credentials: args[:credentials]).each { |binding|
+              found[binding.role] = canned[binding.role]
+            }
+
+            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_roles("projects/"+args[:project])
+            if resp and resp.roles
+              resp.roles.each { |role|
+                found[role.name] = role
+              }
+            end
             if args[:cloud_id]
-            else
-              resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_roles("projects/"+args[:project])
-              if resp and resp.roles
-                resp.roles.each { |role|
-                  found[role.name] = role
-                }
-              end
+              found.reject! { |k, v| k != role.name }
             end
           else
             if credcfg['masquerade_as']
@@ -578,6 +587,18 @@ module MU
             "cloud_id" => @cloud_id
           }
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
+
+          # This can happen if the role_source isn't set correctly. This logic
+          # maybe belongs inside cloud_desc. XXX
+          if cloud_desc.nil?
+            if @cloud_id and @cloud_id.match(/^roles\/(.*)/)
+              @config['role_source'] = "canned"
+            elsif @cloud_id and @cloud_id.match(/^organizations\/\d+\/roles\/(.*)/)
+              @config['role_source'] = "org"
+            elsif @cloud_id and @cloud_id.match(/^projects\/\d+\/roles\/(.*)/)
+              @config['role_source'] = "project"
+            end
+          end
 
           # GSuite or Cloud Identity role
           if cloud_desc.class == ::Google::Apis::AdminDirectoryV1::Role

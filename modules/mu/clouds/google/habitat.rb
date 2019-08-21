@@ -248,10 +248,11 @@ module MU
         # Locate an existing project
         # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
+          args[:project] ||= args[:habitat]
+          args[:cloud_id] ||= args[:project]
 #MU.log "habitat.find called by #{caller[0]}", MU::WARN, details: args
           found = {}
 
-          args[:cloud_id] ||= args[:project]
 # XXX we probably want to cache this
 # XXX but why are we being called over and over?
 

@@ -268,6 +268,7 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           cred_cfg = MU::Cloud::Google.credConfig(args[:credentials])
+          args[:project] ||= args[:habitat]
 
           found = {}
 

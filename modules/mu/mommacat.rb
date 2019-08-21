@@ -1186,12 +1186,15 @@ raise "NAH"
         allow_multi: false,
         calling_deploy: MU.mommacat,
         flags: {},
+        habitats: [],
         dummy_ok: false,
         debug: false
     )
 
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
       begin
+        # TODO this is dumb as hell, clean this up.. and while we're at it
+        # .dup everything so we don't mangle referenced values from the caller
         deploy_id = deploy_id.to_s if deploy_id.class.to_s == "MU::Config::Tail"
         name = name.to_s if name.class.to_s == "MU::Config::Tail"
         cloud_id = cloud_id.to_s if !cloud_id.nil?
@@ -1199,6 +1202,7 @@ raise "NAH"
         tag_key = tag_key.to_s if tag_key.class.to_s == "MU::Config::Tail"
         tag_value = tag_value.to_s if tag_value.class.to_s == "MU::Config::Tail"
         shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+        type = cfg_plural
         resourceclass = MU::Cloud.loadCloudType(cloud, shortclass)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
 
@@ -1367,32 +1371,40 @@ raise "NAH"
               regions = [nil]
             end
 
-# TODO generalize language to "habitat" (AWS accounts, Azure subscriptions)
-            projects = []
+            # Decide what habitats (accounts/projects/subscriptions) we'll
+            # search, if applicable for this resource type.
+            habitats ||= []
             begin
-              if flags["project"]
-                projects << flags["project"]
-              elsif resourceclass.canLiveIn.include?(:Habitat)
-                projects.concat(cloudclass.listProjects(creds))
+              if flags["project"] # backwards-compat
+                habitats << flags["project"]
+              end
+              if habitats.empty?
+                if resourceclass.canLiveIn.include?(nil)
+                  habitats << nil
+                end
+                if resourceclass.canLiveIn.include?(:Habitat)
+                  habitats.concat(cloudclass.listProjects(creds))
+                end
               end
             rescue NoMethodError # we only expect this to work on Google atm
             end
 
-            if projects.empty? or resourceclass.canLiveIn.include?(nil)
-              projects << nil
+            if habitats.empty?
+              habitats << nil
             end
+            habitats.uniq!
 
-            project_threads = []
+            habitat_threads = []
             desc_semaphore = Mutex.new
 
             cloud_descs = {}
-            projects.each { |proj| project_threads << Thread.new(proj) { |p|
+            habitats.each { |hab| habitat_threads << Thread.new(hab) { |p|
               cloud_descs[p] = {}
               region_threads = []
               regions.each { |reg| region_threads << Thread.new(reg) { |r|
                 MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p})", loglevel
 begin
-                found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, project: p)
+                found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
 rescue Exception => e
 MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
 pp e.backtrace
@@ -1413,12 +1425,12 @@ end
                 t.join
               }
             } }
-            project_threads.each { |t|
+            habitat_threads.each { |t|
               t.join
             }
 
-            project_threads = []
-            projects.each { |proj| project_threads << Thread.new(proj) { |p|
+            habitat_threads = []
+            habitats.each { |hab| habitat_threads << Thread.new(hab) { |p|
               region_threads = []
               regions.each { |reg| region_threads << Thread.new(reg) { |r|
                 next if cloud_descs[p][r].nil?
@@ -1508,7 +1520,7 @@ end
                 t.join
               }
             } }
-            project_threads.each { |t|
+            habitat_threads.each { |t|
               t.join
             }
           end
