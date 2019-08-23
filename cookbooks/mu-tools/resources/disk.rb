@@ -1,6 +1,7 @@
 
 property :mountpoint, String, name_property: true
 property :device, String, required: true
+property :delete_on_termination, :kind_of => [TrueClass, FalseClass], default: true
 property :preserve_data, :kind_of => [TrueClass, FalseClass], :required => false, :default => false
 property :reboot_after_create, :kind_of => [TrueClass, FalseClass], :required => false, :default => false
 property :size, Integer, default: 8
@@ -22,7 +23,8 @@ action :create do
     request "add_volume"
     passparams(
       :dev => devicename,
-      :size => new_resource.size
+      :size => new_resource.size,
+      :delete_on_termination => new_resource.delete_on_termination
     )
     not_if { ::File.exist?(device) }
   end

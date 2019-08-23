@@ -527,6 +527,9 @@ for repo in $REPOS;do
           oldsrc="`grep "^$artifact:$shortname:" $manifest`"
           set -e
           if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if [ ! -d "$repo_name/$artifact/$shortname" ];then
+              continue
+            fi
             if [ $create_berksfile == "1" ];then
               echo "cookbook '$shortname', path: ENV['MU_DATADIR']+'/$repo_name/$artifact/$shortname'" >> "$artifact_source/Berksfile"
             fi

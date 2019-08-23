@@ -36,6 +36,28 @@ class Object
   end
 end
 
+class Hash
+
+  # Implement a merge! that just updates each hash leaf as needed, not 
+  # trashing the branch on the way there.
+  def deep_merge!(with, on = self)
+
+    if on and with and with.is_a?(Hash)
+      with.each_pair { |k, v|
+        if !on[k] or !on[k].is_a?(Hash)
+          on[k] = v
+        else
+          deep_merge!(with[k], on[k])
+        end
+      }
+    elsif with
+      on = with
+    end
+
+    on
+  end
+end
+
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
 require 'mu/logger'

@@ -229,8 +229,9 @@ module MU
             ok = false if launch['size'].nil?
 
             if launch['image_id'].nil?
-              if MU::Config.google_images.has_key?(pool['platform'])
-                launch['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: MU::Config.google_images[pool['platform']], prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
+              img_id = MU::Cloud.getStockImage("Google", platform: pool['platform'])
+              if img_id
+                launch['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: img_id, prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
               else
                 MU.log "No image specified for #{pool['name']} and no default available for platform #{pool['platform']}", MU::ERR, details: launch
                 ok = false

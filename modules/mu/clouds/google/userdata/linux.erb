@@ -117,7 +117,7 @@ if [ "$need_reboot" == "1" ];then
 fi
 <% end %>
 
-gsutil cp gs://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+gsutil cp gs://<%= MU.adminBucketName("Google", credentials: $mu.credentials) %>/<%= $mu.muID %>-secret .
 
 echo '
 require "openssl"

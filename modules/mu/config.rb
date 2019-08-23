@@ -64,49 +64,6 @@ module MU
     attr_accessor :nat_routes
     attr_reader :skipinitialupdates
 
-    attr_reader :google_images
-    @@google_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/google_images.yaml"))
-    if File.exists?("#{MU.etcDir}/google_images.yaml")
-      custom = YAML.load(File.read("#{MU.etcDir}/google_images.yaml"))
-      @@google_images.merge!(custom) { |key, oldval, newval|
-        if !oldval.is_a?(Hash) and !newval.nil?
-          if !newval.nil?
-            newval
-          else
-            oldval
-          end
-        else
-          oldval.merge(newval)
-        end
-      }
-    end
-    # The list of known Google Images which we can use for a given platform
-    def self.google_images
-      @@google_images
-    end
-
-    attr_reader :amazon_images
-    @@amazon_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/amazon_images.yaml"))
-    if File.exists?("#{MU.etcDir}/amazon_images.yaml")
-      custom = YAML.load(File.read("#{MU.etcDir}/amazon_images.yaml"))
-      @@amazon_images.merge!(custom) { |key, oldval, newval|
-        if !oldval.is_a?(Hash) and !newval.nil?
-          if !newval.nil?
-            newval
-          else
-            oldval
-          end
-        else
-          oldval.merge(newval)
-        end
-      }
-    end
-    # The list of known Amazon AMIs, by region, which we can use for a given
-    # platform.
-    def self.amazon_images
-      @@amazon_images
-    end
-
     @@config_path = nil
     # The path to the most recently loaded configuration file
     attr_reader :config_path
@@ -198,7 +155,7 @@ module MU
           next if required.size == 0 and res_schema.size == 0
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
-            cfg["description"] = "+"+cloud.upcase+"+: "+cfg["description"]
+            cfg["description"] = "\n# +"+cloud.upcase+"+: "+cfg["description"]
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
@@ -326,7 +283,7 @@ module MU
       end
       # Walk like a String
       def to_s
-        @prefix+@value+@suffix
+        @prefix.to_s+@value.to_s+@suffix.to_s
       end
       # Quack like a String
       def to_str
@@ -535,7 +492,7 @@ module MU
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil)
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil, default_credentials: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -553,6 +510,7 @@ module MU
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
       @updating = updating
+      @default_credentials = default_credentials
 
       ok = true
       params.each_pair { |name, value|
@@ -628,13 +586,13 @@ module MU
         MU.log "Passing variable '#{name}' into #{path} with value '#{val}'"
       }
       raise DeployParamError, "One or more invalid parameters specified" if !ok
-      $parameters = @@parameters
+      $parameters = @@parameters.dup
       $parameters.freeze
 
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
 
       # Convert parameter entries that constitute whole config keys into
-      # MU::Config::Tail objects.
+      # {MU::Config::Tail} objects.
       def resolveTails(tree, indent= "")
         if tree.is_a?(Hash)
           tree.each_pair { |key, val|
@@ -665,6 +623,8 @@ module MU
           }
         ]
       end
+
+      @config['credentials'] ||= @default_credentials
 
       types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 
@@ -896,8 +856,8 @@ module MU
       end
 
       # Make sure a sensible region has been targeted, if applicable
+      classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
       if descriptor["region"]
-        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
           MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
@@ -1001,6 +961,7 @@ module MU
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
+        acl['region'] ||= classobj.myRegion(acl['credentials'])
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
@@ -1182,7 +1143,8 @@ module MU
     @@allregions = []
     MU::Cloud.supportedClouds.each { |cloud|
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      @@allregions.concat(cloudclass.listRegions())
+      regions = cloudclass.listRegions()
+      @@allregions.concat(regions) if regions
     }
 
     # Configuration chunk for choosing a provider region
@@ -1674,6 +1636,9 @@ module MU
         schema_fields << "region"
       end
 
+      kitten['credentials'] ||= @config['credentials']
+      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
+
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject(kitten['credentials'])
         schema_fields << "project"
@@ -1697,9 +1662,6 @@ module MU
 
       kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
       kitten['scrub_mu_isms'] ||= false
-
-      kitten['credentials'] ||= @config['credentials']
-      kitten['credentials'] ||= cloudclass.credConfig(name_only: true)
 
       kitten["dependencies"] ||= []
 

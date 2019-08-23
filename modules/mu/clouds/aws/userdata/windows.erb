@@ -23,8 +23,8 @@ function log
 }
 
 function fetchSecret([string]$file){
-  log "Fetching s3://<%= MU.adminBucketName %>/$file to $tmp/$file"
-  aws.cmd --region $region s3 cp s3://<%= MU.adminBucketName %>/$file $tmp/$file
+  log "Fetching s3://<%= MU.adminBucketName("AWS", credentials: $mu.credentials) %>/$file to $tmp/$file"
+  aws.cmd --region $region s3 cp s3://<%= MU.adminBucketName("AWS", credentials: $mu.credentials) %>/$file $tmp/$file
 }
 
 function importCert([string]$cert, [string]$store){
