@@ -500,7 +500,7 @@ module MU
     # @param fail_hard [Boolean]: Raise an exception on most errors, such as an inability to reach our public listing, lack of matching images, etc.
     # @return [Hash,String,nil]
     def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false)
-MU.log "getStockImage(#{cloud}, #{platform})", MU::NOTICE
+
       if !MU::Cloud.supportedClouds.include?(cloud)
         MU.log "'#{cloud}' is not a supported cloud provider! Available providers:", MU::ERR, details: MU::Cloud.supportedClouds
         raise MuError, "'#{cloud}' is not a supported cloud provider!"
