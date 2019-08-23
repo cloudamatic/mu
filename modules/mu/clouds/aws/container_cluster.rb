@@ -408,7 +408,7 @@ module MU
                     end
                   }
                 end
-pp lbs
+
                 params = {
                   name: @mu_name+"-"+c['name'].upcase,
                   image: c['image'],
