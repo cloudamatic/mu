@@ -477,8 +477,13 @@ module MU
     def self.listPlatforms
       return @@platform_cache if @@platform_cache and !@@platform_cache.empty?
       @@platform_cache = MU::Cloud.supportedClouds.map { |cloud|
-        next if cloud == "CloudFormation"
-        images = MU::Cloud.getStockImage(cloud)
+        begin
+          loadCloudType(cloud, :Server)
+        rescue MU::Cloud::MuCloudResourceNotImplemented, MU::MuError => e
+          next
+        end
+
+        images = MU::Cloud.getStockImage(cloud, quiet: true)
         if images
           images.keys
         else
@@ -499,7 +504,7 @@ module MU
     # @param region [String]: The region for which the returned image or images should be supported, for cloud providers which require it (such as AWS).
     # @param fail_hard [Boolean]: Raise an exception on most errors, such as an inability to reach our public listing, lack of matching images, etc.
     # @return [Hash,String,nil]
-    def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false)
+    def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false, quiet: false)
 
       if !MU::Cloud.supportedClouds.include?(cloud)
         MU.log "'#{cloud}' is not a supported cloud provider! Available providers:", MU::ERR, details: MU::Cloud.supportedClouds
@@ -528,7 +533,7 @@ module MU
               if fail_hard
                 raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
               else
-                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN
+                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN if !quiet
               end
             end
           end
@@ -579,7 +584,7 @@ module MU
         if fail_hard
           raise MuError, "Failed to find any base images for #{cloud}"
         else
-          MU.log "Failed to find any base images for #{cloud}", MU::WARN
+          MU.log "Failed to find any base images for #{cloud}", MU::WARN if !quiet
           return nil
         end
       end
@@ -595,7 +600,7 @@ module MU
           if fail_hard
             raise MuError, "No base image for platform #{platform} in cloud #{cloud}"
           else
-            MU.log "No base image for platform #{platform} in cloud #{cloud}", MU::WARN
+            MU.log "No base image for platform #{platform} in cloud #{cloud}", MU::WARN if !quiet
             return nil
           end
         end
@@ -611,7 +616,7 @@ module MU
               if fail_hard
                 raise MuError, "No base image for platform #{platform} in cloud #{cloud} region #{region} found"
               else
-                MU.log "No base image for platform #{platform} in cloud #{cloud} region #{region} found", MU::WARN
+                MU.log "No base image for platform #{platform} in cloud #{cloud} region #{region} found", MU::WARN if !quiet
                 return nil
               end
             end
