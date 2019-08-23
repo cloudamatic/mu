@@ -68,8 +68,8 @@ module MU
             end
             @config['mu_name'] = @mu_name
 
-            @config['instance_secret'] = Password.random(50)
           end
+          @config['instance_secret'] ||= Password.random(50)
           @config['ssh_user'] ||= "muadmin"
 
         end
@@ -365,7 +365,7 @@ next if !create
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, flags: { "skipsnapshots" => true } )
+                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, flags: { "skipsnapshots" => true }, region: @config['region'] )
                 }
               end
             end

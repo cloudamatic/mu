@@ -171,7 +171,9 @@ module MU
         # @return [Google::Apis::Core::Hashable]
         def cloud_desc
           @cached_cloud_desc ||= MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
-          @habitat_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
+          if @cached_cloud_desc and @cached_cloud_desc.parent
+            @habitat_id ||= @cached_cloud_desc.parent.id
+          end
           @cached_cloud_desc
         end
 

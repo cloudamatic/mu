@@ -209,9 +209,11 @@ module MU
     # @return [Hash]: The modified configuration
     def self.manxify(config)
       if config.is_a?(Hash)
+        newhash = {}
         config.each_pair { |key, val|
-          config[key] = self.manxify(val)
+          newhash[key] = self.manxify(val)
         }
+        config = newhash
       elsif config.is_a?(Array)
         newarray = []
         config.each { |val|
