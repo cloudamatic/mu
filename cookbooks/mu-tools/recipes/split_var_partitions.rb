@@ -23,7 +23,6 @@
 # make it part of your regular build process.
 
 if !node['application_attributes']['skip_recipes'].include?('split_var_partitions')
-  log "*************** "+node['platform']
   case node['platform']
     when "redhat", "rhel", "centos", "amazon"
 

@@ -87,15 +87,15 @@ module MU
       end
 
       def self.listCredentials
-        "TODO"
+        []
       end
 
       def self.credConfig
-        "TODO"
+        nil
       end
 
       def self.listInstanceTypes
-        "TODO"
+        []
       end
       
       def self.adminBucketName(credentials = nil)

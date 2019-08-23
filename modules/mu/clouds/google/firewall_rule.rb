@@ -25,7 +25,10 @@ module MU
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new
 
+        # Firewall protocols supported by GCP as of early 2019
         PROTOS = ["udp", "tcp", "icmp", "esp", "ah", "sctp", "ipip"]
+
+        # Our default subset of supported firewall protocols
         STD_PROTOS = ["icmp", "tcp", "udp"]
 
 
@@ -273,6 +276,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
+          acl['project'] ||= MU::Cloud::Google.defaultProject(acl['credentials'])
 
           if acl['vpc']
             acl['vpc']['project'] ||= acl['project']

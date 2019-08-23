@@ -20,10 +20,9 @@ end
 
 require 'rubygems'
 require 'bundler/setup'
-require 'json'
 require 'erb'
-require 'optimist'
-require 'json-schema'
+require 'tempfile'
+require 'fileutils'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
@@ -43,19 +42,104 @@ rescue
   yard = File.dirname(Gem.ruby)+'/yard'
 end
 
-
+docdir = Process.uid == 0 ? "/var/www/html/docs" : MU.dataDir+"/docs"
+if !Dir.exists?(docdir)
+  FileUtils.mkdir_p(docdir, mode: 0755)
+end
 
 MU::Config.emitSchemaAsRuby
-MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
+if Process.uid == 0
+  MU.log "Generating YARD documentation in #{docdir} (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
+else
+  MU.log "Generating YARD documentation in #{docdir}"
+end
 
 File.umask 0022
 
 Dir.chdir(MU.myRoot) do
-  #exec "env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} #{yard} doc modules -m markdown -o /var/www/html/docs" THIS DOESNT WORK IN CICD
+  imgs = %w{alpha.png beta.png release.png}
+  FileUtils.cp(imgs.map { |f| "extras/"+f }, docdir)
+  FileUtils.chmod(0644, imgs.map { |f| docdir+"/"+f })
 
-  system(%Q{#{yard} doc modules -m markdown -o /var/www/html/docs})
+  readme = File.read("README.md")
+  readme += <<EOF
 
-  system(%Q{chcon -R -h -t httpd_sys_script_exec_t /var/www/html/})
+# Supported resources
+EOF
 
+  impl_counts = {}
+  cloudlist = MU::Cloud.supportedClouds.sort { |a, b|
+    counts = {
+      a => 0,
+      b => 0
+    }
+    MU::Cloud.resource_types.each_pair { |type, cfg|
+      impl_counts[type] ||= 0
+      [a, b].each { |cloud|
+        begin
+          myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+          case myclass.quality
+          when MU::Cloud::RELEASE
+            counts[cloud] += 4
+            impl_counts[type] += 4
+          when MU::Cloud::BETA
+            counts[cloud] += 2
+            impl_counts[type] += 2
+          when MU::Cloud::ALPHA
+            counts[cloud] += 1
+            impl_counts[type] += 1
+          end
+        rescue MU::Cloud::MuCloudResourceNotImplemented
+        end
+      }
+    }
+    counts[b] <=> counts[a]
+  }
+
+  readme += "\n\n<table><tr><th></th>"
+  cloudlist.each { |cloud|
+    readme += "<th>"+cloud+"</th>"
+  }
+  readme += "</tr>\n"
+
+  icon_style = 'height:2.2em;width:2.2em;padding:0px;'
+  MU::Cloud.resource_types.keys.sort { |a, b| impl_counts[b] <=> impl_counts[a] }.each { |type|
+    readme += "<tr><td><strong>{MU::Config::BasketofKittens::#{MU::Cloud.resource_types[type][:cfg_plural]} #{type.to_s}}</strong></td>"
+    cloudlist.each { |cloud|
+      readme += "<td><center>"
+      begin
+        myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+        case myclass.quality
+        when MU::Cloud::RELEASE
+          readme += "<img src='release.png' style='#{icon_style}' title='Release Quality' alt='[Release Quality]'>"
+        when MU::Cloud::BETA
+          readme += "<img src='beta.png' style='#{icon_style}' title='Beta Quality' alt='[Beta Quality]'>"
+        when MU::Cloud::ALPHA
+          readme += "<img src='alpha.png' style='#{icon_style}' title='Alpha Quality' alt='[Alpha Quality]'>"
+        else
+          readme += "?"
+        end
+      rescue MU::Cloud::MuCloudResourceNotImplemented
+        readme += "-"
+      end
+      readme += "</center></td>"
+    }
+    readme += "</tr>\n"
+  }
+  readme += "</table>\n\n"
+
+  idx = Tempfile.new('mu-gen-docs-index', MU.myRoot)
+  idx.write(readme)
+  idx.rewind
+  idx.close
+  idx_short = idx.path.gsub(/.*?\/([^\/]+)$/, '\1')
+
+  system(%Q{#{yard} doc modules --readme #{idx_short} --markup markdown --output-dir #{docdir}})
+  # --exclude seems to just... not work
+  FileUtils.rm(docdir+"/file."+idx_short+".html")
+
+  if Process.uid == 0
+    system(%Q{chcon -R -h -t httpd_sys_script_exec_t /var/www/html/})
+  end
   system(%Q{#{yard} stats --list-undoc modules})
 end
