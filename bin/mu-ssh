@@ -1,5 +1,5 @@
-#!/bin/sh
-# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+#!/usr/local/ruby-current/bin/ruby
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
+require 'mu'
 
-bindir="`dirname $0`"
+argument = ARGV[0]
 
-for host in $($bindir/mu-node-manage -l $@);do
-  echo $host
-  ssh $host
-done
+avail_deploys = MU::MommaCat.listAllNodes
+check = avail_deploys.keys
+
+check.grep(*/#{argument}*/i).each do |n|
+  puts n
+  system("ssh #{n}")
+end
