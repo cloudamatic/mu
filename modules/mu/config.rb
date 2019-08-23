@@ -404,6 +404,8 @@ module MU
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
       def kitten(mommacat = @mommacat)
+        return nil if !@cloud or !@type
+
         if @obj
           @deploy_id ||= @obj.deploy_id
           @id ||= @obj.cloud_id
