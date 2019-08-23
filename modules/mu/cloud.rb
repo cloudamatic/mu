@@ -468,7 +468,27 @@ module MU
     }
 
     @@image_fetch_cache = {}
+    @@platform_cache = []
     @@image_fetch_semaphore = Mutex.new
+
+    # Rifle our image lists from {MU::Cloud.getStockImage} and return a list
+    # of valid +platform+ names.
+    # @return [Array<String>]
+    def self.listPlatforms
+      return @@platform_cache if @@platform_cache and !@@platform_cache.empty?
+      @@platform_cache = MU::Cloud.supportedClouds.map { |cloud|
+        next if cloud == "CloudFormation"
+        images = MU::Cloud.getStockImage(cloud)
+        if images
+          images.keys
+        else
+          nil
+        end
+      }.flatten.uniq
+      @@platform_cache.delete(nil)
+      @@platform_cache.sort
+      @@platform_cache
+    end
 
     # Locate a base image for a {MU::Cloud::Server} resource. First we check
     # Mu's public bucket, which should list the latest and greatest. If we can't
@@ -480,7 +500,7 @@ module MU
     # @param fail_hard [Boolean]: Raise an exception on most errors, such as an inability to reach our public listing, lack of matching images, etc.
     # @return [Hash,String,nil]
     def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false)
-
+MU.log "getStockImage(#{cloud}, #{platform})", MU::NOTICE
       if !MU::Cloud.supportedClouds.include?(cloud)
         MU.log "'#{cloud}' is not a supported cloud provider! Available providers:", MU::ERR, details: MU::Cloud.supportedClouds
         raise MuError, "'#{cloud}' is not a supported cloud provider!"
@@ -506,9 +526,9 @@ module MU
               end
             rescue Exception => e
               if fail_hard
-                raise MuError, "Failed to fetch stock images from #{base_url} (#{e.message})"
+                raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
               else
-                MU.log "Failed to fetch stock images from #{base_url} (#{e.message})", MU::WARN
+                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN
               end
             end
           end
@@ -699,7 +719,7 @@ module MU
           $mu = OpenStruct.new(template_variables)
           userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}/userdata")
           platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
-          platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
+          platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16 windows win2k19}.include? platform
           erbfile = "#{userdata_dir}/#{platform}.erb"
           if !File.exist?(erbfile)
             MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller

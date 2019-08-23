@@ -416,9 +416,8 @@ module MU
           "platform" => {
               "type" => "string",
               "default" => "linux",
-              "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "win2k16", "centos7", "rhel7", "rhel71", "amazon"],
-# XXX change to reflect available keys in mu/defaults/amazon_images.yaml and mu/defaults/google_images.yaml
-              "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
+              "enum" => MU::Cloud.listPlatforms,
+              "description" => "Helps select default machine images, and enables correct grooming behavior based on operating system type.",
           },
           "run_list" => {
               "type" => "array",
