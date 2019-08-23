@@ -212,14 +212,15 @@ module MU
         retries = 0
         begin
           MU.log cmd
-          raise MuError, "Failed Ansible command: #{cmd}" if !system(cmd)
-        rescue MuError => e
+          raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}" if !system(cmd)
+        rescue MU::Groomer::RunError => e
           if retries < max_retries
             sleep 30
             retries += 1
+            MU.log "Failed Ansible run, will retry (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE, details: cmd
             retry
           else
-            raise e
+            raise MuError, "Failed Ansible command: #{cmd}"
           end
         end
       end
