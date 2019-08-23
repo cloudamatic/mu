@@ -42,7 +42,7 @@ $CREDS = {
 }
 
 service_name = "dirsrv"
-if node['platform_version'].to_i >= 7
+if node['platform_version'].to_i >= 7 || (node['platform_family'] == 'amazon' && node['platform_version'].to_i == 2)
   service_name = service_name + "@" + $MU_CFG["hostname"]
 end
 

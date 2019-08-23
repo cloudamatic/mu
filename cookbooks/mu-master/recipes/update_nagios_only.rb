@@ -16,8 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe "nagios::server_source"
-include_recipe "nagios"
+include_recipe "mu-nagios::server_source"
+include_recipe "mu-nagios"
 include_recipe 'mu-master::firewall-holes'
 
 if $MU_CFG.has_key?('ldap')
@@ -49,7 +49,7 @@ file "/etc/sysconfig/nagios" do
   content "checkconfig=\"false\"\n"
   mode 0600
 end
-include_recipe "nagios"
+include_recipe "mu-nagios"
 
 # scrub our old stuff if it's around
 ["nagios_fifo", "nagios_more_selinux"].each { |policy|
@@ -139,14 +139,14 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
 
 ["/usr/lib/cgi-bin"].each { |cgidir|
   if Dir.exist?(cgidir)
-    execute "chcon -R -h -t httpd_sys_script_exec_t #{cgidir}" do
+    execute "chcon -R -h system_u:object_r:httpd_sys_script_exec_t #{cgidir}" do
       not_if "ls -aZ #{cgidir} | grep ':httpd_sys_script_exec_t:'"
       notifies :reload, "service[apache2]", :delayed
     end
   end
 }
 if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
-  execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
+  execute "chcon -R -h system_u:object_r:nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
     not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
   end
 end
