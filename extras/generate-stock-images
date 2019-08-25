@@ -62,6 +62,7 @@ end
 
 now = DateTime.now
 
+exitcode = 0
 $opts[:clouds].each { |cloud|
   current_images = MU::Cloud.getStockImage(cloud, fail_hard: true)
   $opts[:platforms].each { |platform|
@@ -114,6 +115,7 @@ $opts[:clouds].each { |cloud|
           MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
         rescue Exception => e
           MU.log e.message, MU::ERR
+          exitcode = 1
         end
       end
     end
@@ -126,3 +128,4 @@ $opts[:clouds].each { |cloud|
   end
 }
 
+exit exitcode
