@@ -209,9 +209,11 @@ module MU
     # @return [Hash]: The modified configuration
     def self.manxify(config)
       if config.is_a?(Hash)
+        newhash = {}
         config.each_pair { |key, val|
-          config[key] = self.manxify(val)
+          newhash[key] = self.manxify(val)
         }
+        config = newhash
       elsif config.is_a?(Array)
         newarray = []
         config.each { |val|
@@ -402,6 +404,8 @@ module MU
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
       def kitten(mommacat = @mommacat)
+        return nil if !@cloud or !@type
+
         if @obj
           @deploy_id ||= @obj.deploy_id
           @id ||= @obj.cloud_id

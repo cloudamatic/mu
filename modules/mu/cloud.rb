@@ -477,8 +477,13 @@ module MU
     def self.listPlatforms
       return @@platform_cache if @@platform_cache and !@@platform_cache.empty?
       @@platform_cache = MU::Cloud.supportedClouds.map { |cloud|
-        next if cloud == "CloudFormation"
-        images = MU::Cloud.getStockImage(cloud)
+        begin
+          loadCloudType(cloud, :Server)
+        rescue MU::Cloud::MuCloudResourceNotImplemented, MU::MuError => e
+          next
+        end
+
+        images = MU::Cloud.getStockImage(cloud, quiet: true)
         if images
           images.keys
         else
@@ -499,7 +504,7 @@ module MU
     # @param region [String]: The region for which the returned image or images should be supported, for cloud providers which require it (such as AWS).
     # @param fail_hard [Boolean]: Raise an exception on most errors, such as an inability to reach our public listing, lack of matching images, etc.
     # @return [Hash,String,nil]
-    def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false)
+    def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false, quiet: false)
 
       if !MU::Cloud.supportedClouds.include?(cloud)
         MU.log "'#{cloud}' is not a supported cloud provider! Available providers:", MU::ERR, details: MU::Cloud.supportedClouds
@@ -528,7 +533,7 @@ module MU
               if fail_hard
                 raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
               else
-                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN
+                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN if !quiet
               end
             end
           end
@@ -579,7 +584,7 @@ module MU
         if fail_hard
           raise MuError, "Failed to find any base images for #{cloud}"
         else
-          MU.log "Failed to find any base images for #{cloud}", MU::WARN
+          MU.log "Failed to find any base images for #{cloud}", MU::WARN if !quiet
           return nil
         end
       end
@@ -595,7 +600,7 @@ module MU
           if fail_hard
             raise MuError, "No base image for platform #{platform} in cloud #{cloud}"
           else
-            MU.log "No base image for platform #{platform} in cloud #{cloud}", MU::WARN
+            MU.log "No base image for platform #{platform} in cloud #{cloud}", MU::WARN if !quiet
             return nil
           end
         end
@@ -611,7 +616,7 @@ module MU
               if fail_hard
                 raise MuError, "No base image for platform #{platform} in cloud #{cloud} region #{region} found"
               else
-                MU.log "No base image for platform #{platform} in cloud #{cloud} region #{region} found", MU::WARN
+                MU.log "No base image for platform #{platform} in cloud #{cloud} region #{region} found", MU::WARN if !quiet
                 return nil
               end
             end
@@ -641,6 +646,7 @@ module MU
     # @param type [String]: A string that looks like our short or full class name or singular or plural configuration names.
     # @return [Array]: Class name (Symbol), singular config name (String), plural config name (String), full class name (Object)
     def self.getResourceNames(type)
+      return [nil, nil, nil, nil, {}] if !type
       @@resource_types.each_pair { |name, cloudclass|
         if name == type.to_sym or
             cloudclass[:cfg_name] == type or
@@ -718,8 +724,13 @@ module MU
           template_variables["credentials"] ||= credentials
           $mu = OpenStruct.new(template_variables)
           userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}/userdata")
-          platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
-          platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16 windows win2k19}.include? platform
+
+          platform = if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16 windows win2k19}.include?(platform)
+            "windows"
+          else
+            "linux"
+          end
+
           erbfile = "#{userdata_dir}/#{platform}.erb"
           if !File.exist?(erbfile)
             MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
@@ -1379,7 +1390,7 @@ module MU
                 name: @config['vpc']["name"],
                 tag_key: tag_key,
                 tag_value: tag_value,
-                flags: { "project" => @config['vpc']['project'] },
+                habitats: [@project_id],
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
                 dummy_ok: true,
@@ -1424,6 +1435,20 @@ module MU
             end
           elsif self.class.cfg_name == "vpc"
             @vpc = self
+          end
+
+          # Google accounts usually have a useful default VPC we can use
+          if @vpc.nil? and @project_id and @cloud == "Google"
+            vpcs = MU::MommaCat.findStray(
+              "Google",
+              "vpc",
+              cloud_id: "default",
+              habitats: [@project_id],
+              credentials: @credentials,
+              dummy_ok: true,
+              debug: debug
+            )
+            @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
           end
 
           # Special dependencies: LoadBalancers I've asked to attach to an
@@ -1542,7 +1567,7 @@ module MU
 
         if shortname == "Server" or shortname == "ServerPool"
           def windows?
-            return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+            return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 win2k19 windows}.include?(@config['platform'])
             begin
               return true if cloud_desc.respond_to?(:platform) and cloud_desc.platform == "Windows"
 # XXX ^ that's AWS-speak, doesn't cover GCP or anything else; maybe we should require cloud layers to implement this so we can just call @cloudobj.windows?

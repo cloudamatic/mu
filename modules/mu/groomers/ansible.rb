@@ -209,8 +209,20 @@ module MU
 
         cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
-        MU.log cmd
-        raise MuError, "Failed Ansible command: #{cmd}" if !system(cmd)
+        retries = 0
+        begin
+          MU.log cmd
+          raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}" if !system(cmd)
+        rescue MU::Groomer::RunError => e
+          if retries < max_retries
+            sleep 30
+            retries += 1
+            MU.log "Failed Ansible run, will retry (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE, details: cmd
+            retry
+          else
+            raise MuError, "Failed Ansible command: #{cmd}"
+          end
+        end
       end
 
       # This is a stub; since Ansible is effectively agentless, this operation

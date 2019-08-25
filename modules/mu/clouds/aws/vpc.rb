@@ -1779,7 +1779,7 @@ module MU
 
         # Remove all network interfaces associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param filters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
