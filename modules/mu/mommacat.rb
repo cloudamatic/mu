@@ -2054,7 +2054,6 @@ end
     # @param system_name [String]: The node's local system name
     # @return [void]
     def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
-      return if !["mu", "root"].include?(MU.mu_user)
 
       # XXX cover ipv6 case
       if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
@@ -2063,6 +2062,15 @@ end
       if chef_name == "localhost" or system_name == "localhost"
         raise MuError, "Can't set localhost as a name in addInstanceToEtcHosts"
       end
+
+      if !["mu", "root"].include?(MU.mu_user)
+        response = open("https://127.0.0.1:#{MU.mommaCatPort.to_s}/rest/hosts_add/#{chef_name}/#{public_ip}").read
+        if response != "ok"
+          MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
+        end
+        return
+      end
+
       File.readlines("/etc/hosts").each { |line|
         if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
           MU.log "Ignoring attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::DEBUG
