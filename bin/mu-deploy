@@ -43,6 +43,7 @@ Usage:
   opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
   opt :quiet, "Display minimal output.", :require => false, :default => false, :type => :boolean
   opt :color, "Display log output in human-friendly colors.", :require => false, :default => true, :type => :boolean
+  opt :credentials, "Set the default credential set to use for resources which do not specify a default", :require => false, :type => :string
 end
 verbosity = MU::Logger::NORMAL
 verbosity = MU::Logger::LOUD if $opts[:verbose]
@@ -88,7 +89,7 @@ end
 
 MU.log "Loading #{config}", html: $opts[:web], details: $opts
 
-conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params, updating: $opts[:update])
+conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params, updating: $opts[:update], default_credentials: $opts[:credentials])
 stack_conf = conf_engine.config
 
 if $opts[:dryrun] or $opts[:verbose]
