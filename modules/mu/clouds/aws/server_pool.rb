@@ -837,7 +837,7 @@ module MU
                 ok = false
               end
             else
-              s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName(pool['credentials'])+'/Mu_CA.pem']
+              s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(pool['credentials'])+'/Mu_CA.pem']
 
               role = {
                 "name" => pool["name"],
@@ -1152,7 +1152,7 @@ module MU
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
             if role
               s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-                'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName(@credentials)+'/'+file
+                'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
               }
               role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
             end
