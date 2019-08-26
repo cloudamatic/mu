@@ -312,21 +312,25 @@ module MU
       # XXX refactor with above? They're similar, ish.
       hostsfile = "/etc/hosts"
       if File.open(hostsfile).read.match(/ #{MU.deploy_id}\-/)
-        MU.log "Expunging traces of #{MU.deploy_id} from #{hostsfile}"
-        if !@noop
-          FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{deploy_id}")
-          File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
-            f.flock(File::LOCK_EX)
-            newlines = Array.new
-            f.readlines.each { |line|
-              newlines << line if !line.match(/ #{MU.deploy_id}\-/)
+        if Process.uid == 0
+          MU.log "Expunging traces of #{MU.deploy_id} from #{hostsfile}"
+          if !@noop
+            FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{deploy_id}")
+            File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
+              f.flock(File::LOCK_EX)
+              newlines = Array.new
+              f.readlines.each { |line|
+                newlines << line if !line.match(/ #{MU.deploy_id}\-/)
+              }
+              f.rewind
+              f.truncate(0)
+              f.puts(newlines)
+              f.flush
+              f.flock(File::LOCK_UN)
             }
-            f.rewind
-            f.truncate(0)
-            f.puts(newlines)
-            f.flush
-            f.flock(File::LOCK_UN)
-          }
+          end
+        else
+          MU.log "Residual /etc/hosts entries for #{MU.deploy_id} must be removed by root user", MU::WARN
         end
       end
 
