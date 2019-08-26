@@ -2210,8 +2210,7 @@ MESSAGE_END
       certs = {}
       results = {}
 
-      is_windows = ([MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?)
-      is_windows = true
+      is_windows = (resource.respond_to?(:windows?) and resource.windows?)
 
       @node_cert_semaphore.synchronize {
         MU::Master::SSL.bootstrap
@@ -2225,17 +2224,20 @@ MESSAGE_END
         winrm_cert = nil
         if is_windows
           winrm_key = MU::Master::SSL.getKey(cert_cn+"-winrm")
-          winrm_cert = MU::Master::SSL.getCert(cert_cn+"-winrm", "/CN=#{resource.config['windows_admin_username']}/O=Mu/C=US", sans: ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"], pfx: true)
+          winrm_cert, winrm_pfx = MU::Master::SSL.getCert(cert_cn+"-winrm", "/CN=#{resource.config['windows_admin_username']}/O=Mu/C=US", sans: ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"], pfx: true)
           results[cert_cn+"-winrm"] = [winrm_key, winrm_cert]
         end
 
         if resource and resource.config and resource.config['cloud']
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource.config['cloud'])
 
-          cloudclass.writeDeploySecret(@deploy_id, cert.to_pem, cert_cn+".crt")
-          cloudclass.writeDeploySecret(@deploy_id, key.to_pem, cert_cn+".key")
+          cloudclass.writeDeploySecret(@deploy_id, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
+          cloudclass.writeDeploySecret(@deploy_id, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])
           if pfx_cert
-            cloudclass.writeDeploySecret(@deploy_id, pfx_cert.to_der, cert_cn+".pfx")
+            cloudclass.writeDeploySecret(@deploy_id, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
+          end
+          if winrm_cert
+            cloudclass.writeDeploySecret(@deploy_id, winrm_cert.to_pem, cert_cn+"-winrm.crt", credentials: resource.config['credentials'])
           end
         end
 

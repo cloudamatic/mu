@@ -292,6 +292,7 @@ module MU
             s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
               'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
             }
+            MU.log "Adding S3 read permissions to #{@mu_name}'s IAM profile", MU::NOTICE, details: s3_objs
             role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
 
             @config['iam_role'] = role.mu_name
