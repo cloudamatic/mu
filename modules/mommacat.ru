@@ -312,7 +312,23 @@ app = proc do |env|
         next
       end
 
-      if action == "deploy"
+      if action == "hosts_add"
+        if Process.uid != 0
+          returnval = throw500 "Service not available"
+        elsif !filter or !path
+          returnval = throw404 env['REQUEST_PATH']
+        else
+          MU::MommaCat.addInstanceToEtcHosts(path, filter)
+          returnval = [
+            200,
+            {
+              'Content-Type' => 'text/plain',
+              'Content-Length' => 2
+            },
+            ["ok"]
+          ]
+        end
+      elsif action == "deploy"
         returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading deploy data for #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
