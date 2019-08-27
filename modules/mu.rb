@@ -91,6 +91,17 @@ module MU
     ((Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
   end
 
+  # Are we operating in a gem?
+  def self.inGem?
+    return @in_gem if defined? @in_gem
+
+    if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
+      @in_gem = true
+    else
+      @in_gem = false
+    end
+  end
+
   # The main (root) Mu user's data directory.
   @@mainDataDir = File.expand_path(@@myRoot+"/../var")
   # The main (root) Mu user's data directory.

@@ -2128,7 +2128,7 @@ MESSAGE_END
         update_servers = update_servers - skip
       end
 
-      return if update_servers.size < 1
+      return if MU.inGem? || update_servers.size < 1
       threads = []
       parent_thread_id = Thread.current.object_id
       update_servers.each { |sibling|
