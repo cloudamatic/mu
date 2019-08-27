@@ -543,6 +543,21 @@ module MU
             if args[:cloud_id]
               found.reject! { |k, v| k != role.name }
             end
+
+            # Now go get everything that's bound here
+            bindings = MU::Cloud::Google::Role.getAllBindings(args[:credentials])
+            if bindings and bindings['by_scope'] and
+               bindings['by_scope']['projects'] and
+               bindings['by_scope']['projects'][args[:project]]
+              bindings['by_scope']['projects'][args[:project]].keys.each { |r|
+                if r.match(/^roles\//)
+                  role = MU::Cloud::Google.iam(credentials: args[:credentials]).get_role(r)
+                  found[role.name] = role
+                elsif !found[r]
+                  MU.log "NEED TO GET #{r}", MU::WARN
+                end
+              }
+            end
           else
             if credcfg['masquerade_as']
               if args[:cloud_id]
@@ -580,7 +595,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil)
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials'],
@@ -626,7 +641,6 @@ module MU
           else # otherwise it's a GCP IAM role of some kind
 
             return nil if cloud_desc.stage == "DISABLED"
-
             if cloud_desc.name.match(/^roles\/([^\/]+)$/)
               name = Regexp.last_match[1]
               bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
@@ -651,51 +665,72 @@ module MU
             end
             bok["display_name"] = cloud_desc.title
 
-            bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
+            bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_role"][@cloud_id]
 
-
-            if bindings 
-              # XXX In theory, for non-canned roles, bindings are already
-              # covered by our sibling user and group resources, but what if
-              # we're not adopting those resource types today? Hm. We'd have to
-              # somehow know whether a resource was being toKitten'd somewhere
-              # else outside of this method's visibility.
-
-              if bindings["domain"]
-                bindings["domain"].each_pair { |domain, roles|
-                  if roles[cloud_desc.name]
-                    bok["bindings"] ||= []
-                    newbinding = {
-                      "entity" => { "id" => domain }
-                    }
-                    roles[cloud_desc.name].each_pair { |scopetype, places|
-                      mu_type = scopetype == "projects" ? "habitats" : scopetype
-                      newbinding[scopetype] = []
-                      if scopetype == "organizations"
-                        places.each { |org|
-                          newbinding[scopetype] << ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org)
-                        }
-                      else
-                        places.each { |scope|
-                          newbinding[scopetype] << MU::Config::Ref.get(
-                            id: scope,
-                            cloud: "Google",
-                            type: mu_type
-                          )
-                        }
-                      end
-                    }
-                    bok["bindings"] << newbinding
+            if bindings
+#pp bindings.keys
+              bindings.keys.each { |scopetype|
+                refmap = {}
+                bindings[scopetype].each_pair { |scope_id, entity_types|
+                  # If we've been given a habitat filter, skip over bindings
+                  # that don't match it.
+                  if scopetype == "projects" and habitats and
+                     !habitats.empty? and !habitats.include?(scope_id)
+                    next
                   end
+
+                  entity_types.each_pair { |entity_type, entities|
+                    mu_type = (entity_type == "serviceAccount" ? "user" : entity_type)+"s"
+                    entities.each { |entity|
+                      entity_ref = if mu_type == "organizations"
+                        { "id" => ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org) }
+                      else
+                        MU::Config::Ref.get(
+                          id: entity,
+                          cloud: "Google",
+                          type: mu_type
+                        )
+                      end
+                      refmap ||= {}
+                      refmap[entity_ref] ||= {}
+                      refmap[entity_ref][scopetype] ||= []
+                      if scopetype == "projects"
+                        refmap[entity_ref][scopetype] << MU::Config::Ref.get(
+                          id: scope_id,
+                          cloud: "Google",
+                          type: "habitats"
+                        )
+                      elsif scopetype == "organizations" or scopetype == "domain" # XXX singular? plural? barf
+                        refmap[entity_ref][scopetype] << ((scope_id == my_org.name and @config['credentials']) ? @config['credentials'] : scope_id)
+                      else
+                        refmap[entity_ref][scopetype] << MU::Config::Ref.get(
+                          id: scope_id,
+                          cloud: "Google",
+                          type: scopetype
+                        )
+                      end
+                      refmap[entity_ref][scopetype].uniq!
+                    }
+                  }
                 }
-              end
+                bok["bindings"] ||= []
+                refmap.each_pair { |entity, scopes|
+                  bok["bindings"] << {
+                    "entity" => entity,
+                    scopetype => scopes[scopetype]
+                  }
+                }
+              }
             end
           end
 
           # Our only reason for declaring canned roles is so we can put their
-          # domain bindings somewhere. If there aren't any, then we don't need
+          # bindings somewhere. If there aren't any, then we don't need
           # to bother with them.
-          return nil if bok['role_source'] == "canned" and bok['bindings'].nil?
+          if bok['role_source'] == "canned" and
+             (bok['bindings'].nil? or bok['bindings'].empty?)
+            return nil
+          end
 
           bok
         end

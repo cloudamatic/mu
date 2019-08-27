@@ -196,7 +196,7 @@ end
               end
               threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
 
-                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing)
+                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)
                 if kitten_cfg
                   kitten_cfg.delete("credentials") if @target_creds
                   class_semaphore.synchronize {
@@ -274,7 +274,6 @@ end
 #      pp stubdeploy.original_config
 
       if deploy and @diff
-        puts "DIFFGDGSFGHSHS"
         prevcfg = MU::Config.manxify(deploy.original_config)
 #File.open("0ld.json", "w") { |f|
 #  f.puts JSON.pretty_generate(prevcfg)
