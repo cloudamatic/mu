@@ -13,7 +13,7 @@ RUN yum install -y centos-release-scl-rh
 RUN yum install -y rh-ruby25-ruby-devel gcc-c++
 RUN gem update --system
 RUN gem install ./cloud-mu-*.gem thin -N
-RUM mkdir -p /opt/mu/etc/
+RUN mkdir -p /opt/mu/etc/
 RUN mkdir -p /usr/local/ruby-current/lib/ruby/gems/2.5.0/gems/var/
 RUN rm cloud-mu-*.gem
 RUN yum remove -y centos-release-scl-rh make gcc gcc-c++ zlib-devel
