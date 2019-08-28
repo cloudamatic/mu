@@ -52,7 +52,7 @@ EOF
   s.add_runtime_dependency 'colorize', "~> 0.8"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'netaddr', '~> 2.0'
-  s.add_runtime_dependency 'nokogiri', "~> 1.8"
+  s.add_runtime_dependency 'nokogiri', "~> 1.10.4"
   s.add_runtime_dependency 'solve', '~> 4.0'
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
