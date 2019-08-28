@@ -36,7 +36,24 @@ class Object
   end
 end
 
+# Mu extensions to Ruby's {Hash} type for internal Mu use
 class Hash
+
+  # A comparison function for sorting arrays of hashes
+  def <=>(other)
+    return 1 if other.nil? or self.size > other.size
+    return -1 if other.size > self.size
+    # Sort any array children we have
+    self.each_pair { |k, v|
+      self[k] = v.sort if v.is_a?(Array)
+    }
+    other.each_pair { |k, v|
+      self[k] = v.sort if v.is_a?(Array)
+    }
+    return 0 if self == other # that was easy!
+    # compare elements and decide who's "bigger" based on their totals?
+    0
+  end
 
   # Recursively compare two hashes
   def diff(with, on = self, level: 0, parents: [])
@@ -72,10 +89,17 @@ class Hash
       # special case- Basket of Kittens lists of declared resources of a type;
       # we use this to decide if we can compare two array elements as if they
       # should be equivalent
+      # We also implement comparison operators for {Hash} and our various
+      # custom objects which we might find in here so that we can get away with
+      # sorting arrays full of weird, non-primitive types.
       done = []
-      on.each { |elt|
+#      before_a = on.dup
+#      after_a = on.dup.sort
+#      before_b = with.dup
+#      after_b = with.dup.sort
+      on.sort.each { |elt|
         if elt.is_a?(Hash) and elt['name']
-          with.each { |other_elt|
+          with.sort.each { |other_elt|
             if other_elt['name'] == elt['name']
               done << elt
               done << other_elt
@@ -87,11 +111,21 @@ class Hash
       }
       on_unique = (on - with) - done
       with_unique = (with - on) - done
+#    if on_unique.size > 0 or with_unique.size > 0
+#      if before_a != after_a
+#        MU.log "A BEFORE", MU::NOTICE, details: before_a
+#        MU.log "A AFTER", MU::NOTICE, details: after_a
+#      end
+#      if before_b != after_b
+#        MU.log "B BEFORE", MU::NOTICE, details: before_b
+#        MU.log "B AFTER", MU::NOTICE, details: after_b
+#      end
+#    end
       on_unique.each { |e|
-        changes << "- "+e.to_s
+        changes << "- ".red+e.to_s
       }
       with_unique.each { |e|
-        changes << "+ "+e.to_s
+        changes << "+ ".green+e.to_s
       }
     else
       if on != with

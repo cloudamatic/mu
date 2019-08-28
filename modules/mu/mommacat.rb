@@ -1414,6 +1414,7 @@ begin
 rescue Exception => e
 MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
 pp e.backtrace
+MU.log "#{callstr}", MU::WARN, details: caller
 exit
 end
                 if found

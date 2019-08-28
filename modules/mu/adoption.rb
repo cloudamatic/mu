@@ -162,10 +162,15 @@ end
         origin = {
           "appname" => bok['appname'],
           "types" => (types & allowed_types).sort,
+          "habitats" => @habitats.sort,
           "group_by" => @group_by.to_s
         }
 
         deploy = MU::MommaCat.findMatchingDeploy(origin)
+        if @diff and !deploy
+          MU.log "--diff was set but I failed to find a deploy like me to compare to", MU::ERR, details: origin
+          exit 1
+        end
 
         @clouds.each { |cloud|
           @scraped.each_pair { |type, resources|
@@ -270,9 +275,13 @@ end
     # for example, remove the explicit +credentials+ attributes and set that
     # value globally, once.
     def vacuum(bok, origin, deploy: nil)
+      if @diff and !deploy
+        MU.log "diff flag set, but no comparable deploy provided", MU::ERR
+        exit 1
+      end
+
       stubdeploy = generateStubDeploy(bok)
 #      pp stubdeploy.original_config
-
       if deploy and @diff
         prevcfg = MU::Config.manxify(deploy.original_config)
 #File.open("0ld.json", "w") { |f|
@@ -283,6 +292,7 @@ end
 #  f.puts JSON.pretty_generate(newcfg)
 #}
         prevcfg.diff(newcfg)
+        puts "------------------"
         exit
       end
 
@@ -333,7 +343,7 @@ end
       }
 
       if @savedeploys
-        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE
+        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
         deploy.save!(force: true, origin: origin)
       end
 

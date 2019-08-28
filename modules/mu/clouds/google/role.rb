@@ -714,7 +714,7 @@ module MU
                 refmap.each_pair { |entity, scopes|
                   bok["bindings"] << {
                     "entity" => entity,
-                    scopetype => scopes[scopetype]
+                    scopetype => scopes[scopetype].sort
                   }
                 }
               }

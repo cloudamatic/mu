@@ -308,6 +308,11 @@ module MU
         kitten if @mommacat # try to populate the actual cloud object for this
       end
 
+      # Comparison operator
+      def <=>(other)
+        return 1 if other.nil?
+        self.to_s <=> other.to_s
+      end
 
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
@@ -454,6 +459,10 @@ end
             # don't be the cause of a fatal error if so, we don't need this
             # object that badly.
             raise e if !e.message.match(/recursive locking/)
+rescue SystemExit => e
+# XXX this is temporary, to cope with some debug stuff that's in findStray
+# for the nonce
+return
           end
         end
 
