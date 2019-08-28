@@ -1,6 +1,5 @@
 image: ruby:2.5
 
-
 stages:
   - Lint Test
   - Test
@@ -159,6 +158,7 @@ Dockerbuild Prod:
   - docker:dind
   image: docker:stable
   variables:
+    DOCKER_DRIVER: overlay
     DOCKER_HOST: tcp://docker:2375/
   dependencies:
   - Gem Build
@@ -180,6 +180,7 @@ Dockerbuild Dev:
   - docker:dind
   image: docker:stable
   variables:
+    DOCKER_DRIVER: overlay
     DOCKER_HOST: tcp://docker:2375/
   dependencies:
   - Gem Build
