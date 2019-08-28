@@ -14,3 +14,5 @@ cookbook 'mu-tools'
 cookbook 'mu-utility'
 cookbook 'mu-nagios' , '~> 8.2.0', git: "https://github.com/cloudamatic/mu-nagios.git"
 cookbook 'firewall', path: 'cookbooks/firewall'
+cookbook 'firewall'
+cookbook 'chocolatey'
