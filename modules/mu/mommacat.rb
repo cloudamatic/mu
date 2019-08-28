@@ -1189,9 +1189,16 @@ raise "NAH"
         habitats: [],
         dummy_ok: false,
         debug: false
-    )
+    ) 
+      callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, flags: #{flags.to_s}) from #{caller[0]}"
 
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
+      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+      if !MU::Cloud.supportedClouds.include?(cloud) or shortclass.nil?
+        MU.log "findStray was called with bogus cloud argument '#{cloud}'", MU::WARN, details: callstr
+        return nil
+      end
+
       begin
         # TODO this is dumb as hell, clean this up.. and while we're at it
         # .dup everything so we don't mangle referenced values from the caller
@@ -1230,8 +1237,7 @@ raise "NAH"
         end
         loglevel = debug ? MU::NOTICE : MU::DEBUG
 
-        MU.log "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, flags: #{flags.to_s}) from #{caller[0]}", loglevel, details: caller
-
+        MU.log callstr, loglevel, details: caller
 
         # See if the thing we're looking for is a member of the deploy that's
         # asking after it.

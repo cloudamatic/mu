@@ -680,33 +680,30 @@ module MU
                   end
 
                   entity_types.each_pair { |entity_type, entities|
-                    mu_type = (entity_type == "serviceAccount" ? "user" : entity_type)+"s"
+                    mu_entitytype = (entity_type == "serviceAccount" ? "user" : entity_type)+"s"
                     entities.each { |entity|
-                      entity_ref = if mu_type == "organizations"
+                      entity_ref = if entity_type == "organizations"
                         { "id" => ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org) }
+                      elsif entity_type == "domain"
+                        { "id" => entity }
                       else
                         MU::Config::Ref.get(
                           id: entity,
                           cloud: "Google",
-                          type: mu_type
+                          type: mu_entitytype
                         )
                       end
                       refmap ||= {}
                       refmap[entity_ref] ||= {}
                       refmap[entity_ref][scopetype] ||= []
-                      if scopetype == "projects"
-                        refmap[entity_ref][scopetype] << MU::Config::Ref.get(
-                          id: scope_id,
-                          cloud: "Google",
-                          type: "habitats"
-                        )
-                      elsif scopetype == "organizations" or scopetype == "domain" # XXX singular? plural? barf
+                      mu_scopetype = scopetype == "projects" ? "habitats" : scopetype
+                      if scopetype == "organizations" or scopetype == "domains" # XXX singular? plural? barf
                         refmap[entity_ref][scopetype] << ((scope_id == my_org.name and @config['credentials']) ? @config['credentials'] : scope_id)
                       else
                         refmap[entity_ref][scopetype] << MU::Config::Ref.get(
                           id: scope_id,
                           cloud: "Google",
-                          type: scopetype
+                          type: mu_scopetype
                         )
                       end
                       refmap[entity_ref][scopetype].uniq!
