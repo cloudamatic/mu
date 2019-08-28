@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '2.0.3'
-  s.date        = '2019-05-25'
+  s.version     = '2.0.4'
+  s.date        = '2019-08-28'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -52,7 +52,7 @@ EOF
   s.add_runtime_dependency 'colorize', "~> 0.8"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'netaddr', '~> 2.0'
-  s.add_runtime_dependency 'nokogiri', "~> 1.10.4"
+  s.add_runtime_dependency 'nokogiri', "~> 1.10"
   s.add_runtime_dependency 'solve', '~> 4.0'
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
