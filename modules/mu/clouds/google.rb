@@ -1194,6 +1194,15 @@ module MU
               end
             end
 
+if method_sym == :get_project_iam_policy and arguments == ["ncbi-network-host"]
+  pp retval
+  puts retval.bindings.size
+  pp arguments
+  puts "============================="
+  puts "============================="
+  puts "============================="
+end
+
             if retval.class.name.match(/.*?::Operation$/)
 
               retries = 0

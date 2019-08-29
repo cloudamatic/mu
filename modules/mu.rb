@@ -48,7 +48,7 @@ class Hash
       self[k] = v.sort if v.is_a?(Array)
     }
     other.each_pair { |k, v|
-      self[k] = v.sort if v.is_a?(Array)
+      other[k] = v.sort if v.is_a?(Array)
     }
     return 0 if self == other # that was easy!
     # compare elements and decide who's "bigger" based on their totals?

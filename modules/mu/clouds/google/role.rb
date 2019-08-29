@@ -601,6 +601,7 @@ module MU
             "credentials" => @config['credentials'],
             "cloud_id" => @cloud_id
           }
+
           my_org = MU::Cloud::Google.getOrg(@config['credentials'])
 
           # This can happen if the role_source isn't set correctly. This logic
@@ -668,7 +669,6 @@ module MU
             bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_role"][@cloud_id]
 
             if bindings
-#pp bindings.keys
               bindings.keys.each { |scopetype|
                 refmap = {}
                 bindings[scopetype].each_pair { |scope_id, entity_types|
@@ -773,9 +773,9 @@ module MU
           @@binding_semaphore.synchronize {
             if @@bindings_by_role.size > 0 and !refresh
               return {
-                "by_role" => @@bindings_by_role,
-                "by_scope" => @@bindings_by_scope,
-                "by_entity" => @@bindings_by_entity
+                "by_role" => @@bindings_by_role.dup,
+                "by_scope" => @@bindings_by_scope.dup,
+                "by_entity" => @@bindings_by_entity.dup
               }
             end
 
@@ -850,12 +850,13 @@ module MU
               MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
                 insertBinding("projects", project, binding)
               }
+
             }
 
             return {
-              "by_role" => @@bindings_by_role,
-              "by_scope" => @@bindings_by_scope,
-              "by_entity" => @@bindings_by_entity
+              "by_role" => @@bindings_by_role.dup,
+              "by_scope" => @@bindings_by_scope.dup,
+              "by_entity" => @@bindings_by_entity.dup
             }
           }
         end
