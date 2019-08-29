@@ -26,7 +26,7 @@ PATH
       net-ssh (~> 4.2)
       net-ssh-multi (~> 1.2, >= 1.2.1)
       netaddr (~> 2.0)
-      nokogiri (~> 1.8)
+      nokogiri (~> 1.10.4)
       optimist (~> 3.0)
       rubocop (~> 0.58)
       ruby-graphviz (~> 1.2)
@@ -42,7 +42,7 @@ GEM
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
     aws-eventstream (1.0.3)
-    aws-sdk-core (2.11.282)
+    aws-sdk-core (2.11.342)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.1.0)
@@ -181,7 +181,7 @@ GEM
       retriable (>= 2.0, < 4.0)
       signet (~> 0.10)
     google-protobuf (3.7.0)
-    googleauth (0.8.1)
+    googleauth (0.9.0)
       faraday (~> 0.12)
       jwt (>= 1.4, < 3.0)
       memoist (~> 0.16)
@@ -198,7 +198,7 @@ GEM
     inifile (3.0.0)
     iniparse (1.4.4)
     ipaddress (0.8.3)
-    jaro_winkler (1.5.2)
+    jaro_winkler (1.5.3)
     jmespath (1.4.0)
     json-schema (2.8.1)
       addressable (>= 2.4)
@@ -244,7 +244,7 @@ GEM
       net-ssh-gateway (>= 1.2.0)
     net-telnet (0.1.1)
     netaddr (2.0.3)
-    nokogiri (1.10.3)
+    nokogiri (1.10.4)
       mini_portile2 (~> 2.4.0)
     nori (2.6.0)
     numerizer (0.1.1)
@@ -301,7 +301,7 @@ GEM
     rspec_junit_formatter (0.2.3)
       builder (< 4)
       rspec-core (>= 2, < 4, != 2.12.0)
-    rubocop (0.70.0)
+    rubocop (0.74.0)
       jaro_winkler (~> 1.5.1)
       parallel (~> 1.10)
       parser (>= 2.6)
@@ -309,7 +309,7 @@ GEM
       ruby-progressbar (~> 1.7)
       unicode-display_width (>= 1.4.0, < 1.7)
     ruby-graphviz (1.2.4)
-    ruby-progressbar (1.10.0)
+    ruby-progressbar (1.10.1)
     ruby-wmi (0.4.0)
     rubyntlm (0.6.2)
     rubyzip (1.2.3)
@@ -370,7 +370,7 @@ GEM
       rubyzip (~> 1.1)
       winrm (~> 2.0)
     wmi-lite (1.0.2)
-    yard (0.9.19)
+    yard (0.9.20)
 
 PLATFORMS
   ruby
@@ -392,4 +392,4 @@ DEPENDENCIES
   winrm (~> 2.3, >= 2.3.2)
 
 BUNDLED WITH
-   1.17.1
+   1.17.2
