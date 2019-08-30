@@ -669,8 +669,8 @@ module MU
             bindings = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_role"][@cloud_id]
 
             if bindings
+              refmap = {}
               bindings.keys.each { |scopetype|
-                refmap = {}
                 bindings[scopetype].each_pair { |scope_id, entity_types|
                   # If we've been given a habitat filter, skip over bindings
                   # that don't match it.
@@ -710,13 +710,14 @@ module MU
                     }
                   }
                 }
-                bok["bindings"] ||= []
-                refmap.each_pair { |entity, scopes|
-                  bok["bindings"] << {
-                    "entity" => entity,
-                    scopetype => scopes[scopetype].sort
-                  }
+              }
+              bok["bindings"] ||= []
+              refmap.each_pair { |entity, scopes|
+                newbinding = { "entity" => entity }
+                scopes.keys.each { |scopetype|
+                  newbinding[scopetype] = scopes[scopetype].sort
                 }
+                bok["bindings"] << newbinding
               }
             end
           end

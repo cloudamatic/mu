@@ -61,13 +61,13 @@ class Hash
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
     end
+    return if on == with
 
-#    indent = (" " * level)
     tree = ""
     indentsize = 0
     parents.each { |p|
       tree += (" " * indentsize) + p + " => \n"
-      indentsize += p.length
+      indentsize += 2
     }
     indent = (" " * indentsize)
 
@@ -80,12 +80,13 @@ class Hash
         diff(with[k], on[k], level: level+1, parents: parents + [k])
       }
       on_unique.each { |k|
-        changes << "- "+PP.pp({k => on[k] }, '')
+        changes << "- ".red+PP.pp({k => on[k] }, '')
       }
       with_unique.each { |k|
-        changes << "+ "+PP.pp({k => with[k]}, '')
+        changes << "+ ".green+PP.pp({k => with[k]}, '')
       }
     elsif on.is_a?(Array)
+      return if with == on
       # special case- Basket of Kittens lists of declared resources of a type;
       # we use this to decide if we can compare two array elements as if they
       # should be equivalent
@@ -98,13 +99,30 @@ class Hash
 #      before_b = with.dup
 #      after_b = with.dup.sort
       on.sort.each { |elt|
-        if elt.is_a?(Hash) and elt['name']
+        if elt.is_a?(Hash) and elt['name'] or elt['entity']# or elt['cloud_id']
           with.sort.each { |other_elt|
-            if other_elt['name'] == elt['name']
+            if (elt['name'] and other_elt['name'] == elt['name']) or
+               (elt['name'].nil? and !elt["id"].nil? and elt["id"] == other_elt["id"]) or
+               (elt['name'].nil? and elt["id"].nil? and
+                !elt["entity"].nil? and !other_elt["entity"].nil? and
+                 (
+                   (elt["entity"]["id"] and elt["entity"]["id"] == other_elt["entity"]["id"]) or
+                   (elt["entity"]["name"] and elt["entity"]["name"] == other_elt["entity"]["name"])
+                 )
+               )
+              break if elt == other_elt
               done << elt
               done << other_elt
-              namestr = elt['type'] ? "#{elt['type']}[#{elt['name']}]" : elt['name']
+              namestr = if elt['type']
+                "#{elt['type']}[#{elt['name']}]"
+              elsif elt['name']
+                elt['name']
+              elsif elt['entity'] and elt["entity"]["id"]
+                elt['entity']['id']
+              end
+
               diff(other_elt, elt, level: level+1, parents: parents + [namestr])
+              break
             end
           }
         end
@@ -129,8 +147,8 @@ class Hash
       }
     else
       if on != with
-        changes << "- #{on.to_s}"
-        changes << "+ #{with.to_s}"
+        changes << "-".red+" #{on.to_s}"
+        changes << "+".green+" #{with.to_s}"
       end
     end
 
