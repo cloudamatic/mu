@@ -39,6 +39,28 @@ end
 # Mu extensions to Ruby's {Hash} type for internal Mu use
 class Hash
 
+  def self.bok_minimize(o)
+    if o.is_a?(Hash)
+      newhash = o.reject { |k, v|
+        !v.is_a?(Array) and !v.is_a?(Hash) and !["name", "type", "id", "cloud_id"].include?(k)
+      }
+      newhash.each_pair { |k, v|
+        newhash[k] = bok_minimize(v)
+      }
+      newhash.reject! { |k, v| v.nil? or v.empty? }
+      return newhash
+    elsif o.is_a?(Array)
+      newarray = []
+      o.each { |v|
+        newvalue = bok_minimize(v)
+        newarray << newvalue if !newvalue.nil? and !newvalue.empty?
+      }
+      return newarray
+    end
+
+    o
+  end
+
   # A comparison function for sorting arrays of hashes
   def <=>(other)
     return 1 if other.nil? or self.size > other.size
@@ -140,10 +162,18 @@ class Hash
 #      end
 #    end
       on_unique.each { |e|
-        changes << "- ".red+e.to_s
+        changes << if e.is_a?(Hash)
+          "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
+        else
+          "- ".red+e.to_s
+        end
       }
       with_unique.each { |e|
-        changes << "+ ".green+e.to_s
+        changes << if e.is_a?(Hash)
+          "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
+        else
+          "+ ".green+e.to_s
+        end
       }
     else
       if on != with

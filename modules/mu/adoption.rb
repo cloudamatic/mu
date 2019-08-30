@@ -281,18 +281,10 @@ end
       end
 
       stubdeploy = generateStubDeploy(bok)
-#      pp stubdeploy.original_config
       if deploy and @diff
         prevcfg = MU::Config.manxify(deploy.original_config)
-#File.open("0ld.json", "w") { |f|
-#  f.puts JSON.pretty_generate(prevcfg)
-#}
         newcfg = MU::Config.manxify(stubdeploy.original_config)
-#File.open("n00b.json", "w") { |f|
-#  f.puts JSON.pretty_generate(newcfg)
-#}
         prevcfg.diff(newcfg)
-        puts "------------------"
         exit
       end
 
