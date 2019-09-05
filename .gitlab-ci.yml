@@ -9,6 +9,7 @@ stages:
   - Merge/Tag
   - Dockerbuild
   - Deploy
+  - DockerTest
   
 Rubocop:
   stage: Lint Test
@@ -199,6 +200,17 @@ Dockerbuild Dev:
     - /^cicd-.*$/
   tags:
     - docker-build
+
+Docker Deploy Test:
+  stage: DockerTest
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  script:
+    - echo "hello from mu $MU_VERSION"
+  only:
+    - development
+    - gen_docs
+    - /^gem-.*$/
+    - /^cicd-.*$/
 
 Gen Docs:
   stage: Merge/Tag
