@@ -39,15 +39,19 @@ end
 # Mu extensions to Ruby's {Hash} type for internal Mu use
 class Hash
 
+  # Strip extraneous fields out of a {MU::Config} hash to make it suitable for
+  # shorthand printing, such as with <tt>mu-adopt --diff</tt>
   def self.bok_minimize(o)
     if o.is_a?(Hash)
       newhash = o.reject { |k, v|
-        !v.is_a?(Array) and !v.is_a?(Hash) and !["name", "type", "id", "cloud_id"].include?(k)
+        !v.is_a?(Array) and !v.is_a?(Hash) and !["name", "id", "cloud_id"].include?(k)
       }
+#      newhash.delete("cloud_id") if newhash["name"] or newhash["id"]
       newhash.each_pair { |k, v|
         newhash[k] = bok_minimize(v)
       }
       newhash.reject! { |k, v| v.nil? or v.empty? }
+      newhash = newhash.values.first if newhash.size == 1
       return newhash
     elsif o.is_a?(Array)
       newarray = []
@@ -55,6 +59,7 @@ class Hash
         newvalue = bok_minimize(v)
         newarray << newvalue if !newvalue.nil? and !newvalue.empty?
       }
+      newarray = newarray.first if newarray.size == 1
       return newarray
     end
 
