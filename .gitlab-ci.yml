@@ -5,11 +5,10 @@ stages:
   - Test
   - Security Test
   - Build
+  - DockerBuild
   - Smoke Test
   - Merge/Tag
-  - Dockerbuild
   - Deploy
-  - DockerTest
   
 Rubocop:
   stage: Lint Test
@@ -153,38 +152,14 @@ Smoke Test:
     - development
   when: manual
 
-Dockerbuild Prod:
-  stage: Dockerbuild
+Dockerbuild:
+  stage: DockerBuild
   services:
   - docker:dind
   image: docker:stable
   variables:
     DOCKER_DRIVER: overlay2
     DOCKER_HOST: tcp://docker:2375/
-  dependencies:
-  - Gem Build
-  script:
-    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
-    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker build -t egtlabs/mu:latest -t egtlabs/mu:$MU_VERSION -t egtlabs/mu:$MU_VERSION-$OS -t egtlabs/mu:$OS .
-    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
-    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
-    #- docker run my-docker-image /script/to/run/tests
-  only:
-    - master
-  tags:
-    - docker-build
-
-Dockerbuild Dev:
-  stage: Dockerbuild
-  services:
-  - docker:dind
-  image: docker:stable
-  variables:
-    DOCKER_DRIVER: overlay2
-    DOCKER_HOST: tcp://docker:2375/
-  dependencies:
-  - Gem Build
   before_script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
   script:
@@ -194,23 +169,60 @@ Dockerbuild Dev:
     - echo "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest" "$CI_REGISTRY_IMAGE:$MU_VERSION" "$CI_REGISTRY_IMAGE:$MU_VERSION-$OS" "$CI_REGISTRY_IMAGE:$OS" | xargs -n 1 docker push
     #- docker run my-docker-image /script/to/run/tests
   only:
+    - master
     - development
-    - gen_docs
     - /^gem-.*$/
     - /^cicd-.*$/
   tags:
     - docker-build
 
-Docker Deploy Test:
-  stage: DockerTest
+DockerTest:
+  stage: Smoke Test
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - echo "hello from mu $MU_VERSION"
   only:
+    - master
     - development
-    - gen_docs
     - /^gem-.*$/
     - /^cicd-.*$/
+
+DockerDeploy:
+  stage: Deploy
+  image: docker:stable
+  when: on_success
+  script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION-$OS
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$OS
+    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
+    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
+  only:
+    - master
+
+DockerDeploy Manual:
+  stage: Deploy
+  image: docker:stable
+  when: manual
+  script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION-$OS
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$OS
+    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
+    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
+  only:
+  - development
+  - /^gem-.*$/
+  - /^cicd-.*$/
 
 Gen Docs:
   stage: Merge/Tag
