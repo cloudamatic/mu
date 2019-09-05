@@ -260,7 +260,20 @@ end
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
         MU.log "Minimizing footprint of #{count.to_s} found resources"
-        @boks[bok['appname']] = vacuum(bok, origin, deploy: deploy)
+        @boks[bok['appname']] = vacuum(bok, origin: origin, save: @savedeploys)
+
+        if @diff and !deploy
+          MU.log "diff flag set, but no comparable deploy provided for #{bok['appname']}", MU::ERR
+          exit 1
+        end
+
+        if deploy and @diff
+          prevcfg = MU::Config.manxify(vacuum(deploy.original_config, deploy: deploy))
+          newcfg = MU::Config.manxify(@boks[bok['appname']])
+
+          prevcfg.diff(newcfg)
+          exit
+        end
       }
       @boks
     end
@@ -274,21 +287,9 @@ end
     # Do the same for our main objects: if they all use the same credentials,
     # for example, remove the explicit +credentials+ attributes and set that
     # value globally, once.
-    def vacuum(bok, origin, deploy: nil)
-      if @diff and !deploy
-        MU.log "diff flag set, but no comparable deploy provided", MU::ERR
-        exit 1
-      end
+    def vacuum(bok, origin: nil, save: false, deploy: nil)
 
-      stubdeploy = generateStubDeploy(bok)
-      if deploy and @diff
-        prevcfg = MU::Config.manxify(deploy.original_config)
-        newcfg = MU::Config.manxify(stubdeploy.original_config)
-        prevcfg.diff(newcfg)
-        exit
-      end
-
-      deploy ||= stubdeploy
+      deploy ||= generateStubDeploy(bok)
 
       globals = {
         'cloud' => {},
@@ -310,31 +311,53 @@ end
                 counts[resource[field]] += 1
               end
             }
-            obj = stubdeploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+            obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
             begin
-              processed << resolveReferences(resource, stubdeploy, obj)
+              processed << resolveReferences(resource, deploy, obj)
             rescue Incomplete
             end
             resource.delete("cloud_id")
           }
+          deploy.original_config[attrs[:cfg_plural]] = processed
           bok[attrs[:cfg_plural]] = processed
         end
       }
 
+      def scrub_globals(h, field)
+        if h.is_a?(Hash)
+          newhash = {}
+          h.each_pair { |k, v|
+            next if k == field
+            newhash[k] = scrub_globals(v, field)
+          }
+          h = newhash
+        elsif h.is_a?(Array)
+          newarr = []
+          h.each { |v|
+            newarr << scrub_globals(v, field)
+          }
+          h = newarr
+        end
+
+        h
+      end
+
       globals.each_pair { |field, counts|
         next if counts.size != 1
         bok[field] = counts.keys.first
-        MU.log "Setting global default #{field} to #{bok[field]}"
+        MU.log "Setting global default #{field} to #{bok[field]} (#{deploy.deploy_id})"
         MU::Cloud.resource_types.each_pair { |typename, attrs|
           if bok[attrs[:cfg_plural]]
+            new_resources = []
             bok[attrs[:cfg_plural]].each { |resource|
-              resource.delete(field)
+              new_resources << scrub_globals(resource, field)
             }
+            bok[attrs[:cfg_plural]] = new_resources
           end
         }
       }
 
-      if @savedeploys
+      if save
         MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
         deploy.save!(force: true, origin: origin)
       end
@@ -442,6 +465,7 @@ MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WA
         set_context_to_me: true,
         mu_user: MU.mu_user
       )
+
       MU::Cloud.resource_types.each_pair { |typename, attrs|
         if bok[attrs[:cfg_plural]]
           bok[attrs[:cfg_plural]].each { |kitten|

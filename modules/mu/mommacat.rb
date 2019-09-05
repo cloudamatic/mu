@@ -215,7 +215,10 @@ module MU
       @clouds = {}
       @seed = MU.seed # pass this in
       @handle = MU.handle # pass this in
-      @appname = @original_config['name'] if @original_config
+      @appname = appname
+      @appname ||= @original_config['name'] if @original_config
+      @timestamp = timestamp
+      @environment = environment
 
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
@@ -272,6 +275,10 @@ module MU
 
       end
 
+      @appname ||= MU.appname
+      @timestamp ||= MU.timestamp
+      @environment ||= MU.environment
+
       loadDeploy(set_context_to_me: set_context_to_me)
       if !deploy_secret.nil?
         if !authKey(deploy_secret)
@@ -279,10 +286,6 @@ module MU
         end
       end
 
-      @appname ||= MU.appname
-      @timestamp ||= MU.timestamp
-      @appname ||= appname
-      @timestamp ||= timestamp
 
       @@litter_semaphore.synchronize {
         @@litters[@deploy_id] ||= self
@@ -2734,6 +2737,10 @@ MESSAGE_END
         if !@deployment.nil? and @deployment.size > 0
           @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
           @deployment['public_key'] = @public_key
+          @deployment['timestamp'] ||= @timestamp
+          @deployment['seed'] ||= @seed
+          @deployment['appname'] ||= @appname
+          @deployment['handle'] ||= @handle
           begin
             # XXX doing this to trigger JSON errors before stomping the stored
             # file...
@@ -3047,7 +3054,7 @@ MESSAGE_END
                   MU.setVar(var, @deployment[var])
                 end
               else
-                MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
+                MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR, details: caller
               end
             }
           end
