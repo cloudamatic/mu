@@ -2074,7 +2074,11 @@ end
       end
 
       if !["mu", "root"].include?(MU.mu_user)
-        response = open("https://127.0.0.1:#{MU.mommaCatPort.to_s}/rest/hosts_add/#{chef_name}/#{public_ip}").read
+        response = nil
+        begin
+          response = open("https://127.0.0.1:#{MU.mommaCatPort.to_s}/rest/hosts_add/#{chef_name}/#{public_ip}").read
+        rescue Errno::ECONNRESET, Errno::ECONNREFUSED => e
+        end
         if response != "ok"
           MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
         end

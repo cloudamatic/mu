@@ -211,7 +211,6 @@ module MU
           return nil
         end
 
-
         if $MU_CFG and $MU_CFG['aws']
           $MU_CFG['aws'].each_pair { |credset, cfg|
             next if credentials and credset != credentials
@@ -225,12 +224,17 @@ module MU
               validate_region(ENV['EC2_REGION'])
           # Make sure this string is valid by way of the API
           @@myRegion_var = ENV['EC2_REGION']
-        else
+        end
+
+        if hosted? and !@@myRegion_var
           # hacky, but useful in a pinch (and if we're hosted in AWS)
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
           @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
         end
+
+        @@myRegion_var
       end
+
 
       # Is the region we're dealing with a GovCloud region?
       # @param region [String]: The region in question, defaults to the Mu Master's local region

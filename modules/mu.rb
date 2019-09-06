@@ -548,7 +548,6 @@ module MU
   if !$MU_CFG
     require "#{@@myRoot}/bin/mu-load-config.rb"
     if !$MU_CFG['auto_detection_done'] and (!$MU_CFG['multiuser'] or !cfgExists?)
-    MU.log "INLINE LOGIC SAID TO DETECT PROVIDERS"
       detectCloudProviders
     end
   end

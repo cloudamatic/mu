@@ -1995,7 +1995,7 @@ module MU
             end
             if !onlycloud and !mu_name.nil?
               # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
-              if !zone_rrsets.empty?
+              if !zone_rrsets.nil? and !zone_rrsets.empty?
                 zone_rrsets.each { |rrset|
                   if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                     rrset.resource_records.each { |record|
@@ -2005,16 +2005,6 @@ module MU
                   end
                 }
               end
-
-              # Expunge traces left in Chef, Puppet or what have you
-              MU::Groomer.supportedGroomers.each { |groomer|
-                groomclass = MU::Groomer.loadGroomer(groomer)
-                if !server_obj.nil? and !server_obj.config.nil? and !server_obj.config['vault_access'].nil?
-                  groomclass.cleanup(mu_name, server_obj.config['vault_access'], noop)
-                else
-                  groomclass.cleanup(mu_name, [], noop)
-                end
-              }
 
 							if !noop
                 if !server_obj.nil? and !server_obj.config.nil?
