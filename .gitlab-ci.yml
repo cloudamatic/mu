@@ -192,7 +192,12 @@ DockerTest:
 
 DockerDeploy:
   stage: Deploy
+  services:
+  - docker:dind
   image: docker:stable
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_HOST: tcp://docker:2375/
   when: on_success
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
@@ -209,12 +214,16 @@ DockerDeploy:
 
 DockerDeploy Manual:
   stage: Deploy
+  services:
+  - docker:dind
   image: docker:stable
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_HOST: tcp://docker:2375/
   when: manual
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - echo "image:$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
