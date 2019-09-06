@@ -1225,7 +1225,6 @@ module MU
                       resp = MU::Cloud::Google.service_manager(credentials: @credentials).get_operation(
                         retval.name
                       )
-                      pp resp
                       retval = resp
                     elsif retval.class.name.match(/::Cloudresourcemanager[^:]*::/)
                       resp = MU::Cloud::Google.resource_manager(credentials: @credentials).get_operation(
@@ -1235,6 +1234,11 @@ module MU
                       if retval.error
                         raise MuError, retval.error.message
                       end
+                    elsif retval.class.name.match(/::Container[^:]*::/)
+                      resp = MU::Cloud::Google.container(credentials: @credentials).get_project_location_operation(
+                        retval.self_link.sub(/.*?\/projects\//, 'projects/')
+                      )
+                      retval = resp
                     else
                       pp retval
                       raise MuError, "I NEED TO IMPLEMENT AN OPERATION HANDLER FOR #{retval.class.name}"
@@ -1268,6 +1272,10 @@ module MU
                   faked_args.pop
                 end
                 faked_args.push(cloud_id)
+                if get_method == :get_project_location_cluster
+                  faked_args[0] = faked_args[0]+"/clusters/"+faked_args[1]
+                  faked_args.pop
+                end
                 actual_resource = @api.method(get_method).call(*faked_args)
 #if method_sym == :insert_instance
 #MU.log "actual_resource", MU::WARN, details: actual_resource

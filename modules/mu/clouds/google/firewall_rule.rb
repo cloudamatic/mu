@@ -43,7 +43,7 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          @cloud_id = @deploy.getResourceName(@mu_name, max_length: 61).downcase
+          @cloud_id = @mu_name.downcase.gsub(/[^-a-z0-9]/, "-")
 
           vpc_id = @vpc.url if !@vpc.nil?
           vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']

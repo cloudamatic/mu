@@ -23,9 +23,7 @@ module MU
         def initialize(**args)
           super
 
-          if @mu_name
-            @config['availability_zone'] = cloud_desc.zone
-          else
+          if !@mu_name
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 40)
           end
         end
@@ -34,15 +32,10 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this GKE instance.
         def create
-          labels = {}
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            if !value.nil?
-              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
-            end
-          }
+          labels = Hash[@tags.keys.map { |k|
+            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
-
-          @config['availability_zone'] ||= MU::Cloud::Google.listAZs(@config['region']).sample
 
           if @vpc.nil? and @config['vpc'] and @config['vpc']['vpc_name']
             @vpc = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs")
@@ -88,7 +81,27 @@ puts @config['credentials']
             end
           }
 
-          nodeobj = MU::Cloud::Google.container(:NodeConfig).new(node_desc)
+# tpu
+# ip_range
+          nodeobj = if @config['min_size'] and @config['max_size']
+            MU::Cloud::Google.container(:NodePool).new(
+              name: @mu_name.downcase,
+              initial_node_count: @config['instance_count'] || @config['min_size'],
+              autoscaling: MU::Cloud::Google.container(:NodePoolAutoscaling).new(
+                enabled: true,
+                min_node_count: @config['min_size'],
+                max_node_count: @config['max_size'],
+              ),
+              config: MU::Cloud::Google.container(:NodeConfig).new(node_desc)
+            )
+          else
+            MU::Cloud::Google.container(:NodeConfig).new(node_desc)
+          end
+          locations = if @config['availability_zone']
+            [@config['availability_zone']]
+          else
+            MU::Cloud::Google.listAZs(@config['region'])
+          end
 
           desc = {
             :name => @mu_name.downcase,
@@ -97,34 +110,46 @@ puts @config['credentials']
             :subnetwork => subnet.cloud_id,
             :labels => labels,
             :resource_labels => labels,
-            :initial_cluster_version => @config['kubernetes']['version'],
-            :initial_node_count => @config['instance_count'],
-            :locations => MU::Cloud::Google.listAZs(@config['region']),
-            :node_config => nodeobj
+            :locations => locations,
           }
+          if nodeobj.is_a?(::Google::Apis::ContainerV1::NodeConfig)
+            desc[:node_config] = nodeobj
+            desc[:initial_node_count] = @config['instance_count']
+          else
+            desc[:node_pools] = [nodeobj]
+          end
+
+          if @config['max_pods']
+# XXX  DefaultMaxPodsConstraint can only be used if IpAllocationPolicy.UseIpAliases is true
+#            desc[:default_max_pods_constraint] = MU::Cloud::Google.container(:MaxPodsConstraint).new(
+#              max_pods_per_node: @config['max_pods']
+#            )
+          end
+          if @config['kubernetes'] and @config['kubernetes']['version']
+            desc[:initial_cluster_version] = @config['kubernetes']['version']
+          end
 
           requestobj = MU::Cloud::Google.container(:CreateClusterRequest).new(
-            :cluster => MU::Cloud::Google.container(:Cluster).new(desc)
+            :cluster => MU::Cloud::Google.container(:Cluster).new(desc),
+#            :parent => "projects/"+@config['project']+"/"+(@config['availability_zone'] ? @config['availability_zone'] : "-")
           )
 
-          MU.log "Creating GKE cluster #{@mu_name.downcase}", details: desc
-          pp @vpc.subnets.map { |x| x.config['name'] }
-          pp requestobj
-          cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_cluster(
-            @config['project'],
-            @config['availability_zone'],
+          MU.log "Creating GKE cluster #{@mu_name.downcase}", MU::NOTICE, details: requestobj
+          parent_arg = "projects/"+@config['project']+"/locations/"+locations.sample
+
+          cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
+            parent_arg,
             requestobj
           )
-
+          @cloud_id = parent_arg+"/clusters/"+@mu_name.downcase
+MU.log @cloud_id, MU::WARN, details: cluster
           resp = nil
           begin
-            resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
+            resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
             sleep 30 if resp.status != "RUNNING"
           end while resp.nil? or resp.status != "RUNNING"
 #          labelCluster # XXX need newer API release
-          @cloud_id = @mu_name.downcase
 
-# XXX wait until the thing is ready
         end
 
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
@@ -201,9 +226,7 @@ puts @config['credentials']
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          deploydata = describe[2]
-          @config['availability_zone'] ||= deploydata['zone']
-          resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
+          resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
 #          pp resp
 
 #          labelCluster # XXX need newer API release
@@ -230,7 +253,8 @@ puts @config['credentials']
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
-          desc = MU.structToHash(MU::Cloud::Google.container(credentials: @config['credentials']).get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase))
+          resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
+          desc = MU.structToHash(resp)
           desc["project"] = @config['project']
           desc["cloud_id"] = @cloud_id
           desc["project_id"] = @project_id
@@ -248,7 +272,7 @@ puts @config['credentials']
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the
@@ -276,8 +300,8 @@ puts @config['credentials']
                 end
                 MU.log "Deleting GKE cluster #{cluster.name}"
                 if !noop
-                  MU::Cloud::Google.container(credentials: credentials).delete_zone_cluster(flags["project"], az, cluster.name)
                   begin
+                    MU::Cloud::Google.container(credentials: credentials).delete_zone_cluster(flags["project"], az, cluster.name)
                     MU::Cloud::Google.container(credentials: credentials).get_zone_cluster(flags["project"], az, cluster.name)
                     sleep 60
                   rescue ::Google::Apis::ClientError => e
@@ -310,6 +334,11 @@ puts @config['credentials']
               "type" => "integer",
               "description" => "Size of the disk attached to each worker, specified in GB. The smallest allowed disk size is 10GB",
               "default" => 100
+            },
+            "max_pods" => {
+              "type" => "integer",
+              "description" => "Maximum number of pods allowed per node in this cluster",
+              "default" => 30
             },
             "min_cpu_platform" => {
               "type" => "string",
