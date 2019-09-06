@@ -491,8 +491,28 @@ module MU
       # @param credentials [String]
       # @return [String]
       def self.adminBucketName(credentials = nil)
-         #XXX find a default if this particular account doesn't have a log_bucket_name configured
         cfg = credConfig(credentials)
+        if !cfg['log_bucket_name']
+          cfg['log_bucket_name'] = $MU_CFG['hostname'] 
+          MU.log "No AWS log bucket defined for credentials #{credentials}, attempting to use default of #{cfg['log_bucket_name']}", MU::WARN
+        end
+        resp = MU::Cloud::AWS.s3(credentials: credentials).list_buckets
+        found = false
+        resp.buckets.each { |b|
+          if b.name == cfg['log_bucket_name']
+            found = true
+            break
+          end
+        }
+        if !found
+          MU.log "Attempting to create log bucket #{cfg['log_bucket_name']} for credentials #{credentials}", MU::WARN
+          begin
+            resp = MU::Cloud::AWS.s3(credentials: credentials).create_bucket(bucket: cfg['log_bucket_name'], acl: "private")
+          rescue Aws::S3::Errors::BucketAlreadyExists => e
+            raise MuError, "AWS credentials #{credentials} need a log bucket, and the name #{cfg['log_bucket_name']} is unavailable. Use mu-configure to edit credentials '#{credentials}' or 'hostname'"
+          end
+        end
+
         cfg['log_bucket_name']
       end
 
@@ -501,7 +521,7 @@ module MU
       # @param credentials [String]
       # @return [String]
       def self.adminBucketUrl(credentials = nil)
-        "s3://"+adminBucketName+"/"
+        "s3://"+adminBucketName(credentials)+"/"
       end
 
       # Return the $MU_CFG data associated with a particular profile/name/set of
@@ -515,7 +535,9 @@ module MU
         # on a machine hosted in AWS, *and* that machine has an IAM profile,
         # fake it with those credentials and hope for the best.
         if !$MU_CFG['aws'] or !$MU_CFG['aws'].is_a?(Hash) or $MU_CFG['aws'].size == 0
-          return @@my_hosted_cfg if @@my_hosted_cfg
+          if @@my_hosted_cfg
+            return name_only ? "#default" : @@my_hosted_cfg
+          end
 
           if hosted?
             begin
