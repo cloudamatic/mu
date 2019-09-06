@@ -443,6 +443,7 @@ end
 
         if !@obj
           begin
+            hab_arg = @habitat ? [@habitat.to_s] : nil
             found = MU::MommaCat.findStray(
               @cloud,
               @type,
@@ -450,6 +451,7 @@ end
               cloud_id: @id,
               deploy_id: @deploy_id,
               region: @region,
+              habitats: hab_arg,
               credentials: @credentials,
               dummy_ok: (@type == "habitats")
             )

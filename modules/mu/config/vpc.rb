@@ -528,7 +528,19 @@ module MU
 
         flags = {}
         flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
-        flags['project'] = vpc_block['project'] if vpc_block['project']
+        hab_arg = if vpc_block['habitat']
+          if vpc_block['habitat'].is_a?(MU::Config::Ref)
+            [vpc_block['habitat'].id] # XXX actually, findStray it
+          elsif vpc_block['habitat'].is_a?(Hash)
+            [vpc_block['habitat']['id']] # XXX actually, findStray it
+          else
+            [vpc_block['habitat'].to_s]
+          end
+        elsif vpc_block['project']
+          [vpc_block['project']]
+        else
+          []
+        end
 
         # First, dig up the enclosing VPC 
         tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
@@ -546,6 +558,7 @@ module MU
                 tag_value: tag_value,
                 region: vpc_block["region"],
                 flags: flags,
+                habitats: hab_arg,
                 debug: false,
                 dummy_ok: true
               )

@@ -24,8 +24,7 @@ module MU
           super
 
           if @mu_name
-            deploydata = describe[2]
-            @config['availability_zone'] = deploydata['zone']
+            @config['availability_zone'] = cloud_desc.zone
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 40)
           end
@@ -133,6 +132,71 @@ puts @config['credentials']
         def self.find(**args)
           args[:project] ||= args[:habitat]
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          found = {}
+
+          resp = MU::Cloud::Google.container(credentials: args[:credentials]).list_zone_clusters(args[:project], "-")#, parent: "projects/locations/-")
+          if resp and resp.clusters and !resp.clusters.empty?
+            resp.clusters.each { |c|
+              if args[:cloud_id] and c.name != args[:cloud_id] and
+                 c.self_link != args[:cloud_id]
+                next
+              end
+              found[c.name] = c
+            }
+          end
+
+          found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+
+          bok = {
+            "cloud" => "Google",
+            "project" => @config['project'],
+            "credentials" => @config['credentials'],
+            "cloud_id" => cloud_desc.name.dup,
+            "name" => cloud_desc.name.dup
+          }
+
+          bok['region'] = cloud_desc.location.sub(/\-[a-z]$/, "")
+          if cloud_desc.locations.size == 1
+            bok['availability_zone'] = cloud_desc.locations.first
+          end
+          bok["instance_count"] = cloud_desc.current_node_count
+          cloud_desc.network_config.network.match(/^projects\/(.*?)\/.*?\/networks\/([^\/]+)(?:$|\/)/)
+          vpc_proj = Regexp.last_match[1]
+          vpc_id = Regexp.last_match[2]
+
+          bok['vpc'] = MU::Config::Ref.get(
+            id: vpc_id,
+            cloud: "Google",
+            habitat: vpc_proj,
+            credentials: @config['credentials'],
+            type: "vpcs"
+          )
+
+          bok['kubernetes'] = {
+            "version" => cloud_desc.current_master_version.gsub(/\-.*/, "")
+          }
+
+          if cloud_desc.node_pools
+            pool = cloud_desc.node_pools.first # we don't really support multiples atm
+            bok["instance_type"] = pool.config.machine_type
+            bok["disk_size_gb"] = pool.config.disk_size_gb
+            bok["image_type"] = pool.config.image_type
+            if pool.autoscaling
+              bok['max_size'] = pool.autoscaling.max_node_count
+              bok['min_size'] = pool.autoscaling.min_node_count
+            end
+          end
+
+          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+          MU.log bok['name'], MU::NOTICE, details: bok
+
+          bok
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -259,6 +323,10 @@ puts @config['credentials']
             "image_type" => {
               "type" => "string",
               "description" => "The image type to use for workers. Note that for a given image type, the latest version of it will be used."
+            },
+            "availability_zone" => {
+              "type" => "string",
+              "description" => "Target a specific availability zone for this cluster"
             }
           }
           [toplevel_required, schema]

@@ -208,7 +208,6 @@ module MU
       @public_key = nil
       @secrets = Hash.new
       @secrets['instance_secret'] = Hash.new
-      @environment = environment
       @ssh_key_name = ssh_key_name
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
@@ -1193,7 +1192,8 @@ raise "NAH"
         dummy_ok: false,
         debug: false
     ) 
-      callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, flags: #{flags.to_s}) from #{caller[0]}"
+      callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, flags: #{flags.to_s}) from #{caller[0]}"
+      callstack = caller.dup
 
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
@@ -1417,7 +1417,7 @@ begin
 rescue Exception => e
 MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
 pp e.backtrace
-MU.log "#{callstr}", MU::WARN, details: caller
+MU.log "#{callstr}", MU::WARN, details: callstack
 exit
 end
                 if found
@@ -3051,6 +3051,7 @@ MESSAGE_END
           deploy.close
           if set_context_to_me
             ["appname", "environment", "timestamp", "seed", "handle"].each { |var|
+              @deployment[var] ||= instance_variable_get("@#{var}".to_sym)
               if @deployment[var]
                 if var != "handle"
                   MU.setVar(var, @deployment[var].upcase)
@@ -3058,7 +3059,7 @@ MESSAGE_END
                   MU.setVar(var, @deployment[var])
                 end
               else
-                MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR, details: caller
+                MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
               end
             }
           end
