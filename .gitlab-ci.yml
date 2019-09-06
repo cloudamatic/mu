@@ -5,6 +5,7 @@ stages:
   - Test
   - Security Test
   - Build
+  - Docker Build
   - Smoke Test
   - Merge/Tag
   - Deploy
@@ -151,8 +152,8 @@ Smoke Test:
     - development
   when: manual
 
-Dockerbuild:
-  stage: Build
+Docker Build:
+  stage: Docker Build
   services:
   - docker:dind
   image: docker:stable
@@ -213,7 +214,7 @@ DockerDeploy Manual:
   script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - echo "image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - echo "image:$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
