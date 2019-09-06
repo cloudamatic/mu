@@ -327,6 +327,16 @@ puts @config['credentials']
             "availability_zone" => {
               "type" => "string",
               "description" => "Target a specific availability zone for this cluster"
+            },
+            "ip_range" => {
+              "type" => "string",
+              "pattern" => MU::Config::CIDR_PATTERN,
+              "description" => "The IP address range of the container pods in this cluster, in CIDR notation"
+            },
+            "tpu" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable the ability to use Cloud TPUs in this cluster."
             }
           }
           [toplevel_required, schema]
