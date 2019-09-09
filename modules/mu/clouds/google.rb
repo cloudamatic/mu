@@ -701,9 +701,7 @@ module MU
       # server resides (if it resides in this cloud provider's ecosystem).
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
-      def self.listAZs(region = MU.curRegion)
-        region ||= self.myRegion
-
+      def self.listAZs(region = self.myRegion)
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
         raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
         @@regions[region]

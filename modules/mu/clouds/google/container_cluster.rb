@@ -1,4 +1,4 @@
-# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ module MU
               break
             end
           }
-puts @config['credentials']
+
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
             @deploy,
@@ -111,6 +111,11 @@ puts @config['credentials']
             :labels => labels,
             :resource_labels => labels,
             :locations => locations,
+            :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
+              :client_certificate_config => MU::Cloud::Google.container(:ClientCertificateConfig).new(
+                :issue_client_certificate => true
+              )
+            )
           }
           if nodeobj.is_a?(::Google::Apis::ContainerV1::NodeConfig)
             desc[:node_config] = nodeobj
@@ -134,7 +139,7 @@ puts @config['credentials']
 #            :parent => "projects/"+@config['project']+"/"+(@config['availability_zone'] ? @config['availability_zone'] : "-")
           )
 
-          MU.log "Creating GKE cluster #{@mu_name.downcase}", MU::NOTICE, details: requestobj
+          MU.log "Creating GKE cluster #{@mu_name.downcase}", details: requestobj
           parent_arg = "projects/"+@config['project']+"/locations/"+locations.sample
 
           cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
@@ -142,7 +147,7 @@ puts @config['credentials']
             requestobj
           )
           @cloud_id = parent_arg+"/clusters/"+@mu_name.downcase
-MU.log @cloud_id, MU::WARN, details: cluster
+
           resp = nil
           begin
             resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
@@ -152,6 +157,90 @@ MU.log @cloud_id, MU::WARN, details: cluster
 
         end
 
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          me = cloud_desc
+
+          pp me
+          parent_arg = "projects/"+@config['project']+"/locations/"+me.location
+
+          update_desc = {}
+
+          locations = if @config['availability_zone']
+            [@config['availability_zone']]
+          else
+            MU::Cloud::Google.listAZs(@config['region'])
+          end
+          if me.locations != locations
+            update_desc[:desired_locations] = locations
+          end
+
+          if @config['kubernetes'] and @config['kubernetes']['version']
+            if MU::Cloud::Google::ContainerCluster.version_sort(@config['kubernetes']['version'], me.current_master_version) > 0
+              update_desc[:desired_master_version] = @config['kubernetes']['version']
+            end
+          end
+
+          if @config['kubernetes'] and @config['kubernetes']['nodeversion']
+            if MU::Cloud::Google::ContainerCluster.version_sort(@config['kubernetes']['nodeversion'], me.current_node_version) > 0
+              update_desc[:desired_node_version] = @config['kubernetes']['version']
+            end
+          end
+
+          if update_desc.size > 0
+            update_desc.each_pair { |key, value|
+              requestobj = MU::Cloud::Google.container(:UpdateClusterRequest).new(
+                :name => @cloud_id,
+                :update => MU::Cloud::Google.container(:ClusterUpdate).new(
+                  { key =>value }
+                )
+              )
+              MU.log "Setting GKE Cluster #{@mu_name.downcase} #{key.to_s} to '#{value.to_s}'", MU::NOTICE
+              MU::Cloud::Google.container(credentials: @config['credentials']).update_project_location_cluster(
+                @cloud_id,
+                requestobj
+              )
+            }
+          end
+
+          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
+          @endpoint = "https://"+me.endpoint
+          @cacert = me.master_auth.cluster_ca_certificate
+#          @cluster = "gke_"+@project_id+"_"+me.name
+          @cluster = me.name
+          @clientcert = me.master_auth.client_certificate
+          @clientkey = me.master_auth.client_key
+
+          kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-gke.erb"))
+          File.open(kube_conf, "w"){ |k|
+            k.puts kube.result(binding)
+          }
+
+          MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+
+#          labelCluster # XXX need newer API release
+
+          # desired_*:
+          # addons_config
+          # image_type
+          # locations
+          # master_authorized_networks_config
+          # master_version
+          # monitoring_service
+          # node_pool_autoscaling
+          # node_pool_id
+          # node_version
+#          update = {
+
+#          }
+#          pp update
+#          requestobj = MU::Cloud::Google.container(:UpdateClusterRequest).new(
+#            :cluster => MU::Cloud::Google.container(:ClusterUpdate).new(update)
+#          )
+           # XXX do all the kubernetes stuff like we do in AWS
+        end
+
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ContainerClusters
         def self.find(**args)
@@ -159,15 +248,16 @@ MU.log @cloud_id, MU::WARN, details: cluster
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
           found = {}
 
-          resp = MU::Cloud::Google.container(credentials: args[:credentials]).list_zone_clusters(args[:project], "-")#, parent: "projects/locations/-")
-          if resp and resp.clusters and !resp.clusters.empty?
-            resp.clusters.each { |c|
-              if args[:cloud_id] and c.name != args[:cloud_id] and
-                 c.self_link != args[:cloud_id]
-                next
-              end
-              found[c.name] = c
-            }
+          if args[:cloud_id]
+            resp = MU::Cloud::Google.container(credentials: args[:credentials]).get_project_location_cluster(args[:cloud_id])
+            found[args[:cloud_id]] = resp if resp
+          else
+            resp = MU::Cloud::Google.container(credentials: args[:credentials]).list_zone_clusters(args[:project], "-")#, parent: "projects/locations/-")
+            if resp and resp.clusters and !resp.clusters.empty?
+              resp.clusters.each { |c|
+                found[c.name] = c
+              }
+            end
           end
 
           found
@@ -224,32 +314,6 @@ MU.log @cloud_id, MU::WARN, details: cluster
           bok
         end
 
-        # Called automatically by {MU::Deploy#createResources}
-        def groom
-          resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
-#          pp resp
-
-#          labelCluster # XXX need newer API release
-
-          # desired_*:
-          # addons_config
-          # image_type
-          # locations
-          # master_authorized_networks_config
-          # master_version
-          # monitoring_service
-          # node_pool_autoscaling
-          # node_pool_id
-          # node_version
-#          update = {
-
-#          }
-#          pp update
-#          requestobj = MU::Cloud::Google.container(:UpdateClusterRequest).new(
-#            :cluster => MU::Cloud::Google.container(:ClusterUpdate).new(update)
-#          )
-           # XXX do all the kubernetes stuff like we do in AWS
-        end
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
@@ -351,11 +415,24 @@ MU.log @cloud_id, MU::WARN, details: cluster
             },
             "image_type" => {
               "type" => "string",
-              "description" => "The image type to use for workers. Note that for a given image type, the latest version of it will be used."
+              "enum" => defaults.valid_image_types,
+              "description" => "The image type to use for workers. Note that for a given image type, the latest version of it will be used.",
+              "default" => defaults.default_image_type
             },
             "availability_zone" => {
               "type" => "string",
               "description" => "Target a specific availability zone for this cluster"
+            },
+            "kubernetes" => {
+              "properties" => {
+                "version" => {
+                  "type" => "string"
+                },
+                "nodeversion" => {
+                  "type" => "string",
+                  "description" => "The version of Kubernetes to install on GKE worker nodes."
+                }
+              }
             },
             "ip_range" => {
               "type" => "string",
@@ -377,9 +454,45 @@ MU.log @cloud_id, MU::WARN, details: cluster
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(cluster, configurator)
           ok = true
-# XXX validate k8s versions (master and node)
-# XXX validate image types
-# MU::Cloud::Google.container.get_project_zone_serverconfig(@config["project"], @config['availability_zone'])
+
+          master_versions = defaults.valid_master_versions.sort { |a, b| version_sort(a, b) }
+          node_versions = defaults.valid_node_versions.sort { |a, b| version_sort(a, b) }
+
+          if cluster['kubernetes'] and cluster['kubernetes']['version']
+            if cluster['kubernetes']['version'] == "latest"
+              cluster['kubernetes']['version'] = master_versions.last
+            elsif !master_versions.include?(cluster['kubernetes']['version'])
+              match = false
+              master_versions.each { |v|
+                if v.match(/^#{Regexp.quote(cluster['kubernetes']['version'])}/)
+                  match = true
+                  break
+                end
+              }
+              if !match
+                MU.log "Failed to find a GKE master version matching #{cluster['kubernetes']['version']} among available versions.", MU::ERR, details: master_versions
+                ok = false
+              end
+            end
+          end
+
+          if cluster['kubernetes'] and cluster['kubernetes']['nodeversion']
+            if cluster['kubernetes']['nodeversion'] == "latest"
+              cluster['kubernetes']['nodeversion'] = node_versions.last
+            elsif !node_versions.include?(cluster['kubernetes']['nodeversion'])
+              match = false
+              node_versions.each { |v|
+                if v.match(/^#{Regexp.quote(cluster['kubernetes']['nodeversion'])}/)
+                  match = true
+                  break
+                end
+              }
+              if !match
+                MU.log "Failed to find a GKE node version matching #{cluster['kubernetes']['nodeversion']} among available versions.", MU::ERR, details: node_versions
+                ok = false
+              end
+            end
+          end
 
           cluster['instance_type'] = MU::Cloud::Google::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['instance_type'].nil?
@@ -388,6 +501,20 @@ MU.log @cloud_id, MU::WARN, details: cluster
         end
 
         private
+
+        def self.version_sort(a, b)
+          a_parts = a.split(/[^a-z0-9]/)
+          b_parts = b.split(/[^a-z0-9]/)
+          for i in 0..a_parts.size
+            matchval = if a_parts[i].match(/^\d+/) and b_parts[i].match(/^\d+/)
+              a_parts[i].to_i <=> b_parts[i].to_i
+            else
+              a_parts[i] <=> b_parts[i]
+            end
+            return matchval if matchval != 0
+          end
+          0
+        end
 
         def labelCluster
           labels = {}
@@ -403,6 +530,19 @@ MU.log @cloud_id, MU::WARN, details: cluster
           )
           MU::Cloud::Google.container(credentials: @config['credentials']).resource_project_zone_cluster_labels(@config["project"], @config['availability_zone'], @mu_name.downcase, labelset)
         end
+
+        @@server_config = {}
+        def self.defaults(credentials = nil)
+          if @@server_config[credentials]
+            return @@server_config[credentials]
+          end
+
+          parent_arg = "projects/"+MU::Cloud::Google.defaultProject(credentials)+"/locations/"+MU::Cloud::Google.listAZs.sample
+
+          @@server_config[credentials] = MU::Cloud::Google.container(credentials: credentials).get_project_location_server_config(parent_arg)
+          @@server_config[credentials]
+        end
+
 
       end #class
     end #class
