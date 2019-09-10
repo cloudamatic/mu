@@ -252,10 +252,10 @@ module MU
             resp = MU::Cloud::Google.container(credentials: args[:credentials]).get_project_location_cluster(args[:cloud_id])
             found[args[:cloud_id]] = resp if resp
           else
-            resp = MU::Cloud::Google.container(credentials: args[:credentials]).list_zone_clusters(args[:project], "-")#, parent: "projects/locations/-")
+            resp = MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/-")
             if resp and resp.clusters and !resp.clusters.empty?
               resp.clusters.each { |c|
-                found[c.name] = c
+                found[c.self_link.sub(/.*?\/projects\//, 'projects/')] = c
               }
             end
           end
@@ -294,7 +294,8 @@ module MU
           )
 
           bok['kubernetes'] = {
-            "version" => cloud_desc.current_master_version.gsub(/\-.*/, "")
+            "version" => cloud_desc.current_master_version
+            "nodeversion" => cloud_desc.current_node_version
           }
 
           if cloud_desc.node_pools
@@ -309,11 +310,14 @@ module MU
           end
 
           if cloud_desc.private_cluster_config
-            bok["private_cluster"] = {
-              "private_nodes" => cloud_desc.private_cluster_config.enable_private_nodes?,
-              "private_master" => cloud_desc.private_cluster_config.enable_private_endpoint?,
-
-            }
+            if cloud_desc.private_cluster_config.enable_private_nodes?
+              bok["private_cluster"] ||= {}
+              bok["private_cluster"]["private_nodes"] = true
+            end
+            if cloud_desc.private_cluster_config.enable_private_endpoint?
+              bok["private_cluster"] ||= {}
+              bok["private_cluster"]["private_master"] = true
+            end
           end
 
           MU.log @cloud_id, MU::NOTICE, details: cloud_desc
