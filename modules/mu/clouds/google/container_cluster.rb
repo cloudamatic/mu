@@ -184,7 +184,7 @@ module MU
 
           if @config['kubernetes'] and @config['kubernetes']['nodeversion']
             if MU::Cloud::Google::ContainerCluster.version_sort(@config['kubernetes']['nodeversion'], me.current_node_version) > 0
-              update_desc[:desired_node_version] = @config['kubernetes']['version']
+              update_desc[:desired_node_version] = @config['kubernetes']['nodeversion']
             end
           end
 
@@ -308,6 +308,14 @@ module MU
             end
           end
 
+          if cloud_desc.private_cluster_config
+            bok["private_cluster"] = {
+              "private_nodes" => cloud_desc.private_cluster_config.enable_private_nodes?,
+              "private_master" => cloud_desc.private_cluster_config.enable_private_endpoint?,
+
+            }
+          end
+
           MU.log @cloud_id, MU::NOTICE, details: cloud_desc
           MU.log bok['name'], MU::NOTICE, details: bok
 
@@ -394,6 +402,22 @@ module MU
               "type" => "integer",
               "description" => "The number of local SSD disks to be attached to workers. See https://cloud.google.com/compute/docs/disks/local-ssd#local_ssd_limits"
             },
+            "private_cluster" => {
+              "description" => "Set a GKE cluster to be private, that is segregated into its own hidden VPC.",
+              "type" => "object",
+              "properties" => {
+                "private_nodes" => {
+                  "type" => "boolean",
+                  "default" => true,
+                  "description" => "Whether GKE worker nodes have internal IP addresses only."
+                },
+                "private_master" => {
+                  "type" => "boolean",
+                  "default" => false,
+                  "description" => "Whether the GKE Kubernetes master's internal IP address is used as the cluster endpoint."
+                }
+              }
+            },
             "disk_size_gb" => {
               "type" => "integer",
               "description" => "Size of the disk attached to each worker, specified in GB. The smallest allowed disk size is 10GB",
@@ -403,6 +427,15 @@ module MU
               "type" => "integer",
               "description" => "Maximum number of pods allowed per node in this cluster",
               "default" => 30
+            },
+            "min_size" => {
+              "description" => "In GKE, this is the minimum number of nodes *per availability zone*, when scaling is enabled. Setting +min_size+ and +max_size+ enables scaling."
+            },
+            "max_size" => {
+              "description" => "In GKE, this is the maximum number of nodes *per availability zone*, when scaling is enabled. Setting +min_size+ and +max_size+ enables scaling."
+            },
+            "instance_count" => {
+              "description" => "In GKE, this value is ignored if +min_size+ and +max_size+ are set."
             },
             "min_cpu_platform" => {
               "type" => "string",
