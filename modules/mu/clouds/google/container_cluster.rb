@@ -138,6 +138,19 @@ module MU
               use_ip_aliases: true
             )
           end
+
+          if @config['authorized_networks'] and @config['authorized_networks'].size > 0
+            desc[:master_authorized_networks_config] = MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
+              enabled: true,
+              cidr_blocks: @config['authorized_networks'].map { |n|
+                MU::Cloud::Google.container(:CidrBlock).new(
+                  cidr_block: n['ip_block'],
+                  display_name: n['description']
+                )
+              }
+            )
+          end
+
           if @config['max_pods']
 # XXX  DefaultMaxPodsConstraint can only be used if IpAllocationPolicy.UseIpAliases is true
 #            desc[:default_max_pods_constraint] = MU::Cloud::Google.container(:MaxPodsConstraint).new(
@@ -174,7 +187,7 @@ module MU
         def groom
           me = cloud_desc
 
-          pp me
+#          pp me
           parent_arg = "projects/"+@config['project']+"/locations/"+me.location
 
           update_desc = {}
@@ -186,6 +199,29 @@ module MU
           end
           if me.locations != locations
             update_desc[:desired_locations] = locations
+          end
+
+          if @config['authorized_networks'] and @config['authorized_networks'].size > 0
+            desired = @config['authorized_networks'].map { |n|
+              MU::Cloud::Google.container(:CidrBlock).new(
+                cidr_block: n['ip_block'],
+                display_name: n['description']
+              )
+            }
+            if !me.master_authorized_networks_config or
+               !me.master_authorized_networks_config.enabled or
+               !me.master_authorized_networks_config.cidr_blocks or
+               me.master_authorized_networks_config.cidr_blocks.map {|n| n.cidr_block+n.display_name }.sort != desired.map {|n| n.cidr_block+n.display_name }.sort
+              update_desc[:desired_master_authorized_networks_config ] = MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
+                enabled: true,
+                cidr_blocks: desired
+              )
+            end
+          elsif me.master_authorized_networks_config and
+                me.master_authorized_networks_config.enabled
+            update_desc[:desired_master_authorized_networks_config ] = MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
+              enabled: false
+            )
           end
 
           if @config['kubernetes'] and @config['kubernetes']['version']
@@ -208,7 +244,7 @@ module MU
                   { key =>value }
                 )
               )
-              MU.log "Setting GKE Cluster #{@mu_name.downcase} #{key.to_s} to '#{value.to_s}'", MU::NOTICE
+              MU.log "Updating GKE Cluster #{@mu_name.downcase} '#{key.to_s}'", MU::NOTICE, details: value
               begin
                 MU::Cloud::Google.container(credentials: @config['credentials']).update_project_location_cluster(
                   @cloud_id,
@@ -503,6 +539,22 @@ module MU
               "default" => false,
               "description" => "Enable the ability to use Cloud TPUs in this cluster."
             },
+            "authorized_networks" => {
+              "type" => "array",
+              "description" => "GKE's Master authorized networks functionality",
+              "items" => {
+                "type" => "object",
+                "ip_block" => {
+                  "type" => "string",
+                  "description" => "CIDR block to allow",
+                  "pattern" => MU::Config::CIDR_PATTERN,
+                },
+                "description" =>{
+                  "description" => "Label for this CIDR block",
+                  "type" => "string",
+                }
+              }
+            },
             "master_az" => {
               "type" => "string",
               "description" => "Target a specific Availability Zone for the GKE master. If not set, we will choose one which has the most current versions of Kubernetes available."
@@ -517,7 +569,6 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(cluster, configurator)
           ok = true
-
 
           cluster['master_az'] ||= cluster['availability_zone']
 
@@ -537,6 +588,26 @@ module MU
               end
             }
             cluster['master_az'] = best_az
+          end
+
+          # If we've enabled master authorized networks, make sure our Mu
+          # Master is one of the things allowed in.
+          if cluster['authorized_networks']
+            found_me = false
+            my_cidr = NetAddr::IPv4.parse(MU.mu_public_ip)
+            cluster['authorized_networks'].each { |block|
+              cidr_obj = NetAddr::IPv4Net.parse(block['ip_block'])
+              if cidr_obj.contains(my_cidr)
+                found_me = true
+                break
+              end
+            }
+            if !found_me
+              cluster['authorized_networks'] << {
+                "ip_block" => MU.mu_public_ip+"/32",
+                "description" => "Mu Master #{$MU_CFG['hostname']}"
+              }
+            end
           end
 
           master_versions = defaults(az: cluster['master_az']).valid_master_versions.sort { |a, b| version_sort(a, b) }
@@ -618,15 +689,14 @@ module MU
 
         @@server_config = {}
         def self.defaults(credentials = nil, az: nil)
-          if az and @@server_config[credentials][az]
+          az ||= MU::Cloud::Google.listAZs.sample
+          @@server_config[credentials] ||= {}
+          if @@server_config[credentials][az]
             return @@server_config[credentials][az]
           end
 
-          az ||= MU::Cloud::Google.listAZs.sample
-
           parent_arg = "projects/"+MU::Cloud::Google.defaultProject(credentials)+"/locations/"+az
 
-          @@server_config[credentials] ||= {}
           @@server_config[credentials][az] = MU::Cloud::Google.container(credentials: credentials).get_project_location_server_config(parent_arg)
           @@server_config[credentials][az]
         end
