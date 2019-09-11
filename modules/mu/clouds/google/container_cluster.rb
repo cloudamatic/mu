@@ -81,7 +81,6 @@ module MU
             end
           }
 
-# tpu
 # ip_range
           nodeobj = if @config['min_size'] and @config['max_size']
             MU::Cloud::Google.container(:NodePool).new(
@@ -109,6 +108,7 @@ module MU
             :network => @vpc.cloud_id,
             :subnetwork => subnet.cloud_id,
             :labels => labels,
+            :enable_tpu => @config['tpu'],
             :resource_labels => labels,
             :locations => locations,
             :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
@@ -124,23 +124,34 @@ module MU
             desc[:node_pools] = [nodeobj]
           end
 
+          if @config['kubernetes'] and @config['kubernetes']['version']
+            desc[:initial_cluster_version] = @config['kubernetes']['version']
+          end
+
+          if @config['private_cluster']
+            desc[:private_cluster_config] = MU::Cloud::Google.container(:PrivateClusterConfig).new(
+              enable_private_endpoint: @config['private_cluster']['private_master'],
+              enable_private_nodes: @config['private_cluster']['private_nodes'],
+              master_ipv4_cidr_block: @config['private_cluster']['master_ip_block']
+            )
+            desc[:ip_allocation_policy] = MU::Cloud::Google.container(:IpAllocationPolicy).new(
+              use_ip_aliases: true
+            )
+          end
           if @config['max_pods']
 # XXX  DefaultMaxPodsConstraint can only be used if IpAllocationPolicy.UseIpAliases is true
 #            desc[:default_max_pods_constraint] = MU::Cloud::Google.container(:MaxPodsConstraint).new(
 #              max_pods_per_node: @config['max_pods']
 #            )
           end
-          if @config['kubernetes'] and @config['kubernetes']['version']
-            desc[:initial_cluster_version] = @config['kubernetes']['version']
-          end
 
           requestobj = MU::Cloud::Google.container(:CreateClusterRequest).new(
             :cluster => MU::Cloud::Google.container(:Cluster).new(desc),
-#            :parent => "projects/"+@config['project']+"/"+(@config['availability_zone'] ? @config['availability_zone'] : "-")
           )
 
           MU.log "Creating GKE cluster #{@mu_name.downcase}", details: requestobj
-          parent_arg = "projects/"+@config['project']+"/locations/"+locations.sample
+
+          parent_arg = "projects/"+@config['project']+"/locations/"+@config['master_az']
 
           cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
             parent_arg,
@@ -150,6 +161,7 @@ module MU
 
           resp = nil
           begin
+          pp cluster
             resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
             sleep 30 if resp.status != "RUNNING"
           end while resp.nil? or resp.status != "RUNNING"
@@ -197,10 +209,14 @@ module MU
                 )
               )
               MU.log "Setting GKE Cluster #{@mu_name.downcase} #{key.to_s} to '#{value.to_s}'", MU::NOTICE
-              MU::Cloud::Google.container(credentials: @config['credentials']).update_project_location_cluster(
-                @cloud_id,
-                requestobj
-              )
+              begin
+                MU::Cloud::Google.container(credentials: @config['credentials']).update_project_location_cluster(
+                  @cloud_id,
+                  requestobj
+                )
+              rescue ::Google::Apis::ClientError => e
+                MU.log e.message, MU::WARN
+              end
             }
           end
 
@@ -294,7 +310,7 @@ module MU
           )
 
           bok['kubernetes'] = {
-            "version" => cloud_desc.current_master_version
+            "version" => cloud_desc.current_master_version,
             "nodeversion" => cloud_desc.current_node_version
           }
 
@@ -419,6 +435,12 @@ module MU
                   "type" => "boolean",
                   "default" => false,
                   "description" => "Whether the GKE Kubernetes master's internal IP address is used as the cluster endpoint."
+                },
+                "master_ip_block" => {
+                  "type" => "string",
+                  "pattern" => MU::Config::CIDR_PATTERN,
+                  "default" => "172.20.0.0/28",
+                  "description" => "The private IP address range to use for the GKE master's network"
                 }
               }
             },
@@ -480,6 +502,10 @@ module MU
               "type" => "boolean",
               "default" => false,
               "description" => "Enable the ability to use Cloud TPUs in this cluster."
+            },
+            "master_az" => {
+              "type" => "string",
+              "description" => "Target a specific Availability Zone for the GKE master. If not set, we will choose one which has the most current versions of Kubernetes available."
             }
           }
           [toplevel_required, schema]
@@ -492,9 +518,28 @@ module MU
         def self.validateConfig(cluster, configurator)
           ok = true
 
-          master_versions = defaults.valid_master_versions.sort { |a, b| version_sort(a, b) }
-          node_versions = defaults.valid_node_versions.sort { |a, b| version_sort(a, b) }
 
+          cluster['master_az'] ||= cluster['availability_zone']
+
+          # If we haven't been asked for plant the master in a specific AZ, pick
+          # the one (or one of the ones) that supports the most recent versions
+          # of Kubernetes.
+          if !cluster['master_az']
+            best_version = nil
+            best_az = nil
+            MU::Cloud::Google.listAZs(cluster['region']).shuffle.each { |az|
+              best_in_az = defaults(az: az).valid_master_versions.sort { |a, b| version_sort(a, b) }.last
+              best_version ||= best_in_az
+              best_az ||= az
+              if MU::Cloud::Google::ContainerCluster.version_sort(best_in_az, best_version) > 0
+                best_version = best_in_az
+                best_az = az
+              end
+            }
+            cluster['master_az'] = best_az
+          end
+
+          master_versions = defaults(az: cluster['master_az']).valid_master_versions.sort { |a, b| version_sort(a, b) }
           if cluster['kubernetes'] and cluster['kubernetes']['version']
             if cluster['kubernetes']['version'] == "latest"
               cluster['kubernetes']['version'] = master_versions.last
@@ -507,11 +552,13 @@ module MU
                 end
               }
               if !match
-                MU.log "Failed to find a GKE master version matching #{cluster['kubernetes']['version']} among available versions.", MU::ERR, details: master_versions
+                MU.log "Failed to find a GKE master version matching #{cluster['kubernetes']['version']} among available versions in #{cluster['master_az']}.", MU::ERR, details: master_versions
                 ok = false
               end
             end
           end
+
+          node_versions = defaults(az: cluster['master_az']).valid_node_versions.sort { |a, b| version_sort(a, b) }
 
           if cluster['kubernetes'] and cluster['kubernetes']['nodeversion']
             if cluster['kubernetes']['nodeversion'] == "latest"
@@ -525,7 +572,7 @@ module MU
                 end
               }
               if !match
-                MU.log "Failed to find a GKE node version matching #{cluster['kubernetes']['nodeversion']} among available versions.", MU::ERR, details: node_versions
+                MU.log "Failed to find a GKE node version matching #{cluster['kubernetes']['nodeversion']} among available versions in #{cluster['master_az']}.", MU::ERR, details: node_versions
                 ok = false
               end
             end
@@ -543,7 +590,8 @@ module MU
           a_parts = a.split(/[^a-z0-9]/)
           b_parts = b.split(/[^a-z0-9]/)
           for i in 0..a_parts.size
-            matchval = if a_parts[i].match(/^\d+/) and b_parts[i].match(/^\d+/)
+            matchval = if a_parts[i] and b_parts[i] and
+                          a_parts[i].match(/^\d+/) and b_parts[i].match(/^\d+/)
               a_parts[i].to_i <=> b_parts[i].to_i
             else
               a_parts[i] <=> b_parts[i]
@@ -569,15 +617,18 @@ module MU
         end
 
         @@server_config = {}
-        def self.defaults(credentials = nil)
-          if @@server_config[credentials]
-            return @@server_config[credentials]
+        def self.defaults(credentials = nil, az: nil)
+          if az and @@server_config[credentials][az]
+            return @@server_config[credentials][az]
           end
 
-          parent_arg = "projects/"+MU::Cloud::Google.defaultProject(credentials)+"/locations/"+MU::Cloud::Google.listAZs.sample
+          az ||= MU::Cloud::Google.listAZs.sample
 
-          @@server_config[credentials] = MU::Cloud::Google.container(credentials: credentials).get_project_location_server_config(parent_arg)
-          @@server_config[credentials]
+          parent_arg = "projects/"+MU::Cloud::Google.defaultProject(credentials)+"/locations/"+az
+
+          @@server_config[credentials] ||= {}
+          @@server_config[credentials][az] = MU::Cloud::Google.container(credentials: credentials).get_project_location_server_config(parent_arg)
+          @@server_config[credentials][az]
         end
 
 

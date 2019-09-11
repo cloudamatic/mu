@@ -1393,6 +1393,7 @@ module MU
                 habitats: [@project_id],
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
+                credentials: @credentials,
                 dummy_ok: true,
                 debug: debug
               )

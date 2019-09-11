@@ -389,9 +389,10 @@ module MU
             )
           }
         rescue ::Google::Apis::ClientError => e
+MU.log e.message, MU::WARN, details: e.inspect
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
-          elsif e.inspect.match(/notFound: No such object:/)
+          elsif e.message.match(/notFound: /)
             if retries < 5
               sleep 5
               retries += 1
@@ -404,7 +405,7 @@ module MU
             sleep 10
             retry
           else
-            raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
+            raise MuError, "Got #{e.message} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
           end
         end
       end
