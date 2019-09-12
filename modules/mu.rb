@@ -263,6 +263,22 @@ module MU
     @@myRoot
   end
 
+  # utility routine for sorting semantic versioning strings
+  def self.version_sort(a, b)
+    a_parts = a.split(/[^a-z0-9]/)
+    b_parts = b.split(/[^a-z0-9]/)
+    for i in 0..a_parts.size
+      matchval = if a_parts[i] and b_parts[i] and
+                    a_parts[i].match(/^\d+/) and b_parts[i].match(/^\d+/)
+        a_parts[i].to_i <=> b_parts[i].to_i
+      else
+        a_parts[i] <=> b_parts[i]
+      end
+      return matchval if matchval != 0
+    end
+    0
+  end
+
   # Front our global $MU_CFG hash with a read-only copy
   def self.muCfg
     Marshal.load(Marshal.dump($MU_CFG)).freeze

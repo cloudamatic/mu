@@ -205,19 +205,7 @@ pp desc
         def groom
           me = cloud_desc
 
-#          pp me
           parent_arg = "projects/"+@config['project']+"/locations/"+me.location
-
-          update_desc = {}
-
-          locations = if @config['availability_zone']
-            [@config['availability_zone']]
-          else
-            MU::Cloud::Google.listAZs(@config['region'])
-          end
-          if me.locations != locations
-            update_desc[:desired_locations] = locations
-          end
 
           # Enable/disable basic auth
           authcfg = {}
@@ -244,6 +232,18 @@ pp desc
             me = cloud_desc(use_cache: false)
           end
 
+          # Now go through all the things that use update_project_location_cluster
+          update_desc = {}
+
+          locations = if @config['availability_zone']
+            [@config['availability_zone']]
+          else
+            MU::Cloud::Google.listAZs(@config['region'])
+          end
+          if me.locations != locations
+            update_desc[:desired_locations] = locations
+          end
+
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
             desired = @config['authorized_networks'].map { |n|
               MU::Cloud::Google.container(:CidrBlock).new(
@@ -268,13 +268,13 @@ pp desc
           end
 
           if @config['kubernetes'] and @config['kubernetes']['version']
-            if MU::Cloud::Google::ContainerCluster.version_sort(@config['kubernetes']['version'], me.current_master_version) > 0
+            if MU.version_sort(@config['kubernetes']['version'], me.current_master_version) > 0
               update_desc[:desired_master_version] = @config['kubernetes']['version']
             end
           end
 
           if @config['kubernetes'] and @config['kubernetes']['nodeversion']
-            if MU::Cloud::Google::ContainerCluster.version_sort(@config['kubernetes']['nodeversion'], me.current_node_version) > 0
+            if MU.version_sort(@config['kubernetes']['nodeversion'], me.current_node_version) > 0
               update_desc[:desired_node_version] = @config['kubernetes']['nodeversion']
             end
           end
@@ -302,6 +302,15 @@ pp desc
 
           kube_conf = writeKubeConfig
 
+          if @config['kubernetes_resources']
+            MU::Master.applyKubernetesResources(
+              @config['name'], 
+              @config['kubernetes_resources'],
+              kubeconfig: kube_conf,
+              outputdir: @deploy.deploy_dir
+            )
+          end
+
           MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
 
 #          labelCluster # XXX need newer API release
@@ -310,19 +319,9 @@ pp desc
           # addons_config
           # image_type
           # locations
-          # master_authorized_networks_config
-          # master_version
           # monitoring_service
           # node_pool_autoscaling
           # node_pool_id
-          # node_version
-#          update = {
-
-#          }
-#          pp update
-#          requestobj = MU::Cloud::Google.container(:UpdateClusterRequest).new(
-#            :cluster => MU::Cloud::Google.container(:ClusterUpdate).new(update)
-#          )
            # XXX do all the kubernetes stuff like we do in AWS
         end
 
@@ -672,10 +671,10 @@ subjects:
             best_version = nil
             best_az = nil
             MU::Cloud::Google.listAZs(cluster['region']).shuffle.each { |az|
-              best_in_az = defaults(az: az).valid_master_versions.sort { |a, b| version_sort(a, b) }.last
+              best_in_az = defaults(az: az).valid_master_versions.sort { |a, b| MU.version_sort(a, b) }.last
               best_version ||= best_in_az
               best_az ||= az
-              if MU::Cloud::Google::ContainerCluster.version_sort(best_in_az, best_version) > 0
+              if MU.version_sort(best_in_az, best_version) > 0
                 best_version = best_in_az
                 best_az = az
               end
@@ -703,7 +702,7 @@ subjects:
             end
           end
 
-          master_versions = defaults(az: cluster['master_az']).valid_master_versions.sort { |a, b| version_sort(a, b) }
+          master_versions = defaults(az: cluster['master_az']).valid_master_versions.sort { |a, b| MU.version_sort(a, b) }
           if cluster['kubernetes'] and cluster['kubernetes']['version']
             if cluster['kubernetes']['version'] == "latest"
               cluster['kubernetes']['version'] = master_versions.last
@@ -722,7 +721,7 @@ subjects:
             end
           end
 
-          node_versions = defaults(az: cluster['master_az']).valid_node_versions.sort { |a, b| version_sort(a, b) }
+          node_versions = defaults(az: cluster['master_az']).valid_node_versions.sort { |a, b| MU.version_sort(a, b) }
 
           if cluster['kubernetes'] and cluster['kubernetes']['nodeversion']
             if cluster['kubernetes']['nodeversion'] == "latest"
@@ -749,21 +748,6 @@ subjects:
         end
 
         private
-
-        def self.version_sort(a, b)
-          a_parts = a.split(/[^a-z0-9]/)
-          b_parts = b.split(/[^a-z0-9]/)
-          for i in 0..a_parts.size
-            matchval = if a_parts[i] and b_parts[i] and
-                          a_parts[i].match(/^\d+/) and b_parts[i].match(/^\d+/)
-              a_parts[i].to_i <=> b_parts[i].to_i
-            else
-              a_parts[i] <=> b_parts[i]
-            end
-            return matchval if matchval != 0
-          end
-          0
-        end
 
         def labelCluster
           labels = {}
