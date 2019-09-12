@@ -98,7 +98,8 @@ module MU
         orig.uniq!
       elsif new.is_a?(String)
         orig ||= ""
-        orig += "\n#{cloud.upcase}: "+new
+        orig += "\n" if !orig.empty? 
+        orig += "#{cloud.upcase}: "+new
       else
 # XXX I think this is a NOOP?
       end
@@ -167,6 +168,7 @@ module MU
             else
               if only_children[attrs[:cfg_plural]][key]
                 prefix = only_children[attrs[:cfg_plural]][key].keys.map{ |x| x.upcase }.join(" & ")+" ONLY"
+                cfg["description"].gsub!(/^\n#/, '') # so we don't leave the description blank in the "optional parameters" section
                 cfg = prepend_descriptions(prefix, cfg)
               end
 

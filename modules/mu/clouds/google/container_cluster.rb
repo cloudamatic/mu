@@ -102,6 +102,12 @@ module MU
             MU::Cloud::Google.listAZs(@config['region'])
           end
 
+          master_user = @config['master_user']
+          # We'll create a temporary basic auth config so that we can grant
+          # useful permissions to the Client Certificate user
+          master_user ||= "master_user"
+          master_pw = Password.pronounceable(16..18)
+
           desc = {
             :name => @mu_name.downcase,
             :description => @deploy.deploy_id,
@@ -114,7 +120,9 @@ module MU
             :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
               :client_certificate_config => MU::Cloud::Google.container(:ClientCertificateConfig).new(
                 :issue_client_certificate => true
-              )
+              ),
+              :username => master_user,
+              :password => master_pw
             )
           }
           if nodeobj.is_a?(::Google::Apis::ContainerV1::NodeConfig)
@@ -145,7 +153,7 @@ module MU
               cidr_blocks: @config['authorized_networks'].map { |n|
                 MU::Cloud::Google.container(:CidrBlock).new(
                   cidr_block: n['ip_block'],
-                  display_name: n['description']
+                  display_name: n['label']
                 )
               }
             )
@@ -165,7 +173,7 @@ module MU
           MU.log "Creating GKE cluster #{@mu_name.downcase}", details: requestobj
 
           parent_arg = "projects/"+@config['project']+"/locations/"+@config['master_az']
-
+pp desc
           cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
             parent_arg,
             requestobj
@@ -174,10 +182,20 @@ module MU
 
           resp = nil
           begin
-          pp cluster
             resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
             sleep 30 if resp.status != "RUNNING"
           end while resp.nil? or resp.status != "RUNNING"
+
+          writeKubeConfig
+
+          # delete our temporary master user if we didn't really want one
+          if !@config['master_user']
+#            :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
+#              :client_certificate_config => MU::Cloud::Google.container(:ClientCertificateConfig).new(
+#                :issue_client_certificate => true
+#              )
+#            )
+          end
 #          labelCluster # XXX need newer API release
 
         end
@@ -201,11 +219,36 @@ module MU
             update_desc[:desired_locations] = locations
           end
 
+          # Enable/disable basic auth
+          authcfg = {}
+          action = nil
+          if @config['master_user'] and (me.master_auth.username != @config['master_user'] or !me.master_auth.password)
+            authcfg[:username] = @config['master_user']
+            authcfg[:password] = Password.pronounceable(16..18)
+            MU.log "Enabling basic auth for GKE cluster #{@mu_name.downcase}", MU::NOTICE, details: authcfg
+          elsif !@config['master_user'] and me.master_auth.username
+            authcfg[:username] = ""
+            MU.log "Disabling basic auth for GKE cluster #{@mu_name.downcase}", MU::NOTICE
+          end
+          if authcfg.size > 0
+            MU::Cloud::Google.container(credentials: @config['credentials']).set_project_location_cluster_master_auth(
+              @cloud_id,
+              MU::Cloud::Google.container(:SetMasterAuthRequest).new(
+                name: @cloud_id,
+                action: "SET_USERNAME",
+                update: MU::Cloud::Google.container(:MasterAuth).new(
+                  authcfg
+                )
+              )
+            )
+            me = cloud_desc(use_cache: false)
+          end
+
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
             desired = @config['authorized_networks'].map { |n|
               MU::Cloud::Google.container(:CidrBlock).new(
                 cidr_block: n['ip_block'],
-                display_name: n['description']
+                display_name: n['label']
               )
             }
             if !me.master_authorized_networks_config or
@@ -254,20 +297,10 @@ module MU
                 MU.log e.message, MU::WARN
               end
             }
+            me = cloud_desc(use_cache: false)
           end
 
-          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
-          @endpoint = "https://"+me.endpoint
-          @cacert = me.master_auth.cluster_ca_certificate
-#          @cluster = "gke_"+@project_id+"_"+me.name
-          @cluster = me.name
-          @clientcert = me.master_auth.client_certificate
-          @clientkey = me.master_auth.client_key
-
-          kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-gke.erb"))
-          File.open(kube_conf, "w"){ |k|
-            k.puts kube.result(binding)
-          }
+          kube_conf = writeKubeConfig
 
           MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
 
@@ -291,6 +324,62 @@ module MU
 #            :cluster => MU::Cloud::Google.container(:ClusterUpdate).new(update)
 #          )
            # XXX do all the kubernetes stuff like we do in AWS
+        end
+
+        def writeKubeConfig
+          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
+          client_binding = @deploy.deploy_dir+"/k8s-client-user-admin-binding.yaml"
+          @endpoint = "https://"+cloud_desc.endpoint
+          @cacert = cloud_desc.master_auth.cluster_ca_certificate
+          @cluster = cloud_desc.name
+          @clientcert = cloud_desc.master_auth.client_certificate
+          @clientkey = cloud_desc.master_auth.client_key
+          if cloud_desc.master_auth.username
+            @username = cloud_desc.master_auth.username
+          end
+          if cloud_desc.master_auth.password
+            @password = cloud_desc.master_auth.password
+          end
+
+          kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-gke.erb"))
+          File.open(kube_conf, "w"){ |k|
+            k.puts kube.result(binding)
+          }
+
+          # Take this opportunity to ensure that the 'client' service account
+          # used by certificate authentication exists and has appropriate
+          # privilege
+          if @username and @password
+            File.open(client_binding, "w"){ |k|
+              k.puts <<-EOF
+kind: ClusterRoleBinding 
+apiVersion: rbac.authorization.k8s.io/v1
+metadata: 
+  name: client-binding
+  namespace: kube-system
+roleRef: 
+  kind: ClusterRole 
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+subjects: 
+- kind: User
+  name: client
+  namespace: kube-system
+              EOF
+            }
+            bind_cmd = %Q{kubectl create serviceaccount client --namespace=kube-system --kubeconfig "#{kube_conf}" ; kubectl --kubeconfig "#{kube_conf}" apply -f #{client_binding}}
+            MU.log bind_cmd
+            system(bind_cmd)
+          end
+          # unset the variables we set just for ERB
+          [:@endpoint, :@cacert, :@cluster, :@clientcert, :@clientkey, :@username, :@password].each { |var|
+            begin
+              remove_instance_variable(var)
+            rescue NameError
+            end
+          }
+
+          kube_conf
         end
 
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
@@ -539,17 +628,21 @@ module MU
               "default" => false,
               "description" => "Enable the ability to use Cloud TPUs in this cluster."
             },
+            "master_user" => {
+              "type" => "string",
+              "description" => "Enables Basic Auth for a GKE cluster with string as the master username"
+            },
             "authorized_networks" => {
               "type" => "array",
-              "description" => "GKE's Master authorized networks functionality",
               "items" => {
+                "description" => "GKE's Master authorized networks functionality",
                 "type" => "object",
                 "ip_block" => {
                   "type" => "string",
                   "description" => "CIDR block to allow",
                   "pattern" => MU::Config::CIDR_PATTERN,
                 },
-                "description" =>{
+                "label" =>{
                   "description" => "Label for this CIDR block",
                   "type" => "string",
                 }
@@ -605,7 +698,7 @@ module MU
             if !found_me
               cluster['authorized_networks'] << {
                 "ip_block" => MU.mu_public_ip+"/32",
-                "description" => "Mu Master #{$MU_CFG['hostname']}"
+                "label" => "Mu Master #{$MU_CFG['hostname']}"
               }
             end
           end

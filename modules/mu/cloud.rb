@@ -1188,7 +1188,7 @@ module MU
           @config.merge!(newcfg)
         end
         
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           describe
 
           if !@cloudobj.nil?
@@ -1196,7 +1196,7 @@ module MU
               @cloud_desc_cache ||= @cloudobj.cloud_desc
             end
           end
-          if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
+          if !@config.nil? and !@cloud_id.nil? and (!use_cache or @cloud_desc_cache.nil?)
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
