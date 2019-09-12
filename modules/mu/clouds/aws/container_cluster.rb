@@ -179,14 +179,14 @@ module MU
               k.puts gitlab.result(binding)
             }
 
-            authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
+            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
             MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
             %x{#{authmap_cmd}}
 
 # and this one
-            admin_user_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
-            admin_role_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
+            admin_user_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
+            admin_role_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
             MU.log "Configuring Kubernetes admin-user and role", MU::NOTICE, details: admin_user_cmd+"\n"+admin_role_cmd
             %x{#{admin_user_cmd}}
             %x{#{admin_role_cmd}}

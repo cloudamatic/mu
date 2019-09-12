@@ -366,7 +366,7 @@ subjects:
   namespace: kube-system
               EOF
             }
-            bind_cmd = %Q{kubectl create serviceaccount client --namespace=kube-system --kubeconfig "#{kube_conf}" ; kubectl --kubeconfig "#{kube_conf}" apply -f #{client_binding}}
+            bind_cmd = %Q{#{MU::Master.kubectl} create serviceaccount client --namespace=kube-system --kubeconfig "#{kube_conf}" ; #{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f #{client_binding}}
             MU.log bind_cmd
             system(bind_cmd)
           end
