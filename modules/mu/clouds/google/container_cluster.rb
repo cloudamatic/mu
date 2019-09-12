@@ -136,6 +136,16 @@ module MU
             desc[:initial_cluster_version] = @config['kubernetes']['version']
           end
 
+          if @config['preferred_maintenance_window']
+            desc[:maintenance_policy] = MU::Cloud::Google.container(:MaintenancePolicy).new(
+              window: MU::Cloud::Google.container(:MaintenanceWindow).new(
+                daily_maintenance_window: MU::Cloud::Google.container(:DailyMaintenanceWindow).new(
+                  start_time: @config['preferred_maintenance_window']
+                )
+              )
+            )
+          end
+
           if @config['private_cluster']
             desc[:private_cluster_config] = MU::Cloud::Google.container(:PrivateClusterConfig).new(
               enable_private_endpoint: @config['private_cluster']['private_master'],
@@ -299,6 +309,32 @@ pp desc
             }
             me = cloud_desc(use_cache: false)
           end
+
+          if @config['preferred_maintenance_window'] and
+             (!me.maintenance_policy.window or
+              !me.maintenance_policy.window.daily_maintenance_window or
+              me.maintenance_policy.window.daily_maintenance_window.start_time != @config['preferred_maintenance_window'])
+            MU.log "Setting GKE Cluster #{@mu_name.downcase} maintenance time to #{@config['preferred_maintenance_window']}", MU::NOTICE
+            MU::Cloud::Google.container(credentials: @config['credentials']).set_project_location_cluster_maintenance_policy(
+              @cloud_id,
+              MU::Cloud::Google.container(:SetMaintenancePolicyRequest).new(
+                maintenance_policy: MU::Cloud::Google.container(:MaintenancePolicy).new(
+                  window: MU::Cloud::Google.container(:MaintenanceWindow).new(
+                    daily_maintenance_window: MU::Cloud::Google.container(:DailyMaintenanceWindow).new(
+                      start_time: @config['preferred_maintenance_window']
+                    )
+                  )
+                )
+              )
+            )
+          elsif !@config['preferred_maintenance_window'] and me.maintenance_policy.window
+            MU.log "Unsetting GKE Cluster #{@mu_name.downcase} maintenance time to #{@config['preferred_maintenance_window']}", MU::NOTICE
+            MU::Cloud::Google.container(credentials: @config['credentials']).set_project_location_cluster_maintenance_policy(
+              @cloud_id,
+              nil
+            )
+          end
+
 
           kube_conf = writeKubeConfig
 
@@ -605,6 +641,11 @@ subjects:
             "availability_zone" => {
               "type" => "string",
               "description" => "Target a specific availability zone for this cluster"
+            },
+            "preferred_maintenance_window" => {
+              "type" => "string",
+              "description" => "The preferred daily time to perform node maintenance. Time format should be in [RFC3339](http://www.ietf.org/rfc/rfc3339.txt) format +HH:MM+ GMT.",
+              "pattern" => '^\d\d:\d\d$'
             },
             "kubernetes" => {
               "properties" => {
