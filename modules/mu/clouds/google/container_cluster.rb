@@ -56,24 +56,6 @@ module MU
 
           @config['ssh_user'] ||= "mu"
 
-          node_desc = {
-            :machine_type => @config['instance_type'],
-            :preemptible => @config['preemptible'],
-            :disk_size_gb => @config['disk_size_gb'],
-            :labels => labels,
-            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
-            :tags => [@mu_name.downcase],
-            :service_account => service_acct.email,
-            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
-            :metadata => {
-              "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
-            }
-          }
-          [:local_ssd_count, :min_cpu_platform, :image_type].each { |field|
-            if @config[field.to_s]
-              node_desc[field] = @config[field.to_s]
-            end
-          }
 
           nodeobj = if @config['min_size'] and @config['max_size']
             MU::Cloud::Google.container(:NodePool).new(
@@ -264,13 +246,13 @@ pp desc
 
           writeKubeConfig
 
-#          labelCluster # XXX need newer API release
-
         end
 
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          labelCluster 
+
           me = cloud_desc
 pp me
           parent_arg = "projects/"+@config['project']+"/locations/"+me.location
@@ -310,6 +292,18 @@ pp me
           end
           if me.locations != locations
             updates << { :desired_locations => locations }
+          end
+
+          if @config['min_size'] and @config['max_size'] and
+             (me.node_pools.first.autoscaling.min_node_count != @config['min_size']
+             me.node_pools.first.autoscaling.max_node_count != @config['max_size'])
+            updates << {
+              :desired_node_pool_autoscaling => MU::Cloud::Google.container(:NodePoolAutoscaling).new(
+                enabled: true,
+                max_node_count: @config['max_size'],
+                min_node_count: @config['min_size']
+              )
+            }
           end
 
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
@@ -447,11 +441,6 @@ pp me
           end
 
           MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
-
-#          labelCluster # XXX need newer API release
-
-          # node_pool_autoscaling
-          # node_pool_id
         end
 
 
@@ -914,19 +903,37 @@ pp me
 
         private
 
-        def labelCluster
-          labels = {}
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            if !value.nil?
-              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
+        def node_desc
+          desc = {
+            :machine_type => @config['instance_type'],
+            :preemptible => @config['preemptible'],
+            :disk_size_gb => @config['disk_size_gb'],
+            :labels => labels,
+            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
+            :tags => [@mu_name.downcase],
+            :service_account => service_acct.email,
+            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
+            :metadata => {
+              "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
+            }
+          }
+          [:local_ssd_count, :min_cpu_platform, :image_type].each { |field|
+            if @config[field.to_s]
+              desc[field] = @config[field.to_s]
             end
           }
+        end
+
+        def labelCluster
+          labels = Hash[@tags.keys.map { |k|
+            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
 
           labelset = MU::Cloud::Google.container(:SetLabelsRequest).new(
             resource_labels: labels
           )
-          MU::Cloud::Google.container(credentials: @config['credentials']).resource_project_zone_cluster_labels(@config["project"], @config['availability_zone'], @mu_name.downcase, labelset)
+          MU::Cloud::Google.container(credentials: @config['credentials']).set_project_location_cluster_resource_labels(@cloud_id, labelset)
         end
 
         @@server_config = {}
