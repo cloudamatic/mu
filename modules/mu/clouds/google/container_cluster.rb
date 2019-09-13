@@ -45,13 +45,6 @@ module MU
             raise MuError, "ContainerCluster #{@config['name']} unable to locate its resident VPC from #{@config['vpc']}"
           end
 
-          subnet = nil
-          @vpc.subnets.each { |s|
-            if s.az == @config['region']
-              subnet = s
-              break
-            end
-          }
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
@@ -112,7 +105,6 @@ module MU
             :name => @mu_name.downcase,
             :description => @deploy.deploy_id,
             :network => @vpc.cloud_id,
-            :subnetwork => subnet.cloud_id,
             :labels => labels,
             :enable_tpu => @config['tpu'],
             :resource_labels => labels,
@@ -139,6 +131,16 @@ module MU
               )
             )
           }
+          # Pick an existing subnet from our VPC, if we're not going to create
+          # one.
+          if !@config['custom_subnet']
+            @vpc.subnets.each { |s|
+              if s.az == @config['region']
+                desc[:subnetwork] = s.cloud_id
+                break
+              end
+            }
+          end
           if @config['log_facility'] == "kubernetes"
             desc[:logging_service] = "logging.googleapis.com/kubernetes"
             desc[:monitoring_service] = "monitoring.googleapis.com/kubernetes"
@@ -182,6 +184,45 @@ module MU
             )
           end
 
+          if @config['ip_aliases'] or @config['custom_subnet'] or
+             @config['services_ip_block'] or @config['services_ip_block_name'] or
+             @config['pod_ip_block'] or @config['pod_ip_block_name'] or
+             @config['tpu_ip_block']
+            alloc_desc = { :use_ip_aliases => @config['ip_aliases'] }
+
+            if @config['custom_subnet']
+              alloc_desc[:create_subnetwork] = true
+              alloc_desc[:subnetwork_name] = if @config['custom_subnet']['name']
+                @config['custom_subnet']['name']
+              else
+                @mu_name.downcase
+              end
+
+              if @config['custom_subnet']['node_ip_block']
+                alloc_desc[:node_ipv4_cidr_block] = @config['custom_subnet']['node_ip_block']
+              end
+            else
+              if @config['pod_ip_block_name']
+                alloc_desc[:cluster_secondary_range_name] = @config['pod_ip_block_name']
+              end
+              if @config['services_ip_block_name']
+                alloc_desc[:services_secondary_range_name] = @config['services_ip_block_name']
+              end
+            end
+
+            if @config['services_ip_block']
+              alloc_desc[:services_ipv4_cidr_block] = @config['services_ip_block']
+            end
+            if @config['tpu_ip_block']
+              alloc_desc[:tpu_ipv4_cidr_block] = @config['tpu_ip_block']
+            end
+            if @config['pod_ip_block']
+              alloc_desc[:cluster_ipv4_cidr_block] = @config['pod_ip_block']
+            end
+
+            desc[:ip_allocation_policy] = MU::Cloud::Google.container(:IpAllocationPolicy).new(alloc_desc)
+          end
+
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
             desc[:master_authorized_networks_config] = MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
               enabled: true,
@@ -223,14 +264,6 @@ pp desc
 
           writeKubeConfig
 
-          # delete our temporary master user if we didn't really want one
-          if !@config['master_user']
-#            :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
-#              :client_certificate_config => MU::Cloud::Google.container(:ClientCertificateConfig).new(
-#                :issue_client_certificate => true
-#              )
-#            )
-          end
 #          labelCluster # XXX need newer API release
 
         end
@@ -239,7 +272,7 @@ pp desc
         # Called automatically by {MU::Deploy#createResources}
         def groom
           me = cloud_desc
-
+pp me
           parent_arg = "projects/"+@config['project']+"/locations/"+me.location
 
           # Enable/disable basic auth
@@ -417,14 +450,8 @@ pp desc
 
 #          labelCluster # XXX need newer API release
 
-          # desired_*:
-          # addons_config
-          # image_type
-          # locations
-          # monitoring_service
           # node_pool_autoscaling
           # node_pool_id
-           # XXX do all the kubernetes stuff like we do in AWS
         end
 
 
@@ -535,7 +562,7 @@ pp desc
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::BETA
+          MU::Cloud::RELEASE
         end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the
@@ -615,6 +642,48 @@ pp desc
                 }
               }
             },
+            "custom_subnet" => {
+              "type" => "object",
+              "description" => "If set, GKE will create a new subnetwork specifically for this cluster",
+              "properties" => {
+                "name" => {
+                  "type" => "string",
+                  "description" => "Set a custom name for the generated subnet"
+                },
+                "node_ip_block" => {
+                  "type" => "string",
+                  "pattern" => MU::Config::CIDR_PATTERN,
+                  "description" => "The IP address range of the worker nodes in this cluster, in CIDR notation"
+                }
+              }
+            },
+            "pod_ip_block" => {
+              "type" => "string",
+              "pattern" => MU::Config::CIDR_PATTERN,
+              "description" => "The IP address range of the container pods in this cluster, in CIDR notation"
+            },
+            "pod_ip_block_name" => {
+              "type" => "string",
+              "description" => "The name of the secondary range to be used for the pod CIDR block"
+            },
+            "services_ip_block" => {
+              "type" => "string",
+              "pattern" => MU::Config::CIDR_PATTERN,
+              "description" => "The IP address range of the services in this cluster, in CIDR notation"
+            },
+            "services_ip_block_name" => {
+              "type" => "string",
+              "description" => "The name of the secondary range to be used for the services CIDR block"
+            },
+            "ip_aliases" => {
+              "type" => "boolean",
+              "description" => "Whether alias IPs will be used for pod IPs in the cluster. Will be automatically enabled for functionality, such as +private_cluster+, which requires it."
+            },
+            "tpu_ip_block" => {
+              "type" => "string",
+              "pattern" => MU::Config::CIDR_PATTERN,
+              "description" => "The IP address range of any Cloud TPUs in this cluster, in CIDR notation"
+            },
             "disk_size_gb" => {
               "type" => "integer",
               "description" => "Size of the disk attached to each worker, specified in GB. The smallest allowed disk size is 10GB",
@@ -669,7 +738,7 @@ pp desc
                 }
               }
             },
-            "ip_range" => {
+            "pod_ip_range" => {
               "type" => "string",
               "pattern" => MU::Config::CIDR_PATTERN,
               "description" => "The IP address range of the container pods in this cluster, in CIDR notation"
@@ -746,6 +815,19 @@ pp desc
           ok = true
 
           cluster['master_az'] ||= cluster['availability_zone']
+
+          if cluster['private_cluster'] or cluster['custom_subnet'] or
+             cluster['services_ip_block'] or cluster['services_ip_block_name'] or
+             cluster['pod_ip_block'] or cluster['pod_ip_block_name'] or
+             cluster['tpu_ip_block']
+            cluster['ip_aliases'] = true
+          end
+
+          if (cluster['pod_ip_block_name'] or cluster['services_ip_block_name']) and
+             cluster['custom_subnet']
+            MU.log "GKE cluster #{cluster['name']} cannot specify pod_ip_block_name or services_ip_block_name when using a custom subnet", MU::ERR
+            ok = false
+          end
 
           # If we haven't been asked for plant the master in a specific AZ, pick
           # the one (or one of the ones) that supports the most recent versions
