@@ -46,13 +46,13 @@ module MU
           end
 
 
-          service_acct = MU::Cloud::Google::Server.createServiceAccount(
+          @service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
             @deploy,
             project: @config['project'],
             credentials: @config['credentials']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email, credentials: @config['credentials'])
+          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
 
           @config['ssh_user'] ||= "mu"
 
@@ -87,9 +87,7 @@ module MU
             :name => @mu_name.downcase,
             :description => @deploy.deploy_id,
             :network => @vpc.cloud_id,
-            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
             :enable_tpu => @config['tpu'],
-            :labels => labels,
             :resource_labels => labels,
             :locations => locations,
             :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
@@ -99,21 +97,25 @@ module MU
               :username => master_user,
               :password => master_pw
             ),
-            :addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
+          }
+
+          if @config['kubernetes']
+            desc[:addons_config] = MU::Cloud::Google.container(:AddonsConfig).new(
               horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
-                disabled: !@config['horizontal_pod_autoscaling']
+                disabled: !@config['kubernetes']['horizontal_pod_autoscaling']
               ),
               http_load_balancing: MU::Cloud::Google.container(:HttpLoadBalancing).new(
-                disabled: !@config['http_load_balancing']
+                disabled: !@config['kubernetes']['http_load_balancing']
               ),
               kubernetes_dashboard: MU::Cloud::Google.container(:KubernetesDashboard).new(
-                disabled: !@config['kubernetes_dashboard']
+                disabled: !@config['kubernetes']['dashboard']
               ),
               network_policy_config: MU::Cloud::Google.container(:NetworkPolicyConfig).new(
-                disabled: !@config['network_policy_addon']
+                disabled: !@config['kubernetes']['network_policy_addon']
               )
             )
-          }
+          end
+
           # Pick an existing subnet from our VPC, if we're not going to create
           # one.
           if !@config['custom_subnet']
@@ -142,8 +144,13 @@ module MU
             desc[:node_pools] = [nodeobj]
           end
 
-          if @config['kubernetes'] and @config['kubernetes']['version']
-            desc[:initial_cluster_version] = @config['kubernetes']['version']
+          if @config['kubernetes']
+            if @config['kubernetes']['version']
+              desc[:initial_cluster_version] = @config['kubernetes']['version']
+            end
+            if @config['kubernetes']['alpha']
+              desc[:enable_kubernetes_alpha] = @config['kubernetes']['alpha']
+            end
           end
 
           if @config['preferred_maintenance_window']
@@ -230,7 +237,7 @@ module MU
           )
 
           MU.log "Creating GKE cluster #{@mu_name.downcase}", details: requestobj
-
+          @config['master_az'] = @config['region']
           parent_arg = "projects/"+@config['project']+"/locations/"+@config['master_az']
 pp desc
           cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
@@ -347,29 +354,31 @@ pp me
             }
           end
 
-          if (me.addons_config.horizontal_pod_autoscaling.disabled and @config['horizontal_pod_autoscaling']) or
-             (!me.addons_config.horizontal_pod_autoscaling and !@config['horizontal_pod_autoscaling']) or
-             (me.addons_config.http_load_balancing.disabled and @config['http_load_balancing']) or
-             (!me.addons_config.http_load_balancing and !@config['http_load_balancing']) or
-             (me.addons_config.kubernetes_dashboard.disabled and @config['kubernetes_dashboard']) or
-             (!me.addons_config.kubernetes_dashboard and !@config['kubernetes_dashboard']) or
-             (me.addons_config.network_policy_config.disabled and @config['network_policy_addon']) or
-             (!me.addons_config.network_policy_config and !@config['network_policy_addon'])
-            updates << { :desired_addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
-              horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
-                disabled: !@config['horizontal_pod_autoscaling']
-              ),
-              http_load_balancing: MU::Cloud::Google.container(:HttpLoadBalancing).new(
-                disabled: !@config['http_load_balancing']
-              ),
-              kubernetes_dashboard: MU::Cloud::Google.container(:KubernetesDashboard).new(
-                disabled: !@config['kubernetes_dashboard']
-              ),
-              network_policy_config: MU::Cloud::Google.container(:NetworkPolicyConfig).new(
-                disabled: !@config['network_policy_addon']
-              )
-            )}
-          end 
+          if @config['kubernetes']
+            if (me.addons_config.horizontal_pod_autoscaling.disabled and @config['kubernetes']['horizontal_pod_autoscaling']) or
+               (!me.addons_config.horizontal_pod_autoscaling and !@config['kubernetes']['horizontal_pod_autoscaling']) or
+               (me.addons_config.http_load_balancing.disabled and @config['kubernetes']['http_load_balancing']) or
+               (!me.addons_config.http_load_balancing and !@config['kubernetes']['http_load_balancing']) or
+               (me.addons_config.kubernetes_dashboard.disabled and @config['kubernetes']['dashboard']) or
+               (!me.addons_config.kubernetes_dashboard and !@config['kubernetes']['dashboard']) or
+               (me.addons_config.network_policy_config.disabled and @config['kubernetes']['network_policy_addon']) or
+               (!me.addons_config.network_policy_config and !@config['kubernetes']['network_policy_addon'])
+              updates << { :desired_addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
+                horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
+                  disabled: !@config['kubernetes']['horizontal_pod_autoscaling']
+                ),
+                http_load_balancing: MU::Cloud::Google.container(:HttpLoadBalancing).new(
+                  disabled: !@config['kubernetes']['http_load_balancing']
+                ),
+                kubernetes_dashboard: MU::Cloud::Google.container(:KubernetesDashboard).new(
+                  disabled: !@config['kubernetes']['dashboard']
+                ),
+                network_policy_config: MU::Cloud::Google.container(:NetworkPolicyConfig).new(
+                  disabled: !@config['kubernetes']['network_policy_addon']
+                )
+              )}
+            end 
+          end
 
           if @config['kubernetes'] and @config['kubernetes']['version']
             if MU.version_sort(@config['kubernetes']['version'], me.current_master_version) > 0
@@ -508,35 +517,45 @@ pp me
 
           if cloud_desc.addons_config.horizontal_pod_autoscaling and
              cloud_desc.addons_config.horizontal_pod_autoscaling.disabled
-            bok['horizontal_pod_autoscaling'] = false
+            bok['kubernetes']['horizontal_pod_autoscaling'] = false
           end
           if cloud_desc.addons_config.http_load_balancing and
              cloud_desc.addons_config.http_load_balancing.disabled
-            bok['http_load_balancing'] = false
+            bok['kubernetes']['http_load_balancing'] = false
           end
           if !cloud_desc.addons_config.kubernetes_dashboard or
              !cloud_desc.addons_config.kubernetes_dashboard.disabled
-            bok['kubernetes_dashboard'] = true
+            bok['kubernetes']['dashboard'] = true
           end
           if !cloud_desc.addons_config.network_policy_config or
              !cloud_desc.addons_config.network_policy_config.disabled
-            bok['network_policy_addon'] = true
+            bok['kubernetes']['network_policy_addon'] = true
           end
 
           if cloud_desc.ip_allocation_policy.use_ip_aliases
             bok['ip_aliases'] = true
           end
-          if cloud_desc.ip_allocation_policy.cluster_secondary_range_name
-            bok['pod_ip_block_name'] = cloud_desc.ip_allocation_policy.cluster_secondary_range_name
-          end
           if cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
             bok['pod_ip_block'] = cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
           end
-          if cloud_desc.ip_allocation_policy.services_secondary_range_name
-            bok['services_ip_block_name'] = cloud_desc.ip_allocation_policy.services_secondary_range_name
-          end
           if cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
             bok['services_ip_block'] = cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
+          end
+
+          if cloud_desc.ip_allocation_policy.create_subnetwork
+            bok['custom_subnet'] = {
+              "name" => (cloud_desc.ip_allocation_policy.subnetwork_name || cloud_desc.subnetwork)
+            }
+            if cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
+              bok['custom_subnet']['node_ip_block'] = cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
+            end
+          else
+            if cloud_desc.ip_allocation_policy.services_secondary_range_name
+              bok['services_ip_block_name'] = cloud_desc.ip_allocation_policy.services_secondary_range_name
+            end
+            if cloud_desc.ip_allocation_policy.cluster_secondary_range_name
+              bok['pod_ip_block_name'] = cloud_desc.ip_allocation_policy.cluster_secondary_range_name
+            end
           end
 
           bok['log_facility'] = if cloud_desc.logging_service == "logging.googleapis.com"
@@ -547,8 +566,24 @@ pp me
             "none"
           end
 
-#            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
-#            :enable_tpu => @config['tpu'],
+          if cloud_desc.master_auth and cloud_desc.master_auth.username
+            bok['master_user'] = cloud_desc.master_auth.username
+          end
+
+          if cloud_desc.maintenance_policy and
+             cloud_desc.maintenance_policy.window and
+             cloud_desc.maintenance_policy.windowdaily_maintenance_window and
+             cloud_desc.maintenance_policy.windowdaily_maintenance_window.start_time
+            bok['preferred_maintenance_window'] = cloud_desc.maintenance_policy.windowdaily_maintenance_window.start_time
+          end
+
+          if cloud_desc.enable_tpu
+            bok['tpu'] = true
+          end
+          if cloud_desc.enable_kubernetes_alpha
+            bok['kubernetes'] ||= {}
+            bok['kubernetes']['alpha'] = true
+          end
 
 #            :tags => [@mu_name.downcase],
 #            :service_account => service_acct.email,
@@ -608,10 +643,8 @@ pp me
             }
           end
 
-
-          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
-          MU.log bok['name'], MU::NOTICE, details: bok
-
+#          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+#          MU.log bok['name'], MU::NOTICE, details: bok
           bok
         end
 
@@ -810,6 +843,31 @@ pp me
                 "nodeversion" => {
                   "type" => "string",
                   "description" => "The version of Kubernetes to install on GKE worker nodes."
+                },
+                "alpha" => {
+                  "type" => "boolean",
+                  "default" => false,
+                  "description" => "Enable alpha-quality Kubernetes features on this cluster"
+                },
+                "dashboard" => {
+                  "type" => "boolean",
+                  "default" => false,
+                  "description" => "Enable the Kubernetes Dashboard"
+                },
+                "horizontal_pod_autoscaling" => {
+                  "type" => "boolean",
+                  "default" => true,
+                  "description" => "Increases or decreases the number of replica pods a replication controller has based on the resource usage of the existing pods."
+                },
+                "http_load_balancing" => {
+                  "type" => "boolean",
+                  "default" => true,
+                  "description" => "HTTP (L7) load balancing controller addon, which makes it easy to set up HTTP load balancers for services in a cluster."
+                },
+                "network_policy_addon" => {
+                  "type" => "boolean",
+                  "default" => false,
+                  "description" => "Enable the Network Policy addon"
                 }
               }
             },
@@ -822,31 +880,6 @@ pp me
               "type" => "boolean",
               "default" => false,
               "description" => "Enable the ability to use Cloud TPUs in this cluster."
-            },
-            "kubernetes_alpha" => {
-              "type" => "boolean",
-              "default" => false,
-              "description" => "Enable alpha-quality Kubernetes features on this cluster"
-            },
-            "kubernetes_dashboard" => {
-              "type" => "boolean",
-              "default" => false,
-              "description" => "Enable the Kubernetes Dashboard"
-            },
-            "horizontal_pod_autoscaling" => {
-              "type" => "boolean",
-              "default" => true,
-              "description" => "Increases or decreases the number of replica pods a replication controller has based on the resource usage of the existing pods."
-            },
-            "http_load_balancing" => {
-              "type" => "boolean",
-              "default" => true,
-              "description" => "HTTP (L7) load balancing controller addon, which makes it easy to set up HTTP load balancers for services in a cluster."
-            },
-            "network_policy_addon" => {
-              "type" => "boolean",
-              "default" => false,
-              "description" => "Enable the Network Policy addon"
             },
             "log_facility" => {
               "type" => "string",
@@ -902,24 +935,6 @@ pp me
              cluster['custom_subnet']
             MU.log "GKE cluster #{cluster['name']} cannot specify pod_ip_block_name or services_ip_block_name when using a custom subnet", MU::ERR
             ok = false
-          end
-
-          # If we haven't been asked for plant the master in a specific AZ, pick
-          # the one (or one of the ones) that supports the most recent versions
-          # of Kubernetes.
-          if !cluster['master_az']
-            best_version = nil
-            best_az = nil
-            MU::Cloud::Google.listAZs(cluster['region']).shuffle.each { |az|
-              best_in_az = defaults(az: az).valid_master_versions.sort { |a, b| MU.version_sort(a, b) }.last
-              best_version ||= best_in_az
-              best_az ||= az
-              if MU.version_sort(best_in_az, best_version) > 0
-                best_version = best_in_az
-                best_az = az
-              end
-            }
-            cluster['master_az'] = best_az
           end
 
           # If we've enabled master authorized networks, make sure our Mu
@@ -990,13 +1005,17 @@ pp me
         private
 
         def node_desc
+          labels = Hash[@tags.keys.map { |k|
+            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
+          labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
           desc = {
             :machine_type => @config['instance_type'],
             :preemptible => @config['preemptible'],
             :disk_size_gb => @config['disk_size_gb'],
             :labels => labels,
             :tags => [@mu_name.downcase],
-            :service_account => service_acct.email,
+            :service_account => @service_acct.email,
             :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
             :metadata => {
               "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
@@ -1007,6 +1026,7 @@ pp me
               desc[field] = @config[field.to_s]
             end
           }
+          desc
         end
 
         def labelCluster
