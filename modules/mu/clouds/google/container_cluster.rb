@@ -87,8 +87,9 @@ module MU
             :name => @mu_name.downcase,
             :description => @deploy.deploy_id,
             :network => @vpc.cloud_id,
-            :labels => labels,
+            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
             :enable_tpu => @config['tpu'],
+            :labels => labels,
             :resource_labels => labels,
             :locations => locations,
             :master_auth => MU::Cloud::Google.container(:MasterAuth).new(
@@ -475,7 +476,7 @@ pp me
             "cloud" => "Google",
             "project" => @config['project'],
             "credentials" => @config['credentials'],
-            "cloud_id" => cloud_desc.name.dup,
+            "cloud_id" => @cloud_id,
             "name" => cloud_desc.name.dup
           }
 
@@ -500,16 +501,84 @@ pp me
             "version" => cloud_desc.current_master_version,
             "nodeversion" => cloud_desc.current_node_version
           }
+          if cloud_desc.default_max_pods_constraint and
+             cloud_desc.default_max_pods_constraint.max_pods_per_node
+            bok['kubernetes']['max_pods'] = cloud_desc.default_max_pods_constraint.max_pods_per_node
+          end
 
-          if cloud_desc.node_pools
+          if cloud_desc.addons_config.horizontal_pod_autoscaling and
+             cloud_desc.addons_config.horizontal_pod_autoscaling.disabled
+            bok['horizontal_pod_autoscaling'] = false
+          end
+          if cloud_desc.addons_config.http_load_balancing and
+             cloud_desc.addons_config.http_load_balancing.disabled
+            bok['http_load_balancing'] = false
+          end
+          if !cloud_desc.addons_config.kubernetes_dashboard or
+             !cloud_desc.addons_config.kubernetes_dashboard.disabled
+            bok['kubernetes_dashboard'] = true
+          end
+          if !cloud_desc.addons_config.network_policy_config or
+             !cloud_desc.addons_config.network_policy_config.disabled
+            bok['network_policy_addon'] = true
+          end
+
+          if cloud_desc.ip_allocation_policy.use_ip_aliases
+            bok['ip_aliases'] = true
+          end
+          if cloud_desc.ip_allocation_policy.cluster_secondary_range_name
+            bok['pod_ip_block_name'] = cloud_desc.ip_allocation_policy.cluster_secondary_range_name
+          end
+          if cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
+            bok['pod_ip_block'] = cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
+          end
+          if cloud_desc.ip_allocation_policy.services_secondary_range_name
+            bok['services_ip_block_name'] = cloud_desc.ip_allocation_policy.services_secondary_range_name
+          end
+          if cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
+            bok['services_ip_block'] = cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
+          end
+
+          bok['log_facility'] = if cloud_desc.logging_service == "logging.googleapis.com"
+            "basic"
+          elsif cloud_desc.logging_service == "logging.googleapis.com/kubernetes"
+            "kubernetes"
+          else
+            "none"
+          end
+
+#            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
+#            :enable_tpu => @config['tpu'],
+
+#            :tags => [@mu_name.downcase],
+#            :service_account => service_acct.email,
+#            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
+#            :metadata => {
+#              "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
+#            }
+
+          if cloud_desc.node_pools and cloud_desc.node_pools.size > 0
             pool = cloud_desc.node_pools.first # we don't really support multiples atm
             bok["instance_type"] = pool.config.machine_type
-            bok["disk_size_gb"] = pool.config.disk_size_gb
-            bok["image_type"] = pool.config.image_type
-            if pool.autoscaling
+            bok["instance_count"] = pool.initial_node_count
+            if pool.autoscaling and pool.autoscaling.enabled
               bok['max_size'] = pool.autoscaling.max_node_count
               bok['min_size'] = pool.autoscaling.min_node_count
             end
+            [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible].each { |field|
+              if pool.config.respond_to?(field)
+                bok[field.to_s] = pool.config.method(field).call
+                bok.delete(field.to_s) if bok[field.to_s].nil?
+              end
+            }
+          else
+            bok["instance_type"] = cloud_desc.node_config.machine_type
+            [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible].each { |field|
+              if cloud_desc.node_config.respond_to?(field)
+                bok[field.to_s] = cloud_desc.node_config.method(field).call
+                bok.delete(field.to_s) if bok[field.to_s].nil?
+              end
+            }
           end
 
           if cloud_desc.private_cluster_config
@@ -521,7 +590,24 @@ pp me
               bok["private_cluster"] ||= {}
               bok["private_cluster"]["private_master"] = true
             end
+            if cloud_desc.private_cluster_config.master_ipv4_cidr_block
+              bok["private_cluster"] ||= {}
+              bok["private_cluster"]["master_ip_block"] = cloud_desc.private_cluster_config.master_ipv4_cidr_block
+            end
           end
+
+          if cloud_desc.master_authorized_networks_config and
+             cloud_desc.master_authorized_networks_config.cidr_blocks and
+             cloud_desc.master_authorized_networks_config.cidr_blocks.size > 0
+            bok['authorized_networks'] = []
+            cloud_desc.master_authorized_networks_config.cidr_blocks.each { |c|
+              bok['authorized_networks'] << {
+                "ip_block" => c.cidr_block,
+                "label" => c.display_name
+              }
+            }
+          end
+
 
           MU.log @cloud_id, MU::NOTICE, details: cloud_desc
           MU.log bok['name'], MU::NOTICE, details: bok
@@ -909,7 +995,6 @@ pp me
             :preemptible => @config['preemptible'],
             :disk_size_gb => @config['disk_size_gb'],
             :labels => labels,
-            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
             :tags => [@mu_name.downcase],
             :service_account => service_acct.email,
             :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
