@@ -68,6 +68,7 @@ module MU
             :preemptible => @config['preemptible'],
             :disk_size_gb => @config['disk_size_gb'],
             :labels => labels,
+            :enable_kubernetes_alpha => @config['kubernetes_alpha'],
             :tags => [@mu_name.downcase],
             :service_account => service_acct.email,
             :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
@@ -81,7 +82,6 @@ module MU
             end
           }
 
-# ip_range
           nodeobj = if @config['min_size'] and @config['max_size']
             MU::Cloud::Google.container(:NodePool).new(
               name: @mu_name.downcase,
@@ -123,8 +123,33 @@ module MU
               ),
               :username => master_user,
               :password => master_pw
+            ),
+            :addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
+              horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
+                disabled: !@config['horizontal_pod_autoscaling']
+              ),
+              http_load_balancing: MU::Cloud::Google.container(:HttpLoadBalancing).new(
+                disabled: !@config['http_load_balancing']
+              ),
+              kubernetes_dashboard: MU::Cloud::Google.container(:KubernetesDashboard).new(
+                disabled: !@config['kubernetes_dashboard']
+              ),
+              network_policy_config: MU::Cloud::Google.container(:NetworkPolicyConfig).new(
+                disabled: !@config['network_policy_addon']
+              )
             )
           }
+          if @config['log_facility'] == "kubernetes"
+            desc[:logging_service] = "logging.googleapis.com/kubernetes"
+            desc[:monitoring_service] = "monitoring.googleapis.com/kubernetes"
+          elsif @config['log_facility'] == "basic"
+            desc[:logging_service] = "logging.googleapis.com"
+            desc[:monitoring_service] = "monitoring.googleapis.com"
+          else
+            desc[:logging_service] = "none"
+            desc[:monitoring_service] = "none"
+          end
+
           if nodeobj.is_a?(::Google::Apis::ContainerV1::NodeConfig)
             desc[:node_config] = nodeobj
             desc[:initial_node_count] = @config['instance_count']
@@ -243,7 +268,7 @@ pp desc
           end
 
           # Now go through all the things that use update_project_location_cluster
-          update_desc = {}
+          updates = []
 
           locations = if @config['availability_zone']
             [@config['availability_zone']]
@@ -251,7 +276,7 @@ pp desc
             MU::Cloud::Google.listAZs(@config['region'])
           end
           if me.locations != locations
-            update_desc[:desired_locations] = locations
+            updates << { :desired_locations => locations }
           end
 
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
@@ -265,39 +290,80 @@ pp desc
                !me.master_authorized_networks_config.enabled or
                !me.master_authorized_networks_config.cidr_blocks or
                me.master_authorized_networks_config.cidr_blocks.map {|n| n.cidr_block+n.display_name }.sort != desired.map {|n| n.cidr_block+n.display_name }.sort
-              update_desc[:desired_master_authorized_networks_config ] = MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
+              updates << { :desired_master_authorized_networks_config => MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
                 enabled: true,
                 cidr_blocks: desired
-              )
+              )}
             end
           elsif me.master_authorized_networks_config and
                 me.master_authorized_networks_config.enabled
-            update_desc[:desired_master_authorized_networks_config ] = MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
+            updates << { :desired_master_authorized_networks_config => MU::Cloud::Google.container(:MasterAuthorizedNetworksConfig).new(
               enabled: false
-            )
+            )}
           end
+
+          if @config['log_facility'] == "kubernetes" and me.logging_service != "logging.googleapis.com/kubernetes"
+            updates << {
+              :desired_logging_service => "logging.googleapis.com/kubernetes",
+              :desired_monitoring_service => "monitoring.googleapis.com/kubernetes"
+            }
+          elsif @config['log_facility'] == "basic" and me.logging_service != "logging.googleapis.com"
+            updates << {
+              :desired_logging_service => "logging.googleapis.com",
+              :desired_monitoring_service => "monitoring.googleapis.com"
+            }
+          elsif @config['log_facility'] == "none" and me.logging_service != "none"
+            updates << {
+              :desired_logging_service => "none",
+              :desired_monitoring_service => "none"
+            }
+          end
+
+          if (me.addons_config.horizontal_pod_autoscaling.disabled and @config['horizontal_pod_autoscaling']) or
+             (!me.addons_config.horizontal_pod_autoscaling and !@config['horizontal_pod_autoscaling']) or
+             (me.addons_config.http_load_balancing.disabled and @config['http_load_balancing']) or
+             (!me.addons_config.http_load_balancing and !@config['http_load_balancing']) or
+             (me.addons_config.kubernetes_dashboard.disabled and @config['kubernetes_dashboard']) or
+             (!me.addons_config.kubernetes_dashboard and !@config['kubernetes_dashboard']) or
+             (me.addons_config.network_policy_config.disabled and @config['network_policy_addon']) or
+             (!me.addons_config.network_policy_config and !@config['network_policy_addon'])
+            updates << { :desired_addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
+              horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
+                disabled: !@config['horizontal_pod_autoscaling']
+              ),
+              http_load_balancing: MU::Cloud::Google.container(:HttpLoadBalancing).new(
+                disabled: !@config['http_load_balancing']
+              ),
+              kubernetes_dashboard: MU::Cloud::Google.container(:KubernetesDashboard).new(
+                disabled: !@config['kubernetes_dashboard']
+              ),
+              network_policy_config: MU::Cloud::Google.container(:NetworkPolicyConfig).new(
+                disabled: !@config['network_policy_addon']
+              )
+            )}
+          end 
 
           if @config['kubernetes'] and @config['kubernetes']['version']
             if MU.version_sort(@config['kubernetes']['version'], me.current_master_version) > 0
-              update_desc[:desired_master_version] = @config['kubernetes']['version']
+              updates << {  :desired_master_version => @config['kubernetes']['version'] }
             end
           end
 
           if @config['kubernetes'] and @config['kubernetes']['nodeversion']
             if MU.version_sort(@config['kubernetes']['nodeversion'], me.current_node_version) > 0
-              update_desc[:desired_node_version] = @config['kubernetes']['nodeversion']
+              updates << { :desired_node_version => @config['kubernetes']['nodeversion'] }
             end
           end
 
-          if update_desc.size > 0
-            update_desc.each_pair { |key, value|
+          if updates.size > 0
+            updates.each { |mapping|
               requestobj = MU::Cloud::Google.container(:UpdateClusterRequest).new(
                 :name => @cloud_id,
                 :update => MU::Cloud::Google.container(:ClusterUpdate).new(
-                  { key =>value }
+                  mapping
                 )
               )
-              MU.log "Updating GKE Cluster #{@mu_name.downcase} '#{key.to_s}'", MU::NOTICE, details: value
+              MU.log "Updating GKE Cluster #{@mu_name.downcase}", MU::NOTICE, details: mapping
               begin
                 MU::Cloud::Google.container(credentials: @config['credentials']).update_project_location_cluster(
                   @cloud_id,
@@ -361,61 +427,6 @@ pp desc
            # XXX do all the kubernetes stuff like we do in AWS
         end
 
-        def writeKubeConfig
-          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
-          client_binding = @deploy.deploy_dir+"/k8s-client-user-admin-binding.yaml"
-          @endpoint = "https://"+cloud_desc.endpoint
-          @cacert = cloud_desc.master_auth.cluster_ca_certificate
-          @cluster = cloud_desc.name
-          @clientcert = cloud_desc.master_auth.client_certificate
-          @clientkey = cloud_desc.master_auth.client_key
-          if cloud_desc.master_auth.username
-            @username = cloud_desc.master_auth.username
-          end
-          if cloud_desc.master_auth.password
-            @password = cloud_desc.master_auth.password
-          end
-
-          kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-gke.erb"))
-          File.open(kube_conf, "w"){ |k|
-            k.puts kube.result(binding)
-          }
-
-          # Take this opportunity to ensure that the 'client' service account
-          # used by certificate authentication exists and has appropriate
-          # privilege
-          if @username and @password
-            File.open(client_binding, "w"){ |k|
-              k.puts <<-EOF
-kind: ClusterRoleBinding 
-apiVersion: rbac.authorization.k8s.io/v1
-metadata: 
-  name: client-binding
-  namespace: kube-system
-roleRef: 
-  kind: ClusterRole 
-  name: cluster-admin
-  apiGroup: rbac.authorization.k8s.io
-subjects: 
-- kind: User
-  name: client
-  namespace: kube-system
-              EOF
-            }
-            bind_cmd = %Q{#{MU::Master.kubectl} create serviceaccount client --namespace=kube-system --kubeconfig "#{kube_conf}" ; #{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f #{client_binding}}
-            MU.log bind_cmd
-            system(bind_cmd)
-          end
-          # unset the variables we set just for ERB
-          [:@endpoint, :@cacert, :@cluster, :@clientcert, :@clientkey, :@username, :@password].each { |var|
-            begin
-              remove_instance_variable(var)
-            rescue NameError
-            end
-          }
-
-          kube_conf
-        end
 
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ContainerClusters
@@ -557,7 +568,7 @@ subjects:
                     MU::Cloud::Google.container(credentials: credentials).get_zone_cluster(flags["project"], az, cluster.name)
                     sleep 60
                   rescue ::Google::Apis::ClientError => e
-                    if e.message.match(/is currently creating cluster/)
+                    if e.message.match(/is currently (creating|upgrading) cluster/)
                       sleep 60
                       retry
                     elsif !e.message.match(/notFound:/)
@@ -667,6 +678,37 @@ subjects:
               "type" => "boolean",
               "default" => false,
               "description" => "Enable the ability to use Cloud TPUs in this cluster."
+            },
+            "kubernetes_alpha" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable alpha-quality Kubernetes features on this cluster"
+            },
+            "kubernetes_dashboard" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable the Kubernetes Dashboard"
+            },
+            "horizontal_pod_autoscaling" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Increases or decreases the number of replica pods a replication controller has based on the resource usage of the existing pods."
+            },
+            "http_load_balancing" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "HTTP (L7) load balancing controller addon, which makes it easy to set up HTTP load balancers for services in a cluster."
+            },
+            "network_policy_addon" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable the Network Policy addon"
+            },
+            "log_facility" => {
+              "type" => "string",
+              "default" => "kubernetes",
+              "description" => "The +logging.googleapis.com+ and +monitoring.googleapis.com+ facilities that this cluster should use to write logs and metrics.",
+              "enum" => ["basic", "kubernetes", "none"]
             },
             "master_user" => {
               "type" => "string",
@@ -819,6 +861,61 @@ subjects:
           @@server_config[credentials][az]
         end
 
+        def writeKubeConfig
+          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
+          client_binding = @deploy.deploy_dir+"/k8s-client-user-admin-binding.yaml"
+          @endpoint = "https://"+cloud_desc.endpoint
+          @cacert = cloud_desc.master_auth.cluster_ca_certificate
+          @cluster = cloud_desc.name
+          @clientcert = cloud_desc.master_auth.client_certificate
+          @clientkey = cloud_desc.master_auth.client_key
+          if cloud_desc.master_auth.username
+            @username = cloud_desc.master_auth.username
+          end
+          if cloud_desc.master_auth.password
+            @password = cloud_desc.master_auth.password
+          end
+
+          kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-gke.erb"))
+          File.open(kube_conf, "w"){ |k|
+            k.puts kube.result(binding)
+          }
+
+          # Take this opportunity to ensure that the 'client' service account
+          # used by certificate authentication exists and has appropriate
+          # privilege
+          if @username and @password
+            File.open(client_binding, "w"){ |k|
+              k.puts <<-EOF
+kind: ClusterRoleBinding 
+apiVersion: rbac.authorization.k8s.io/v1
+metadata: 
+  name: client-binding
+  namespace: kube-system
+roleRef: 
+  kind: ClusterRole 
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+subjects: 
+- kind: User
+  name: client
+  namespace: kube-system
+              EOF
+            }
+            bind_cmd = %Q{#{MU::Master.kubectl} create serviceaccount client --namespace=kube-system --kubeconfig "#{kube_conf}" ; #{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f #{client_binding}}
+            MU.log bind_cmd
+            system(bind_cmd)
+          end
+          # unset the variables we set just for ERB
+          [:@endpoint, :@cacert, :@cluster, :@clientcert, :@clientkey, :@username, :@password].each { |var|
+            begin
+              remove_instance_variable(var)
+            rescue NameError
+            end
+          }
+
+          kube_conf
+        end
 
       end #class
     end #class
