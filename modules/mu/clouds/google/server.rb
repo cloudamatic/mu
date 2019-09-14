@@ -1134,6 +1134,22 @@ next if !create
               "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
               "default" => "muadmin"
             },
+            "metadata" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Custom key-value pairs to be added to the metadata of Google Cloud virtual machines",
+                "required" => ["key", "value"],
+                "properties" => {
+                  "key" => {
+                    "type" => "string"
+                  },
+                  "value" => {
+                    "type" => "string"
+                  }
+                }
+              }
+            },
             "routes" => {
               "type" => "array",
               "items" => MU::Config::VPC.routeschema

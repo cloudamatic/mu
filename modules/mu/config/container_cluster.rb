@@ -45,7 +45,7 @@ module MU
             },
             "kubernetes" => {
               "type" => "object",
-              "description" => "Options for Kubernetes, specific to EKS or GKE",
+              "description" => "Kubernetes-specific options",
               "properties" => {
                 "version" => {
                   "type" => "string",

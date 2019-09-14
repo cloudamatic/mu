@@ -111,13 +111,13 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           skipsnapshots||= flags["skipsnapshots"]
-          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
-          if instances and instances.items
-            instances.items.each { |instance|
-              MU.log "Deleting Cloud SQL instance #{instance.name}"
-              MU::Cloud::Google.sql(credentials: credentials).delete_instance(flags['project'], instance.name) if !noop
-            }
-          end
+#          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
+#          if instances and instances.items
+#            instances.items.each { |instance|
+#              MU.log "Deleting Cloud SQL instance #{instance.name}"
+#              MU::Cloud::Google.sql(credentials: credentials).delete_instance(flags['project'], instance.name) if !noop
+#            }
+#          end
         end
 
         # Cloud-specific configuration properties.

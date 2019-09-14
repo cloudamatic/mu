@@ -78,20 +78,23 @@ module MU
     # Accessor for our Basket of Kittens schema definition
     def self.schema
       @@schema
-    end
+ema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]    end
 
     # Deep merge a configuration hash so we can meld different cloud providers'
     # schemas together, while preserving documentation differences
     def self.schemaMerge(orig, new, cloud)
       if new.is_a?(Hash)
         new.each_pair { |k, v|
+          if cloud and k == "description" and v.is_a?(String) and !v.match(/\b#{Regexp.quote(cloud.upcase)}\b/) and !v.empty?
+            new[k] = "+"+cloud.upcase+"+: "+v
+          end
           if orig and orig.has_key?(k)
-            schemaMerge(orig[k], new[k], cloud)
           elsif orig
             orig[k] = new[k]
           else
             orig = new
           end
+          schemaMerge(orig[k], new[k], cloud)
         }
       elsif orig.is_a?(Array) and new
         orig.concat(new)
@@ -99,7 +102,7 @@ module MU
       elsif new.is_a?(String)
         orig ||= ""
         orig += "\n" if !orig.empty? 
-        orig += "#{cloud.upcase}: "+new
+        orig += "+#{cloud.upcase}+: "+new
       else
 # XXX I think this is a NOOP?
       end
@@ -134,8 +137,6 @@ module MU
       # recursively chase down description fields in arrays and objects of our
       # schema and prepend stuff to them for documentation
       def self.prepend_descriptions(prefix, cfg)
-#        cfg["description"] ||= ""
-#        cfg["description"] = prefix+cfg["description"]
         cfg["prefix"] = prefix
         if cfg["type"] == "array" and cfg["items"]
           cfg["items"] = prepend_descriptions(prefix, cfg["items"])
@@ -159,7 +160,9 @@ module MU
           next if required.size == 0 and res_schema.size == 0
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
-            cfg["description"] = "\n# +"+cloud.upcase+"+: "+cfg["description"]
+            if !cfg["description"].empty?
+              cfg["description"] = "\n# +"+cloud.upcase+"+: "+cfg["description"]
+            end
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""

@@ -225,11 +225,10 @@ module MU
             )
           end
 
-          if @config['max_pods']
-# XXX  DefaultMaxPodsConstraint can only be used if IpAllocationPolicy.UseIpAliases is true
-#            desc[:default_max_pods_constraint] = MU::Cloud::Google.container(:MaxPodsConstraint).new(
-#              max_pods_per_node: @config['max_pods']
-#            )
+          if @config['max_pods'] and @config['ip_aliases']
+            desc[:default_max_pods_constraint] = MU::Cloud::Google.container(:MaxPodsConstraint).new(
+              max_pods_per_node: @config['max_pods']
+            )
           end
 
           requestobj = MU::Cloud::Google.container(:CreateClusterRequest).new(
@@ -550,10 +549,12 @@ pp me
               bok['custom_subnet']['node_ip_block'] = cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
             end
           else
-            if cloud_desc.ip_allocation_policy.services_secondary_range_name
+            if cloud_desc.ip_allocation_policy.services_secondary_range_name and
+               !cloud_desc.ip_allocation_policy.services_secondary_range_name.match(/^gke-#{cloud_desc.name}-services-[a-f\d]{8}$/)
               bok['services_ip_block_name'] = cloud_desc.ip_allocation_policy.services_secondary_range_name
             end
-            if cloud_desc.ip_allocation_policy.cluster_secondary_range_name
+            if cloud_desc.ip_allocation_policy.cluster_secondary_range_name and
+               !cloud_desc.ip_allocation_policy.services_secondary_range_name.match(/^gke-#{cloud_desc.name}-pods-[a-f\d]{8}$/)
               bok['pod_ip_block_name'] = cloud_desc.ip_allocation_policy.cluster_secondary_range_name
             end
           end
@@ -572,9 +573,9 @@ pp me
 
           if cloud_desc.maintenance_policy and
              cloud_desc.maintenance_policy.window and
-             cloud_desc.maintenance_policy.windowdaily_maintenance_window and
-             cloud_desc.maintenance_policy.windowdaily_maintenance_window.start_time
-            bok['preferred_maintenance_window'] = cloud_desc.maintenance_policy.windowdaily_maintenance_window.start_time
+             cloud_desc.maintenance_policy.window.daily_maintenance_window and
+             cloud_desc.maintenance_policy.window.daily_maintenance_window.start_time
+            bok['preferred_maintenance_window'] = cloud_desc.maintenance_policy.window.daily_maintenance_window.start_time
           end
 
           if cloud_desc.enable_tpu
@@ -643,8 +644,8 @@ pp me
             }
           end
 
-#          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
-#          MU.log bok['name'], MU::NOTICE, details: bok
+          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+          MU.log bok['name'], MU::NOTICE, details: bok
           bok
         end
 
@@ -684,38 +685,43 @@ pp me
 
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          clusters = []
 
+          # Make sure we catch regional *and* zone clusters
+          found = MU::Cloud::Google.container(credentials: credentials).list_project_location_clusters("projects/#{flags['project']}/locations/#{region}")
+          clusters.concat(found.clusters) if found and found.clusters
           MU::Cloud::Google.listAZs(region).each { |az|
-            found = MU::Cloud::Google.container(credentials: credentials).list_zone_clusters(flags["project"], az)
-            if found and found.clusters
-              found.clusters.each { |cluster|
+            found = MU::Cloud::Google.container(credentials: credentials).list_project_location_clusters("projects/#{flags['project']}/locations/#{az}")
+            clusters.concat(found.clusters) if found and found.clusters
+          }
 
-                if !cluster.resource_labels or (
-                     !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
-                     cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
-                   )
-                  next
+          clusters.uniq.each { |cluster|
+            if !cluster.resource_labels or (
+                 !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
+                 cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+               )
+              next
+            end
+            MU.log "Deleting GKE cluster #{cluster.name}"
+            if !noop
+              cloud_id = cluster.self_link.sub(/.*?\/projects\//, 'projects/')
+              begin
+                MU::Cloud::Google.container(credentials: credentials).delete_project_location_cluster(cloud_id)
+                MU::Cloud::Google.container(credentials: credentials).get_project_location_cluster(cloud_id)
+                sleep 60
+              rescue ::Google::Apis::ClientError => e
+                if e.message.match(/is currently (creating|upgrading) cluster/)
+                  sleep 60
+                  retry
+                elsif !e.message.match(/notFound:/)
+                  raise e
+                else
+                  break
                 end
-                MU.log "Deleting GKE cluster #{cluster.name}"
-                if !noop
-                  begin
-                    MU::Cloud::Google.container(credentials: credentials).delete_zone_cluster(flags["project"], az, cluster.name)
-                    MU::Cloud::Google.container(credentials: credentials).get_zone_cluster(flags["project"], az, cluster.name)
-                    sleep 60
-                  rescue ::Google::Apis::ClientError => e
-                    if e.message.match(/is currently (creating|upgrading) cluster/)
-                      sleep 60
-                      retry
-                    elsif !e.message.match(/notFound:/)
-                      raise e
-                    else
-                      break
-                    end
-                  end while true
-                end
-              }
+              end while true
             end
           }
+
         end
 
         # Cloud-specific configuration properties.
@@ -728,6 +734,8 @@ pp me
               "type" => "integer",
               "description" => "The number of local SSD disks to be attached to workers. See https://cloud.google.com/compute/docs/disks/local-ssd#local_ssd_limits"
             },
+            "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
+            "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
             "private_cluster" => {
               "description" => "Set a GKE cluster to be private, that is segregated into its own hidden VPC.",
               "type" => "object",
@@ -1016,11 +1024,20 @@ pp me
             :labels => labels,
             :tags => [@mu_name.downcase],
             :service_account => @service_acct.email,
-            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
-            :metadata => {
-              "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
-            }
+            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"]
           }
+          desc[:metadata] ||= {}
+          deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
+          if @config['metadata']
+            desc[:metadata] = Hash[@config['metadata'].map { |m|
+              [m["key"], m["value"]]
+            }]
+          end
+          if desc[:metadata]["ssh-keys"]
+            desc[:metadata]["ssh-keys"] += "\n"+deploykey
+          else
+            desc[:metadata]["ssh-keys"] = deploykey
+          end
           [:local_ssd_count, :min_cpu_platform, :image_type].each { |field|
             if @config[field.to_s]
               desc[field] = @config[field.to_s]
