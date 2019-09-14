@@ -78,7 +78,7 @@ module MU
     # Accessor for our Basket of Kittens schema definition
     def self.schema
       @@schema
-ema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]    end
+    end
 
     # Deep merge a configuration hash so we can meld different cloud providers'
     # schemas together, while preserving documentation differences
@@ -447,6 +447,7 @@ end
         end
 
         if !@obj
+
           begin
             hab_arg = if @habitat.nil?
               [nil]
@@ -465,7 +466,7 @@ end
               region: @region,
               habitats: hab_arg,
               credentials: @credentials,
-              dummy_ok: (@type == "habitats")
+              dummy_ok: (["habitats", "folders", "users", "groups"].include?(@type))
             )
             @obj ||= found.first if found
           rescue ThreadError => e

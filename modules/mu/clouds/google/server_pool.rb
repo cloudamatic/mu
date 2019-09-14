@@ -56,6 +56,21 @@ module MU
             az = MU::Cloud::Google.listAZs(@config['region']).sample
           end
 
+          metadata = { # :items?
+            "startup-script" => @userdata
+          }
+          if @config['metadata']
+            desc[:metadata] = Hash[@config['metadata'].map { |m|
+              [m["key"], m["value"]]
+            }]
+          end
+          deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
+          if desc[:metadata]["ssh-keys"]
+            desc[:metadata]["ssh-keys"] += "\n"+deploykey
+          else
+            desc[:metadata]["ssh-keys"] = deploykey
+          end
+
           instance_props = MU::Cloud::Google.compute(:InstanceProperties).new(
             can_ip_forward: !@config['src_dst_check'],
             description: @deploy.deploy_id,
@@ -64,12 +79,7 @@ module MU
             labels: labels,
             disks: MU::Cloud::Google::Server.diskConfig(@config, false, false, credentials: @config['credentials']),
             network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
-            metadata: {
-              :items => [
-                :key => "ssh-keys",
-                :value => @config['ssh_user']+":"+@deploy.ssh_public_key
-              ]
-            },
+            metadata: metadata,
             tags: MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
           )
 
@@ -165,6 +175,7 @@ module MU
           schema = {
             "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
             "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
+            "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
             "named_ports" => {
               "type" => "array",
               "items" => {

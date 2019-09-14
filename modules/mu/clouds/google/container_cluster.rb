@@ -46,12 +46,18 @@ module MU
           end
 
 
-          @service_acct = MU::Cloud::Google::Server.createServiceAccount(
-            @mu_name.downcase,
-            @deploy,
-            project: @config['project'],
-            credentials: @config['credentials']
-          )
+          @service_acct = if @config['service_account']
+            found = MU::Config::Ref.get(@config['service_account'])
+            found.cloud_id
+          else
+            # XXX this should come from a MU::Cloud::User object instead
+            MU::Cloud::Google::Server.createServiceAccount(
+              @mu_name.downcase,
+              @deploy,
+              project: @config['project'],
+              credentials: @config['credentials']
+            )
+          end
           MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
 
           @config['ssh_user'] ||= "mu"
@@ -225,9 +231,10 @@ module MU
             )
           end
 
-          if @config['max_pods'] and @config['ip_aliases']
+          if @config['kubernetes'] and @config['kubernetes']['max_pods'] and
+             @config['ip_aliases']
             desc[:default_max_pods_constraint] = MU::Cloud::Google.container(:MaxPodsConstraint).new(
-              max_pods_per_node: @config['max_pods']
+              max_pods_per_node: @config['kubernetes']['max_pods']
             )
           end
 
@@ -238,7 +245,7 @@ module MU
           MU.log "Creating GKE cluster #{@mu_name.downcase}", details: requestobj
           @config['master_az'] = @config['region']
           parent_arg = "projects/"+@config['project']+"/locations/"+@config['master_az']
-pp desc
+
           cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
             parent_arg,
             requestobj
@@ -505,6 +512,7 @@ pp me
             type: "vpcs"
           )
 
+
           bok['kubernetes'] = {
             "version" => cloud_desc.current_master_version,
             "nodeversion" => cloud_desc.current_node_version
@@ -597,11 +605,16 @@ pp me
             pool = cloud_desc.node_pools.first # we don't really support multiples atm
             bok["instance_type"] = pool.config.machine_type
             bok["instance_count"] = pool.initial_node_count
+            if pool.config.metadata
+              bok["metadata"] = pool.config.metadata.keys.map { |k|
+                { "key" => k, "value" => pool.config.metadata[k] }
+              }
+            end
             if pool.autoscaling and pool.autoscaling.enabled
               bok['max_size'] = pool.autoscaling.max_node_count
               bok['min_size'] = pool.autoscaling.min_node_count
             end
-            [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible].each { |field|
+            [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible, :service_account].each { |field|
               if pool.config.respond_to?(field)
                 bok[field.to_s] = pool.config.method(field).call
                 bok.delete(field.to_s) if bok[field.to_s].nil?
@@ -609,12 +622,33 @@ pp me
             }
           else
             bok["instance_type"] = cloud_desc.node_config.machine_type
-            [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible].each { |field|
+            if cloud_desc.node_config.metadata
+              bok["metadata"] = cloud_desc.node_config.metadata.keys.map { |k|
+                { "key" => k, "value" => pool.config.metadata[k] }
+              }
+            end
+            [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible, :service_account].each { |field|
               if cloud_desc.node_config.respond_to?(field)
                 bok[field.to_s] = cloud_desc.node_config.method(field).call
                 bok.delete(field.to_s) if bok[field.to_s].nil?
               end
             }
+          end
+
+          if bok['service_account']
+            found = MU::Cloud::Google::User.find(
+              credentials: bok['credentials'],
+              project: bok['project'],
+              cloud_id: bok['service_account']
+            )
+            if found and found.size == 1
+              bok['service_account'] = MU::Config::Ref.get(
+                id: found.values.first.name,
+                cloud: "Google",
+                credentials: @config['credentials'],
+                type: "users"
+              )
+            end
           end
 
           if cloud_desc.private_cluster_config
@@ -736,6 +770,7 @@ pp me
             },
             "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
             "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
+            "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
             "private_cluster" => {
               "description" => "Set a GKE cluster to be private, that is segregated into its own hidden VPC.",
               "type" => "object",
@@ -804,11 +839,6 @@ pp me
               "type" => "integer",
               "description" => "Size of the disk attached to each worker, specified in GB. The smallest allowed disk size is 10GB",
               "default" => 100
-            },
-            "max_pods" => {
-              "type" => "integer",
-              "description" => "Maximum number of pods allowed per node in this cluster",
-              "default" => 30
             },
             "min_size" => {
               "description" => "In GKE, this is the minimum number of nodes *per availability zone*, when scaling is enabled. Setting +min_size+ and +max_size+ enables scaling."
@@ -929,6 +959,7 @@ pp me
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(cluster, configurator)
           ok = true
+          cluster['project'] ||= MU::Cloud::Google.defaultProject(cluster['credentials'])
 
           cluster['master_az'] ||= cluster['availability_zone']
 
@@ -937,6 +968,16 @@ pp me
              cluster['pod_ip_block'] or cluster['pod_ip_block_name'] or
              cluster['tpu_ip_block']
             cluster['ip_aliases'] = true
+          end
+
+          if cluster['service_account']
+            cluster['service_account']['cloud'] = "Google"
+            cluster['service_account']['habitat'] ||= cluster['project']
+            found = MU::Config::Ref.get(cluster['service_account'])
+            if !found.kitten
+              MU.log "GKE cluster #{cluster['name']} failed to locate service account #{cluster['service_account']} in project #{cluster['project']}", MU::ERR
+              ok = false
+            end
           end
 
           if (cluster['pod_ip_block_name'] or cluster['services_ip_block_name']) and
@@ -1026,7 +1067,7 @@ pp me
             :service_account => @service_acct.email,
             :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"]
           }
-          desc[:metadata] ||= {}
+          desc[:metadata] = {}
           deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
           if @config['metadata']
             desc[:metadata] = Hash[@config['metadata'].map { |m|

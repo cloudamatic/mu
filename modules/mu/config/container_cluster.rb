@@ -54,7 +54,7 @@ module MU
                 },
                 "max_pods" => {
                   "type" => "integer",
-                  "default" => 5,
+                  "default" => 30,
                   "description" => "Maximum number of pods that can be deployed on any given worker node",
                 }
               }

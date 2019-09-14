@@ -26,6 +26,8 @@ module MU
           # If we're being reverse-engineered from a cloud descriptor, use that
           # to determine what sort of account we are.
           if args[:from_cloud_desc]
+            MU::Cloud::Google.admin_directory
+            MU::Cloud::Google.iam
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::User
               @config['type'] = "interactive"
             elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
@@ -270,6 +272,15 @@ module MU
           cred_cfg = MU::Cloud::Google.credConfig(args[:credentials])
           args[:project] ||= args[:habitat]
 
+          # If the project id is embedded in the cloud_id, honor it
+          if args[:cloud_id]
+            if args[:cloud_id].match(/projects\/(.+?)\//)
+              args[:project] = Regexp.last_match[1]
+            elsif args[:cloud_id].match(/@([^\.]+)\.iam\.gserviceaccount\.com$/)
+              args[:project] = Regexp.last_match[1]
+            end
+          end
+
           found = {}
 
           if args[:project]
@@ -280,7 +291,7 @@ module MU
 
             if resp and resp.accounts
               resp.accounts.each { |sa|
-                if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id]) or (sa.name and sa.name == args[:cloud_id])
+                if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id]) or (sa.name and sa.name == args[:cloud_id]) or (sa.email and sa.email == args[:cloud_id])
                   found[sa.name] = sa
                 end
               }
