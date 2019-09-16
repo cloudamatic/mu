@@ -29,6 +29,17 @@ module MU
         def create
           port_objs = []
 
+          sa = MU::Config::Ref.get(@config['service_account'])
+          if !sa or !sa.kitten or !sa.kitten.cloud_desc
+            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+          end
+          @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
+            email: sa.kitten.cloud_desc.email,
+            scopes: @config['scopes']
+          )
+          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+
+
           @config['named_ports'].each { |port_cfg|
             port_objs << MU::Cloud::Google.compute(:NamedPort).new(
               name: port_cfg['name'],
@@ -76,6 +87,7 @@ module MU
             description: @deploy.deploy_id,
 #            machine_type: "zones/"+az+"/machineTypes/"+size,
             machine_type: size,
+            service_accounts: [@service_acct],
             labels: labels,
             disks: MU::Cloud::Google::Server.diskConfig(@config, false, false, credentials: @config['credentials']),
             network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
@@ -176,6 +188,7 @@ module MU
             "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
             "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
             "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
+            "scopes" => MU::Cloud::Google::Server.schema(config)[1]["scopes"],
             "named_ports" => {
               "type" => "array",
               "items" => {
@@ -209,10 +222,30 @@ module MU
             pool['service_account']['cloud'] = "Google"
             pool['service_account']['habitat'] ||= pool['project']
             found = MU::Config::Ref.get(pool['service_account'])
-            if !found.kitten
-              MU.log "ServerPool #{pool['name']} failed to locate service account #{pool['service_account']} in project #{pool['project']}", MU::ERR
+            if found.id and !found.kitten
+              MU.log "GKE pool #{pool['name']} failed to locate service account #{pool['service_account']} in project #{pool['project']}", MU::ERR
               ok = false
             end
+          else
+            user = {
+              "name" => pool['name'],
+              "project" => pool["project"],
+              "credentials" => pool["credentials"],
+              "type" => "service"
+            }
+            configurator.insertKitten(user, "users", true)
+            pool['dependencies'] ||= []
+            pool['service_account'] = MU::Config::Ref.get(
+              type: "users",
+              cloud: "Google",
+              name: pool["name"],
+              project: pool["project"],
+              credentials: pool["credentials"]
+            )
+            pool['dependencies'] << {
+              "type" => "user",
+              "name" => pool["name"]
+            }
           end
 
           pool['named_ports'] ||= []

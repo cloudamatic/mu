@@ -74,37 +74,6 @@ module MU
 
         end
 
-        # Generate a server-class specific service account, used to grant 
-        # permission to do various API things to a node.
-        # @param rolename [String]:
-        # @param project [String]:
-        # @param scopes [Array<String>]: https://developers.google.com/identity/protocols/googlescopes
-        # XXX this should be a MU::Cloud::Google::User resource
-        def self.createServiceAccount(rolename, deploy, project: nil, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"], credentials: nil)
-          project ||= MU::Cloud::Google.defaultProject(credentials)
-
-#https://www.googleapis.com/auth/devstorage.read_only ?
-          name = deploy.getResourceName(rolename, max_length: 30).downcase
-
-          saobj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
-            account_id: name.gsub(/[^a-z]/, ""), # XXX this mangling isn't required in the console, so why is it here?
-            service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
-              display_name: rolename,
-# do NOT specify project_id or name, we know that much
-            )
-          )
-
-          resp = MU::Cloud::Google.iam(credentials: credentials).create_service_account(
-            "projects/#{project}",
-            saobj
-          )
-
-          MU::Cloud::Google.compute(:ServiceAccount).new(
-            email: resp.email,
-            scopes: scopes
-          )
-        end
-
         # Return the date/time a machine image was created.
         # @param image_id [String]: URL to a Google disk image
         # @param credentials [String]
@@ -265,13 +234,15 @@ next if !create
         def create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
-          service_acct = MU::Cloud::Google::Server.createServiceAccount(
-            @mu_name.downcase,
-            @deploy,
-            project: @project_id,
-            credentials: @config['credentials']
+          sa = MU::Config::Ref.get(@config['service_account'])
+          if !sa or !sa.kitten or !sa.kitten.cloud_desc
+            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+          end
+          @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
+            email: sa.kitten.cloud_desc.email,
+            scopes: @config['scopes']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email, credentials: @config['credentials'])
+          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
 
           begin
             disks = MU::Cloud::Google::Server.diskConfig(@config, credentials: @config['credentials'])
@@ -287,7 +258,7 @@ next if !create
               :name => MU::Cloud::Google.nameStr(@mu_name),
               :can_ip_forward => !@config['src_dst_check'],
               :description => @deploy.deploy_id,
-              :service_accounts => [service_acct],
+              :service_accounts => [@service_acct],
               :network_interfaces => interfaces,
               :machine_type => "zones/"+@config['availability_zone']+"/machineTypes/"+@config['size'],
               :tags => MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
@@ -1165,9 +1136,9 @@ next if !create
               "type" => "array",
               "items" => {
                 "type" => "string",
-                "description" => "Scopes in which a service account is allowed to operate",
-                "default" => ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"]
-              }
+                "description" => "API scopes to make available to this resource's service account."
+              },
+              "default" => ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/monitoring.write", "https://www.googleapis.com/auth/devstorage.read_only"]
             }
           }
           [toplevel_required, schema]
@@ -1230,10 +1201,30 @@ next if !create
             server['service_account']['cloud'] = "Google"
             server['service_account']['habitat'] ||= server['project']
             found = MU::Config::Ref.get(server['service_account'])
-            if !found.kitten
-              MU.log "Server #{server['name']} failed to locate service account #{server['service_account']} in project #{server['project']}", MU::ERR
+            if found.id and !found.kitten
+              MU.log "GKE server #{server['name']} failed to locate service account #{server['service_account']} in project #{server['project']}", MU::ERR
               ok = false
             end
+          else
+            user = {
+              "name" => server['name'],
+              "project" => server["project"],
+              "credentials" => server["credentials"],
+              "type" => "service"
+            }
+            configurator.insertKitten(user, "users", true)
+            server['dependencies'] ||= []
+            server['service_account'] = MU::Config::Ref.get(
+              type: "users",
+              cloud: "Google",
+              name: server["name"],
+              project: server["project"],
+              credentials: server["credentials"]
+            )
+            server['dependencies'] << {
+              "type" => "user",
+              "name" => server["name"]
+            }
           end
 
           subnets = nil

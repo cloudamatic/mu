@@ -56,7 +56,8 @@ module MU
             req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
               account_id: @deploy.getResourceName(@config["name"], max_length: 30).downcase,
               service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
-                display_name: @mu_name
+                display_name: @mu_name,
+                description: @deploy.deploy_id
               )
             )
             MU.log "Creating service account #{@mu_name}"
@@ -246,7 +247,8 @@ module MU
 
           if resp and resp.accounts and MU.deploy_id
             resp.accounts.each { |sa|
-              if sa.display_name and sa.display_name.match(/^#{Regexp.quote(MU.deploy_id)}-/i)
+              if (sa.description and sa.description == MU.deploy_id) or
+                 (sa.display_name and sa.display_name.match(/^#{Regexp.quote(MU.deploy_id)}-/i))
                 begin
                   MU.log "Deleting service account #{sa.name}", details: sa
                   if !noop

@@ -46,23 +46,14 @@ module MU
           end
 
 
-          @service_acct = if @config['service_account']
-            found = MU::Config::Ref.get(@config['service_account'])
-            if !found.kitten or !found.kitten.cloud_desc
-              raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
-            end
-            found.kitten.cloud_desc
-          else
-            MU::Cloud::Google::Server.createServiceAccount(
-              @mu_name.downcase,
-              @deploy,
-              project: @config['project'],
-              credentials: @config['credentials']
-            )
+          sa = MU::Config::Ref.get(@config['service_account'])
+          if !sa or !sa.kitten or !sa.kitten.cloud_desc
+            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
+          @service_acct = sa.kitten.cloud_desc
           MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
 
-          @config['ssh_user'] ||= "mu"
+          @config['ssh_user'] ||= "muadmin"
 
 
           nodeobj = if @config['min_size'] and @config['max_size']
@@ -270,7 +261,7 @@ module MU
           labelCluster 
 
           me = cloud_desc
-pp me
+
           parent_arg = "projects/"+@config['project']+"/locations/"+me.location
 
           # Enable/disable basic auth
@@ -597,16 +588,12 @@ pp me
           end
 
 #            :tags => [@mu_name.downcase],
-#            :service_account => service_acct.email,
-#            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
-#            :metadata => {
-#              "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
-#            }
 
           if cloud_desc.node_pools and cloud_desc.node_pools.size > 0
             pool = cloud_desc.node_pools.first # we don't really support multiples atm
             bok["instance_type"] = pool.config.machine_type
             bok["instance_count"] = pool.initial_node_count
+            bok['scopes'] = pool.config.oauth_scopes
             if pool.config.metadata
               bok["metadata"] = pool.config.metadata.keys.map { |k|
                 { "key" => k, "value" => pool.config.metadata[k] }
@@ -624,6 +611,7 @@ pp me
             }
           else
             bok["instance_type"] = cloud_desc.node_config.machine_type
+            bok['scopes'] = cloud_desc.node_config.oauth_scopes
             if cloud_desc.node_config.metadata
               bok["metadata"] = cloud_desc.node_config.metadata.keys.map { |k|
                 { "key" => k, "value" => pool.config.metadata[k] }
@@ -644,12 +632,21 @@ pp me
               cloud_id: bok['service_account']
             )
             if found and found.size == 1
-              bok['service_account'] = MU::Config::Ref.get(
-                id: found.values.first.name,
-                cloud: "Google",
-                credentials: @config['credentials'],
-                type: "users"
-              )
+              sa = found.values.first
+              # Ignore generic Mu service accounts
+              if cloud_desc.resource_labels and
+                 cloud_desc.resource_labels["mu-id"] and 
+                 sa.description and
+                 cloud_desc.resource_labels["mu-id"].downcase == sa.description.downcase
+                bok.delete("service_account")
+              else
+                bok['service_account'] = MU::Config::Ref.get(
+                  id: found.values.first.name,
+                  cloud: "Google",
+                  credentials: @config['credentials'],
+                  type: "users"
+                )
+              end
             end
           end
 
@@ -680,8 +677,6 @@ pp me
             }
           end
 
-          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
-          MU.log bok['name'], MU::NOTICE, details: bok
           bok
         end
 
@@ -773,6 +768,7 @@ pp me
             "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
             "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
             "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
+            "scopes" => MU::Cloud::Google::Server.schema(config)[1]["scopes"],
             "private_cluster" => {
               "description" => "Set a GKE cluster to be private, that is segregated into its own hidden VPC.",
               "type" => "object",
@@ -976,7 +972,7 @@ pp me
             cluster['service_account']['cloud'] = "Google"
             cluster['service_account']['habitat'] ||= cluster['project']
             found = MU::Config::Ref.get(cluster['service_account'])
-            if !found.kitten
+            if found.id and !found.kitten
               MU.log "GKE cluster #{cluster['name']} failed to locate service account #{cluster['service_account']} in project #{cluster['project']}", MU::ERR
               ok = false
             end
@@ -1087,7 +1083,7 @@ pp me
             :labels => labels,
             :tags => [@mu_name.downcase],
             :service_account => @service_acct.email,
-            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"]
+            :oauth_scopes => @config['scopes']
           }
           desc[:metadata] = {}
           deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
