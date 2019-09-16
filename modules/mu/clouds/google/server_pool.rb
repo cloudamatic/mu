@@ -205,6 +205,15 @@ module MU
           ok = true
 
           pool['project'] ||= MU::Cloud::Google.defaultProject(pool['credentials'])
+          if pool['service_account']
+            pool['service_account']['cloud'] = "Google"
+            pool['service_account']['habitat'] ||= pool['project']
+            found = MU::Config::Ref.get(pool['service_account'])
+            if !found.kitten
+              MU.log "ServerPool #{pool['name']} failed to locate service account #{pool['service_account']} in project #{pool['project']}", MU::ERR
+              ok = false
+            end
+          end
 
           pool['named_ports'] ||= []
           if !pool['named_ports'].include?({"name" => "ssh", "port" => 22})

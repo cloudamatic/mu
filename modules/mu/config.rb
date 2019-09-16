@@ -409,6 +409,21 @@ module MU
         me
       end
 
+      # Getter for the #{id} instance variable that attempts to populate it if
+      # it's not set.
+      # @return [String,nil]
+      def id
+        return @id if @id
+        kitten # if it's not defined, attempt to define it
+        @id
+      end
+
+      # Alias for {id}
+      # @return [String,nil]
+      def cloud_id
+        id
+      end
+
       # Return a {MU::Cloud} object for this reference. This is only meant to be
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.

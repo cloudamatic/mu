@@ -1160,6 +1160,14 @@ next if !create
             "routes" => {
               "type" => "array",
               "items" => MU::Config::VPC.routeschema
+            },
+            "scopes" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Scopes in which a service account is allowed to operate",
+                "default" => ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"]
+              }
             }
           }
           [toplevel_required, schema]
@@ -1216,6 +1224,16 @@ next if !create
           # If we're not targeting an availability zone, pick one randomly
           if !server['availability_zone']
             server['availability_zone'] = MU::Cloud::Google.listAZs(server['region']).sample
+          end
+
+          if server['service_account']
+            server['service_account']['cloud'] = "Google"
+            server['service_account']['habitat'] ||= server['project']
+            found = MU::Config::Ref.get(server['service_account'])
+            if !found.kitten
+              MU.log "Server #{server['name']} failed to locate service account #{server['service_account']} in project #{server['project']}", MU::ERR
+              ok = false
+            end
           end
 
           subnets = nil

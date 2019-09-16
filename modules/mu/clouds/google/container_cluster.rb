@@ -48,9 +48,11 @@ module MU
 
           @service_acct = if @config['service_account']
             found = MU::Config::Ref.get(@config['service_account'])
-            found.cloud_id
+            if !found.kitten or !found.kitten.cloud_desc
+              raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+            end
+            found.kitten.cloud_desc
           else
-            # XXX this should come from a MU::Cloud::User object instead
             MU::Cloud::Google::Server.createServiceAccount(
               @mu_name.downcase,
               @deploy,
@@ -978,6 +980,26 @@ pp me
               MU.log "GKE cluster #{cluster['name']} failed to locate service account #{cluster['service_account']} in project #{cluster['project']}", MU::ERR
               ok = false
             end
+          else
+            user = {
+              "name" => cluster['name'],
+              "project" => cluster["project"],
+              "credentials" => cluster["credentials"],
+              "type" => "service"
+            }
+            configurator.insertKitten(user, "users", true)
+            cluster['dependencies'] ||= []
+            cluster['service_account'] = MU::Config::Ref.get(
+              type: "users",
+              cloud: "Google",
+              name: cluster["name"],
+              project: cluster["project"],
+              credentials: cluster["credentials"]
+            )
+            cluster['dependencies'] << {
+              "type" => "user",
+              "name" => cluster["name"]
+            }
           end
 
           if (cluster['pod_ip_block_name'] or cluster['services_ip_block_name']) and
