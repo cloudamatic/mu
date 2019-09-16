@@ -1160,8 +1160,10 @@ return
         end
       end
 
-      if descriptor['project']
-        if haveLitterMate?(descriptor['project'], "habitats")
+      if descriptor.has_key?('project')
+        if descriptor['project'].nil?
+          descriptor.delete('project')
+        elsif haveLitterMate?(descriptor['project'], "habitats")
           descriptor['dependencies'] ||= []
           descriptor['dependencies'] << {
             "type" => "habitat",
@@ -1214,7 +1216,6 @@ return
                                   descriptor,
                                   self,
                                   dflt_region: descriptor['region'],
-                                  is_sibling: true,
                                   credentials: descriptor['credentials'],
                                   dflt_project: descriptor['project'],
                                   sibling_vpcs: @kittens['vpcs'])

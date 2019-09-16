@@ -481,7 +481,8 @@ module MU
       # @param is_sibling [Boolean]:
       # @param sibling_vpcs [Array]:
       # @param dflt_region [String]:
-      def self.processReference(vpc_block, parent_type, parent, configurator, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion, dflt_project: nil, credentials: nil)
+      def self.processReference(vpc_block, parent_type, parent, configurator, sibling_vpcs: [], dflt_region: MU.curRegion, dflt_project: nil, credentials: nil)
+
 
         if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
           return true
@@ -515,6 +516,11 @@ module MU
           return ok
         end
 
+        is_sibling = (vpc_block['name'] and configurator.haveLitterMate?(vpc_block["name"], "vpcs"))
+if !is_sibling
+  MU.log "FECK #{vpc_block['name']}", MU::NOTICE, details: caller
+end
+
         # Sometimes people set subnet_pref to "private" or "public" when they
         # mean "all_private" or "all_public." Help them out.
         if parent_type and 
@@ -541,6 +547,7 @@ module MU
         else
           []
         end
+
 
         # First, dig up the enclosing VPC 
         tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?

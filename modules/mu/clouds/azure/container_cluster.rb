@@ -211,6 +211,7 @@ module MU
             "name" => cluster["name"]+"user",
             "region" => cluster["region"],
             "type" => "service",
+            "cloud" => "Azure",
             "create_api_key" => true,
             "credentials" => cluster["credentials"],
             "roles" => [

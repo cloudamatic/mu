@@ -680,8 +680,26 @@ module MU
     @@supportedCloudList = ['AWS', 'CloudFormation', 'Google', 'Azure']
 
     # List of known/supported Cloud providers
+    # @return [Array<String>]
     def self.supportedClouds
       @@supportedCloudList
+    end
+
+    # List of known/supported Cloud providers for which we have at least one
+    # set of credentials configured.
+    # @return [Array<String>]
+    def self.availableClouds
+      available = []
+      MU::Cloud.supportedClouds.each { |cloud|
+        begin
+          cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty?
+          available << cloud
+        rescue NameError
+        end
+      }
+
+      available
     end
 
     # Load the container class for each cloud we know about, and inject autoload

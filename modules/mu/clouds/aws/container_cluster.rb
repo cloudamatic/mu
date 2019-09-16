@@ -865,8 +865,7 @@ MU.log c.name, MU::NOTICE, details: t
               "default" => { "version" => "1.13" }
             },
             "platform" => {
-              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else. Only valid for EKS and ECS flavors.",
-              "default" => "centos7"
+              "description" => "The platform to choose for worker nodes."
             },
             "ami_id" => {
               "type" => "string",
@@ -1423,6 +1422,8 @@ MU.log c.name, MU::NOTICE, details: t
 
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
+
+          cluster["flavor"] == "EKS" if cluster["flavor"] == "Kubernetes"
 
           if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
             cluster["flavor"] = "EKS"
