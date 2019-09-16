@@ -394,6 +394,7 @@ module MU
     # used. Our Cleanup module can leverage this to skip unnecessary checks.
     # @return [Array<String>]
     def credsUsed
+      return [] if !@original_config
       seen = []
       clouds = []
       seen << @original_config['credentials'] if @original_config['credentials']
@@ -425,6 +426,7 @@ module MU
     # safely skip unnecessary regions when creating/cleaning deploy artifacts.
     # @return [Array<String>]
     def regionsUsed
+      return [] if !@original_config
       regions = []
       regions << @original_config['region'] if @original_config['region']
       MU::Cloud.resource_types.each_pair { |res_type, attrs|
@@ -937,6 +939,7 @@ raise "NAH"
         ["servers", "server_pools", "container_clusters"].each { |type|
           next if @original_config[type].nil?
           @original_config[type].each { |descriptor|
+            next if descriptor['cloud'] != "AWS"
             if descriptor['credentials']
               creds_used << descriptor['credentials']
             else
