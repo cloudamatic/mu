@@ -2186,24 +2186,30 @@ module MU
           end
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
-            gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
             foundmatch = false
-            if gtypes and gtypes.size > 0 and gtypes.has_key?(size)
-              vcpu = gtypes[size]["vcpu"]
-              mem = gtypes[size]["memory"]
-              ecu = gtypes[size]["ecu"]
-              types.keys.sort.reverse.each { |type|
-                features = types[type]
-                next if ecu == "Variable" and ecu != features["ecu"]
-                next if features["vcpu"] != vcpu
-                if (features["memory"] - mem.to_f).abs < 0.10*mem
-                  foundmatch = true
-                  MU.log "You specified a Google Compute instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
-                  size = type
-                  break
-                end
-              }
-            end
+            MU::Cloud.availableClouds.each { |cloud|
+              next if cloud == "AWS"
+              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
+                vcpu = foreign_types[size]["vcpu"]
+                mem = foreign_types[size]["memory"]
+                ecu = foreign_types[size]["ecu"]
+                types.keys.sort.reverse.each { |type|
+                  features = types[type]
+                  next if ecu == "Variable" and ecu != features["ecu"]
+                  next if features["vcpu"] != vcpu
+                  if (features["memory"] - mem.to_f).abs < 0.10*mem
+                    foundmatch = true
+                    MU.log "You specified #{cloud} instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
+                    size = type
+                    break
+                  end
+                }
+              end
+              break if foundmatch
+            }
+
             if !foundmatch
               MU.log "Invalid size '#{size}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
               return nil
