@@ -292,6 +292,7 @@ module MU
       # @param deploy [MU::MommaCat]
       def self.initDeploy(deploy)
         deploy.credsUsed.each { |creds|
+          next if !credConfig(creds)
           listRegions.each { |region|
             next if !deploy.regionsUsed.include?(region)
             begin

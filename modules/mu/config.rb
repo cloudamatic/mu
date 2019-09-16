@@ -1436,6 +1436,14 @@ return
           else
             ok = false
           end
+
+          # Make sure we've been configured with the right credentials
+          cloudbase = Object.const_get("MU").const_get("Cloud").const_get(descriptor['cloud'])
+          credcfg = cloudbase.credConfig(descriptor['credentials'])
+          if !credcfg or credcfg.empty?
+            raise ValidationError, "#{descriptor['cloud']} #{cfg_name} #{descriptor['name']} declares credential set #{descriptor['credentials']}, but no such credentials exist for that cloud provider"
+          end
+
           descriptor['#MU_VALIDATED'] = true
         end
 
@@ -2039,9 +2047,10 @@ return
         validated_something_new = false
         types.each { |type|
           @kittens[type].each { |descriptor|
-            if !descriptor["#MU_VALIDATED"]
+            if !descriptor["#MU_VALIDATION_ATTEMPTED"]
               validated_something_new = true
               ok = false if !insertKitten(descriptor, type)
+              descriptor["#MU_VALIDATION_ATTEMPTED"] = true
             end
           }
         }

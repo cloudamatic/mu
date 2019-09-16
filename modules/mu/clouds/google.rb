@@ -240,6 +240,9 @@ module MU
       def self.adminBucketName(credentials = nil)
          #XXX find a default if this particular account doesn't have a log_bucket_name configured
         cfg = credConfig(credentials)
+        if cfg.nil?
+          raise MuError, "Failed to load Google credential set #{credentials}"
+        end
         cfg['log_bucket_name']
       end
 
@@ -895,29 +898,38 @@ MU.log e.message, MU::WARN, details: e.inspect
         resp.domains.map { |d| d.domain_name.downcase }
       end
 
+      @@orgmap = {}
       # Retrieve the organization, if any, to which these credentials belong.
       # @param credentials [String]
       # @return [Array<OpenStruct>],nil]
       def self.getOrg(credentials = nil, with_id: nil)
-        resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
-        if resp and resp.organizations
-          # XXX no idea if it's possible to be a member of multiple orgs
-          if !with_id
-            return resp.organizations.first
-          else
-            resp.organizations.each { |org|
-              return org if org.name == with_id
-            }
-            return nil
-          end
-        end
-
         creds = MU::Cloud::Google.credConfig(credentials)
         credname = if creds and creds['name']
           creds['name']
         else
           "default"
+        end 
+
+        return @@orgmap[credname] if @@orgmap.has_key?(credname)
+        resp = MU::Cloud::Google.resource_manager(credentials: credname).search_organizations
+        if resp and resp.organizations
+          # XXX no idea if it's possible to be a member of multiple orgs
+          if !with_id
+            @@orgmap[credname] = resp.organizations.first
+            return resp.organizations.first
+          else
+            resp.organizations.each { |org|
+              if org.name == with_id
+                @@orgmap[credname] = org
+                return org
+              end
+            }
+            return nil
+          end
         end
+
+        @@orgmap[credname] = nil
+
         
         MU.log "Unable to list_organizations with credentials #{credname}. If this account is part of a GSuite or Cloud Identity domain, verify that Oauth delegation is properly configured and that 'masquerade_as' is properly set for the #{credname} Google credential set in mu.yaml.", MU::ERR, details: ["https://cloud.google.com/resource-manager/docs/creating-managing-organization", "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"]
 

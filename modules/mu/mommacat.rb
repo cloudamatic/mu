@@ -257,6 +257,7 @@ module MU
         end
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
+
         if !@original_config['scrub_mu_isms']
           credsets.each_pair { |cloud, creds|
             creds.uniq!

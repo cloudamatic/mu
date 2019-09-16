@@ -1584,6 +1584,7 @@ MU.log c.name, MU::NOTICE, details: t
           acl = {
             "name" => fwname,
             "credentials" => cluster["credentials"],
+            "cloud" => "AWS",
             "rules" => cluster['ingress_rules'],
             "region" => cluster['region'],
             "optional_tags" => cluster['optional_tags']
