@@ -1488,7 +1488,7 @@ MU.log c.name, MU::NOTICE, details: t
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
-          cluster["flavor"] == "EKS" if cluster["flavor"] == "Kubernetes"
+          cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)
 
           if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
             cluster["flavor"] = "EKS"
@@ -1543,14 +1543,14 @@ MU.log c.name, MU::NOTICE, details: t
                   logdesc = {
                     "name" => logname,
                     "region" => cluster["region"],
-                    "cloud" => cluster["cloud"]
+                    "cloud" => "AWS"
                   }
                   configurator.insertKitten(logdesc, "logs")
 
                   if !c['role']
                     roledesc = {
                       "name" => rolename,
-                      "cloud" => cluster["cloud"],
+                      "cloud" => "AWS",
                       "can_assume" => [
                         {
                           "entity_id" => "ecs-tasks.amazonaws.com",
@@ -1640,13 +1640,9 @@ MU.log c.name, MU::NOTICE, details: t
 
           end
 
-          cluster['ingress_rules'] ||= []
-          cluster['ingress_rules'] << {
-            "sgs" => ["server_pool#{cluster['name']}workers"],
-            "port" => 443
-          }
           fwname = "container_cluster#{cluster['name']}"
 
+          cluster['ingress_rules'] ||= []
           acl = {
             "name" => fwname,
             "credentials" => cluster["credentials"],
@@ -1670,8 +1666,14 @@ MU.log c.name, MU::NOTICE, details: t
             cluster["max_size"] ||= cluster["instance_count"]
             cluster["min_size"] ||= cluster["instance_count"]
 
+            cluster['ingress_rules'] << {
+              "sgs" => [cluster["name"]+"workers"],
+              "port" => 443
+            }
+
             worker_pool = {
               "name" => cluster["name"]+"workers",
+              "cloud" => "AWS",
               "credentials" => cluster["credentials"],
               "region" => cluster['region'],
               "min_size" => cluster["min_size"],
@@ -1740,6 +1742,7 @@ MU.log c.name, MU::NOTICE, details: t
               role = {
                 "name" => cluster["name"]+"controlplane",
                 "credentials" => cluster["credentials"],
+                "cloud" => "AWS",
                 "can_assume" => [
                   { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
                 ],

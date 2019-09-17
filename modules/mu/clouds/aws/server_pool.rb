@@ -827,6 +827,7 @@ module MU
 
               role = {
                 "name" => pool["name"],
+                "cloud" => "AWS",
                 "strip_path" => pool["role_strip_path"],
                 "can_assume" => [
                   {
@@ -945,6 +946,7 @@ module MU
               if policy["alarms"] && !policy["alarms"].empty?
                 policy["alarms"].each { |alarm|
                   alarm["name"] = "scaling-policy-#{pool["name"]}-#{alarm["name"]}"
+                  alarm["cloud"] = "AWS",
                   alarm['dimensions'] = [] if !alarm['dimensions']
                   alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                   alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?

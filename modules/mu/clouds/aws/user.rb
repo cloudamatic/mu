@@ -150,30 +150,45 @@ module MU
             resp.policies.each { |policy|
               MU.log "Deleting policy /#{MU.deploy_id}/#{policy.policy_name}"
               if !noop
-                attachments = MU::Cloud::AWS.iam(credentials: credentials).list_entities_for_policy(
-                  policy_arn: policy.arn
-                )
-                attachments.policy_users.each { |u|
-                  MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
-                    user_name: u.user_name,
+                begin
+                  attachments = MU::Cloud::AWS.iam(credentials: credentials).list_entities_for_policy(
                     policy_arn: policy.arn
                   )
-                }
-                attachments.policy_groups.each { |g|
-                  MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
-                    group_name: g.group_name,
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
+                begin
+                  attachments.policy_users.each { |u|
+                    MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
+                      user_name: u.user_name,
+                      policy_arn: policy.arn
+                    )
+                  }
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
+                begin
+                  attachments.policy_groups.each { |g|
+                    MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                      group_name: g.group_name,
+                      policy_arn: policy.arn
+                    )
+                  }
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
+                begin
+                  attachments.policy_roles.each { |r|
+                    MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                      role_name: r.role_name,
+                      policy_arn: policy.arn
+                    )
+                  }
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
+                begin
+                  MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
                     policy_arn: policy.arn
                   )
-                }
-                attachments.policy_roles.each { |r|
-                  MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
-                    role_name: r.role_name,
-                    policy_arn: policy.arn
-                  )
-                }
-                MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
-                  policy_arn: policy.arn
-                )
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
               end
             }
           end
