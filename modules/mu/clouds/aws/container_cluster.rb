@@ -1622,7 +1622,7 @@ MU.log c.name, MU::NOTICE, details: t
             }
             if cluster["flavor"] == "EKS"
               worker_pool["ingress_rules"] = [
-                "sgs" => ["container_cluster#{cluster['name']}"],
+                "sgs" => [fwname],
                 "port_range" => "1-65535"
               ]
               worker_pool["application_attributes"] ||= {}
