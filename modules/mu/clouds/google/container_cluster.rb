@@ -979,6 +979,7 @@ module MU
           else
             user = {
               "name" => cluster['name'],
+              "cloud" => "Google",
               "project" => cluster["project"],
               "credentials" => cluster["credentials"],
               "type" => "service"

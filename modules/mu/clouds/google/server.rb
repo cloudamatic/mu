@@ -1235,6 +1235,7 @@ end
           else
             user = {
               "name" => server['name'],
+              "cloud" => "Google",
               "project" => server["project"],
               "credentials" => server["credentials"],
               "type" => "service"

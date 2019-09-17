@@ -229,6 +229,7 @@ module MU
           else
             user = {
               "name" => pool['name'],
+              "cloud" => "Google",
               "project" => pool["project"],
               "credentials" => pool["credentials"],
               "type" => "service"
