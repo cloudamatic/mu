@@ -448,6 +448,7 @@ module MU
 
           if flags['known']
             flags['known'].each { |id|
+              next if id.nil?
               # GCP roles don't have a useful field for packing in our deploy
               # id, so if we have metadata to leverage for this, use it. For
               # directory roles, we try to make it into the name field, so

@@ -235,9 +235,22 @@ next if !create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           sa = MU::Config::Ref.get(@config['service_account'])
+retries = 0
+begin
           if !sa or !sa.kitten or !sa.kitten.cloud_desc
             raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
+rescue Exception => e
+MU.log e.class.name+": "+e.message, MU::ERR, details: @config['service_account']
+if retries < 10
+  retries += 1
+  sleep 5
+  retry
+else
+  raise e
+end
+end
+
           @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
             email: sa.kitten.cloud_desc.email,
             scopes: @config['scopes']
@@ -265,20 +278,28 @@ next if !create
             }
             desc[:disks] = disks if disks.size > 0
 
-            desc[:metadata] ||= { # :items?
-              "startup-script" => @userdata
-            }
+            metadata = {}
             if @config['metadata']
-              desc[:metadata] = Hash[@config['metadata'].map { |m|
+              metadata = Hash[@config['metadata'].map { |m|
                 [m["key"], m["value"]]
               }]
             end
+            metadata["startup-script"] = @userdata
+
             deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
-            if desc[:metadata]["ssh-keys"]
-              desc[:metadata]["ssh-keys"] += "\n"+deploykey
+            if metadata["ssh-keys"]
+              metadata["ssh-keys"] += "\n"+deploykey
             else
-              desc[:metadata]["ssh-keys"] = deploykey
+              metadata["ssh-keys"] = deploykey
             end
+            desc[:metadata] = MU::Cloud::Google.compute(:Metadata).new(
+              :items => metadata.keys.map { |k|
+                MU::Cloud::Google.compute(:Metadata)::Item.new(
+                  key: k,
+                  value: metadata[k]
+                )
+              }
+            )
 
             # Tags in GCP means something other than what we think of;
             # labels are the thing you think you mean
@@ -290,10 +311,10 @@ next if !create
             }
             desc[:labels]["name"] = @mu_name.downcase
 
-
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
-            MU.log "Creating instance #{@mu_name}"
+            MU.log "Creating instance #{@mu_name}", MU::NOTICE, details: instanceobj
+
             begin
               instance = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance(
                 @project_id,

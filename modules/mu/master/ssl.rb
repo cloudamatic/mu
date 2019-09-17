@@ -213,7 +213,7 @@ puts cn_str
         if MU.mu_user != "mu" and Process.uid == 0
           owner_uid = Etc.getpwnam(for_user).uid
           File.chown(owner_uid, nil, filename)
-          File.chown(owner_uid, nil, pfxfile)
+          File.chown(owner_uid, nil, pfxfile) if pfx
         end
 
 
