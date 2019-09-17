@@ -2187,6 +2187,7 @@ module MU
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
             foundmatch = false
+
             MU::Cloud.availableClouds.each { |cloud|
               next if cloud == "AWS"
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
