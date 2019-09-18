@@ -1051,7 +1051,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # Describe this VPC Subnet
           # @return [Hash]
           def notify
-            cloud_desc.to_h
+            MU.structToHash(cloud_desc)
           end
 
           # Describe this VPC Subnet from the cloud platform's perspective

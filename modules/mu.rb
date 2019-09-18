@@ -962,6 +962,9 @@ module MU
       struct.map! { |elt|
         self.structToHash(elt, stringify_keys: stringify_keys)
       }
+    elsif struct.is_a?(String)
+      # Cleanse weird encoding problems
+      return struct.to_s.force_encoding("ASCII-8BIT").encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
     else
       return struct
     end

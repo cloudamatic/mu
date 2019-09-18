@@ -262,40 +262,55 @@ module MU
             policy_arn: policy_arn
           )
           attachments.policy_users.each { |u|
-            MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
-              user_name: u.user_name,
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
+                user_name: u.user_name,
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
           attachments.policy_groups.each { |g|
-            MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(
-              group_name: g.group_name,
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(
+                group_name: g.group_name,
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
           attachments.policy_roles.each { |r|
-            MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
-              role_name: r.role_name,
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                role_name: r.role_name,
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
           versions = MU::Cloud::AWS.iam(credentials: credentials).list_policy_versions(
             policy_arn: policy_arn,
           ).versions
           versions.each { |v|
             next if v.is_default_version
-            MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
-              policy_arn: policy_arn,
-              version_id: v.version_id
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
+                policy_arn: policy_arn,
+                version_id: v.version_id
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
 
           # Delete the policy, unless it's one of the global canned ones owned
           # by AWS
           if !policy_arn.match(/^arn:aws:iam::aws:/)
-            MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           end
         end
 

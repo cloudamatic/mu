@@ -91,7 +91,7 @@ module MU
 
       if !@skipcloud
         creds = {}
-        MU::Cloud.supportedClouds.each { |cloud|
+        MU::Cloud.availableClouds.each { |cloud|
           if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds[cloud] ||= {}
@@ -107,132 +107,135 @@ module MU
         parent_thread_id = Thread.current.object_id
         deleted_nodes = 0
         @regionthreads = []
+        @cloudthreads = []
         keyname = "deploy-#{MU.deploy_id}"
 
-        creds.each_pair { |provider, credsets|
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
-          habitatclass = Object.const_get("MU").const_get("Cloud").const_get(provider).const_get("Habitat")
-          credsets.each_pair { |credset, acct_regions|
-            next if credsused and !credsused.include?(credset)
-            global_vs_region_semaphore = Mutex.new
-            global_done = {}
-            habitats_done = {}
-            acct_regions.each { |r|
-              if regionsused
-                if regionsused.size > 0
-                  next if !regionsused.include?(r)
-                else
-                  next if r != cloudclass.myRegion(credset)
+        creds.each_pair { |provider, credsets_outer|
+          @cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets|
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+            habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
+            credsets.each_pair { |credset, acct_regions|
+              next if credsused and !credsused.include?(credset)
+              global_vs_region_semaphore = Mutex.new
+              global_done = {}
+              habitats_done = {}
+              acct_regions.each { |r|
+                if regionsused
+                  if regionsused.size > 0
+                    next if !regionsused.include?(r)
+                  else
+                    next if r != cloudclass.myRegion(credset)
+                  end
                 end
-              end
-              if regions and !regions.empty?
-                next if !regions.include?(r)
-                MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
-              end
-              @regionthreads << Thread.new {
-                MU.dupGlobals(parent_thread_id)
-                MU.setVar("curRegion", r)
-                projects = []
-                if $MU_CFG[provider.downcase][credset]["project"]
+                if regions and !regions.empty?
+                  next if !regions.include?(r)
+                  MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
+                end
+                @regionthreads << Thread.new {
+                  MU.dupGlobals(parent_thread_id)
+                  MU.setVar("curRegion", r)
+                  projects = []
+                  if $MU_CFG[cloud.downcase][credset]["project"]
 # XXX GCP credential schema needs an array for projects
-                  projects << $MU_CFG[provider.downcase][credset]["project"]
-                end
-                begin
-                  projects.concat(cloudclass.listProjects(credset))
-                rescue NoMethodError
-                end
-
-                if projects == []
-                  projects << "" # dummy
-                  MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
-                end
-                projects.uniq!
-
-                # We do these in an order that unrolls dependent resources
-                # sensibly, and we hit :Collection twice because AWS
-                # CloudFormation sometimes fails internally.
-                projectthreads = []
-                projects.each { |project|
-                  next if !habitatclass.isLive?(project, credset)
-                  # cap our concurrency somewhere so we don't just grow to
-                  # infinity and bonk against system thread limits
+                    projects << $MU_CFG[cloud.downcase][credset]["project"]
+                  end
                   begin
-                    projectthreads.each do |thr|
-                      thr.join(0.1)
-                    end
-                    projectthreads.reject! { |thr| !thr.alive? }
-                    sleep 0.1
+                    projects.concat(cloudclass.listProjects(credset))
+                  rescue NoMethodError
+                  end
 
-                  end while (@regionthreads.size * projectthreads.size) > MU::MAXTHREADS
+                  if projects == []
+                    projects << "" # dummy
+                    MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+                  end
+                  projects.uniq!
 
-                  projectthreads << Thread.new {
-                    MU.dupGlobals(parent_thread_id)
-                    MU.setVar("curRegion", r)
-                    if project != ""
-                      MU.log "Checking for #{provider}/#{credset} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
-                    end
+                  # We do these in an order that unrolls dependent resources
+                  # sensibly, and we hit :Collection twice because AWS
+                  # CloudFormation sometimes fails internally.
+                  projectthreads = []
+                  projects.each { |project|
+                    next if !habitatclass.isLive?(project, credset)
+                    # cap our concurrency somewhere so we don't just grow to
+                    # infinity and bonk against system thread limits
+                    begin
+                      projectthreads.each do |thr|
+                        thr.join(0.1)
+                      end
+                      projectthreads.reject! { |thr| !thr.alive? }
+                      sleep 0.1
 
-                    MU.dupGlobals(parent_thread_id)
-                    flags = {
-                      "project" => project,
-                      "onlycloud" => @onlycloud,
-                      "skipsnapshots" => @skipsnapshots,
-                    }
-                    types_in_order.each { |t|
-                      begin
-                        skipme = false
-                        global_vs_region_semaphore.synchronize {
-                          MU::Cloud.loadCloudType(provider, t)
-                          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
-                          if Object.const_get("MU").const_get("Cloud").const_get(provider).const_get(t).isGlobal?
-                            global_done[project] ||= []
-                            if !global_done[project].include?(t)
-                              global_done[project] << t
-                              flags['global'] = true
-                            else
-                              skipme = true
+                    end while (@regionthreads.size * projectthreads.size) > MU::MAXTHREADS
+
+                    projectthreads << Thread.new {
+                      MU.dupGlobals(parent_thread_id)
+                      MU.setVar("curRegion", r)
+                      if project != ""
+                        MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
+                      end
+
+                      MU.dupGlobals(parent_thread_id)
+                      flags = {
+                        "project" => project,
+                        "onlycloud" => @onlycloud,
+                        "skipsnapshots" => @skipsnapshots,
+                      }
+                      types_in_order.each { |t|
+                        begin
+                          skipme = false
+                          global_vs_region_semaphore.synchronize {
+                            MU::Cloud.loadCloudType(cloud, t)
+                            shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
+                            if Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(t).isGlobal?
+                              global_done[project] ||= []
+                              if !global_done[project].include?(t)
+                                global_done[project] << t
+                                flags['global'] = true
+                              else
+                                skipme = true
+                              end
                             end
-                          end
-                        }
-                        next if skipme
-                      rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
-                        next
-                      rescue MU::MuError, NoMethodError => e
-                        MU.log "While checking mu/clouds/#{provider.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
-                        next
-                      rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
-                        MU.log e.message+" in "+r, MU::ERR
-                        next
-                      end
+                          }
+                          next if skipme
+                        rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
+                          next
+                        rescue MU::MuError, NoMethodError => e
+                          MU.log "While checking mu/clouds/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
+                          next
+                        rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
+                          MU.log e.message+" in "+r, MU::ERR
+                          next
+                        end
 
-                      begin
-                        self.call_cleanup(t, credset, provider, flags, r)
-                      rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
-                        next
-                      end
+                        begin
+                          self.call_cleanup(t, credset, cloud, flags, r)
+                        rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
+                          next
+                        end
 
+                      }
+                    } # types_in_order.each { |t|
+                  } # projects.each { |project|
+                  projectthreads.each do |t|
+                    t.join
+                  end
+
+                  # XXX move to MU::AWS
+                  if cloud == "AWS"
+                    resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
+                      filters: [{name: "key-name", values: [keyname]}]
+                    )
+                    resp.data.key_pairs.each { |keypair|
+                      MU.log "Deleting key pair #{keypair.key_name} from #{r}"
+                      MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
                     }
-                  } # types_in_order.each { |t|
-                } # projects.each { |project|
-                projectthreads.each do |t|
-                  t.join
-                end
-
-                # XXX move to MU::AWS
-                if provider == "AWS"
-                  resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
-                    filters: [{name: "key-name", values: [keyname]}]
-                  )
-                  resp.data.key_pairs.each { |keypair|
-                    MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-                    MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
-                  }
-                end
-              } # @regionthreads << Thread.new {
-            } # acct_regions.each { |r|
+                  end
+                } # @regionthreads << Thread.new {
+              } # acct_regions.each { |r|
 
 
-          } # credsets.each_pair { |credset, acct_regions|
+            } # credsets.each_pair { |credset, acct_regions|
+          } # @cloudthreads << Thread.new(provider, credsets) { |cloud, credsets_outer|
         } # creds.each_pair { |provider, credsets|
 
         @regionthreads.each do |t|
@@ -240,8 +243,11 @@ module MU
         end
         @projectthreads = []
 
-
         @projectthreads.each do |t|
+          t.join
+        end
+
+        @cloudthreads.each do |t|
           t.join
         end
 
