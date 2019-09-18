@@ -517,9 +517,6 @@ module MU
         end
 
         is_sibling = (vpc_block['name'] and configurator.haveLitterMate?(vpc_block["name"], "vpcs"))
-if !is_sibling
-  MU.log "FECK #{vpc_block['name']}", MU::NOTICE, details: caller
-end
 
         # Sometimes people set subnet_pref to "private" or "public" when they
         # mean "all_private" or "all_public." Help them out.

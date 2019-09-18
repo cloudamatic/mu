@@ -47,9 +47,9 @@ module MU
           tagQueue
 
           cur_attrs = notify
-          if cur_attrs["Policy"]
-            MU.log "FECK", MU::WARN, details: JSON.parse(cur_attrs["Policy"]).to_yaml
-          end
+#          if cur_attrs["Policy"]
+#            MU.log "FECK", MU::WARN, details: JSON.parse(cur_attrs["Policy"]).to_yaml
+#          end
           new_attrs = genQueueAttrs
 
           changed = false

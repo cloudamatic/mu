@@ -736,18 +736,25 @@ module MU
             MU.log "Deleting GKE cluster #{cluster.name}"
             if !noop
               cloud_id = cluster.self_link.sub(/.*?\/projects\//, 'projects/')
+              retries = 0
               begin
                 MU::Cloud::Google.container(credentials: credentials).delete_project_location_cluster(cloud_id)
                 MU::Cloud::Google.container(credentials: credentials).get_project_location_cluster(cloud_id)
                 sleep 60
               rescue ::Google::Apis::ClientError => e
-                if e.message.match(/is currently (creating|upgrading) cluster/)
-                  sleep 60
-                  retry
-                elsif !e.message.match(/notFound:/)
-                  raise e
-                else
+                if e.message.match(/notFound: /)
+                  MU.log cloud_id, MU::WARN, details: e.inspect
                   break
+                elsif e.message.match(/failedPrecondition: /)
+                  if (retries % 5) == 0
+                    MU.log "Waiting to delete GKE cluster #{cluster.name}: #{e.message}", MU::NOTICE
+                  end
+                  sleep 60
+                  retries += 1
+                  retry
+                else
+                  MU.log cloud_id, MU::WARN, details: e.inspect
+                  raise e
                 end
               end while true
             end
