@@ -677,36 +677,14 @@ MU.log c.name, MU::NOTICE, details: t
         # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
         # @param flavor [String]: ECS or EKS
         def self.getECSImageId(flavor = "ECS", region = MU.myRegion)
-          if flavor == "ECS"
-            resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
-              names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
-            )
-            if resp and resp.parameters and resp.parameters.size > 0
-              image_details = JSON.parse(resp.parameters.first.value)
-              return image_details['image_id']
-            end
-          elsif flavor == "EKS"
-            # XXX this is absurd, but these don't appear to be available from an API anywhere
-            # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
-            amis = {
-              "us-east-2" => "ami-0485258c2d1c3608f",
-              "us-east-1" => "ami-0f2e8e5663e16b436",
-              "us-west-2" => "ami-03a55127c613349a7",
-              "ap-east-1" => "ami-032850771ac6f8ae2",
-              "ap-south-1" => "ami-0a9b1c1807b1a40ab",
-              "ap-northeast-1" => "ami-0fde798d17145fae1",
-              "ap-northeast-2" => "ami-07fd7609df6c8e39b",
-              "ap-southeast-1" => "ami-0361e14efd56a71c7",
-              "ap-southeast-2" => "ami-0237d87bc27daba65",
-              "eu-central-1" => "ami-0b7127e7a2a38802a",
-              "eu-west-1" => "ami-00ac2e6b3cb38a9b9",
-              "eu-west-2" => "ami-0147919d2ff9a6ad5",
-              "eu-west-3" => "ami-0537ee9329c1628a2",
-              "eu-north-1" => "ami-0fd05922165907b85"
-            }
-
-            return amis[region]
+          resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
+            names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux-2/recommended"]
+          )
+          if resp and resp.parameters and resp.parameters.size > 0
+            image_details = JSON.parse(resp.parameters.first.value)
+            return image_details['image_id']
           end
+
           nil
         end
 
