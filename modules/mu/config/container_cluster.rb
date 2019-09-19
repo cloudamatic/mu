@@ -23,8 +23,7 @@ module MU
         base = {
           "type" => "object",
           "description" => "Create a cluster of container hosts.",
-          "required" => ["name", "cloud", "instance_type", "instance_count"],
-          "additionalProperties" => false,
+          "required" => ["name", "cloud", "instance_type"],
           "properties" => {
             "name" => { "type" => "string" },
             "region" => MU::Config.region_primitive,
@@ -49,7 +48,7 @@ module MU
               "properties" => {
                 "version" => {
                   "type" => "string",
-                  "default" => "1.11",
+                  "default" => "1.13",
                   "description" => "Version of Kubernetes control plane to deploy",
                 },
                 "max_pods" => {
@@ -65,10 +64,6 @@ module MU
                 "type" => "object",
                 "description" => "Optional Kubernetes-specific resource descriptors to run with kubectl create|replace when grooming this cluster. See https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/#understanding-kubernetes-objects"
               }
-            },
-            "flavor" => {
-              "type" => "string",
-              "description" => "Container clusters in Amazon can be ECS, EKS, or Fargate; Google supports GKE only"
             },
             "platform" => {
               "type" => "string",

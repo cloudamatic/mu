@@ -105,6 +105,9 @@ module MU
                 name: @mu_name
               )
               status = resp.cluster.status
+              if status == "FAILED"
+                raise MuError, "EKS cluster #{@mu_name} had FAILED status"
+              end
               if retries > 0 and (retries % 3) == 0 and status != "ACTIVE"
                 MU.log "Waiting for EKS cluster #{@mu_name} to become active (currently #{status})", MU::NOTICE
               end
@@ -640,13 +643,11 @@ MU.log c.name, MU::NOTICE, details: t
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
               name: @mu_name
             )
-            pp resp
             resp.cluster
           else
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_clusters(
               clusters: [@mu_name]
             )
-            pp resp
             resp.clusters.first
           end
         end
@@ -673,13 +674,49 @@ MU.log c.name, MU::NOTICE, details: t
           return deploy_struct
         end
 
+        @@eks_versions = {}
+        @@eks_version_semaphore = Mutex.new
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
         # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
         # @param flavor [String]: ECS or EKS
-        def self.getECSImageId(flavor = "ECS", region = MU.myRegion)
-          resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
-            names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux-2/recommended"]
-          )
+        # @param region [String]: Target AWS region
+        # @param version [String]: Version of Kubernetes, if +flavor+ is set to +EKS+
+        # @param gpu [Boolean]: Whether to request an image with GPU support
+        def self.getStandardImage(flavor = "ECS", region = MU.myRegion, version: nil, gpu: false)
+          resp = if flavor == "ECS"
+            MU::Cloud::AWS.ssm(region: region).get_parameters(
+              names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
+            )
+          else
+            @@eks_version_semaphore.synchronize {
+              if !@@eks_versions[region]
+                @@eks_versions[region] ||= []
+                versions = {}
+                resp = nil
+                next_token = nil
+                begin
+                  resp = MU::Cloud::AWS.ssm(region: region).get_parameters_by_path(
+                    path: "/aws/service/#{flavor.downcase}",
+                    recursive: true,
+                    next_token: next_token
+                  )
+                  resp.parameters.each { |p|
+                    p.name.match(/\/aws\/service\/eks\/optimized-ami\/([^\/]+?)\//)
+                    versions[Regexp.last_match[1]] = true
+                  }
+                  next_token = resp.next_token
+                end while !next_token.nil?
+                @@eks_versions[region] = versions.keys.sort { |a, b| MU.version_sort(a, b) }
+              end
+            }
+            if !version or version == "latest"
+              version = @@eks_versions[region].last
+            end
+            MU::Cloud::AWS.ssm(region: region).get_parameters(
+              names: ["/aws/service/#{flavor.downcase}/optimized-ami/#{version}/amazon-linux-2#{gpu ? "-gpu" : ""}/recommended"]
+            )
+          end
+
           if resp and resp.parameters and resp.parameters.size > 0
             image_details = JSON.parse(resp.parameters.first.value)
             return image_details['image_id']
@@ -692,24 +729,11 @@ MU.log c.name, MU::NOTICE, details: t
         def self.EKSRegions(credentials = nil)
           eks_regions = []
           MU::Cloud::AWS.listRegions(credentials: credentials).each { |r|
-            ami = getECSImageId("EKS", r)
+            ami = getStandardImage("EKS", r)
             eks_regions << r if ami
           }
 
           eks_regions
-        end
-
-        # Use the AWS SSM API to fetch the current version of the Amazon Linux
-        # EKS-optimized AMI, so we can use it as a default AMI for EKS deploys.
-        def self.getEKSImageId(region = MU.myRegion)
-          resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
-            names: ["/aws/service/ekss/optimized-ami/amazon-linux/recommended"]
-          )
-          if resp and resp.parameters and resp.parameters.size > 0
-            image_details = JSON.parse(resp.parameters.first.value)
-            return image_details['image_id']
-          end
-          nil
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -732,6 +756,7 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
+
 
           if resp and resp.cluster_arns and resp.cluster_arns.size > 0
             resp.cluster_arns.each { |arn|
@@ -790,6 +815,7 @@ MU.log c.name, MU::NOTICE, details: t
           tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
             family_prefix: MU.deploy_id
           )
+
           if tasks and tasks.task_definition_arns
             tasks.task_definition_arns.each { |arn|
               MU.log "Deregistering Fargate task definition #{arn}"
@@ -803,8 +829,14 @@ MU.log c.name, MU::NOTICE, details: t
 
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
 
+          resp = begin
+            MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
+          rescue Aws::EKS::Errors::AccessDeniedException
+            # EKS isn't actually live in this region, even though SSM lists
+            # base images for it
+            return
+          end
 
-          resp = MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
 
           if resp and resp.clusters
             resp.clusters.each { |cluster|
@@ -880,13 +912,19 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+
           schema = {
             "flavor" => {
-              "enum" => ["ECS", "EKS", "Fargate"],
+              "enum" => ["ECS", "EKS", "Fargate", "Kubernetes"],
               "default" => "ECS"
             },
             "kubernetes" => {
-              "default" => { "version" => "1.13" }
+              "default" => { "version" => "latest" }
+            },
+            "gpu" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable worker nodes with GPU capabilities"
             },
             "platform" => {
               "description" => "The platform to choose for worker nodes."
@@ -1590,7 +1628,7 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
-            std_ami = getECSImageId(cluster["flavor"], cluster['region'])
+            std_ami = getStandardImage(cluster["flavor"], cluster['region'], version: cluster['kubernetes']['version'], gpu: cluster['gpu'])
             cluster["host_image"] ||= std_ami
             if cluster["host_image"] != std_ami
               if cluster["flavor"] == "ECS"
@@ -1621,13 +1659,19 @@ MU.log c.name, MU::NOTICE, details: t
           fwname = "container_cluster#{cluster['name']}"
 
           cluster['ingress_rules'] ||= []
+          if ["ECS", "EKS"].include?(cluster["flavor"])
+            cluster['ingress_rules'] << {
+              "sgs" => ["server_pool"+cluster["name"]+"workers"],
+              "port" => 443
+            }
+          end
           acl = {
             "name" => fwname,
             "credentials" => cluster["credentials"],
             "cloud" => "AWS",
             "rules" => cluster['ingress_rules'],
             "region" => cluster['region'],
-            "optional_tags" => cluster['optional_tags']
+            "optional_tags" => cluster['optional_tags'],
           }
           acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
           acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
@@ -1643,11 +1687,6 @@ MU.log c.name, MU::NOTICE, details: t
           if ["ECS", "EKS"].include?(cluster["flavor"])
             cluster["max_size"] ||= cluster["instance_count"]
             cluster["min_size"] ||= cluster["instance_count"]
-
-            cluster['ingress_rules'] << {
-              "sgs" => [cluster["name"]+"workers"],
-              "port" => 443
-            }
 
             worker_pool = {
               "name" => cluster["name"]+"workers",
