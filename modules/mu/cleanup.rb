@@ -106,12 +106,13 @@ module MU
 
         parent_thread_id = Thread.current.object_id
         deleted_nodes = 0
-        @regionthreads = []
-        @cloudthreads = []
+        cloudthreads = []
         keyname = "deploy-#{MU.deploy_id}"
 
         creds.each_pair { |provider, credsets_outer|
-          @cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets|
+          cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets|
+            MU.dupGlobals(parent_thread_id)
+            Thread.abort_on_exception = false
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
             credsets.each_pair { |credset, acct_regions|
@@ -119,6 +120,7 @@ module MU
               global_vs_region_semaphore = Mutex.new
               global_done = {}
               habitats_done = {}
+              regionthreads = []
               acct_regions.each { |r|
                 if regionsused
                   if regionsused.size > 0
@@ -131,8 +133,9 @@ module MU
                   next if !regions.include?(r)
                   MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
                 end
-                @regionthreads << Thread.new {
+                regionthreads << Thread.new {
                   MU.dupGlobals(parent_thread_id)
+                  Thread.abort_on_exception = false
                   MU.setVar("curRegion", r)
                   projects = []
                   if $MU_CFG[cloud.downcase][credset]["project"]
@@ -165,11 +168,12 @@ module MU
                       projectthreads.reject! { |thr| !thr.alive? }
                       sleep 0.1
 
-                    end while (@regionthreads.size * projectthreads.size) > MU::MAXTHREADS
+                    end while (regionthreads.size * projectthreads.size) > MU::MAXTHREADS
 
                     projectthreads << Thread.new {
                       MU.dupGlobals(parent_thread_id)
                       MU.setVar("curRegion", r)
+                      Thread.abort_on_exception = false
                       if project != ""
                         MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
                       end
@@ -181,11 +185,11 @@ module MU
                         "skipsnapshots" => @skipsnapshots,
                       }
                       types_in_order.each { |t|
+                        shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
                         begin
                           skipme = false
                           global_vs_region_semaphore.synchronize {
                             MU::Cloud.loadCloudType(cloud, t)
-                            shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
                             if Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(t).isGlobal?
                               global_done[project] ||= []
                               if !global_done[project].include?(t)
@@ -212,7 +216,6 @@ module MU
                         rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
                           next
                         end
-
                       }
                     } # types_in_order.each { |t|
                   } # projects.each { |project|
@@ -230,26 +233,19 @@ module MU
                       MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
                     }
                   end
-                } # @regionthreads << Thread.new {
+                } # regionthreads << Thread.new {
               } # acct_regions.each { |r|
-
+              regionthreads.each do |t|
+                t.join
+              end
 
             } # credsets.each_pair { |credset, acct_regions|
-          } # @cloudthreads << Thread.new(provider, credsets) { |cloud, credsets_outer|
+          } # cloudthreads << Thread.new(provider, credsets) { |cloud, credsets_outer|
+          cloudthreads.each do |t|
+            t.join
+          end
         } # creds.each_pair { |provider, credsets|
 
-        @regionthreads.each do |t|
-          t.join
-        end
-        @projectthreads = []
-
-        @projectthreads.each do |t|
-          t.join
-        end
-
-        @cloudthreads.each do |t|
-          t.join
-        end
 
         # Knock habitats and folders, which would contain the above resources,
         # once they're all done.
@@ -431,6 +427,7 @@ module MU
         end
 #        begin
           resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
+
           resclass.cleanup(
             noop: @noop,
             ignoremaster: @ignoremaster,

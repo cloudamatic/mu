@@ -357,6 +357,7 @@ module MU
           }
 
           resp.data.security_groups.each { |sg|
+            next if sg.group_name == "default"
             MU.log "Removing EC2 Security Group #{sg.group_name}"
 
             retries = 0
