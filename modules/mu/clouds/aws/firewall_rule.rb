@@ -159,7 +159,6 @@ module MU
           else
             rule["port_range"] = port_range
           end
-          rule["description"] = comment if comment
           ec2_rule = convertToEc2([rule])
 
           begin
@@ -487,8 +486,46 @@ module MU
           end
 
           ec2_rules = convertToEc2(rules)
-
           ext_permissions = MU.structToHash(cloud_desc.ip_permissions)
+
+          # Purge any old rules that we're sure we created (check the comment)
+          # but which are no longer configured.
+          ext_permissions.each { |ext_rule|
+            haverule = false
+            ec2_rules.each { |rule|
+              if rule[:from_port] == ext_rule[:from_port] and
+                 rule[:to_port] == ext_rule[:to_port] and
+                 rule[:ip_protocol] == ext_rule[:ip_protocol]
+                haverule = true
+                break
+              end
+            }
+            next if haverule
+
+            mu_comments = false
+            (ext_rule[:user_id_group_pairs] + ext_rule[:ip_ranges]).each { |entry|
+              if entry[:description] == "Added by Mu"
+                mu_comments = true
+              else
+                mu_comments = false
+                break
+              end
+            }
+
+            if mu_comments
+              ext_rule.keys.each { |k|
+                if ext_rule[k].nil? or ext_rule[k] == []
+                  ext_rule.delete(k)
+                end
+              }
+              MU.log "Removing unconfigured rule in #{@mu_name}", MU::WARN, details: ext_rule
+              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_ingress(
+                group_id: @cloud_id,
+                ip_permissions: [ext_rule]
+              )
+            end
+
+          }
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
@@ -496,36 +533,62 @@ module MU
             ec2_rules.uniq!
             retries = 0
             ec2_rules.each { |rule|
-              haverule = false
+              haverule = nil
+              different = false
               ext_permissions.each { |ext_rule|
-                different = false
-                ext_rule.keys.each { |k|
-                  next if ext_rule[k].nil? or ext_rule[k] == []
-                  different = true if rule[k] != ext_rule[k]
-                }
-                if !different
-                  haverule = true
+                if rule[:from_port] == ext_rule[:from_port] and
+                   rule[:to_port] == ext_rule[:to_port] and
+                   rule[:ip_protocol] == ext_rule[:ip_protocol]
+                  haverule = ext_rule
+                  ext_rule.keys.each { |k|
+                    if ext_rule[k].nil? or ext_rule[k] == []
+                      haverule.delete(k)
+                    end
+                    different = true if rule[k] != ext_rule[k]
+                  }
                   break
                 end
               }
-              if haverule
-                MU.log "Security Group rule already exists in #{@mu_name}", MU::DEBUG, details: rule
+              if haverule and !different
+                MU.log "Security Group rule already up-to-date in #{@mu_name}", MU::DEBUG, details: rule
                 next
               end
-              MU.log "Setting rule in Security Group #{@mu_name} (#{@cloud_id})", MU::NOTICE, details: rule
+
+              MU.log "Setting #{ingress ? "ingress" : "egress"} rule in Security Group #{@mu_name} (#{@cloud_id})", MU::NOTICE, details: rule
               begin
+
                 if ingress
+                  if haverule
+                    begin
+                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_ingress(
+                        group_id: @cloud_id,
+                        ip_permissions: [haverule]
+                      )
+                    rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
+                    end
+                  end
                   MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
-                      group_id: @cloud_id,
-                      ip_permissions: [rule]
+                    group_id: @cloud_id,
+                    ip_permissions: [rule]
                   )
                 end
+
                 if egress
+                  if haverule
+                    begin
+                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_egress(
+                        group_id: @cloud_id,
+                        ip_permissions: [haverule]
+                      )
+                    rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
+                    end
+                  end
                   MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
-                      group_id: @cloud_id,
-                      ip_permissions: [rule]
+                    group_id: @cloud_id,
+                    ip_permissions: [rule]
                   )
                 end
+
               rescue Aws::EC2::Errors::InvalidGroupNotFound => e
                 MU.log "#{@mu_name} (#{@cloud_id}) does not yet exist", MU::WARN
                 retries = retries + 1
@@ -554,6 +617,8 @@ module MU
 
             rules.each { |rule|
               ec2_rule = {}
+              rule["comment"] ||= "Added by Mu"
+
 
               rule['proto'] ||= "tcp"
               ec2_rule[:ip_protocol] = rule['proto']
@@ -592,11 +657,7 @@ module MU
                 rule['hosts'].each { |cidr|
                   next if cidr.nil? # XXX where is that coming from?
                   cidr = cidr + "/32" if cidr.match(/^\d+\.\d+\.\d+\.\d+$/)
-                  if rule['description']
-                    ec2_rule[:ip_ranges] << {cidr_ip: cidr, description: rule['description']}
-                  else
-                    ec2_rule[:ip_ranges] << {cidr_ip: cidr}
-                  end
+                  ec2_rule[:ip_ranges] << {cidr_ip: cidr, description: rule['comment']}
                 }
               end
 
@@ -660,7 +721,8 @@ module MU
 
                   ec2_rule[:user_id_group_pairs] << {
                     user_id: MU.account_number,
-                    group_id: sg.cloud_id
+                    group_id: sg.cloud_id,
+                    description: rule['comment']
                   }
                 }
               end

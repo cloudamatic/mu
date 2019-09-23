@@ -1662,27 +1662,17 @@ MU.log c.name, MU::NOTICE, details: t
           if ["ECS", "EKS"].include?(cluster["flavor"])
             cluster['ingress_rules'] << {
               "sgs" => ["server_pool"+cluster["name"]+"workers"],
-              "port" => 443
+              "port" => 443,
+              "proto" => "tcp",
+              "ingress" => true,
+              "comment" => "Allow worker nodes to access API"
             }
+            ruleset = configurator.haveLitterMate?(fwname, "firewall_rules")
+            if ruleset
+              ruleset["rules"].concat(cluster['ingress_rules'])
+              ruleset["rules"].uniq!
+            end
           end
-          acl = {
-            "name" => fwname,
-            "credentials" => cluster["credentials"],
-            "cloud" => "AWS",
-            "rules" => cluster['ingress_rules'],
-            "region" => cluster['region'],
-            "optional_tags" => cluster['optional_tags'],
-          }
-          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
-          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-
-          ok = false if !configurator.insertKitten(acl, "firewall_rules")
-          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
-          cluster["add_firewall_rules"] << {"rule_name" => fwname}
-          cluster["dependencies"] << {
-            "name" => fwname,
-            "type" => "firewall_rule",
-          }
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
             cluster["max_size"] ||= cluster["instance_count"]
