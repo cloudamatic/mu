@@ -38,7 +38,9 @@ case node['platform']
 
     # What we really mean is "chef_gem" but that insists on running
     # at compile time, before any of its dependencies are ready.
-    gem_package "mysql"
+    gem_package "mysql" do
+      options('-q --no-documentation')
+    end
 
     # Sundry libraries for PHP
     ["libmcrypt", "libmcrypt-devel", "php-devel", "php-pdo", "php-mysql", "php-pgsql", "php-gd", "php-pspell", "php-snmp", "php-xmlrpc", "php-xml", "php-mbstring", "php-mcrypt", "php-pear"].each { |pkg|
