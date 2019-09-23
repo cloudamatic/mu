@@ -6,7 +6,7 @@
 # doing only private IPs although that can be problematic 
 # if the same deploy has cross VPC or cross region resources
   if n.name != @hostname %>
-<%= n.ipaddress %> <%= n.name %>
+<%= n['ipaddress'] %> <%= n.name %>
 <%
   end
   }
