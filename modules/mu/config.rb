@@ -1835,48 +1835,46 @@ return
     def self.check_dependencies(config)
       ok = true
 
-      config.each { |type|
-        if type.instance_of?(Array)
-          type.each { |container|
-            if container.instance_of?(Array)
-              container.each { |resource|
-                if resource.kind_of?(Hash) and resource["dependencies"] != nil
-                  append = []
-                  delete = []
-                  resource["dependencies"].each { |dependency|
-                    collection = dependency["type"]+"s"
-                    found = false
-                    names_seen = []
-                    if config[collection] != nil
-                      config[collection].each { |service|
-                        names_seen << service["name"].to_s
-                        found = true if service["name"].to_s == dependency["name"].to_s
-                        if service["virtual_name"]
-                          names_seen << service["virtual_name"].to_s
-                          found = true if service["virtual_name"].to_s == dependency["name"].to_s
-                          append_me = dependency.dup
-                          append_me['name'] = service['name']
-                          append << append_me
-                          delete << dependency
-                        end
-                      }
-                    end
-                    if !found
-                      MU.log "Missing dependency: #{type[0]}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR, details: names_seen
-                      ok = false
+      config.each_pair { |type, values|
+        if values.instance_of?(Array)
+          values.each { |resource|
+            if resource.kind_of?(Hash) and !resource["dependencies"].nil?
+              append = []
+              delete = []
+              resource["dependencies"].each { |dependency|
+                shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(dependency["type"])
+                found = false
+                names_seen = []
+                if !config[cfg_plural].nil?
+                  config[cfg_plural].each { |service|
+                    names_seen << service["name"].to_s
+                    found = true if service["name"].to_s == dependency["name"].to_s
+                    if service["virtual_name"] 
+                      names_seen << service["virtual_name"].to_s
+                      if service["virtual_name"].to_s == dependency["name"].to_s
+                        found = true
+                        append_me = dependency.dup
+                        append_me['name'] = service['name']
+                        append << append_me
+                        delete << dependency
+                      end
                     end
                   }
-                  if append.size > 0
-                    append.uniq!
-                    resource["dependencies"].concat(append)
-                  end
-                  if delete.size > 0
-                    delete.each { |delete_me|
-                      resource["dependencies"].delete(delete_me)
-                    }
-                  end
+                end
+                if !found
+                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR, details: names_seen
+                  ok = false
                 end
               }
+              if append.size > 0
+                append.uniq!
+                resource["dependencies"].concat(append)
+              end
+              if delete.size > 0
+                delete.each { |delete_me|
+                  resource["dependencies"].delete(delete_me)
+                }
+              end
             end
           }
         end

@@ -80,7 +80,7 @@ module MU
           # We'll create a temporary basic auth config so that we can grant
           # useful permissions to the Client Certificate user
           master_user ||= "master_user"
-          master_pw = Password.pronounceable(16..18)
+          master_pw = Password.pronounceable(18)
 
           desc = {
             :name => @mu_name.downcase,
