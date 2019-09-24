@@ -4,13 +4,16 @@
 #
 # Copyright:: 2019, The Authors, All Rights Reserved.
 
-selinux_state "SELinux Enforcing" do
-	action :enforcing
-	notifies :request_reboot, 'reboot[now]', :immediately
-end
+if !node['application_attributes']['skip_recipes'].include?('selinux')
 
-reboot 'now' do
-	action :nothing
-	reason 'Must reboot to enable SELinux.'
+  selinux_state "SELinux Enforcing" do
+    action :enforcing
+    notifies :request_reboot, 'reboot[now]', :immediately
+  end
+
+  reboot 'now' do
+    action :nothing
+    reason 'Must reboot to enable SELinux.'
+  end
+ 
 end
-  
