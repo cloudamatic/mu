@@ -1832,6 +1832,8 @@ module MU
               end
               MU.log "Deleting Network Interface #{iface.network_interface_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_network_interface(network_interface_id: iface.network_interface_id) if !noop
+            rescue Aws::EC2::Errors::InvalidNetworkInterfaceIDNotFound => e
+              # ok then!
             rescue Aws::EC2::Errors::InvalidParameterValue => e
               MU.log e.message, MU::ERR, details: iface
             end
@@ -1977,8 +1979,8 @@ module MU
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation => e
-              MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
               if retries < 5
+                MU.log "#{vpc.vpc_id} in #{region} had hidden dependencies, will try to remove them", MU::NOTICE
                 retries += 1
                 # fry some common rogue resources
                 MU::Cloud::AWS::FirewallRule.cleanup(
@@ -1990,6 +1992,7 @@ module MU
                 sleep 10
                 retry
               else
+                MU.log "Failed to remove #{vpc.vpc_id} in #{region}: #{e.message}", MU::ERR
                 next
               end
             end
