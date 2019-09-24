@@ -491,56 +491,73 @@ module MU
               peer_obj = nil
               peer_id = nil
 
-              begin
-                # If we know this to be a sibling VPC elsewhere in our stack,
-                # go fetch it, and fix it if we've been misconfigured with a
-                # duplicate peering connection
-                if peer['vpc']['vpc_name'] and !peer['account']
-                  peer_obj = @deploy.findLitterMate(name: peer['vpc']['vpc_name'], type: "vpcs")
-                  if peer_obj
-                    if peer_obj.config['peers']
-                      skipme = false
-                      peer_obj.config['peers'].each { |peerpeer|
-                        if peerpeer['vpc']['vpc_name'] == @config['name'] and
-                           (peer['vpc']['vpc_name'] <=> @config['name']) == -1
-                          skipme = true
-                          MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
+              # If we know this to be a sibling VPC elsewhere in our stack,
+              # go fetch it, and fix it if we've been misconfigured with a
+              # duplicate peering connection
+              if peer['vpc']['vpc_name'] and !peer['account']
+                peer_obj = @deploy.findLitterMate(name: peer['vpc']['vpc_name'], type: "vpcs")
+                if peer_obj
+                  if peer_obj.config['peers']
+                    skipme = false
+                    peer_obj.config['peers'].each { |peerpeer|
+                      if peerpeer['vpc']['vpc_name'] == @config['name'] and
+                         (peer['vpc']['vpc_name'] <=> @config['name']) == -1
+                        skipme = true
+                        MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
 # XXX and if deploy_id matches or is unset
-                        end
-                      }
-                    end
-                    next if skipme
-                    peer['account'] = MU::Cloud::AWS.credToAcct(peer_obj.credentials)
-                    peer['vpc']['vpc_id'] = peer_obj.cloud_id
+                      end
+                    }
                   end
+                  next if skipme
+                  peer['account'] = MU::Cloud::AWS.credToAcct(peer_obj.credentials)
+                  peer['vpc']['vpc_id'] = peer_obj.cloud_id
                 end
+              end
 
-                # If we still don't know our peer's vpc identifier, go fishing
-                if !peer_obj
-                  tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-                  if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
-                    peer['vpc']['deploy_id'] = @deploy.deploy_id
-                  end
-                  peer_obj = MU::MommaCat.findStray(
-                    "AWS",
-                    "vpcs",
-                    deploy_id: peer['vpc']['deploy_id'],
-                    cloud_id: peer['vpc']['vpc_id'],
+              # If we still don't know our peer's vpc identifier, go fishing
+              if !peer_obj
+                tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
+                if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
+                  peer['vpc']['deploy_id'] = @deploy.deploy_id
+                end
+                peer_obj = MU::MommaCat.findStray(
+                  "AWS",
+                  "vpcs",
+                  deploy_id: peer['vpc']['deploy_id'],
+                  cloud_id: peer['vpc']['vpc_id'],
 # XXX we need a credentials argument here... maybe
-                    name: peer['vpc']['vpc_name'],
-                    tag_key: tag_key,
-                    tag_value: tag_value,
-                    dummy_ok: true,
-                    region: peer['vpc']['region']
-                  )
-                  raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
-                  peer_obj = peer_obj.first
-                  peer['account'] ||= MU::Cloud::AWS.credToAcct(peer_obj.credentials)
-                  peer['vpc']['vpc_id'] ||= peer_obj.cloud_id
-                end
+                  name: peer['vpc']['vpc_name'],
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  dummy_ok: true,
+                  region: peer['vpc']['region']
+                )
+                raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
+                peer_obj = peer_obj.first
+                peer['account'] ||= MU::Cloud::AWS.credToAcct(peer_obj.credentials)
+                peer['vpc']['vpc_id'] ||= peer_obj.cloud_id
+              end
 
-                peer_id = peer['vpc']['vpc_id']
-                peer['account'] ||= MU::Cloud::AWS.account_number
+              peer_id = peer['vpc']['vpc_id']
+              peer['account'] ||= MU::Cloud::AWS.account_number
+
+              # See if the peering connection exists before we bother
+              # creating it.
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
+                filters: [
+                  {
+                    name: "requester-vpc-info.vpc-id",
+                    values: [@cloud_id]
+                  },
+                  {
+                    name: "accepter-vpc-info.vpc-id",
+                    values: [peer_id]
+                  }
+                ]
+              )
+
+              peering_id = if !resp or !resp.vpc_peering_connections or
+                 resp.vpc_peering_connections.empty?
 
                 MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id} in account #{MU::Cloud::AWS.credToAcct(@config['credentials'])}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
                 resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc_peering_connection(
@@ -548,13 +565,13 @@ module MU
                   peer_vpc_id: peer_id,
                   peer_owner_id: peer['account']
                 )
-
-              rescue Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists => e
-                MU.log "Attempt to create duplicate peering connection to #{peer_id} from VPC #{@config['name']}", MU::WARN
+                resp.vpc_peering_connection.vpc_peering_connection_id
+              else
+                resp.vpc_peering_connections.first.vpc_peering_connection_id
               end
+
               peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['vpc_id'])
 
-              peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
               MU::Cloud::AWS.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
 
@@ -577,24 +594,24 @@ module MU
                   :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
                   :vpc_peering_connection_id => peering_id
                 }
-                begin
-                  MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}"
-                  resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(my_route_config)
-                rescue Aws::EC2::Errors::RouteAlreadyExists => e
-                  rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-                    route_table_ids: [rtb_id]
-                  ).route_tables.first
-                  rtbdesc.routes.each { |r|
-                    if r.destination_cidr_block == peer_obj.cloud_desc.cidr_block
-                      if r.vpc_peering_connection_id != peering_id
-                        MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::ERR, details: r
-                        raise MuError, "Can't create route via #{peering_id}, a route to #{peer_obj.cloud_desc.cidr_block} already exists"
-                      else
-                        break # this is fine, the route simply already exists
-                      end
+                rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+                  route_table_ids: [rtb_id]
+                ).route_tables.first
+                already_exists = false
+                rtbdesc.routes.each { |r|
+                  if r.destination_cidr_block == peer_obj.cloud_desc.cidr_block
+                    if r.vpc_peering_connection_id != peering_id
+                      MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::ERR, details: r
+                      raise MuError, "Can't create route via #{peering_id}, a route to #{peer_obj.cloud_desc.cidr_block} already exists"
+                    else
+                      already_exists = true
                     end
-                  }
-                end
+                  end
+                }
+                next if already_exists
+
+                MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}"
+                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(my_route_config)
               } # MU::Cloud::AWS::VPC.listAllSubnetRouteTables
 
               begin

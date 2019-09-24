@@ -124,7 +124,16 @@ module MU
                   )
 
                   if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
-                    MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy.values.first
+                    # Special exception- we don't want to overwrite extra rules
+                    # in MuSecrets policies, because our siblings might have 
+                    # (will have) injected those and they should stay.
+                    if policy.size == 1 and policy["MuSecrets"]
+                      ext = JSON.parse(URI.decode(version.policy_version.document))
+                      if (ext["Statement"][0]["Resource"] & policy["MuSecrets"]["Statement"][0]["Resource"]).sort == policy["MuSecrets"]["Statement"][0]["Resource"].sort
+                        next
+                      end
+                    end
+                    MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy
                     update_policy(arn, policy.values.first)
                     MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
                   else
