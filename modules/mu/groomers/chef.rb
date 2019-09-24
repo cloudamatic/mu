@@ -558,7 +558,7 @@ module MU
 
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
-        run_list = ["recipe[mu-tools::newclient]"]
+        run_list = ["recipe[mu-tools::newclient]", 'recipe[mu-tools::selinux]']
         run_list << "mu-tools::gcloud" if @server.cloud == "Google" or @server.config['cloud'] == "Google"
 
         json_attribs = {}
@@ -665,7 +665,7 @@ retry
 
         # Now that we're done, remove one-shot bootstrap recipes from the
         # node's final run list
-        ["mu-tools::newclient"].each { |recipe|
+        ["mu-tools::newclient", 'mu-tools::selinux'].each { |recipe|
           begin
             ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[#{recipe}]"], {})
           rescue SystemExit => e

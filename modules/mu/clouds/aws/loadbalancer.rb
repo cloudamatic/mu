@@ -208,8 +208,12 @@ module MU
                   :name => tg_name,
                   :protocol => tg['proto'],
                   :vpc_id => @vpc.cloud_id,
-                  :port => tg['port']
+                  :port => tg['port'],
+                  :target_type  => 'instance'
                 }
+                if tg['target_type'] && tg['target_type'] != 'instance'
+                  tg_descriptor[:target_type] = tg['target_type']
+                end
                 if tg['httpcode']
                   tg_descriptor[:matcher] = {
                     :http_code => tg['httpcode']
@@ -765,6 +769,10 @@ module MU
                   "proto" => {
                     "type" => "string",
                     "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                  },
+                  "target_type " => {
+                    "type" => "string",
+                    "enum" => ["instance", "ip", "lambda"],
                   }
                 }
               }

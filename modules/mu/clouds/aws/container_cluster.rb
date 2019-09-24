@@ -153,7 +153,7 @@ module MU
           serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
-          if @config['kubernetes']
+          if @config["flavor"] == "EKS"
             kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig.erb"))
             configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
             tagme = [@vpc.cloud_id]
@@ -329,7 +329,7 @@ module MU
             created_generic_loggroup = false
 
             @config['containers'].each { |c|
-              service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name+"-"+c['name'].upcase
+              service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name
               tasks[service_name] ||= []
               tasks[service_name] << c
             }
@@ -339,8 +339,10 @@ module MU
               cpu_total = 0
               mem_total = 0
               role_arn = nil
+              lbs = []
 
               container_definitions = containers.map { |c|
+                container_name = @mu_name+"-"+c['name'].upcase
                 cpu_total += c['cpu']
                 mem_total += c['memory']
 
@@ -361,6 +363,50 @@ module MU
                   else
                     raise MuError, "Unable to find execution role from #{c["role"]}"
                   end
+                end
+                
+                if c['loadbalancers'] != []
+                  c['loadbalancers'].each {|lb|
+                    found = @deploy.findLitterMate(name: lb['name'], type: "loadbalancer")
+                    if found
+                      MU.log "Mapping LB #{found.mu_name} to service #{c['name']}", MU::INFO
+                      if found.cloud_desc.type != "classic"
+                        elb_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
+                            load_balancer_arn: found.cloud_desc.load_balancer_arn
+                          })
+                          matching_target_groups = []
+                          elb_groups.target_groups.each { |tg|
+                            if tg.port.to_i == lb['container_port'].to_i
+                              matching_target_groups << {
+                                arn: tg['target_group_arn'],
+                                name: tg['target_group_name']
+                              }
+                            end 
+                          }
+                          if matching_target_groups.length >= 1
+                            MU.log "#{matching_target_groups.length} matching target groups found. Mapping #{container_name} to target group #{matching_target_groups.first['name']}", MU::INFO
+                            lbs << {
+                              container_name: container_name,
+                              container_port: lb['container_port'],
+                              target_group_arn: matching_target_groups.first[:arn]
+                            }
+                          else
+                            raise MuError, "No matching target groups found"
+                          end
+                      elsif @config['flavor'] == "Fargate" && found.cloud_desc.type == "classic"
+                        raise MuError, "Classic Load Balancers are not supported with Fargate."
+                      else
+                        MU.log "Mapping Classic LB #{found.mu_name} to service #{container_name}", MU::INFO
+                        lbs << {
+                          container_name: container_name,
+                          container_port: lb['container_port'],
+                          load_balancer_name: found.mu_name
+                        }
+                      end
+                    else
+                      raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
+                    end
+                  }
                 end
 
                 params = {
@@ -451,13 +497,13 @@ module MU
               resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
 
               task_def = resp.task_definition.task_definition_arn
-
               service_params = {
                 :cluster => @mu_name,
                 :desired_count => @config['instance_count'], # XXX this makes no sense
                 :service_name => service_name,
                 :launch_type => launch_type,
-                :task_definition => task_def
+                :task_definition => task_def,
+                :load_balancers => lbs
               }
               if @config['vpc']
                 subnet_ids = []
@@ -1415,6 +1461,25 @@ MU.log c.name, MU::NOTICE, details: t
                         "description" => "Per-driver configuration options. See also: https://docs.aws.amazon.com/sdkforruby/api/Aws/ECS/Types/ContainerDefinition.html#log_configuration-instance_method"
                       }
                     }
+                  },
+                  "loadbalancers" => {
+                    "type" => "array",
+                    "description" => "Array of loadbalancers to associate with this container servvice See also: https://docs.aws.amazon.com/sdk-for-ruby/v3/api/Aws/ECS/Client.html#create_service-instance_method",
+                    "default" => [],
+                    "items" => {
+                      "description" => "Load Balancers to associate with the container services",
+                      "type" => "object",
+                      "properties" => {
+                        "name" => {
+                          "type" => "string",
+                          "description" => "Name of the loadbalancer to associate"
+                        },
+                        "container_port" => {
+                          "type" => "integer",
+                          "description" => "container port to map to the loadbalancer"
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -1455,6 +1520,7 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           if cluster["flavor"] != "EKS" and cluster["containers"]
+            cluster.delete("kubernetes")
             created_generic_loggroup = false
             cluster['containers'].each { |c|
               if c['log_configuration'] and
