@@ -190,6 +190,21 @@ module MU
                   MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
                     policy_arn: policy.arn
                   )
+                rescue ::Aws::IAM::Errors::DeleteConflict
+                  versions = MU::Cloud::AWS.iam(credentials: credentials).list_policy_versions(
+                    policy_arn: policy.arn,
+                  ).versions
+                  versions.each { |v|
+                    next if v.is_default_version
+                    begin
+                      MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
+                        policy_arn: policy.arn,
+                        version_id: v.version_id
+                      )
+                    rescue ::Aws::IAM::Errors::NoSuchEntity
+                    end
+                  }
+                  retry
                 rescue ::Aws::IAM::Errors::NoSuchEntity
                 end
               end
