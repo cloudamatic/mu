@@ -796,18 +796,22 @@ module MU
         # @param arguments [Array]
         def method_missing(method_sym, *arguments)
           @wrapper_semaphore.synchronize {
-            if !@wrappers[method_sym]
-              if !arguments.nil? and arguments.size == 1
-                retval = @api.method(method_sym).call(arguments[0])
-              elsif !arguments.nil? and arguments.size > 0
-                retval = @api.method(method_sym).call(*arguments)
-              else
-                retval = @api.method(method_sym).call
-              end
-              @wrappers[method_sym] = ClientCallWrapper.new(retval, method_sym.to_s, self)
-            end
-            return @wrappers[method_sym]
+            return @wrappers[method_sym] if @wrappers[method_sym]
           }
+          # there's a low-key race condition here, but it's harmless and I'm
+          # trying to pin down an odd deadlock condition on cleanup calls
+          if !arguments.nil? and arguments.size == 1
+            retval = @api.method(method_sym).call(arguments[0])
+          elsif !arguments.nil? and arguments.size > 0
+            retval = @api.method(method_sym).call(*arguments)
+          else
+            retval = @api.method(method_sym).call
+          end
+          deep_retval = ClientCallWrapper.new(retval, method_sym.to_s, self)
+          @wrapper_semaphore.synchronize {
+            @wrappers[method_sym] ||= deep_retval
+          }
+          return @wrappers[method_sym]
         end
 
         # The Azure SDK embeds several "sub-APIs" in each SDK client, and most

@@ -1220,6 +1220,7 @@ module MU
             begin
               args = {
                 :region => @config['region'],
+                :cloud => @config['cloud'],
                 :cloud_id => @cloud_id,
                 :credentials => @credentials,
                 :project => habitat_id, # XXX this belongs in our required_instance_methods hack
@@ -1537,6 +1538,7 @@ module MU
           MU::Cloud.availableClouds.each { |cloud|
             begin
               args = flags.first
+              next if args[:cloud] and args[:cloud] != cloud
               # skip this cloud if we have a region argument that makes no
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
