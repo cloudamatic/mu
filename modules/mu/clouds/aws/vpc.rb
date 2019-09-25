@@ -1989,6 +1989,7 @@ module MU
                   credentials: credentials,
                   flags: { "vpc_id" => vpc.vpc_id }
                 )
+                purge_gateways(noop, tagfilters, region: region, credentials: credentials)
                 sleep 10
                 retry
               else
