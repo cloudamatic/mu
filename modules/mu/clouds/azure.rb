@@ -568,7 +568,7 @@ module MU
       # @param alt_object [String]: Return an instance of something other than the usual API client object
       # @param credentials [String]:
       # @return [MU::Cloud::Azure::SDKClient]
-      def self.compute(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_04_01")
+      def self.compute(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_03_01")
         require 'azure_mgmt_compute'
 
         if model and model.is_a?(Symbol)
@@ -840,7 +840,7 @@ module MU
               else
                 retval = @myobject.method(method_sym).call
               end
-            rescue ::Net::ReadTimeout => e
+            rescue ::Net::ReadTimeout, ::Faraday::TimeoutError => e
               sleep 5
               retry
             rescue ::MsRestAzure::AzureOperationError => e
@@ -856,11 +856,15 @@ module MU
                     response["error"]
                   end
                   if err
-                    if method_sym == :get and err["code"] == "ResourceNotFound"
+                    if method_sym == :get and
+                       ["ResourceNotFound", "NotFound"].include?(err["code"])
                       return nil
+                    elsif err["code"] == "AnotherOperationInProgress"
+                      sleep 10
+                      retry
                     end
 
-                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned "+err["code"]+": "+err["message"], MU::WARN, details: caller
+                    MU.log "#{@parent.api.class.name}.#{@myname}.#{method_sym.to_s} returned '"+err["code"]+"' - "+err["message"], MU::WARN, details: caller
                     MU.log e.backtrace[0], MU::WARN, details: parsed
                     raise MU::Cloud::Azure::APIError, err["code"]+": "+err["message"]+" (call was #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s})"
                   end

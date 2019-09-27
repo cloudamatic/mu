@@ -1193,7 +1193,7 @@ module MU
             MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}", MU::DEBUG, details: arguments
             @cloudobj.method(method_sym).call(*arguments)
           else
-            raise NoMethodError, method_sym.to_s
+            raise NoMethodError, "No such instance method #{method_sym.to_s} available on #{self.class.name}"
           end
         end
 

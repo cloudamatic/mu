@@ -118,10 +118,10 @@ module MU
             end
 
             rname_port = "port-"
-            if rule["port"] 
+            if rule["port"] and rule["port"].to_s != "-1"
               rule_obj.destination_port_range = rule["port"].to_s
               rname_port += rule["port"].to_s
-            elsif rule["port_range"]
+            elsif rule["port_range"] and rule["port_range"] != "-1"
               rule_obj.destination_port_range = rule["port_range"]
               rname_port += rule["port_range"]
             else
@@ -252,6 +252,7 @@ module MU
             resource_groups.each { |rg|
               begin
                 resp = MU::Cloud::Azure.network(credentials: args[:credentials]).network_security_groups.get(rg, id_str)
+                next if resp.nil?
                 found[Id.new(resp.id)] = resp
               rescue MU::Cloud::Azure::APIError => e
                 # this is fine, we're doing a blind search after all
