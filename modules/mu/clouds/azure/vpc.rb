@@ -31,6 +31,8 @@ module MU
           if !mu_name.nil?
             @mu_name = mu_name
             cloud_desc
+            @cloud_id = Id.new(cloud_desc.id)
+            @resource_group ||= @cloud_id.resource_group
             loadSubnets(use_cache: true)
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
@@ -207,6 +209,8 @@ module MU
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion, credentials: nil)
+          return false if MU.myCloud != "Azure"
+# XXX if we're in Azure, see if this is in our VPC or if we're peered to its VPC
           false
         end
 
@@ -477,6 +481,7 @@ module MU
 
                 if !ext_route
                   MU.log "Creating route #{routename} for #{route['destination_network']} in route table #{rtb_name}", details: rtb_obj
+                  need_apply = true
                 elsif ext_route.next_hop_type != route_obj.next_hop_type or
                       ext_route.address_prefix != route_obj.address_prefix
                   MU.log "Updating route #{routename} for #{route['destination_network']} in route table #{rtb_name}", MU::NOTICE, details: rtb_obj

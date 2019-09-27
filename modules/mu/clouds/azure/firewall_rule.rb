@@ -369,6 +369,8 @@ module MU
 
           append = []
           delete = []
+          acl['rules'] ||= []
+          acl['rules'].concat(config.adminFirewallRuleset(cloud: "Azure", region: acl['region'], rules_only: true))
           acl['rules'].each { |r|
             if r["weight"] and (r["weight"] < 100 or r["weight"] > 4096)
               MU.log "FirewallRule #{acl['name']} weight must be between 100 and 4096", MU::ERR

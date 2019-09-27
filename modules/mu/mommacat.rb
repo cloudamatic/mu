@@ -1291,6 +1291,7 @@ raise "NAH"
           }
 
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name, cloud_id: cloud_id)
+          MU.log "findStray: #{mu_descs.size.to_s} deploys had matches", loglevel
 
           mu_descs.each_pair { |deploy_id, matches|
             MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches", loglevel

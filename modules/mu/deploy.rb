@@ -524,7 +524,7 @@ MESSAGE_END
 
       services.each { |resource|
         if !resource["#MU_CLOUDCLASS"]
-          pp resource
+#          pp resource
         end
         res_type = resource["#MU_CLOUDCLASS"].cfg_name
         name = res_type+"_"+resource["name"]

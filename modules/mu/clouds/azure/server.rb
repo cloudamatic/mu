@@ -102,17 +102,21 @@ module MU
           disks
         end
 
-        # Generator for disk configuration parameters for a Compute instance
-        # @param config [Hash]: The MU::Cloud::Server config hash for whom we're configuring network interfaces
-        # @param vpc [MU::Cloud::Azure::VPC]: The VPC in which this interface should reside
-        # @return [Array]: Configuration objects for network interfaces, suitable for passing to the Compute API
-        def self.interfaceConfig(config, vpc)
-          []
-        end
-
         # Called automatically by {MU::Deploy#createResources}
         def create
           create_update
+
+          if !@config['async_groom']
+            sleep 5
+            MU::MommaCat.lock(@cloud_id.to_s+"-create")
+            if !postBoot
+              MU.log "#{@config['name']} is already being groomed, skipping", MU::NOTICE
+            else
+              MU.log "Node creation complete for #{@config['name']}"
+            end
+            MU::MommaCat.unlock(@cloud_id.to_s+"-create")
+          end
+
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
@@ -216,8 +220,8 @@ module MU
           if @groomer.haveBootstrapped?
             MU.log "Node #{node} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
             @groomer.saveDeployData
-            MU::MommaCat.unlock(@cloud_id+"-orchestrate")
-            MU::MommaCat.unlock(@cloud_id+"-groom")
+            MU::MommaCat.unlock(@cloud_id.to_s+"-orchestrate")
+            MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
             return true
           end
 
@@ -229,8 +233,8 @@ module MU
             @named = true
           end
 
-          MU::MommaCat.unlock(@cloud_id+"-groom")
-          MU::MommaCat.unlock(@cloud_id+"-orchestrate")
+          MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
+          MU::MommaCat.unlock(@cloud_id.to_s+"-orchestrate")
           return true
         end #postBoot
 
@@ -284,7 +288,7 @@ module MU
         def groom
           create_update
 
-          MU::MommaCat.lock(@cloud_id+"-groom")
+          MU::MommaCat.lock(@cloud_id.to_s+"-groom")
           
           node, config, deploydata = describe(cloud_id: @cloud_id)
 
@@ -357,7 +361,7 @@ module MU
             end
           end
 
-          MU::MommaCat.unlock(@cloud_id+"-groom")
+          MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
         end
 
         # Create an image out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
@@ -385,13 +389,19 @@ module MU
           private_ips = []
           public_ips = []
 
-          cloud_desc.network_interfaces.each { |iface|
-            private_ips << iface.network_ip
-            if iface.access_configs
-              iface.access_configs.each { |acfg|
-                public_ips << acfg.nat_ip if acfg.nat_ip
-              }
-            end
+          cloud_desc.network_profile.network_interfaces.each { |iface|
+            iface_id = Id.new(iface.is_a?(Hash) ? iface['id'] : iface.id)
+            iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.to_s)
+            iface_desc.ip_configurations.each { |ipcfg|
+              private_ips << ipcfg.private_ipaddress
+              if ipcfg.respond_to?(:public_ipaddress) and ipcfg.public_ipaddress
+                ip_id = Id.new(ipcfg.public_ipaddress.id)
+                ip_desc = MU::Cloud::Azure.network(credentials: @credentials).public_ipaddresses.get(@resource_group, ip_id.to_s)
+                if ip_desc
+                  public_ips << ip_desc.ip_address
+                end
+              end
+            }
           }
 
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
@@ -510,6 +520,11 @@ module MU
 
           server['size'] = validateInstanceType(server["size"], server["region"])
 
+          if server['add_firewall_rules'] and server['add_firewall_rules'].size == 0
+            MU.log "Azure resources can only have one security group per network interface; use ingress_rules instead of add_firewall_rules.", MU::ERR
+            ok = false
+          end
+
           # Azure doesn't have default VPCs, so our fallback approach will be
           # to generate one on the fly.
           if server['vpc'].nil?
@@ -548,7 +563,7 @@ module MU
             }
             server['vpc'] = {
               "name" => server['name']+"vpc",
-              "subnet_pref" => "private"
+              "subnet_pref" => "all_public"
             }
           end
 
@@ -561,32 +576,56 @@ module MU
           ipcfg = MU::Cloud::Azure.network(:NetworkInterfaceIPConfiguration).new
           ipcfg.name = @mu_name
           ipcfg.private_ipallocation_method = MU::Cloud::Azure.network(:IPAllocationMethod)::Dynamic
-          if @config['associate_public_ip'] # TODO or inherit subnet setting
 
-          end
           private_nets = @vpc.subnets.reject { |s| !s.private? }
           public_nets = @vpc.subnets.reject { |s| s.private? }
 
-          stubnet = if @config['vpc']['subnets'] and @config['vpc']['subnets'].size > 0
-# XXX test with a pre-existing vpc
-          elsif @config['vpc']['subnet_pref'] == "private"
+          stubnet = if @config['vpc']['subnet_id']
+            useme = nil
+            @vpc.subnets.each { |s|
+              if s.cloud_id.to_s == @config['vpc']['subnet_id']
+                useme = s
+                break
+              end
+            }
+            if !useme
+              raise MuError, "Failed to locate subnet #{@config['vpc']['subnet_id']} in VPC #{@vpc.to_s}"
+            end
+            useme
+          elsif @config['vpc']['subnet_pref'] == "private" or
+                @config['vpc']['subnet_pref'] == "all_private"
             if private_nets.size == 0
               raise MuError, "Server #{@mu_name} wanted a private subnet, but there are none in #{@vpc.to_s}"
             end
             private_nets.sample
-          elsif @config['vpc']['subnet_pref'] == "public"
+          elsif @config['vpc']['subnet_pref'] == "public" or
+                @config['vpc']['subnet_pref'] == "all_public"
             if public_nets.size == 0
               raise MuError, "Server #{@mu_name} wanted a public subnet, but there are none in #{@vpc.to_s}"
             end
             public_nets.sample
           end
+
+          # Allocate a public IP if we asked for one
+          if @config['associate_public_ip'] or !stubnet.private?
+            pubip_obj = MU::Cloud::Azure.network(:PublicIPAddress).new
+            pubip_obj.public_ipallocation_method =  MU::Cloud::Azure.network(:IPAllocationMethod)::Dynamic
+            pubip_obj.location = @config['region']
+            pubip_obj.tags = @tags
+            resp = MU::Cloud::Azure.network(credentials: @credentials).public_ipaddresses.create_or_update(@resource_group, @mu_name, pubip_obj)
+            ipcfg.public_ipaddress = resp
+          end
+
           ipcfg.subnet = MU::Cloud::Azure.network(:Subnet).new
           ipcfg.subnet.id = stubnet.cloud_desc.id
 
+          sg = @deploy.findLitterMate(type: "firewall_rule", name: "server"+@config['name'])
+
           iface_obj = MU::Cloud::Azure.network(:NetworkInterface).new
           iface_obj.location = @config['region']
-          iface_obj.primary = true
           iface_obj.tags = @tags
+          iface_obj.primary = true
+          iface_obj.network_security_group = sg.cloud_desc if sg
           iface_obj.enable_ipforwarding = !@config['src_dest_check']
           iface_obj.ip_configurations = [ipcfg]
           MU.log "Creating network interface #{@mu_name}", MU::DEBUG, details: iface_obj
@@ -632,9 +671,13 @@ module MU
           vm_obj.storage_profile = MU::Cloud::Azure.compute(:StorageProfile).new
           vm_obj.storage_profile.image_reference = img_obj
 
-          MU.log "Creating VM #{@mu_name}", MU::NOTICE, details: vm_obj
+
+if !@cloud_id
+          MU.log "Creating VM #{@mu_name}", details: vm_obj
           vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
-pp vm
+          @cloud_id = Id.new(vm.id)
+end
+
         end
 
 

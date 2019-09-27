@@ -1232,7 +1232,6 @@ return
                                   credentials: descriptor['credentials'],
                                   dflt_project: descriptor['project'],
                                   dflt_region: descriptor['region'])
-            MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
           end
         end
@@ -1544,7 +1543,7 @@ return
     # @param cloud [String]: The parent resource's cloud plugin identifier
     # @param region [String]: Cloud provider region, if applicable.
     # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil, credentials: nil)
+    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil, credentials: nil, rules_only: false)
       if !cloud or (cloud == "AWS" and !region)
         raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
       end
@@ -1554,10 +1553,28 @@ return
       hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
       hosts << "#{admin_ip}/32" if admin_ip
       hosts.uniq!
+
+      rules = []
+      if cloud == "Google"
+        rules = [
+          { "ingress" => true, "proto" => "all", "hosts" => hosts },
+          { "egress" => true, "proto" => "all", "hosts" => hosts }
+        ]
+      else
+        rules = [
+          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
+        ]
+      end
+
+      if rules_only
+        return rules
+      end
+
       name = "admin"
       name += credentials.to_s if credentials
       realvpc = nil
-
       if vpc
         realvpc = {}
         ['vpc_name', 'vpc_id'].each { |p|
@@ -1580,21 +1597,6 @@ return
         end
       end
 
-      hosts.uniq!
-
-      rules = []
-      if cloud == "Google"
-        rules = [
-          { "ingress" => true, "proto" => "all", "hosts" => hosts },
-          { "egress" => true, "proto" => "all", "hosts" => hosts }
-        ]
-      else
-        rules = [
-          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
-          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
-          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
-        ]
-      end
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
       acl.delete("vpc") if !acl["vpc"]
@@ -1956,7 +1958,8 @@ return
 
       schema_fields = ["us_only", "scrub_mu_isms", "credentials", "billing_acct"]
       if !resclass.isGlobal?
-        kitten['cloud'] ||= @config['region']
+        kitten['region'] ||= @config['region']
+        kitten['region'] ||= cloudclass.myRegion(kitten['credentials'])
         schema_fields << "region"
       end
 
