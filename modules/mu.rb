@@ -271,6 +271,10 @@ module MU
       matchval = if a_parts[i] and b_parts[i] and
                     a_parts[i].match(/^\d+/) and b_parts[i].match(/^\d+/)
         a_parts[i].to_i <=> b_parts[i].to_i
+      elsif a_parts[i] and !b_parts[i]
+        1
+      elsif !a_parts[i] and b_parts[i]
+        -1
       else
         a_parts[i] <=> b_parts[i]
       end

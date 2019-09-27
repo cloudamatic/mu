@@ -3,8 +3,8 @@ centos6: &centos6 centos-cloud/centos-6
 centos7: &centos7 centos-cloud/centos-7
 rhel71: &rhel71 rhel-cloud/rhel-7
 rhel6: &rhel6 rhel-cloud/rhel-6
-debian10: &ubuntu14 debian-cloud/debian-10
-debian9: &ubuntu14 debian-cloud/debian-9
+debian10: &debian10 debian-cloud/debian-10
+debian9: &debian9 debian-cloud/debian-9
 ubuntu14: &ubuntu14 ubuntu-os-cloud/ubuntu-1404-lts
 ubuntu16: &ubuntu16 ubuntu-os-cloud/ubuntu-1604-lts
 ubuntu18: &ubuntu18 ubuntu-os-cloud/ubuntu-1804-lts

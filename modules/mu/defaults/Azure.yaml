@@ -1,0 +1,16 @@
+---
+centos6: &centos6 OpenLogic/CentOS/6
+centos7: &centos7 OpenLogic/CentOS/7
+rhel8: &rhel8 RedHat/RHEL/8
+rhel7: &rhel7 RedHat/RHEL/7
+rhel6: &rhel6 RedHat/RHEL/6
+debian10: &debian10 Debian/debian-10/10
+win2k12r2: &win2k12r2 MicrosoftWindowsServer/WindowsServer/2012-R2-Datacenter
+win2k16: &win2k16 MicrosoftWindowsServer/WindowsServer/2016-Datacenter
+win2k19: &win2k19 MicrosoftWindowsServer/WindowsServer/2019-Datacenter
+win2k12: *win2k12r2
+windows: *win2k16
+centos: *centos7
+rhel: *rhel7
+linux: *centos7
+debian: *debian10

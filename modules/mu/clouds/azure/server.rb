@@ -82,15 +82,6 @@ module MU
           return DateTime.new
         end
 
-        # Retrieve the cloud descriptor for this machine image, which can be
-        # a whole or partial URL. Will follow deprecation notices and retrieve
-        # the latest version, if applicable.
-        # @param image_id [String]: URL to a Azure disk image
-        # @param credentials [String]
-        # @return [Azure::Apis::ComputeBeta::Image]
-        def self.fetchImage(image_id, credentials: nil)
-        end
-
         # Generator for disk configuration parameters for a Compute instance
         # @param config [Hash]: The MU::Cloud::Server config hash for whom we're configuring disks
         # @param create [Boolean]: Actually create extra (non-root) disks, or just the one declared as the root disk of the image
@@ -515,10 +506,27 @@ module MU
         def self.validateConfig(server, configurator)
           ok = true
 
-          server['region'] ||= MU::Cloud::Azure.myRegion
+          server['region'] ||= MU::Cloud::Azure.myRegion(server['credentials'])
           server['ssh_user'] ||= "muadmin"
 
           server['size'] = validateInstanceType(server["size"], server["region"])
+          if server['image_id'].nil?
+            img_id = MU::Cloud.getStockImage("Azure", platform: server['platform'])
+            if img_id
+              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image")
+            else
+              MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
+              ok = false
+            end
+          end
+
+          real_image = MU::Cloud::Azure::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'], region: server['region'])
+          if !real_image
+            MU.log "Failed to locate an Azure VM image from #{server['image_id']} in #{server['region']}", MU::ERR
+            ok = false
+          else
+            server['image_id'] = real_image.id
+          end
 
           if server['add_firewall_rules'] and server['add_firewall_rules'].size == 0
             MU.log "Azure resources can only have one security group per network interface; use ingress_rules instead of add_firewall_rules.", MU::ERR
@@ -568,6 +576,54 @@ module MU
           end
 
           ok
+        end
+
+        def self.diskConfig(config, create = true, disk_as_url = true, credentials: nil)
+        end
+
+        # Retrieve the cloud descriptor for an Azure machine image
+        # @param image_id [String]: A full Azure resource id, or a shorthand string like <tt>OpenLogic/CentOS/7.6/7.6.20190808</tt>. The third and fourth fields (major version numbers and release numbers, by convention) can be partial, and the release number can be omitted entirely. We default to the most recent matching release when applicable.
+        # @param credentials [String]
+        # @return [Azure::Compute::Mgmt::V2019_03_01::Models::VirtualMachineImage]
+        def self.fetchImage(image_id, credentials: nil, region: MU::Cloud::Azure.myRegion)
+
+          publisher = offer = sku = version = nil
+          if image_id.match(/\/Subscriptions\/[^\/]+\/Providers\/Microsoft.Compute\/Locations\/([^\/]+)\/Publishers\/([^\/]+)\/ArtifactTypes\/VMImage\/Offers\/([^\/]+)\/Skus\/([^\/]+)\/Versions\/([^\/]+)$/)
+            region = Regexp.last_match[1]
+            publisher = Regexp.last_match[2]
+            offer = Regexp.last_match[3]
+            sku = Regexp.last_match[4]
+            version = Regexp.last_match[5]
+            return MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.get(region, publisher, offer, sku, version)
+          else
+            publisher, offer, sku, version = image_id.split(/\//)
+          end
+          if !publisher or !offer or !sku
+            raise MuError, "Azure image_id #{image_id} was invalid"
+          end
+          skus = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list_skus(region, publisher, offer).map { |s| s.name }
+          if !skus.include?(sku)
+            skus.sort { |a, b| MU.version_sort(a, b) }.reverse.each { |s|
+              if s.match(/^#{Regexp.quote(sku)}/)
+                sku = s
+                break
+              end
+            }
+          end
+
+          versions = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list(region, publisher, offer, sku).map { |v| v.name }
+          if version.nil?
+            version = versions.sort { |a, b| MU.version_sort(a, b) }.reverse.first
+          elsif !versions.include?(version)
+            versions.sort { |a, b| MU.version_sort(a, b) }.reverse.each { |v|
+              if v.match(/^#{Regexp.quote(version)}/)
+                version = v
+                break
+              end
+            }
+          end
+
+          MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.get(region, publisher, offer, sku, version)
         end
 
         private
@@ -632,10 +688,11 @@ module MU
           iface = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.create_or_update(@resource_group, @mu_name, iface_obj)
 
           img_obj = MU::Cloud::Azure.compute(:ImageReference).new
-          img_obj.publisher = "RedHat"
-          img_obj.offer = "RHEL"
-          img_obj.sku = "7.7"
-          img_obj.version = "7.7.2019090316"
+          @config['image_id'].match(/\/Subscriptions\/[^\/]+\/Providers\/Microsoft.Compute\/Locations\/[^\/]+\/Publishers\/([^\/]+)\/ArtifactTypes\/VMImage\/Offers\/([^\/]+)\/Skus\/([^\/]+)\/Versions\/([^\/]+)$/)
+          img_obj.publisher = Regexp.last_match[1]
+          img_obj.offer = Regexp.last_match[2]
+          img_obj.sku = Regexp.last_match[3]
+          img_obj.version = Regexp.last_match[4]
 
           hw_obj = MU::Cloud::Azure.compute(:HardwareProfile).new
           hw_obj.vm_size = @config['size']

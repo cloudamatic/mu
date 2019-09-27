@@ -412,6 +412,7 @@ module MU
         @@instance_types ||= {}
         @@instance_types[region] ||= {}
         result = MU::Cloud::Azure.compute.virtual_machine_sizes.list(region)
+        raise MuError, "Failed to fetch Azure instance type list" if !result
         result.value.each { |type|
           @@instance_types[region][type.name] ||= {}
           @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_in_mb/1024.0).to_f
@@ -871,8 +872,8 @@ module MU
                 end
               rescue JSON::ParserError
               end
-
               MU.log e.inspect, MU::ERR, details: caller
+              MU.log e.message, MU::ERR, details: @parent.credentials
             end
 
             retval

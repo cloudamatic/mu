@@ -1291,7 +1291,7 @@ end
           if server['image_id'].nil?
             img_id = MU::Cloud.getStockImage("Google", platform: server['platform'])
             if img_id
-              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::::Apis::ComputeBeta::Image")
+              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
             else
               MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
               ok = false
