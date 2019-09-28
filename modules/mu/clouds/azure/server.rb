@@ -61,7 +61,6 @@ module MU
               @mu_name = @deploy.getResourceName(@config['name'])
             end
             @config['mu_name'] = @mu_name
-
           end
           @config['instance_secret'] ||= Password.random(50)
 
@@ -72,25 +71,15 @@ module MU
         # @param credentials [String]
         # @return [DateTime]
         def self.imageTimeStamp(image_id, credentials: nil)
-          begin
-            img = fetchImage(image_id, credentials: credentials)
-            return DateTime.new if img.nil?
-            return DateTime.parse(img.creation_timestamp)
-          rescue ::Azure::Apis::ClientError => e
-          end
-
-          return DateTime.new
-        end
-
-        # Generator for disk configuration parameters for a Compute instance
-        # @param config [Hash]: The MU::Cloud::Server config hash for whom we're configuring disks
-        # @param create [Boolean]: Actually create extra (non-root) disks, or just the one declared as the root disk of the image
-        # @param disk_as_url [Boolean]: Whether to declare the disk type as a short string or full URL, which can vary depending on the calling resource
-        # @return [Array]: The Compute :AttachedDisk objects describing disks that've been created
-        def self.diskConfig(config, create = true, disk_as_url = true, credentials: nil)
-          disks = []
-
-          disks
+          return DateTime.new(0) # Azure doesn't seem to keep this anywhere, boo
+#          begin
+#            img = fetchImage(image_id, credentials: credentials)
+#            return DateTime.new if img.nil?
+#            return DateTime.parse(img.creation_timestamp)
+#          rescue ::Azure::Apis::ClientError => e
+#          end
+#
+#          return DateTime.new
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -727,6 +716,26 @@ module MU
           vm_obj.os_profile = os_obj
           vm_obj.storage_profile = MU::Cloud::Azure.compute(:StorageProfile).new
           vm_obj.storage_profile.image_reference = img_obj
+          if @config['storage']
+            vm_obj.storage_profile.data_disks = []
+            @config['storage'].each { |disk|
+              lun = if disk['device'].is_a?(Integer) or
+                       disk['device'].match(/^\d+$/)
+                disk['device'].to_i
+              else
+                disk['device'].match(/([a-z])[^a-z]*$/i)
+                # map the last letter of the requested device to a numeric lun
+                # so that a => 1, b => 2, and so on
+                Regexp.last_match[1].downcase.encode("ASCII-8BIT").ord - 96
+              end
+              disk_obj = MU::Cloud::Azure.compute(:DataDisk).new
+              disk_obj.disk_size_gb = disk['size']
+              disk_obj.lun = lun
+              disk_obj.name = @mu_name+disk['device'].to_s.gsub(/[^\w\-._]/, '_').upcase
+              disk_obj.create_option = MU::Cloud::Azure.compute(:DiskCreateOptionTypes)::Empty
+              vm_obj.storage_profile.data_disks << disk_obj
+            }
+          end
 
 
 if !@cloud_id
