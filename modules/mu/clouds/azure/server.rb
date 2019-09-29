@@ -104,6 +104,7 @@ module MU
         def self.genericNAT
           return {
             "cloud" => "Azure",
+            "src_dst_check" => false,
             "bastion" => true,
             "size" => "Standard_B2s",
             "run_list" => [ "mu-utility::nat" ],
@@ -664,7 +665,7 @@ module MU
           iface_obj.tags = @tags
           iface_obj.primary = true
           iface_obj.network_security_group = sg.cloud_desc if sg
-          iface_obj.enable_ipforwarding = !@config['src_dest_check']
+          iface_obj.enable_ipforwarding = !@config['src_dst_check']
           iface_obj.ip_configurations = [ipcfg]
           MU.log "Creating network interface #{@mu_name}", MU::DEBUG, details: iface_obj
           iface = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.create_or_update(@resource_group, @mu_name, iface_obj)

@@ -450,6 +450,13 @@ module MU
             bastion = serverclass.genericNAT
             bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples
             bastion['credentials'] = vpc['credentials']
+            bastion['ingress_rules'] ||= []
+            ["tcp", "udp", "icmp"].each { |proto|
+              bastion['ingress_rules'] << {
+                "hosts" => [vpc["ip_block"].to_s],
+                "proto" => proto
+              }
+            }
             bastion["application_attributes"] = {
               "nat" => {
                 "private_net" => vpc["ip_block"].to_s

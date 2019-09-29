@@ -479,7 +479,7 @@ module MU
                 route_obj.next_hop_type = if route['gateway'] == "#NAT" and @config['bastion']
                   routename = rtb_name+"-NAT"
                   bastion_ref = MU::Config::Ref.get(@config['bastion'])
-                  if bastion_ref.kitten
+                  if bastion_ref.kitten and bastion_ref.kitten.cloud_desc
                     iface_id = Id.new(bastion_ref.kitten.cloud_desc.network_profile.network_interfaces.first.id)
                     iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.name)
                     route_obj.next_hop_ip_address = iface_desc.ip_configurations.first.private_ipaddress
