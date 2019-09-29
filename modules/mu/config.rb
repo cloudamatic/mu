@@ -257,6 +257,7 @@ module MU
       # @param cfg [Hash]: 
       # @return [MU::Config::Ref]
       def self.get(cfg)
+        return cfg if cfg.is_a?(MU::Config::Ref)
         checkfields = [:cloud, :type, :id, :region, :credentials, :habitat, :deploy_id]
         required = [:id, :type]
 
@@ -280,8 +281,11 @@ module MU
             end
           }
 
-          # if we get here, there was no match
-          newref = MU::Config::Ref.new(cfg)
+        }
+
+        # if we get here, there was no match
+        newref = MU::Config::Ref.new(cfg)
+        @@ref_semaphore.synchronize {
           @@refs << newref
           return newref
         }

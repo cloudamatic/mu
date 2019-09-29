@@ -49,6 +49,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+MU.log "GROOM", MU::WARN
           create_update
 # XXX peering goes here
         end
@@ -198,7 +199,7 @@ module MU
               dummy_ok: true,
               calling_deploy: @deploy
             )
-MU.log "BASTION HUNT", MU::WARN, details: found
+
             return nil if found.nil? || found.empty?
             if found.size == 1
               return found.first
@@ -421,6 +422,7 @@ MU.log "BASTION HUNT", MU::WARN, details: found
           # this is slow, so maybe thread it
           rtb_map = {}
           routethreads = []
+          create_nat_gateway = false
           @config['route_tables'].each { |rtb_cfg|
             routethreads << Thread.new(rtb_cfg) { |rtb|
               rtb_name = @mu_name+"-"+rtb['name'].upcase
@@ -469,9 +471,18 @@ MU.log "BASTION HUNT", MU::WARN, details: found
                 route_obj = MU::Cloud::Azure.network(:Route).new
                 route_obj.address_prefix = route['destination_network']
                 routename = rtb_name+"-"+route['destination_network'].gsub(/[^a-z0-9]/i, "_")
-                route_obj.next_hop_type = if route['gateway'] == "#NAT"
+                route_obj.next_hop_type = if route['gateway'] == "#NAT" and @config['bastion']
                   routename = rtb_name+"-NAT"
-                  "VirtualNetworkGateway"
+                  bastion_ref = MU::Config::Ref.get(@config['bastion'])
+                  if bastion_ref.kitten
+                    iface_id = Id.new(bastion_ref.kitten.cloud_desc.network_profile.network_interfaces.first.id)
+                    iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.name)
+                    route_obj.next_hop_ip_address = iface_desc.ip_configurations.first.private_ipaddress
+                    "VirtualAppliance"
+                  else
+                    "VnetLocal"
+                  end
+#                  create_nat_gateway = true
                 elsif route['gateway'] == "#INTERNET"
                   routename = rtb_name+"-INTERNET"
                   "Internet"
@@ -480,9 +491,7 @@ MU.log "BASTION HUNT", MU::WARN, details: found
                   "VnetLocal"
                 end
 
-# XXX ... or if it's an instance, I think we do VirtualAppliance and also set route_obj.next_hop_ip_address
-#
-#next_hop_type 'VirtualNetworkGateway', 'VnetLocal', 'Internet', 'VirtualAppliance', and 'None'. Possible values include: 'VirtualNetworkGateway', 'VnetLocal', 'Internet', 'VirtualAppliance', 'None'
+#next_hop_type 'VirtualNetworkGateway' is for VPNs I think
 
                 need_apply = false
                 ext_route = nil
@@ -505,7 +514,7 @@ MU.log "BASTION HUNT", MU::WARN, details: found
                   need_apply = true
                 elsif ext_route.next_hop_type != route_obj.next_hop_type or
                       ext_route.address_prefix != route_obj.address_prefix
-                  MU.log "Updating route #{routename} for #{route['destination_network']} in route table #{rtb_name}", MU::NOTICE, details: rtb_obj
+                  MU.log "Updating route #{routename} for #{route['destination_network']} in route table #{rtb_name}", MU::NOTICE, details: route_obj
                   need_apply = true
                 end
 
@@ -524,6 +533,19 @@ MU.log "BASTION HUNT", MU::WARN, details: found
           routethreads.each { |t|
             t.join
           }
+
+# TODO this is only available in westus as of 2019-09-29
+#          if create_nat_gateway
+#            nat_obj = MU::Cloud::Azure.network(:NatGateway).new
+#            nat_obj.location = @config['region']
+#            nat_obj.tags = tags
+#            MU.log "Creating NAT Gateway #{@mu_name}-NAT", details: nat_obj
+#            MU::Cloud::Azure.network(credentials: @config['credentials']).nat_gateways.create_or_update(
+#              @resource_group,
+#              @mu_name+"-NAT",
+#              nat_obj
+#            )
+#          end
 
           if @config['subnets']
             subnetthreads = []

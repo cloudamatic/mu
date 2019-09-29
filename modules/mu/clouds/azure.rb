@@ -303,6 +303,8 @@ module MU
         }
       end
 
+      @@rg_semaphore = Mutex.new
+
       # Purge cloud-specific deploy meta-artifacts (SSH keys, resource groups,
       # etc)
       # @param deploy_id [String]
@@ -310,18 +312,20 @@ module MU
       def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
         threads = []
 
-        MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
-          if rg.tags and rg.tags["MU-ID"] == deploy_id
-            threads << Thread.new(rg) { |rg_obj|
-              MU.log "Removing resource group #{rg_obj.name} from #{rg_obj.location}"
-              if !noop
-                MU::Cloud::Azure.resources(credentials: credentials).resource_groups.delete(rg_obj.name)
-              end
-            }
-          end
-        }
-        threads.each { |t|
-          t.join
+        @@rg_semaphore.synchronize {
+          MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
+            if rg.tags and rg.tags["MU-ID"] == deploy_id
+              threads << Thread.new(rg) { |rg_obj|
+                MU.log "Removing resource group #{rg_obj.name} from #{rg_obj.location}"
+                if !noop
+                  MU::Cloud::Azure.resources(credentials: credentials).resource_groups.delete(rg_obj.name)
+                end
+              }
+            end
+          }
+          threads.each { |t|
+            t.join
+          }
         }
       end
 

@@ -1587,7 +1587,7 @@ end
       @kitten_semaphore.synchronize {
         if !@kittens.has_key?(type)
           if debug
-            MU.log indent+"NO SUCH KEY #{type} findLitterMate(#{argstring})", MU::WARN
+            MU.log indent+"NO SUCH KEY #{type} findLitterMate(#{argstring})", MU::WARN, details: @kittens.keys
           end
           return nil
         end
