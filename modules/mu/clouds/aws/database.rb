@@ -1449,7 +1449,7 @@ module MU
             },
             "serverless_scaling" => {
               "type" => "object",
-              "descriptions" => "Scaling configuration for a +serverless+ Aurora cluster",
+              "description" => "Scaling configuration for a +serverless+ Aurora cluster",
               "default" => {
                 "auto_pause" => false,
                 "min_capacity" => 2,

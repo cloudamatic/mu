@@ -153,6 +153,7 @@ module MU
           schema = {
             "flavor" => {
               "enum" => ["Kubernetes", "OpenShift", "Swarm", "DC/OS"],
+              "description" => "The Azure container platform to deploy. Currently only +Kubernetes+ is supported.",
               "default" => "Kubernetes"
             },
             "platform" => {

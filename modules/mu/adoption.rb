@@ -24,6 +24,7 @@ module MU
     # other objects which are not found)
     class Incomplete < MU::MuNonFatal; end
 
+    # Presets methods we use to clump discovered resources into discrete deploys
     GROUPMODES = {
       :logical => "Group resources in logical layers (folders and habitats together, users/roles/groups together, network resources together, etc)",
       :omnibus => "Jam everything into one monolothic configuration"
@@ -324,6 +325,8 @@ end
         end
       }
 
+      # Pare out global values like +cloud+ or +region+ that appear to be
+      # universal in the deploy we're creating.
       def scrub_globals(h, field)
         if h.is_a?(Hash)
           newhash = {}

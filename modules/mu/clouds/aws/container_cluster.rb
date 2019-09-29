@@ -916,6 +916,8 @@ MU.log c.name, MU::NOTICE, details: t
           schema = {
             "flavor" => {
               "enum" => ["ECS", "EKS", "Fargate", "Kubernetes"],
+              "type" => "string",
+              "description" => "The AWS container platform to deploy",
               "default" => "ECS"
             },
             "kubernetes" => {

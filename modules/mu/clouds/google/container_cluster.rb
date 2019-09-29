@@ -879,6 +879,7 @@ module MU
               "pattern" => '^\d\d:\d\d$'
             },
             "kubernetes" => {
+              "description" => "Kubernetes-specific options",
               "properties" => {
                 "version" => {
                   "type" => "string"
