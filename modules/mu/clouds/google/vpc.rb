@@ -673,36 +673,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             vpc["habitat"] = MU::Cloud::Google.projectToRef(vpc["project"], config: configurator, credentials: vpc["credentials"])
           end
 
-          if vpc['create_standard_subnets']
-            # Manufacture some generic routes, if applicable.
-            if !vpc['route_tables'] or vpc['route_tables'].empty?
-              vpc['route_tables'] = [
-                {
-                  "name" => "internet",
-                  "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
-                },
-                {
-                  "name" => "private",
-                  "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
-                }
-              ]
-            end
-          else
-            # If create_standard_subnets is off, and no route_tables were
-            # declared at all, let's assume we want purely self-contained
-            # private VPC, and create a dummy route accordingly.
-            vpc['route_tables'] ||= [
-              {
-                "name" => "private",
-                "routes" => [
-                  {
-                    "destination_network" => "0.0.0.0/0"
-                  }
-                ]
-              }
-            ]
-          end
-
           # Generate a set of subnets per route, if none are declared
           if !vpc['subnets'] or vpc['subnets'].empty?
             if vpc['regions'].nil? or vpc['regions'].empty?
@@ -811,29 +781,16 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               # No such thing as a NAT gateway in Google... so make an instance
               # that'll do the deed.
               if route['gateway'] == "#NAT"
-                nat_cfg = MU::Cloud::Google::Server.genericNAT
-                nat_cfg['name'] = vpc['name']+"-natstion-"+nat_count.to_s
-                nat_cfg['credentials'] = vpc['credentials']
-                # XXX ingress/egress rules?
-                # XXX for master too if applicable
-                nat_cfg["application_attributes"] = {
-                  "nat" => {
-                    "private_net" => vpc["parent_block"].to_s
-                  }
-                }
-                route['nat_host_name'] = nat_cfg['name']
-                route['priority'] = 100
-                vpc["dependencies"] << {
-                  "type" => "server",
-                  "name" => nat_cfg['name'],
-                }
-
-                nat_cfg['vpc'] = {
-                  "vpc_name" => vpc["name"],
-                  "subnet_pref" => "any"
-                }
-                nat_count = nat_count + 1
-                ok = false if !configurator.insertKitten(nat_cfg, "servers", true)
+                # theoretically our upstream validation should have inserted
+                # a NAT/bastion host we can use
+                nat = configurator.haveLitterMate?(vpc['name']+"-natstion", "servers")
+                if !nat
+                  MU.log "Google VPC #{vpc['name']} declared a #NAT route, but I don't see an upstream NAT host I can use. Do I even have public subnets?", MU::ERR
+                  ok = false
+                else
+                  route['nat_host_name'] = vpc['name']+"-natstion"
+                  route['priority'] = 100
+                end
               end
             }
           end

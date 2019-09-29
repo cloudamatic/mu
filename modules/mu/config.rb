@@ -1143,7 +1143,22 @@ return
 
       applyInheritedDefaults(descriptor, cfg_plural)
 
+      # Meld defaults from our global schema and, if applicable, from our
+      # cloud-specific schema.
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
+      myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
+      more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
+      if more_schema
+        MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
+      end
+      myschema["required"] ||= []
+      if more_required
+        myschema["required"].concat(more_required)
+        myschema["required"].uniq!
+      end
+
+      descriptor = applySchemaDefaults(descriptor, myschema, type: shortclass)
+      MU.log "Schema check on #{descriptor['cloud']} #{cfg_name} #{descriptor['name']}", MU::DEBUG, details: myschema
 
       if (descriptor["region"] and descriptor["region"].empty?) or
          (descriptor['cloud'] == "Google" and ["firewall_rule", "vpc"].include?(cfg_name))
@@ -1174,7 +1189,6 @@ return
 
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
-
         # Quietly fix old vpc reference style
         if descriptor['vpc']['vpc_id']
           descriptor['vpc']['id'] ||= descriptor['vpc']['vpc_id']
@@ -1275,9 +1289,9 @@ return
           acl[param] = descriptor[param] if descriptor[param]
         }
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
-        descriptor["add_firewall_rules"] << {"rule_name" => fwname}
+        descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
         acl = resolveIntraStackFirewallRefs(acl)
-        ok = false if !insertKitten(acl, "firewall_rules")
+        ok = false if !insertKitten(acl, "firewall_rules", delay_validation)
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -1314,7 +1328,7 @@ return
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
             if !siblingfw["#MU_VALIDATED"]
-              ok = false if !insertKitten(siblingfw, "firewall_rules")
+              ok = false if !insertKitten(siblingfw, "firewall_rules", delay_validation)
             end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
@@ -1387,18 +1401,6 @@ return
         # here
         ok = false if !schemaclass.validate(descriptor, self)
 
-        # Merge the cloud-specific JSON schema and validate against it
-        myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
-        more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
-
-        if more_schema
-          MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
-          applySchemaDefaults(descriptor, myschema, type: shortclass)
-        end
-        myschema["required"] ||= []
-        myschema["required"].concat(more_required)
-        myschema["required"].uniq!
-        MU.log "Schema check on #{descriptor['cloud']} #{cfg_name} #{descriptor['name']}", MU::DEBUG, details: myschema
 
         plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
         plain_cfg.delete("#MU_CLOUDCLASS")
@@ -1427,12 +1429,11 @@ return
         # on stuff that will cause spurious alarms further in
         if ok
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
-          plain_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
-          passed = parser.validateConfig(plain_descriptor, self)
+          original_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
+          passed = parser.validateConfig(descriptor, self)
 
-          if passed
-            descriptor.merge!(plain_descriptor)
-          else
+          if !passed
+            descriptor = original_descriptor
             ok = false
           end
 
@@ -2039,6 +2040,12 @@ return
 
       @kittens["firewall_rules"].each { |acl|
         acl = resolveIntraStackFirewallRefs(acl)
+      }
+
+      # VPCs do complex things in their cloud-layer validation that other
+      # resources tend to need, like subnet allocation, so hit them early.
+      @kittens["vpcs"].each { |vpc|
+        ok = false if !insertKitten(vpc, "vpcs")
       }
 
       # Make sure validation has been called for all on-the-fly generated

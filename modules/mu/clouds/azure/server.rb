@@ -100,23 +100,18 @@ module MU
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
-        # to approximate Amazon's NAT gateway functionality with a plain
-        # instance.
+        # to approximate NAT gateway functionality with a plain instance.
         # @return [Hash]
         def self.genericNAT
           return {
             "cloud" => "Azure",
-            "size" => "g1-small",
+            "bastion" => true,
+            "size" => "Standard_B2s",
             "run_list" => [ "mu-utility::nat" ],
             "platform" => "centos7",
             "ssh_user" => "centos",
             "associate_public_ip" => true,
             "static_ip" => { "assign_ip" => true },
-            "routes" => [ {
-              "gateway" => "#INTERNET",
-              "priority" => 50,
-              "destination_network" => "0.0.0.0/0"
-            } ]
           }
         end
 
@@ -441,7 +436,19 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          hosts_schema = MU::Config::CIDR_PRIMITIVE
+          hosts_schema["pattern"] = "^(\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}|\\*)$"
           schema = {
+            "ingress_rules" => {
+              "items" => {
+                "properties" => {
+                  "hosts" => {
+                    "type" => "array",
+                    "items" => hosts_schema
+                  }
+                }
+              }
+            }
           }
           [toplevel_required, schema]
         end
@@ -529,38 +536,19 @@ module MU
               "name" => server['name']+"vpc",
               "cloud" => "Azure",
               "region" => server['region'],
-              "credentials" => server['credentials'],
-              "route_tables" => [
-                {
-                  "name" => "internet",
-                  "routes" => [
-                    {
-                      "destination_network" => "0.0.0.0/0",
-                      "gateway" => "#INTERNET"
-                    }
-                  ]
-                },
-                {
-                  "name" => "private",
-                  "routes" => [
-                    {
-                      "gateway" => "#NAT"
-                    }
-                  ]
-                }
-              ]
+              "credentials" => server['credentials']
             }
-            if !configurator.insertKitten(vpc, "vpcs")
+            if !configurator.insertKitten(vpc, "vpcs", true)
               ok = false
             end
             server['dependencies'] ||= []
             server['dependencies'] << {
-              "type" => "vpcs",
+              "type" => "vpc",
               "name" => server['name']+"vpc"
             }
             server['vpc'] = {
               "name" => server['name']+"vpc",
-              "subnet_pref" => "all_public"
+              "subnet_pref" => "private"
             }
           end
 

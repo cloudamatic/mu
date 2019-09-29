@@ -503,6 +503,15 @@ module MU
           "description" => "Create individual server instances.",
           "properties" => {
               "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "A", need_zone: true),
+              "bastion" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Allow this server to be automatically used as a bastion host"
+              },
+              "image_id" => {
+                "type" => "string",
+                "description" => "The cloud provider image on which to base this instance. Will use the default appropriate for the +platform+, if not specified."
+              },
               "create_image" => {
                   "type" => "object",
                   "title" => "create_image",
@@ -573,7 +582,7 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
 
-        if !server['scrub_mu_isms']
+        if !server['scrub_mu_isms'] and server["cloud"] != "Azure"
           server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
         end
 

@@ -1257,19 +1257,6 @@ module MU
         def self.validateConfig(vpc, configurator)
           ok = true
 
-          if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
-            vpc['route_tables'] = [
-              {
-                "name" => "internet",
-                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
-              },
-              {
-                "name" => "private",
-                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
-              }
-            ]
-          end
-
           if vpc["enable_traffic_logging"]
             logdesc = {
               "name" => vpc['name']+"loggroup",

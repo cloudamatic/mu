@@ -37,6 +37,11 @@ module MU
             },
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
+            "create_bastion" => {
+              "type" => "boolean",
+              "description" => "If we have private subnets and our Mu Master will not be able to route directly to them, create a small instance to serve as an ssh relay.",
+              "default" => true
+            },
             "create_standard_subnets" => {
               "type" => "boolean",
               "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
@@ -118,19 +123,45 @@ module MU
                 }
             },
             "route_tables" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "required" => ["name", "routes"],
-                    "description" => "A table of route entries, typically for use inside a VPC.",
-                    "properties" => {
-                        "name" => {"type" => "string"},
-                        "routes" => {
-                            "type" => "array",
-                            "items" => routeschema
-                        }
+              "default_if" => [
+                {
+                  "key_is" => "create_standard_subnets",
+                  "value_is" => true,
+                  "set" => [
+                    {
+                      "name" => "internet",
+                      "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
+                    },
+                    {
+                      "name" => "private",
+                      "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
                     }
+                  ]
+                },
+                {
+                  "key_is" => "create_standard_subnets",
+                  "value_is" => false,
+                  "set" => [
+                    {
+                      "name" => "private",
+                      "routes" => [ { "destination_network" => "0.0.0.0/0" } ]
+                    }
+                  ]
                 }
+              ],
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["name", "routes"],
+                "description" => "A table of route entries, typically for use inside a VPC.",
+                "properties" => {
+                  "name" => {"type" => "string"},
+                  "routes" => {
+                    "type" => "array",
+                    "items" => routeschema
+                  }
+                }
+              }
             },
             "subnets" => {
                 "type" => "array",
@@ -381,18 +412,62 @@ module MU
       def self.validate(vpc, configurator)
         ok = true
 
+        have_public = false
+        have_private = false
+
         # Look for a common YAML screwup in route table land
-        if vpc['route_tables']
-          vpc['route_tables'].each { |rtb|
-            next if !rtb['routes']
-            rtb['routes'].each { |r|
-              if r.has_key?("gateway") and (!r["gateway"] or r["gateway"].to_s.empty?)
-                MU.log "Route gateway in VPC #{vpc['name']} cannot be nil- did you forget to puts quotes around a #INTERNET, #NAT, or #DENY?", MU::ERR, details: rtb
-                ok = false
-              end
-            }
+        vpc['route_tables'].each { |rtb|
+          next if !rtb['routes']
+          rtb['routes'].each { |r|
+            have_public = true if r['gateway'] == "#INTERNET"
+            have_private = true if r['gateway'] == "#NAT" or r['gateway'] == "#DENY"
+            # XXX the above logic doesn't cover VPN ids, peering connections, or
+            # instances used as routers. If you're doing anything that complex
+            # you should probably be declaring your own bastion hosts and 
+            # routing behaviors, rather than relying on our inferred defaults.
+            if r.has_key?("gateway") and (!r["gateway"] or r["gateway"].to_s.empty?)
+              MU.log "Route gateway in VPC #{vpc['name']} cannot be nil- did you forget to puts quotes around a #INTERNET, #NAT, or #DENY?", MU::ERR, details: rtb
+              ok = false
+            end
           }
+        }
+
+        # Work out what we'll do 
+        if have_private
+          vpc["cloud"] ||= MU.defaultCloud
+
+          # See if we'll be able to create peering connections
+          can_peer = false
+          if MU.myCloud == vpc["cloud"]
+          end
+
+          # Feeling that, generate a generic bastion/NAT host to do the job.
+          # Clouds that don't have some kind of native NAT gateway can also
+          # leverage this host to honor "gateway" => "#NAT" situations.
+          if !can_peer and have_public and vpc["create_bastion"]
+            serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
+            bastion = serverclass.genericNAT
+            bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples
+            bastion['credentials'] = vpc['credentials']
+            bastion["application_attributes"] = {
+              "nat" => {
+                "private_net" => vpc["ip_block"].to_s
+              }
+            }
+            bastion["vpc"] = {
+              "name" => vpc["name"],
+              "subnet_pref" => "public"
+            }
+            vpc["dependencies"] << {
+              "type" => "server",
+              "name" => bastion['name'],
+            }
+
+            ok = false if !configurator.insertKitten(bastion, "servers", true)
+          end
+
         end
+
 
         ok = false if !resolvePeers(vpc, configurator)
 
@@ -756,14 +831,14 @@ module MU
               if !public_subnets.nil? and public_subnets.size > 0
                 vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
               else
-                MU.log "Public subnet requested for #{parent['name']}, but none found in #{vpc_block}", MU::ERR
+                MU.log "Public subnet requested for #{parent_type} #{parent['name']}, but none found in #{vpc_block}", MU::ERR, details: all_subnets
                 return false
               end
             when "private"
               if !private_subnets.nil? and private_subnets.size > 0
                 vpc_block.merge!(private_subnets[rand(private_subnets.length)])
               else
-                MU.log "Private subnet requested for #{parent['name']}, but none found in #{vpc_block}", MU::ERR
+                MU.log "Private subnet requested for #{parent_type} #{parent['name']}, but none found in #{vpc_block}", MU::ERR, details: all_subnets
                 return false
               end
               if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?

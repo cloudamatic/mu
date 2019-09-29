@@ -177,6 +177,34 @@ module MU
         # @param nat_tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
         # @param nat_ip [String]: An IP address associated with the NAT instance.
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
+          [:nat_name, :nat_cloud_id, :nat_tag_key, :nat_tag_value, :nat_ip].each { |var|
+            if binding.local_variable_get(var) != nil
+              binding.local_variable_set(var, var.to_s)
+            end
+
+            # If we're searching by name, assume it's part of this here deploy.
+            if nat_cloud_id.nil? and !@deploy.nil?
+              deploy_id = @deploy.deploy_id
+            end
+            found = MU::MommaCat.findStray(
+              "Azure",
+              "server",
+              name: nat_name,
+              cloud_id: nat_cloud_id,
+              deploy_id: deploy_id,
+              tag_key: nat_tag_key,
+              tag_value: nat_tag_value,
+              allow_multi: true,
+              dummy_ok: true,
+              calling_deploy: @deploy
+            )
+MU.log "BASTION HUNT", MU::WARN, details: found
+            return nil if found.nil? || found.empty?
+            if found.size == 1
+              return found.first
+            end
+
+          }
           nil
         end
 
@@ -268,19 +296,6 @@ module MU
           ok = true
           vpc['region'] ||= MU::Cloud::Azure.myRegion(vpc['credentials'])
 
-          if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
-            vpc['route_tables'] = [
-              {
-                "name" => "internet",
-                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
-              },
-              {
-                "name" => "private",
-                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
-              }
-            ]
-          end
-
           if vpc['subnets']
             vpc['subnets'].each { |subnet|
               subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
@@ -292,15 +307,21 @@ module MU
             subnets = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size, 28)
             vpc['subnets'] ||= []
             vpc['route_tables'].each { |rtb|
+              is_public = false
+              rtb['routes'].each { |route|
+                if route['gateway'] == "#INTERNET"
+                  is_public = true
+                  break
+                end
+              }
               vpc['subnets'] << {
                 "name" => "Subnet#{rtb['name'].capitalize}",
+                "is_public" => is_public,
                 "ip_block" => subnets.shift,
                 "route_table" => rtb['name']
               }
             }
-
           end
-
 
           default_acl = {
             "name" => vpc['name']+"-defaultfw",
@@ -504,59 +525,61 @@ module MU
             t.join
           }
 
-          subnetthreads = []
-          @config['subnets'].each { |subnet_cfg|
-            subnetthreads << Thread.new(subnet_cfg) { |subnet|
-              subnet_obj = MU::Cloud::Azure.network(:Subnet).new
-              subnet_name = @mu_name+"-"+subnet['name'].upcase
-              subnet_obj.address_prefix = subnet['ip_block']
-              subnet_obj.route_table = rtb_map[subnet['route_table']]
-              if my_fw and my_fw.cloud_desc
-                subnet_obj.network_security_group = my_fw.cloud_desc
-              end
-
-              need_apply = false
-              ext_subnet = nil
-              begin
-                ext_subnet = MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.get(
-                  @resource_group,
-                  @cloud_id.to_s,
-                  subnet_name
-                )
-              rescue APIError => e
-                if e.message.match(/\bNotFound\b/)
-                  need_apply = true
-                else
-#                raise e
+          if @config['subnets']
+            subnetthreads = []
+            @config['subnets'].each { |subnet_cfg|
+              subnetthreads << Thread.new(subnet_cfg) { |subnet|
+                subnet_obj = MU::Cloud::Azure.network(:Subnet).new
+                subnet_name = @mu_name+"-"+subnet['name'].upcase
+                subnet_obj.address_prefix = subnet['ip_block']
+                subnet_obj.route_table = rtb_map[subnet['route_table']]
+                if my_fw and my_fw.cloud_desc
+                  subnet_obj.network_security_group = my_fw.cloud_desc
                 end
-              end
 
-              if !ext_subnet
-                MU.log "Creating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
-                need_apply = true
-              elsif (!ext_subnet.route_table.nil? and !subnet_obj.route_table.nil? and ext_subnet.route_table.id != subnet_obj.route_table.id) or
-                    ext_subnet.address_prefix != subnet_obj.address_prefix or
-                    ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
-                    (!ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
-                MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
-                need_apply = true
+                need_apply = false
+                ext_subnet = nil
+                begin
+                  ext_subnet = MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.get(
+                    @resource_group,
+                    @cloud_id.to_s,
+                    subnet_name
+                  )
+                rescue APIError => e
+                  if e.message.match(/\bNotFound\b/)
+                    need_apply = true
+                  else
+#                raise e
+                  end
+                end
 
-              end
+                if !ext_subnet
+                  MU.log "Creating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
+                  need_apply = true
+                elsif (!ext_subnet.route_table.nil? and !subnet_obj.route_table.nil? and ext_subnet.route_table.id != subnet_obj.route_table.id) or
+                      ext_subnet.address_prefix != subnet_obj.address_prefix or
+                      ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
+                      (!ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
+                  MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
+                  need_apply = true
 
-              if need_apply
-                MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.create_or_update(
-                  @resource_group,
-                  @cloud_id.to_s,
-                  subnet_name,
-                  subnet_obj
-                )
-              end
+                end
+
+                if need_apply
+                  MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.create_or_update(
+                    @resource_group,
+                    @cloud_id.to_s,
+                    subnet_name,
+                    subnet_obj
+                  )
+                end
+              }
             }
-          }
 
-          subnetthreads.each { |t|
-            t.join
-          }
+            subnetthreads.each { |t|
+              t.join
+            }
+          end
 
           loadSubnets
         end

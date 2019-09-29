@@ -2111,6 +2111,22 @@ module MU
           end
         end
 
+        # Return a BoK-style config hash describing a NAT instance. We use this
+        # to approximate NAT gateway functionality with a plain instance.
+        # @return [Hash]
+        def self.genericNAT
+          return {
+            "cloud" => "AWS",
+            "bastion" => true,
+            "size" => "t2.small",
+            "run_list" => [ "mu-utility::nat" ],
+            "platform" => "centos7",
+            "ssh_user" => "centos",
+            "associate_public_ip" => true,
+            "static_ip" => { "assign_ip" => true },
+          }
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -2119,11 +2135,7 @@ module MU
           schema = {
             "ami_id" => {
               "type" => "string",
-              "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
-            },
-            "image_id" => {
-              "type" => "string",
-              "description" => "Synonymous with ami_id"
+              "description" => "Alias for +image_id+"
             },
             "generate_iam_role" => {
               "type" => "boolean",
