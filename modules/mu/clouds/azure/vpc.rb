@@ -49,7 +49,6 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-MU.log "GROOM", MU::WARN
           create_update
 # XXX peering goes here
         end
@@ -324,6 +323,11 @@ MU.log "GROOM", MU::WARN
             }
           end
 
+          vpc['route_tables'].each { |rtb|
+            rtb['routes'] ||= []
+            rtb['routes'] << { "destination_network" => vpc['ip_block'] }
+          }
+
           default_acl = {
             "name" => vpc['name']+"-defaultfw",
             "cloud" => "Azure",
@@ -360,6 +364,7 @@ MU.log "GROOM", MU::WARN
         private
 
         def create_update
+          @config = MU::Config.manxify(@config)
           @config['region'] ||= MU::Cloud::Azure.myRegion(@config['credentials'])
           tags = {}
           if !@config['scrub_mu_isms']
@@ -490,7 +495,6 @@ MU.log "GROOM", MU::WARN
                   routename = rtb_name+"-LOCAL"
                   "VnetLocal"
                 end
-
 #next_hop_type 'VirtualNetworkGateway' is for VPNs I think
 
                 need_apply = false
@@ -582,7 +586,7 @@ MU.log "GROOM", MU::WARN
                       ext_subnet.address_prefix != subnet_obj.address_prefix or
                       ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
                       (!ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
-                  MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", details: subnet_obj
+                  MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", MU::NOTICE, details: subnet_obj
                   need_apply = true
 
                 end
