@@ -295,7 +295,7 @@ module MU
               retval = ssh.exec!(cmd) { |ch, stream, data|
                 puts data
                 output << data
-                raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
+                raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
                 if data.match(/#{error_signal}/)
                   error_msg = ""
                   clip = false
@@ -353,7 +353,7 @@ module MU
             if resp.exitcode == 1 and output.join("\n").match(/Chef Client finished/)
               MU.log "resp.exit code 1"
             elsif resp.exitcode != 0
-              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
+              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
             end
           end

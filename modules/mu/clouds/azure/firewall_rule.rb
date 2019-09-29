@@ -46,6 +46,8 @@ module MU
         def groom
           create_update
 
+          oldrules = {}
+          newrules = {}
           cloud_desc.security_rules.each { |rule|
             if rule.description and rule.description.match(/^#{Regexp.quote(@mu_name)} \d+:/)
               oldrules[rule.name] = rule
@@ -53,8 +55,6 @@ module MU
           }
           used_priorities = oldrules.values.map { |r| r.priority }
 
-          oldrules = {}
-          newrules = {}
           newrules_semaphore = Mutex.new
           num_rules = 0
 

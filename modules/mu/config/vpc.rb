@@ -42,6 +42,7 @@ module MU
               "description" => "If we have private subnets and our Mu Master will not be able to route directly to them, create a small instance to serve as an ssh relay.",
               "default" => true
             },
+            "bastion" => MU::Config::Ref.schema(type: "servers", desc: "A reference to a bastion host that can be used to tunnel into private address space in this VPC."),
             "create_standard_subnets" => {
               "type" => "boolean",
               "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
@@ -462,6 +463,12 @@ module MU
               "type" => "server",
               "name" => bastion['name'],
             }
+            vpc["bastion"] = MU::Config::Ref.get(
+              name: bastion['name'],
+              cloud: vpc['cloud'],
+              credentials: vpc['credentials'],
+              type: "servers"
+            )
 
             ok = false if !configurator.insertKitten(bastion, "servers", true)
           end
@@ -553,7 +560,6 @@ module MU
       # @param parent_type [String]:
       # @param parent [MU::Cloud::VPC]:
       # @param configurator [MU::Config]:
-      # @param is_sibling [Boolean]:
       # @param sibling_vpcs [Array]:
       # @param dflt_region [String]:
       def self.processReference(vpc_block, parent_type, parent, configurator, sibling_vpcs: [], dflt_region: MU.curRegion, dflt_project: nil, credentials: nil)

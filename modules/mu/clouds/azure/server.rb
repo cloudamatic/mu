@@ -60,7 +60,6 @@ module MU
             else
               @mu_name = @deploy.getResourceName(@config['name'])
             end
-            @config['mu_name'] = @mu_name
           end
           @config['instance_secret'] ||= Password.random(50)
 
@@ -144,7 +143,7 @@ module MU
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
           if !@config["vpc"].nil? and !MU::Cloud::Azure::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 
-            if !@nat.nil?
+            if !@nat.nil? and @nat.mu_name != @mu_name
               if @nat.cloud_desc.nil?
                 MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
@@ -542,9 +541,15 @@ module MU
               ok = false
             end
             server['dependencies'] ||= []
+
             server['dependencies'] << {
               "type" => "vpc",
               "name" => server['name']+"vpc"
+            }
+            server['dependencies'] << {
+              "type" => "server",
+              "name" => server['name']+"vpc-natstion",
+              "phase" => "groom"
             }
             server['vpc'] = {
               "name" => server['name']+"vpc",

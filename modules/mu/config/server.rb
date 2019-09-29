@@ -605,6 +605,16 @@ module MU
               "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],
               "phase" => "groom"
             }
+          elsif !server["vpc"]["name"].nil?
+            siblingvpc = configurator.haveLitterMate?(server["vpc"]["name"], "vpcs")
+            if siblingvpc and siblingvpc['bastion'] and
+               server['name'] != siblingvpc['bastion'].to_h['name']
+              server["dependencies"] << {
+                "type" => "server",
+                "name" => siblingvpc['bastion'].to_h['name'],
+                "phase" => "groom"
+              }
+            end
           end
         end
 

@@ -979,7 +979,7 @@ module MU
               describe # XXX is this actually safe here?
               @deploy.addKitten(self.class.cfg_name, @config['name'], self)
             elsif !@deploy.nil?
-              MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
+              MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR, details: caller
             end
 
 
@@ -1418,7 +1418,13 @@ module MU
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
-            if !@vpc.nil? and (
+            if @vpc.config['bastion']
+              natref = MU::Config::Ref.get(@vpc.config['bastion'])
+              if natref and natref.kitten
+                @nat = natref.kitten
+              end
+            end
+            if @nat.nil? and !@vpc.nil? and (
               @config['vpc'].has_key?("nat_host_id") or
               @config['vpc'].has_key?("nat_host_tag") or
               @config['vpc'].has_key?("nat_host_ip") or
@@ -1956,7 +1962,7 @@ module MU
 
               if retries < max_retries
                 retries = retries + 1
-                msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
+                msg = "ssh #{ssh_user}@#{@mu_name}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
                 if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                   MU.log msg, MU::NOTICE
                 elsif retries/max_retries > 0.5
@@ -1965,7 +1971,7 @@ module MU
                 sleep retry_interval
                 retry
               else
-                raise MuError, "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
+                raise MuError, "#{@mu_name}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
               end
             end
             return session

@@ -1042,7 +1042,7 @@ return
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         if @kittens[cfg_plural]
           @kittens[cfg_plural].each { |kitten|
-            if kitten['name'] == name.to_s or kitten['virtual_name'] == name.to_s
+            if kitten['name'] == name.to_s or kitten['virtual_name'] == name.to_s or (has_multiple and name.nil?)
               if has_multiple
                 matches << kitten
               else
@@ -1214,10 +1214,20 @@ return
            descriptor["vpc"]['id'].nil?
           descriptor["dependencies"] << {
             "type" => "vpc",
-            "name" => descriptor["vpc"]["name"]
+            "name" => descriptor["vpc"]["name"],
           }
-
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
+
+          if siblingvpc and siblingvpc['bastion'] and
+             ["server", "server_pool"].include?(cfg_name)
+            if descriptor['name'] != siblingvpc['bastion'].to_h['name']
+              descriptor["dependencies"] << {
+                "type" => "server",
+                "name" => siblingvpc['bastion'].to_h['name']
+              }
+            end
+          end
+
           # things that live in subnets need their VPCs to be fully
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
