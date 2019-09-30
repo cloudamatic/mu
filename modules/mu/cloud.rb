@@ -605,7 +605,7 @@ module MU
           end
         end
         images = images[platform]
-        
+
         if region
           # We won't fuss about the region argument if this isn't a cloud that
           # has regions, just quietly don't bother.

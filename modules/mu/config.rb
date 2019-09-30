@@ -1808,7 +1808,7 @@ return
               nil
             end
 
-            new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+            new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass).dup
 
             conf_chunk[key] = new_val if new_val != nil
           }
@@ -1829,7 +1829,7 @@ return
             schema_chunk["items"]
           end
 
-          applySchemaDefaults(item, realschema, depth+1, conf_chunk)
+          applySchemaDefaults(item, realschema, depth+1, conf_chunk).dup
         }
       else
         if conf_chunk.nil? and !schema_chunk["default_if"].nil? and !siblings.nil?

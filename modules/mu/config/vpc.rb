@@ -436,7 +436,38 @@ module MU
               ok = false
             end
           }
+          rtb['routes'].uniq!
         }
+
+        # if we're peering with other on-the-fly VPCs who might be using
+        # the default range, make sure our ip_blocks don't overlap
+        peer_blocks = []
+        my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
+        if vpc["peers"]
+          siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+          siblings.each { |v|
+            next if v['name'] == vpc['name']
+            peer_blocks << v['ip_block'] if v['ip_block']
+          }
+          if peer_blocks.size > 0 and using_default_cidr
+            begin
+              have_overlaps = false
+              peer_blocks.each { |cidr|
+                sibling_cidr = NetAddr::IPv4Net.parse(cidr)
+                have_overlaps = true if my_cidr.rel(sibling_cidr) != nil
+              }
+              if have_overlaps
+                my_cidr = my_cidr.next_sib
+                my_cidr = nil if my_cidr.to_s.match(/^10\.255\./)
+              end
+            end while have_overlaps
+            if !my_cidr.nil? and vpc['ip_block'] != my_cidr.to_s
+              vpc['ip_block'] = my_cidr.to_s
+            else
+              my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
+            end
+          end
+        end
 
         # Work out what we'll do 
         if have_private
@@ -445,10 +476,10 @@ module MU
           # See if we'll be able to create peering connections
           can_peer = false
           if MU.myCloud == vpc["cloud"]
-            my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
+            peer_blocks.concat(MU.myVPCObj.routes)
             begin
               can_peer = true
-              MU.myVPCObj.routes.each { |cidr|
+              peer_blocks.each { |cidr|
                 cidr_obj = NetAddr::IPv4Net.parse(cidr)
                 if my_cidr.rel(cidr_obj) != nil
                   can_peer = false
@@ -465,16 +496,16 @@ module MU
             if using_default_cidr
               MU.log "Defaulting address range for VPC #{vpc['name']} to #{vpc['ip_block']}", MU::NOTICE
             end
+            if can_peer
+              vpc['peers'] ||= []
+              vpc['peers'] << {
+                "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
+              }
+            else
+              MU.log "#{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
+            end
           end
 
-          if can_peer
-            vpc['peers'] ||= []
-            vpc['peers'] << {
-              "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
-            }
-          else
-            MU.log "#{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
-          end
 
           # Feeling that, generate a generic bastion/NAT host to do the job.
           # Clouds that don't have some kind of native NAT gateway can also

@@ -49,8 +49,58 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          create_update
-# XXX peering goes here
+
+          if @config['peers']
+            count = 0
+            @config['peers'].each { |peer|
+              if peer['vpc']['name']
+                peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs", habitat: peer['vpc']['project'])
+              else
+                tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
+                if peer['vpc']['deploy_id'].nil? and peer['vpc']['id'].nil? and tag_key.nil?
+                  peer['vpc']['deploy_id'] = @deploy.deploy_id
+                end
+
+                peer_obj = MU::MommaCat.findStray(
+                  "Azure",
+                  "vpcs",
+                  deploy_id: peer['vpc']['deploy_id'],
+                  cloud_id: peer['vpc']['id'],
+                  name: peer['vpc']['name'],
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  dummy_ok: true
+                ).first
+              end
+
+              raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil?
+          
+              ext_peerings = MU::Cloud::Azure.network(credentials: @credentials).virtual_network_peerings.list(@resource_group, @cloud_id)
+              peer_name = @mu_name+"-"+@config['name'].upcase+"-"+peer_obj.config['name'].upcase
+              peer_params = MU::Cloud::Azure.network(:VirtualNetworkPeering).new
+              peer_params.remote_virtual_network = peer_obj.cloud_desc
+
+              need_update = true
+              exists = false
+              ext_peerings.each { |ext_peering|
+                if ext_peering.remote_virtual_network.id == peer_obj.cloud_desc.id
+                  exists = true
+                  need_update = false
+                end
+              }
+
+              if need_update
+                if !exists
+                  MU.log "Creating peering connection from #{@mu_name} to #{peer_obj.mu_name}", details: peer_params
+                else
+                  MU.log "Updating peering connection from #{@mu_name} to #{peer_obj.mu_name}", MU::NOTICE, details: peer_params
+                end
+                MU::Cloud::Azure.network(credentials: @credentials).virtual_network_peerings.create_or_update(@resource_group, @cloud_id, peer_name, peer_params)
+              end
+            }
+          end
+
+#          create_update
         end
 
         # Describe this VPC
@@ -253,7 +303,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Stub method. Azure resources are cleaned up by removing the parent
@@ -326,6 +376,7 @@ module MU
           vpc['route_tables'].each { |rtb|
             rtb['routes'] ||= []
             rtb['routes'] << { "destination_network" => vpc['ip_block'] }
+            rtb['routes'].uniq!
           }
 
           default_acl = {

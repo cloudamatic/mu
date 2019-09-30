@@ -43,6 +43,8 @@ module MU
                 "muID" => MU.deploy_id,
                 "muUser" => MU.mu_user,
                 "publicIP" => MU.mu_public_ip,
+                "adminBucketName" => MU::Cloud::Azure.adminBucketName(@credentials),
+                "chefVersion" => MU.chefVersion,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
                 "mommaCatPort" => MU.mommaCatPort,
@@ -108,8 +110,7 @@ module MU
             "bastion" => true,
             "size" => "Standard_B2s",
             "run_list" => [ "mu-utility::nat" ],
-            "platform" => "centos7",
-            "ssh_user" => "centos",
+            "platform" => "rhel7",
             "associate_public_ip" => true,
             "static_ip" => { "assign_ip" => true },
           }
@@ -173,7 +174,7 @@ module MU
         # administravia for a new instance.
         def postBoot(instance_id = nil)
           if !instance_id.nil?
-            @cloud_id = instance_id
+            @cloud_id ||= instance_id
           end
 
           # Unless we're planning on associating a different IP later, set up a
@@ -518,7 +519,7 @@ module MU
 
           real_image = MU::Cloud::Azure::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'], region: server['region'])
           if !real_image
-            MU.log "Failed to locate an Azure VM image from #{server['image_id']} in #{server['region']}", MU::ERR
+            MU.log "Failed to locate an Azure VM image for #{server['name']} from #{server['image_id']} in #{server['region']}", MU::ERR
             ok = false
           else
             server['image_id'] = real_image.id
@@ -547,6 +548,7 @@ module MU
               "type" => "vpc",
               "name" => server['name']+"vpc"
             }
+# XXX what happens if there's no natstion here?
             server['dependencies'] << {
               "type" => "server",
               "name" => server['name']+"vpc-natstion",
@@ -557,6 +559,7 @@ module MU
               "subnet_pref" => "private"
             }
           end
+          server['vpc']['subnet_pref'] ||= "private"
 
           ok
         end
@@ -584,7 +587,9 @@ module MU
           if !publisher or !offer or !sku
             raise MuError, "Azure image_id #{image_id} was invalid"
           end
+
           skus = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list_skus(region, publisher, offer).map { |s| s.name }
+
           if !skus.include?(sku)
             skus.sort { |a, b| MU.version_sort(a, b) }.reverse.each { |s|
               if s.match(/^#{Regexp.quote(sku)}/)
@@ -595,6 +600,11 @@ module MU
           end
 
           versions = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list(region, publisher, offer, sku).map { |v| v.name }
+          if versions.nil? or versions.empty?
+            MU.log "Azure API returned empty machine image version list for publisher #{publisher} offer #{offer} sku #{sku}", MU::ERR
+            return nil
+          end
+
           if version.nil?
             version = versions.sort { |a, b| MU.version_sort(a, b) }.reverse.first
           elsif !versions.include?(version)

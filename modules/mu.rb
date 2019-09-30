@@ -679,6 +679,14 @@ module MU
     ["Chef", "Ansible"]
   end
 
+  # The version of Chef we will install on nodes.
+  @@chefVersion = "14.0.190"
+  # The version of Chef we will install on nodes.
+  # @return [String]
+  def self.chefVersion
+    @@chefVersion
+  end
+
   MU.supportedGroomers.each { |groomer|
     require "mu/groomers/#{groomer.downcase}"
   }
@@ -793,14 +801,6 @@ module MU
     my_vpc_desc = MU.myVPCObj
     @@myVPC_var ||= my_vpc_desc.cloud_id if my_vpc_desc
     @@myVPC_var
-  end
-
-  # The version of Chef we will install on nodes.
-  @@chefVersion = "14.0.190"
-  # The version of Chef we will install on nodes.
-  # @return [String]
-  def self.chefVersion;
-    @@chefVersion
   end
 
   # Mu's SSL certificate directory
