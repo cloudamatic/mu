@@ -147,7 +147,14 @@ module MU
         false
       end
 
-      # Alias for #{MU::Cloud::AWS.hosted?}
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPC
+        return nil if !hosted?
+# XXX do me
+      end
+
+      # Alias for #{MU::Cloud::Azure.hosted?}
       def self.hosted
         return MU::Cloud::Azure.hosted?
       end

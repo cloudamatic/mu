@@ -202,9 +202,20 @@ module MU
         MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
       end
 
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPCObj
+        return nil if !hosted?
+        instance = MU.myCloudDescriptor
+        return nil if !instance or !instance.vpc_id
+        vpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: instance.vpc_id, dummy_ok: true)
+        return nil if vpc.nil? or vpc.size == 0
+        vpc.first
+      end
+
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
-      def self.myRegion(credentials: nil)
+      def self.myRegion(credentials = nil)
         return @@myRegion_var if @@myRegion_var
 
         if credConfig.nil? and !hosted? and !ENV['EC2_REGION']

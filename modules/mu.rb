@@ -718,6 +718,9 @@ module MU
     elsif MU::Cloud::AWS.hosted?
       @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
       return "AWS"
+    elsif MU::Cloud::Azure.hosted?
+      @@myInstanceId = MU::Cloud::Azure.get_metadata()["compute"]["vmId"]
+      return "Azure"
     end
     nil
   end
@@ -764,54 +767,32 @@ module MU
   end
 
   @@myCloudDescriptor = nil
-  if MU::Cloud::Google.hosted?
-    @@myCloudDescriptor = MU::Cloud::Google.compute.get_instance(
-      MU::Cloud::Google.myProject,
-      MU.myAZ,
-      MU.myInstanceId
-    )
-  elsif MU::Cloud::AWS.hosted?
-    begin
-      @@myCloudDescriptor = MU::Cloud::AWS.ec2(region: MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
-    rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-    rescue Aws::Errors::MissingCredentialsError => e
-      MU.log "I'm hosted in AWS, but I can't make API calls. Does this instance have an appropriate IAM profile?", MU::WARN
+  if MU.myCloud
+    found = MU::MommaCat.findStray(MU.myCloud, "server", cloud_id: @@myInstanceId, dummy_ok: true, region: MU.myRegion)
+    if !found.nil? and found.size == 1
+      @@myCloudDescriptor = found.first.cloud_desc
     end
   end
 
+
+  @@myVPCObj_var = nil
+  # The VPC/Network in which this Mu master resides
+  def self.myVPCObj
+    return nil if MU.myCloud.nil?
+    return @@myVPCObj_var if @@myVPCObj_var
+    cloudclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud)
+    @@myVPCObj_var ||= cloudclass.myVPCObj
+    @@myVPCObj_var
+  end
 
   @@myVPC_var = nil
   # The VPC/Network in which this Mu master resides
-  # XXX account for Google and non-cloud situations
   def self.myVPC
-    return nil if MU.myCloudDescriptor.nil?
-    begin
-      if MU::Cloud::AWS.hosted?
-        @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
-      elsif MU::Cloud::Google.hosted?
-        @@myVPC_var = MU.myCloudDescriptor.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1')
-      else
-        nil
-      end
-    rescue Aws::EC2::Errors::InternalError => e
-      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(region: #{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
-      sleep 10
-    end
+    return nil if MU.myCloud.nil?
+    return @@myVPC_var if @@myVPC_var
+    my_vpc_desc = MU.myVPCObj
+    @@myVPC_var ||= my_vpc_desc.cloud_id if my_vpc_desc
     @@myVPC_var
-  end
-
-  @@mySubnets_var = nil
-  # The AWS Subnets associated with the VPC this MU Master is in
-  # XXX account for Google and non-cloud situations
-  def self.mySubnets
-    @@mySubnets_var ||= MU::Cloud::AWS.ec2(region: MU.myRegion).describe_subnets(
-      filters: [
-        {
-          name: "vpc-id", 
-          values: [MU.myVPC]
-        }
-      ]
-    ).subnets
   end
 
   # The version of Chef we will install on nodes.

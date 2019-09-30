@@ -32,8 +32,7 @@ module MU
             "ip_block" => {
               "type" => "string",
               "pattern" => MU::Config::CIDR_PATTERN,
-              "description" => MU::Config::CIDR_DESCRIPTION,
-              "default" => "10.0.0.0/16"
+              "description" => MU::Config::CIDR_DESCRIPTION
             },
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
@@ -416,6 +415,12 @@ module MU
         have_public = false
         have_private = false
 
+        using_default_cidr = false
+        if !vpc['ip_block']
+          using_default_cidr = true
+          vpc['ip_block'] = "10.0.0.0/16"
+        end
+
         # Look for a common YAML screwup in route table land
         vpc['route_tables'].each { |rtb|
           next if !rtb['routes']
@@ -440,6 +445,35 @@ module MU
           # See if we'll be able to create peering connections
           can_peer = false
           if MU.myCloud == vpc["cloud"]
+            my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
+            begin
+              can_peer = true
+              MU.myVPCObj.routes.each { |cidr|
+                cidr_obj = NetAddr::IPv4Net.parse(cidr)
+                if my_cidr.rel(cidr_obj) != nil
+                  can_peer = false
+                end
+              }
+              if !can_peer and using_default_cidr
+                my_cidr = my_cidr.next_sib
+                my_cidr = nil if my_cidr.to_s.match(/^10\.255\./)
+              end
+            end while !can_peer and using_default_cidr and !my_cidr.nil?
+            if !my_cidr.nil? and vpc['ip_block'] != my_cidr.to_s
+              vpc['ip_block'] = my_cidr.to_s
+            end
+            if using_default_cidr
+              MU.log "Defaulting address range for VPC #{vpc['name']} to #{vpc['ip_block']}", MU::NOTICE
+            end
+          end
+
+          if can_peer
+            vpc['peers'] ||= []
+            vpc['peers'] << {
+              "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
+            }
+          else
+            MU.log "#{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
           end
 
           # Feeling that, generate a generic bastion/NAT host to do the job.
@@ -448,7 +482,7 @@ module MU
           if !can_peer and have_public and vpc["create_bastion"]
             serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
             bastion = serverclass.genericNAT
-            bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples
+            bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples somehow
             bastion['credentials'] = vpc['credentials']
             bastion['ingress_rules'] ||= []
             ["tcp", "udp", "icmp"].each { |proto|

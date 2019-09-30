@@ -1459,6 +1459,32 @@ module MU
           ok
         end
 
+        # List the CIDR blocks to which these VPC has routes. Exclude obvious
+        # things like +0.0.0.0/0+.
+        # @param subnets [Array<String>]: Only return the routes relevant to these subnet ids
+        def routes(subnets: [])
+          @my_visible_cidrs ||= {}
+          return @my_visible_cidrs[subnets] if @my_visible_cidrs[subnets]
+          filters = [{ :name => "vpc-id", :values => [@cloud_id] }]
+          if subnets and subnets.size > 0
+            filters << { :name => "association.subnet-id", :values => subnets }
+          end
+          tables = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+            filters: filters
+          )
+          cidrs = []
+          if tables and tables.route_tables
+            tables.route_tables.each { |rtb|
+              rtb.routes.each { |route|
+                next if route.destination_cidr_block == "0.0.0.0/0"
+                cidrs << route.destination_cidr_block
+              }
+            }
+          end
+          @my_visible_cidrs[subnets] = cidrs.uniq.sort
+          @my_visible_cidrs[subnets]
+        end
+
         private
 
         # List the route tables for each subnet in the given VPC
