@@ -630,6 +630,18 @@ module MU
         return @@apis_api[credentials]
       end
 
+      def self.marketplace(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_06_01")
+        require 'azure_mgmt_marketplace_ordering'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Resources").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@marketplace_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "MarketplaceOrdering", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@marketplace_api[credentials]
+      end
+
       def self.resources(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_05_01")
         require 'azure_mgmt_resources'
 
@@ -756,6 +768,7 @@ module MU
       @@containers_api = {}
       @@features_api = {}
       @@apis_api = {}
+      @@marketplace_api = {}
       @@service_identity_api = {}
 
       # Generic wrapper for connections to Azure APIs
@@ -807,6 +820,8 @@ module MU
         # @param method_sym [Symbol]
         # @param arguments [Array]
         def method_missing(method_sym, *arguments)
+          aoe_orig = Thread.abort_on_exception
+          Thread.abort_on_exception = false
           @wrapper_semaphore.synchronize {
             return @wrappers[method_sym] if @wrappers[method_sym]
           }
@@ -823,6 +838,7 @@ module MU
           @wrapper_semaphore.synchronize {
             @wrappers[method_sym] ||= deep_retval
           }
+          Thread.abort_on_exception = aoe_orig
           return @wrappers[method_sym]
         end
 
@@ -855,7 +871,7 @@ module MU
             rescue ::Net::ReadTimeout, ::Faraday::TimeoutError => e
               sleep 5
               retry
-            rescue ::MsRestAzure::AzureOperationError => e
+            rescue ::MsRestAzure::AzureOperationError, ::MsRest::HttpOperationError => e
               MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
               begin
                 parsed = JSON.parse(e.message)

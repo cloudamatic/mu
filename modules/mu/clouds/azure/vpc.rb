@@ -100,7 +100,7 @@ module MU
             }
           end
 
-#          create_update
+          create_update
         end
 
         # Describe this VPC
@@ -534,6 +534,8 @@ module MU
                     iface_id = Id.new(bastion_ref.kitten.cloud_desc.network_profile.network_interfaces.first.id)
                     iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.name)
                     route_obj.next_hop_ip_address = iface_desc.ip_configurations.first.private_ipaddress
+MU.log "DOING THE FUCKING THING", MU::WARN, details: route_obj
+sleep 5
                     "VirtualAppliance"
                   else
                     "VnetLocal"

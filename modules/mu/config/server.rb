@@ -516,7 +516,6 @@ module MU
                   "type" => "object",
                   "title" => "create_image",
                   "required" => ["image_then_destroy", "image_exclude_storage", "public"],
-                  "additionalProperties" => false,
                   "description" => "Create a reusable image of this server once it is complete.",
                   "properties" => {
                       "public" => {

@@ -110,7 +110,7 @@ module MU
             "bastion" => true,
             "size" => "Standard_B2s",
             "run_list" => [ "mu-utility::nat" ],
-            "platform" => "rhel7",
+            "platform" => "centos7",
             "associate_public_ip" => true,
             "static_ip" => { "assign_ip" => true },
           }
@@ -194,7 +194,7 @@ module MU
           # See if this node already exists in our config management. If it does,
           # we're done.
           if @groomer.haveBootstrapped?
-            MU.log "Node #{node} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
+            MU.log "Node #{@mu_name} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
             @groomer.saveDeployData
             MU::MommaCat.unlock(@cloud_id.to_s+"-orchestrate")
             MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
@@ -517,12 +517,19 @@ module MU
             end
           end
 
-          real_image = MU::Cloud::Azure::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'], region: server['region'])
-          if !real_image
+          image_desc = MU::Cloud::Azure::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'], region: server['region'])
+          if image_desc.plan
+            terms = MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.get(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
+            if !terms.accepted
+              MU.log "Deploying #{server['name']} will automatically agree to the licensing terms for #{terms.product}", MU::NOTICE, details: terms.license_text_link
+            end
+          end
+
+          if !image_desc
             MU.log "Failed to locate an Azure VM image for #{server['name']} from #{server['image_id']} in #{server['region']}", MU::ERR
             ok = false
           else
-            server['image_id'] = real_image.id
+            server['image_id'] = image_desc.id
           end
 
           if server['add_firewall_rules'] and server['add_firewall_rules'].size == 0
@@ -720,6 +727,23 @@ module MU
           vm_obj.os_profile = os_obj
           vm_obj.storage_profile = MU::Cloud::Azure.compute(:StorageProfile).new
           vm_obj.storage_profile.image_reference = img_obj
+
+          image_desc = MU::Cloud::Azure::Server.fetchImage(@config['image_id'].to_s, credentials: @config['credentials'], region: @config['region'])
+# XXX do this as a catch around instance creation so we don't waste API calls
+          if image_desc.plan
+            terms = MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.get(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
+            if !terms.accepted
+              MU.log "Agreeing to licensing terms of #{terms.product}", MU::NOTICE
+              begin
+# XXX this doesn't actually work as documented
+                MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.sign(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
+              rescue Exception => e
+                MU.log e.message, MU::ERR
+                vm_obj.plan = nil
+              end
+            end
+            vm_obj.plan = image_desc.plan
+          end
           if @config['storage']
             vm_obj.storage_profile.data_disks = []
             @config['storage'].each { |disk|
