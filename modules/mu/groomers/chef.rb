@@ -715,8 +715,24 @@ retry
       # @return [Hash]: The data synchronized.
       def saveDeployData
         self.class.loadChefLib
+
         @server.describe(update_cache: true) # Make sure we're fresh
+
+        bootstraped = false
+
+        tries = 40
+
+        tries.times do |i|
+          bootstraped = self.haveBootstrapped?
+          puts "#{i}, #{bootstraped}"
+          break if bootstraped
+          sleep 120
+        end
+
+        raise(MuError, "server not bootstraped in #{tries} tries") unless bootstraped
+
         saveChefMetadata
+
         begin
           chef_node = ::Chef::Node.load(@server.mu_name)
 
