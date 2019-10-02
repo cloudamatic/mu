@@ -223,8 +223,9 @@ end
           bok['name'] = cloud_desc.name.dup
           bok['cloud_id'] = cloud_desc.name.dup
 
-          cloud_desc.network.match(/\/networks\/([^\/]+)(?:$|\/)/)
-          vpc_id = Regexp.last_match[1]
+          cloud_desc.network.match(/(?:^|\/)projects\/(.*?)\/.*?\/networks\/([^\/]+)(?:$|\/)/)
+          vpc_proj = Regexp.last_match[1]
+          vpc_id = Regexp.last_match[2]
 
           if vpc_id == "default" and !@config['project']
             raise MuError, "FirewallRule toKitten: I'm in 'default' VPC but can't figure out what project I'm in"
@@ -238,7 +239,12 @@ end
           if vpc_id != "default"
             bok['vpc'] = MU::Config::Ref.get(
               id: vpc_id,
-              habitat: @config['project'],
+              habitat: MU::Config::Ref.get(
+                id: vpc_proj,
+                cloud: "Google",
+                credentials: @credentials,
+                type: "habitats"
+              ),
               cloud: "Google",
               credentials: @config['credentials'],
               type: "vpcs"

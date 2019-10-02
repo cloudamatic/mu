@@ -500,7 +500,12 @@ module MU
           bok['vpc'] = MU::Config::Ref.get(
             id: vpc_id,
             cloud: "Google",
-            habitat: vpc_proj,
+            habitat: MU::Config::Ref.get(
+              id: vpc_proj,
+              cloud: "Google",
+              credentials: @credentials,
+              type: "habitats"
+            ),
             credentials: @config['credentials'],
             type: "vpcs"
           )

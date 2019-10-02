@@ -1606,9 +1606,9 @@ return
             vpc.delete(p)
           end
         }
-        realvpc['id'] = vpc['id'] if !vpc['id'].nil?
-        realvpc['name'] = vpc['name'] if !vpc['name'].nil?
-        realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
+        ['cloud', 'id', 'name', 'deploy_id', 'habitat', 'credentials'].each { |field|
+          realvpc[field] = vpc[field] if !vpc[field].nil?
+        }
         if !realvpc['id'].nil? and !realvpc['id'].empty?
           # Stupid kludge for Google cloud_ids which are sometimes URLs and
           # sometimes not. Requirements are inconsistent from scenario to

@@ -636,7 +636,6 @@ module MU
       # @param dflt_region [String]:
       def self.processReference(vpc_block, parent_type, parent, configurator, sibling_vpcs: [], dflt_region: MU.curRegion, dflt_project: nil, credentials: nil)
 
-
         if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
           return true
         end
@@ -697,7 +696,6 @@ module MU
         else
           []
         end
-
 
         # First, dig up the enclosing VPC 
         tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?

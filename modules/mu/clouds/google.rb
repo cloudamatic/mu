@@ -672,23 +672,27 @@ MU.log e.message, MU::WARN, details: e.inspect
       # "translate" machine types across cloud providers.
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
       # @return [Hash]
-      def self.listInstanceTypes(region = self.myRegion)
-        return @@instance_types if @@instance_types and @@instance_types[region]
-        if !MU::Cloud::Google.defaultProject
-          return {}
+      def self.listInstanceTypes(region = self.myRegion, credentials: nil, project: MU::Cloud::Google.defaultProject)
+        if @@instance_types and
+           @@instance_types[project] and
+           @@instance_types[project][region]
+          return @@instance_types[project]
         end
 
+        return {} if !project
+
         @@instance_types ||= {}
-        @@instance_types[region] ||= {}
-        result = MU::Cloud::Google.compute.list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
+        @@instance_types[project] ||= {}
+        @@instance_types[project][region] ||= {}
+        result = MU::Cloud::Google.compute(credentials: credentials).list_machine_types(project, listAZs(region).first)
         result.items.each { |type|
-          @@instance_types[region][type.name] ||= {}
-          @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
-          @@instance_types[region][type.name]["vcpu"] = type.guest_cpus.to_f
+          @@instance_types[project][region][type.name] ||= {}
+          @@instance_types[project][region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
+          @@instance_types[project][region][type.name]["vcpu"] = type.guest_cpus.to_f
           if type.is_shared_cpu
-            @@instance_types[region][type.name]["ecu"] = "Variable"
+            @@instance_types[project][region][type.name]["ecu"] = "Variable"
           else
-            @@instance_types[region][type.name]["ecu"] = type.guest_cpus
+            @@instance_types[project][region][type.name]["ecu"] = type.guest_cpus
           end
         }
         @@instance_types
