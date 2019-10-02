@@ -154,8 +154,8 @@ module MU
 
         # blow up if this resource *has* to live in a project
         if cloudobj.cloudclass.canLiveIn == [:Habitat]
-          MU.log "Failed to find project for #{cloudobj.cloudclass.class.name}", MU::ERR, details: cloudobj
-          raise "Failed to find project for #{cloudobj.cloudclass.class.name}"
+          MU.log "Failed to find project for cloudobj of class #{cloudobj.cloudclass.class.name}", MU::ERR, details: cloudobj
+          raise MuError, "Failed to find project for cloudobj of class #{cloudobj.cloudclass.class.name}"
         end
 
         nil

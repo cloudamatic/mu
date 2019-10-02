@@ -295,7 +295,9 @@ module MU
       # lookup information for a cloud object
       def initialize(cfg)
 
-        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'habitat', 'credentials', 'mommacat'].each { |field|
+#        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'habitat', 'credentials', 'mommacat'].each { |field|
+        cfg.keys.each { |field|
+          next if field == "tag"
           if !cfg[field].nil?
             self.instance_variable_set("@#{field}".to_sym, cfg[field])
           elsif !cfg[field.to_sym].nil?
@@ -400,15 +402,19 @@ module MU
       # first place.
       def to_h
         me = { }
-        ['id', 'name', 'type', 'cloud', 'deploy_id', 'region', 'credentials', 'habitat'].each { |field|
-          val = self.instance_variable_get("@#{field}".to_sym)
-          if val
-            me[field] = val
-          end
+
+        self.instance_variables.each { |var|
+          next if [:@obj, :@mommacat, :@tag_key, :@tag_value].include?(var)
+          val = self.instance_variable_get(var)
+          next if val.nil?
+          val = val.to_h if val.is_a?(MU::Config::Ref)
+          me[var.to_s.sub(/^@/, '')] = val
         }
         if @tag_key and !@tag_key.empty?
-          m['tag']['key'] = @tag_key
-          m['tag']['value'] = @tag_value
+          me['tag'] = {
+            'key' => @tag_key,
+            'value' => @tag_value
+          }
         end
         me
       end
@@ -470,6 +476,8 @@ end
           begin
             hab_arg = if @habitat.nil?
               [nil]
+            elsif @habitat.is_a?(MU::Config::Ref)
+              [@habitat.id]
             elsif @habitat.is_a?(Hash)
               [@habitat["id"]]
             else

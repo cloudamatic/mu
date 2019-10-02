@@ -205,6 +205,7 @@ end
 
                 kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)
                 if kitten_cfg
+                  print "."
                   kitten_cfg.delete("credentials") if @target_creds
                   class_semaphore.synchronize {
                     bok[res_class.cfg_plural] << kitten_cfg
@@ -290,7 +291,6 @@ end
     # for example, remove the explicit +credentials+ attributes and set that
     # value globally, once.
     def vacuum(bok, origin: nil, save: false, deploy: nil)
-
       deploy ||= generateStubDeploy(bok)
 
       globals = {
@@ -371,33 +371,36 @@ end
 
     def resolveReferences(cfg, deploy, parent)
       if cfg.is_a?(MU::Config::Ref)
-
+        hashcfg = cfg.to_h
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
-          cfg = if littermate
-            { "type" => cfg.type, "name" => littermate.config['name'] }
+          if littermate
+            hashcfg['name'] = littermate.config['name']
+            hashcfg.delete("id")
+            hashcfg
           elsif cfg.deploy_id and cfg.name and @savedeploys
-            { "type" => cfg.type, "name" => cfg.name, "deploy_id" => cfg.deploy_id }
+            hashcfg.delete("id")
+            hashcfg
           elsif cfg.id
             littermate = deploy.findLitterMate(type: cfg.type, cloud_id: cfg.id, habitat: cfg.habitat)
             if littermate
-              { "type" => cfg.type, "name" => littermate.config['name'] }
+              hashcfg['name'] = littermate.config['name']
+              hashcfg.delete("id")
             elsif !@savedeploys
-              cfg = { "type" => cfg.type, "id" => cfg.id }
+              hashcfg.delete("deploy_id")
+              hashcfg.delete("name")
             else
 MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WARN, details: cfg if cfg.type == "habitats"
-              cfg.to_h
             end
-          else
-            cfg.to_h
           end
         elsif cfg.id # reference to raw cloud ids is reasonable
-          cfg = { "type" => cfg.type, "id" => cfg.id }
+          hashcfg.delete("deploy_id")
+          hashcfg.delete("name")
         else
           pp parent.cloud_desc
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
-
+        cfg = hashcfg
       elsif cfg.is_a?(Hash)
         deletia = []
         cfg.each_pair { |key, value|

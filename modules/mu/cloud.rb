@@ -1090,11 +1090,12 @@ module MU
               self.extend @cloudparentclass.const_get(:AdditionalResourceMethods)
             end
 
-            if ["Server", "ServerPool"].include?(self.class.shortname)
+            if ["Server", "ServerPool"].include?(self.class.shortname) and @deploy
               @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: @config.has_key?("basis"))
               if self.class.shortname == "Server"
                 @groomer = MU::Groomer.new(self)
               end
+
               @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
               if windows? or @config['active_directory'] and !@mu_windows_name
