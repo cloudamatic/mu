@@ -55,6 +55,7 @@ module MU
             @config['peers'].each { |peer|
               if peer['vpc']['name']
                 peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs", habitat: peer['vpc']['project'])
+                next if peer_obj.mu_name < @mu_name # both of us would try to create this peering, otherwise, so don't step on each other
               else
                 tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
                 if peer['vpc']['deploy_id'].nil? and peer['vpc']['id'].nil? and tag_key.nil?
@@ -79,13 +80,17 @@ module MU
               peer_name = @mu_name+"-"+@config['name'].upcase+"-"+peer_obj.config['name'].upcase
               peer_params = MU::Cloud::Azure.network(:VirtualNetworkPeering).new
               peer_params.remote_virtual_network = peer_obj.cloud_desc
+              peer['allow_forwarded_traffic'] ||= false
+              peer_params.allow_forwarded_traffic = peer['allow_forwarded_traffic']
+              peer['allow_gateway_traffic'] ||= false
+              peer_params.allow_gateway_transit = peer['allow_gateway_traffic']
 
               need_update = true
               exists = false
               ext_peerings.each { |ext_peering|
                 if ext_peering.remote_virtual_network.id == peer_obj.cloud_desc.id
                   exists = true
-                  need_update = false
+                  need_update = (ext_peering.allow_forwarded_traffic != peer_params.allow_forwarded_traffic or ext_peering.allow_gateway_transit != peer_params.allow_gateway_transit)
                 end
               }
 
@@ -333,6 +338,22 @@ module MU
         def self.schema(config = nil)
           toplevel_required = []
           schema = {
+            "peers" => {
+              "items" => {
+                "properties" => {
+                  "allow_forwarded_traffic" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "Allow traffic originating from outside peered networks"
+                  },
+                  "allow_gateway_traffic" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "Permit peered networks to use each others' VPN gateways"
+                  }
+                }
+              }
+            }
           }
           [toplevel_required, schema]
         end
@@ -573,7 +594,7 @@ module MU
                   need_apply = true
                 elsif ext_route.next_hop_type != route_obj.next_hop_type or
                       ext_route.address_prefix != route_obj.address_prefix
-                  MU.log "Updating route #{routename} for #{route['destination_network']} in route table #{rtb_name}", MU::NOTICE, details: route_obj
+                  MU.log "Updating route #{routename} for #{route['destination_network']} in route table #{rtb_name}", MU::NOTICE, details: [route_obj, ext_route]
                   need_apply = true
                 end
 

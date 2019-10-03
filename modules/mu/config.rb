@@ -935,8 +935,8 @@ return
           }
         end
       }
-
       applySchemaDefaults(@config, MU::Config.schema)
+
       validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
 #      XXX but now we're not validating top-level keys, argh
 #pp @config
@@ -1817,7 +1817,7 @@ return
 
             new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass).dup
 
-            conf_chunk[key] = new_val if new_val != nil
+            conf_chunk[key] = Marshal.load(Marshal.dump(new_val)) if !new_val.nil?
           }
         end
       elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)
@@ -1833,23 +1833,24 @@ return
             newschema["properties"].merge!(cloudschema)
             newschema
           else
-            schema_chunk["items"]
+            schema_chunk["items"].dup
           end
 
-          applySchemaDefaults(item, realschema, depth+1, conf_chunk).dup
+          applySchemaDefaults(item, realschema, depth+1, conf_chunk, type: type).dup
         }
       else
         if conf_chunk.nil? and !schema_chunk["default_if"].nil? and !siblings.nil?
           schema_chunk["default_if"].each { |cond|
             if siblings[cond["key_is"]] == cond["value_is"]
-              return cond["set"]
+              return Marshal.load(Marshal.dump(cond["set"]))
             end
           }
         end
         if conf_chunk.nil? and schema_chunk["default"] != nil
-          return schema_chunk["default"].dup
+          return Marshal.load(Marshal.dump(schema_chunk["default"]))
         end
       end
+
       return conf_chunk
     end
 
@@ -2032,7 +2033,6 @@ return
 
     def validate(config = @config)
       ok = true
-      plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(config)))
 
       count = 0
       @kittens ||= {}

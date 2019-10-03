@@ -2443,6 +2443,7 @@ MESSAGE_END
     # Make sure deployment data is synchronized to/from each node in the
     # currently-loaded deployment.
     def syncLitter(nodeclasses = [], triggering_node: nil, save_all_only: false)
+
 # XXX take some config logic to decide what nodeclasses to hit
 # XXX don't run on triggering node, duh
       return if MU.syncLitterThread
@@ -2751,6 +2752,7 @@ MESSAGE_END
           @deployment['seed'] ||= @seed
           @deployment['appname'] ||= @appname
           @deployment['handle'] ||= @handle
+          @deployment['ssh_public_key'] ||= @ssh_public_key if @ssh_public_key
           begin
             # XXX doing this to trigger JSON errors before stomping the stored
             # file...

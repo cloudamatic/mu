@@ -756,10 +756,15 @@ retry
             }
           end
 
-          if chef_node.normal['deployment'] != @server.deploy.deployment
+          if !@server.deploy.deployment.nil? and 
+             (chef_node.normal['deployment'].nil? or 
+               (chef_node.normal['deployment'].to_h <=> @server.deploy.deployment) != 0
+             )
             MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
+            if chef_node.normal['deployment']
+              chef_node.normal['deployment'].to_h.diff(@server.deploy.deployment)
+            end
             chef_node.normal['deployment'].merge!(@server.deploy.deployment)
-            chef_node.normal['deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
             chef_node.save
           end
           return chef_node['deployment']
