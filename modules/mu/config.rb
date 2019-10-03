@@ -258,7 +258,7 @@ module MU
       # @return [MU::Config::Ref]
       def self.get(cfg)
         return cfg if cfg.is_a?(MU::Config::Ref)
-        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat, :deploy_id]
+        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat, :deploy_id, :name]
         required = [:id, :type]
 
         @@ref_semaphore.synchronize {
@@ -1133,7 +1133,6 @@ return
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
     def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false)
       append = false
-
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
 
       if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
@@ -1231,7 +1230,8 @@ return
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
 
           if siblingvpc and siblingvpc['bastion'] and
-             ["server", "server_pool"].include?(cfg_name)
+             ["server", "server_pool"].include?(cfg_name) and
+             !descriptor['bastion']
             if descriptor['name'] != siblingvpc['bastion'].to_h['name']
               descriptor["dependencies"] << {
                 "type" => "server",
@@ -1422,7 +1422,6 @@ return
         # XXX this might have to be at the top of this insertKitten instead of
         # here
         ok = false if !schemaclass.validate(descriptor, self)
-
 
         plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
         plain_cfg.delete("#MU_CLOUDCLASS")

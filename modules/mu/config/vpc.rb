@@ -512,7 +512,7 @@ module MU
           # leverage this host to honor "gateway" => "#NAT" situations.
           if !can_peer and have_public and vpc["create_bastion"]
             serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
-            bastion = serverclass.genericNAT
+            bastion = serverclass.genericNAT.dup
             bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples somehow
             bastion['credentials'] = vpc['credentials']
             bastion['ingress_rules'] ||= []

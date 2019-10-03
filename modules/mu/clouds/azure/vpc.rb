@@ -533,10 +533,12 @@ module MU
                   if bastion_ref.kitten and bastion_ref.kitten.cloud_desc
                     iface_id = Id.new(bastion_ref.kitten.cloud_desc.network_profile.network_interfaces.first.id)
                     iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.name)
-                    route_obj.next_hop_ip_address = iface_desc.ip_configurations.first.private_ipaddress
-MU.log "DOING THE FUCKING THING", MU::WARN, details: route_obj
-sleep 5
-                    "VirtualAppliance"
+                    if iface_desc and iface_desc.ip_configurations and iface_desc.ip_configurations.size > 0
+                      route_obj.next_hop_ip_address = iface_desc.ip_configurations.first.private_ipaddress
+                      "VirtualAppliance"
+                    else
+                      "VnetLocal"
+                    end
                   else
                     "VnetLocal"
                   end

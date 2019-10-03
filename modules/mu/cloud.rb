@@ -1419,7 +1419,8 @@ module MU
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
-            if @vpc.config['bastion']
+            if @vpc.config['bastion'] and
+               @vpc.config['bastion'].to_h['name'] != @config['name']
               natref = MU::Config::Ref.get(@vpc.config['bastion'])
               if natref and natref.kitten
                 @nat = natref.kitten
