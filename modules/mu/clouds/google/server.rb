@@ -834,12 +834,12 @@ end
                 instance_id: @cloud_id,
                 region: @config['region'],
                 storage: @config['storage'],
-                family: ("mu-"+@config['platform']+"-"+MU.environment).downcase,
                 project: @project_id,
                 exclude_storage: img_cfg['image_exclude_storage'],
                 make_public: img_cfg['public'],
                 tags: @config['tags'],
                 zone: @config['availability_zone'],
+                family: @config['family'],
                 credentials: @config['credentials']
             )
             @deploy.notify("images", @config['name'], {"image_id" => image_id})
@@ -868,7 +868,7 @@ end
         # @param region [String]: The cloud provider region
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample, credentials: nil)
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: nil, zone: MU::Cloud::Google.listAZs.sample, credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
           instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
           if instance.nil?
@@ -924,17 +924,17 @@ end
           end
 
           labels["name"] = instance_id.downcase
-          imageobj = MU::Cloud::Google.compute(:Image).new(
-            name: name,
-            source_disk: bootdisk,
-            description: "Mu image created from #{name}",
-            labels: labels,
-            family: family
-          )
+          image_desc = {
+            :name => name,
+            :source_disk => bootdisk,
+            :description => "Mu image created from #{name}",
+            :labels => labels
+          }
+          image_desc[:family] = family if family
 
           newimage = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_image(
             project,
-            imageobj
+            MU::Cloud::Google.compute(:Image).new(image_desc)
           )
           newimage.name
         end
@@ -1079,10 +1079,15 @@ end
             az = Regexp.last_match[2]
             name = Regexp.last_match[3]
             disk_desc = MU::Cloud::Google.compute(credentials: @credentials).get_disk(proj, az, name)
-            if disk_desc.source_image
+            if disk_desc.source_image and disk.boot
               bok['image_id'] ||= disk_desc.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/beta\//, '')
             else
-              MU.log "EXTRA DISK "+disk_desc.name, MU::NOTICE, details: disk_desc
+              bok['storage'] ||= []
+              storage_blob = {
+                "size" => disk_desc.size_gb,
+                "device" => "/dev/xvd"+(disk.index+97).chr.downcase
+              }
+              bok['storage'] <<  storage_blob
             end
             
 #            if disk.licenses
@@ -1193,6 +1198,14 @@ end
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "create_image" => {
+              "properties" => {
+                "family" => {
+                  "type" => "string",
+                  "description" => "Add a GCP image +family+ string to the created image(s)"
+                }
+              }
+            },
             "availability_zone" => {
               "type" => "string",
               "description" => "Target this instance to a specific Availability Zone"
@@ -1279,7 +1292,7 @@ end
             }
 
             if !foundmatch
-              MU.log "Invalid size '#{size}' for Google Compute instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              MU.log "Invalid size '#{size}' for Google Compute instance in #{region} (checked project #{project}). Supported types:", MU::ERR, details: types.keys.sort.join(", ")
               return nil
             end
           end
@@ -1296,8 +1309,12 @@ end
 
           server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
 
-          server['size'] = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
-          ok = false if server['size'].nil?
+          size = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
+          if size.nil?
+            MU.log "Failed to verify instance size #{server["size"]} for Server #{server['name']}", MU::WARN
+          else
+            server["size"] = size
+          end
 
           # If we're not targeting an availability zone, pick one randomly
           if !server['availability_zone']
