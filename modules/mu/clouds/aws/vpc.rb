@@ -490,55 +490,58 @@ module MU
             @config['peers'].each { |peer|
               peer_obj = nil
               peer_id = nil
+              peer['name'] ||= peer['vpc_name']
+              peer['id'] ||= peer['vpc_id']
 
               # If we know this to be a sibling VPC elsewhere in our stack,
               # go fetch it, and fix it if we've been misconfigured with a
               # duplicate peering connection
-              if peer['vpc']['vpc_name'] and !peer['account']
-                peer_obj = @deploy.findLitterMate(name: peer['vpc']['vpc_name'], type: "vpcs")
+              if peer['vpc']['name'] and !peer['account']
+                peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs")
                 if peer_obj
                   if peer_obj.config['peers']
                     skipme = false
                     peer_obj.config['peers'].each { |peerpeer|
-                      if peerpeer['vpc']['vpc_name'] == @config['name'] and
-                         (peer['vpc']['vpc_name'] <=> @config['name']) == -1
+                      if peerpeer['vpc']['name'] == @config['name'] and
+                         (peer['vpc']['name'] <=> @config['name']) == -1
                         skipme = true
-                        MU.log "VPCs #{peer['vpc']['vpc_name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
+                        MU.log "VPCs #{peer['vpc']['name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
 # XXX and if deploy_id matches or is unset
                       end
                     }
                   end
                   next if skipme
                   peer['account'] = MU::Cloud::AWS.credToAcct(peer_obj.credentials)
-                  peer['vpc']['vpc_id'] = peer_obj.cloud_id
+                  peer['vpc']['id'] = peer_obj.cloud_id
                 end
               end
 
               # If we still don't know our peer's vpc identifier, go fishing
               if !peer_obj
                 tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-                if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
+                if peer['vpc']['deploy_id'].nil? and peer['vpc']['id'].nil? and tag_key.nil?
                   peer['vpc']['deploy_id'] = @deploy.deploy_id
                 end
                 peer_obj = MU::MommaCat.findStray(
                   "AWS",
                   "vpcs",
                   deploy_id: peer['vpc']['deploy_id'],
-                  cloud_id: peer['vpc']['vpc_id'],
+                  cloud_id: peer['vpc']['id'],
 # XXX we need a credentials argument here... maybe
-                  name: peer['vpc']['vpc_name'],
+                  name: peer['vpc']['name'],
                   tag_key: tag_key,
                   tag_value: tag_value,
                   dummy_ok: true,
                   region: peer['vpc']['region']
                 )
+MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                 raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
                 peer_obj = peer_obj.first
                 peer['account'] ||= MU::Cloud::AWS.credToAcct(peer_obj.credentials)
-                peer['vpc']['vpc_id'] ||= peer_obj.cloud_id
+                peer['vpc']['id'] ||= peer_obj.cloud_id
               end
 
-              peer_id = peer['vpc']['vpc_id']
+              peer_id = peer['vpc']['id']
               peer['account'] ||= MU::Cloud::AWS.account_number
 
               # See if the peering connection exists before we bother
@@ -570,7 +573,7 @@ module MU
                 resp.vpc_peering_connections.first.vpc_peering_connection_id
               end
 
-              peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['vpc_id'])
+              peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['id'])
 
               MU::Cloud::AWS.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
