@@ -2442,13 +2442,17 @@ MESSAGE_END
 
     # Make sure deployment data is synchronized to/from each node in the
     # currently-loaded deployment.
-    def syncLitter(nodeclasses = [], triggering_node: nil, save_all_only: false)
+    def syncLitter(nodeclasses = [], triggering_node: nil, save_only: false)
+# XXX take some config logic to decide what nodeclasses to hit? like, make
+# inferences from dependencies or something?
 
-# XXX take some config logic to decide what nodeclasses to hit
-# XXX don't run on triggering node, duh
       return if MU.syncLitterThread
       return if !Dir.exists?(deploy_dir)
       svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
+      if !triggering_node.nil? and nodeclasses.size > 0
+        nodeclasses.reject! { |n| n == triggering_node.to_s }
+        return if nodeclasses.size == 0
+      end
 
       @kitten_semaphore.synchronize {
         if @kittens.nil? or
@@ -2457,14 +2461,22 @@ MESSAGE_END
           return
         end
 
-        MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
+
+        MU.log "Updating these node classes in #{@deploy_id}", MU::DEBUG, details: nodeclasses
       }
 
       update_servers = []
       if nodeclasses.nil? or nodeclasses.size == 0
         litter = findLitterMate(type: "server", return_all: true)
+        return if litter.nil?
         litter.each_pair { |mu_name, node|
-          next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+          if !triggering_node.nil? and (
+               (triggering_node.is_a?(MU::Cloud::Server) and mu_name == triggering_node.mu_name) or
+               (triggering_node.is_a?(String) and mu_name == triggering_node)
+             )
+            next
+          end
+
           if !node.groomer.nil?
             update_servers << node
           end
@@ -2476,16 +2488,24 @@ MESSAGE_END
           litter.merge!(mates) if mates
         }
         litter.each_pair { |mu_name, node|
-          next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+          if !triggering_node.nil? and (
+               (triggering_node.is_a?(MU::Cloud::Server) and mu_name == triggering_node.mu_name) or
+               (triggering_node.is_a?(String) and mu_name == triggering_node)
+             )
+            next
+          end
+
           if !node.deploydata or !node.deploydata.keys.include?('nodename')
             details = node.deploydata ? node.deploydata.keys : nil
-            MU.log "#{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: details
+            MU.log "#{mu_name} deploy data is missing (possibly retired or mid-bootstrap), so not syncing it", MU::WARN, details: details
           else
             update_servers << node
           end
         }
       end
       return if update_servers.size == 0
+
+      MU.log "Updating these nodes in #{@deploy_id}", MU::DEBUG, details: update_servers.map { |n| n.mu_name }
 
       update_servers.each { |node|
         # Not clear where this pollution comes from, but let's stick a temp
@@ -2499,7 +2519,7 @@ MESSAGE_END
       }
 
       # Merge everyone's deploydata together
-      if !save_all_only
+      if !save_only
         skip = []
         update_servers.each { |node|
           if node.mu_name.nil? or node.deploydata.nil? or node.config.nil?
@@ -2528,7 +2548,7 @@ MESSAGE_END
           begin
             if sibling.config['groom'].nil? or sibling.config['groom']
               sibling.groomer.saveDeployData
-              sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
+              sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_only
             end
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
@@ -2821,7 +2841,7 @@ MESSAGE_END
       }
 
       # Update groomer copies of this metadata
-      syncLitter(@deployment['servers'].keys, save_all_only: true) if @deployment.has_key?("servers")
+      syncLitter(@deployment['servers'].keys, triggering_node: triggering_node, save_only: true) if @deployment.has_key?("servers")
     end
 
     # Find one or more resources by their Mu resource name, and return

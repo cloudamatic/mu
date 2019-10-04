@@ -572,7 +572,7 @@ module MU
 
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
-        run_list = ["recipe[mu-tools::newclient]", 'recipe[mu-tools::selinux]']
+        run_list = ["recipe[mu-tools::newclient]"]
         run_list << "mu-tools::gcloud" if @server.cloud == "Google" or @server.config['cloud'] == "Google"
 
         json_attribs = {}
@@ -679,7 +679,7 @@ retry
 
         # Now that we're done, remove one-shot bootstrap recipes from the
         # node's final run list
-        ["mu-tools::newclient", 'mu-tools::selinux'].each { |recipe|
+        ["mu-tools::newclient"].each { |recipe|
           begin
             ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[#{recipe}]"], {})
           rescue SystemExit => e
@@ -687,6 +687,7 @@ retry
           end
         }
         knifeAddToRunList("role[mu-node]")
+        knifeAddToRunList("mu-tools::selinux")
 
         grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?
         grantSecretAccess(@server.mu_name, "ssl_cert")
@@ -701,6 +702,7 @@ retry
           run(purpose: "Base configuration", update_runlist: false, max_retries: 20)
         end
         ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[mu-tools::updates]"], {}) if !@config['skipinitialupdates']
+        ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[mu-tools::selinux]"], {})
 
         # This will deal with Active Directory integration.
         if !@config['active_directory'].nil?
@@ -761,9 +763,6 @@ retry
                (chef_node.normal['deployment'].to_h <=> @server.deploy.deployment) != 0
              )
             MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
-            if chef_node.normal['deployment']
-              chef_node.normal['deployment'].to_h.diff(@server.deploy.deployment)
-            end
             chef_node.normal['deployment'].merge!(@server.deploy.deployment)
             chef_node.save
           end

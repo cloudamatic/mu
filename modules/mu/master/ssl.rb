@@ -111,7 +111,10 @@ module MU
         ef.issuer_certificate = cacert
         ef.subject_certificate = cert
         ef.subject_request = csr
-        cert.add_extension(ef.create_extension("subjectAltName",formatSANS(sans),false))
+        if !sans.nil? and !sans.empty? and
+           !formatSANS(sans).nil? and !formatSANS(sans).empty?
+          cert.add_extension(ef.create_extension("subjectAltName",formatSANS(sans),false))
+        end
         cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
         cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
         cert.sign cakey, OpenSSL::Digest::SHA256.new

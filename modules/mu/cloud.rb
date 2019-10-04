@@ -978,8 +978,8 @@ module MU
                !@cloudobj.mu_name.empty? and !args[:delay_descriptor_load]
               describe # XXX is this actually safe here?
               @deploy.addKitten(self.class.cfg_name, @config['name'], self)
-            elsif !@deploy.nil?
-              MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR, details: caller
+            elsif !@deploy.nil? and @cloudobj.mu_name.nil?
+              MU.log "#{self} in #{@deploy.deploy_id} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR, details: [caller, args.keys]
             end
 
 
@@ -1421,9 +1421,11 @@ module MU
             end
             if @vpc.config['bastion'] and
                @vpc.config['bastion'].to_h['name'] != @config['name']
-              natref = MU::Config::Ref.get(@vpc.config['bastion'])
-              if natref and natref.kitten
-                @nat = natref.kitten
+              refhash = @vpc.config['bastion'].to_h
+              refhash['deploy_id'] ||= @vpc.deploy.deploy_id
+              natref = MU::Config::Ref.get(refhash)
+              if natref and natref.kitten(@vpc.deploy)
+                @nat = natref.kitten(@vpc.deploy)
               end
             end
             if @nat.nil? and !@vpc.nil? and (
