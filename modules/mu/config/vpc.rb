@@ -626,6 +626,9 @@ module MU
         ok
       end
 
+
+      @@reference_cache = {}
+
       # Pick apart an external VPC reference, validate it, and resolve it and its
       # various subnets and NAT hosts to live resources.
       # @param vpc_block [Hash]:
@@ -702,23 +705,28 @@ module MU
         if !is_sibling
           begin
             if vpc_block['cloud'] != "CloudFormation"
-              found = MU::MommaCat.findStray(
-                vpc_block['cloud'],
-                "vpc",
-                deploy_id: vpc_block["deploy_id"],
-                cloud_id: vpc_block["id"],
-                name: vpc_block["name"],
-                credentials: vpc_block["credentials"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: vpc_block["region"],
-                flags: flags,
-                habitats: hab_arg,
-                debug: false,
-                dummy_ok: true
-              )
+              if @@reference_cache[vpc_block]
+MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
+                @@reference_cache[vpc_block]
+              else
+                found = MU::MommaCat.findStray(
+                  vpc_block['cloud'],
+                  "vpc",
+                  deploy_id: vpc_block["deploy_id"],
+                  cloud_id: vpc_block["id"],
+                  name: vpc_block["name"],
+                  credentials: vpc_block["credentials"],
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  region: vpc_block["region"],
+                  flags: flags,
+                  habitats: hab_arg,
+                  debug: false,
+                  dummy_ok: true
+                )
 
-              ext_vpc = found.first if found.size == 1
+                found.first if found.size == 1
+              end
 
               # Make sure we don't have a weird mismatch between requested
               # credential sets and the VPC we actually found
@@ -734,9 +742,10 @@ module MU
                   ok = false
                   MU.log "#{parent_type} #{parent['name']} is using credentials '#{credentials}' but matched VPC is under credentials '#{ext_vpc.cloudobj.config["credentials"]}'", MU::ERR, details: vpc_block
                 end
+                @@reference_cache[vpc_block] ||= ext_vpc if ok
                 vpc_block['credentials'] ||= ext_vpc.cloudobj.config["credentials"]
               end
-
+              @@reference_cache[vpc_block] ||= ext_vpc if ok
             end
           rescue Exception => e
             raise MuError, e.inspect, e.backtrace
@@ -831,6 +840,7 @@ module MU
             end
           end
         end
+
 
         # ...and other times we get to pick
 
