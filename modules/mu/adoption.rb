@@ -106,7 +106,7 @@ module MU
 
 
             if found and found.size > 0
-              MU.log "Found #{found.size.to_s} #{resclass.cfg_plural}"
+              MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
               found.each { |obj|
 begin
@@ -183,7 +183,6 @@ end
               next
             end
             next if !types.include?(res_class.cfg_plural)
-            MU.log "Generating #{resources.size.to_s} #{res_class.cfg_plural} kittens from #{cloud}"
 
             bok[res_class.cfg_plural] ||= []
 
@@ -219,6 +218,7 @@ end
             threads.each { |t|
               t.join
             }
+            puts ""
             bok[res_class.cfg_plural].sort! { |a, b|
               strs = [a, b].map { |x|
                 if x['cloud_id']
@@ -374,26 +374,26 @@ end
         hashcfg = cfg.to_h
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
-          if littermate
+          if littermate and littermate.config['name']
             hashcfg['name'] = littermate.config['name']
-            hashcfg.delete("id")
+            hashcfg.delete("id") if hashcfg["name"]
             hashcfg
           elsif cfg.deploy_id and cfg.name and @savedeploys
-            hashcfg.delete("id")
+            hashcfg.delete("id") if hashcfg["name"]
             hashcfg
           elsif cfg.id
             littermate = deploy.findLitterMate(type: cfg.type, cloud_id: cfg.id, habitat: cfg.habitat)
-            if littermate
+            if littermate and littermate.config['name']
               hashcfg['name'] = littermate.config['name']
-              hashcfg.delete("id")
+              hashcfg.delete("id") if hashcfg["name"]
             elsif !@savedeploys
               hashcfg.delete("deploy_id")
               hashcfg.delete("name")
             else
-MU.log "FAILED TO GET LITTERMATE #{cfg.kitten.object_id} FROM REFERENCE", MU::WARN, details: cfg if cfg.type == "habitats"
+              hashcfg.delete("name") if cfg.id and !cfg.deploy_id
             end
           end
-        elsif cfg.id # reference to raw cloud ids is reasonable
+        elsif hashcfg["id"] # reference to raw cloud ids is reasonable
           hashcfg.delete("deploy_id")
           hashcfg.delete("name")
         else

@@ -652,6 +652,8 @@ module MU
                   type: "users"
                 )
               end
+            else
+              bok.delete("service_account")
             end
           end
 
@@ -1051,8 +1053,18 @@ module MU
                 end
               }
               if !match
-                MU.log "Failed to find a GKE master version matching #{cluster['kubernetes']['version']} among available versions in #{cluster['master_az']}.", MU::ERR, details: master_versions
-                ok = false
+                MU.log "No version matching #{cluster['kubernetes']['version']} available, will try floating minor revision", MU::WARN
+                cluster['kubernetes']['version'].sub!(/^(\d+\.\d+\.).*/i, '\1')
+                master_versions.each { |v|
+                  if v.match(/^#{Regexp.quote(cluster['kubernetes']['version'])}/)
+                    match = true
+                    break
+                  end
+                }
+                if !match
+                  MU.log "Failed to find a GKE master version matching #{cluster['kubernetes']['version']} among available versions in #{cluster['master_az'] || cluster['region']}.", MU::ERR, details: master_versions
+                  ok = false
+                end
               end
             end
           end
@@ -1071,8 +1083,18 @@ module MU
                 end
               }
               if !match
-                MU.log "Failed to find a GKE node version matching #{cluster['kubernetes']['nodeversion']} among available versions in #{cluster['master_az']}.", MU::ERR, details: node_versions
-                ok = false
+                MU.log "No version matching #{cluster['kubernetes']['nodeversion']} available, will try floating minor revision", MU::WARN
+                cluster['kubernetes']['nodeversion'].sub!(/^(\d+\.\d+\.).*/i, '\1')
+                node_versions.each { |v|
+                  if v.match(/^#{Regexp.quote(cluster['kubernetes']['nodeversion'])}/)
+                    match = true
+                    break
+                  end
+                }
+                if !match
+                  MU.log "Failed to find a GKE node version matching #{cluster['kubernetes']['nodeversion']} among available versions in #{cluster['master_az'] || cluster['region']}.", MU::ERR, details: node_versions
+                  ok = false
+                end
               end
             end
           end

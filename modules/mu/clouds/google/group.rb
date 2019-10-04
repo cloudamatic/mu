@@ -180,8 +180,12 @@ module MU
           # The API treats the email address field as its main identifier, so
           # we'll go ahead and respect that.
           if args[:cloud_id]
-            resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_group(args[:cloud_id])
-            found[resp.email] = resp if resp
+            begin
+              resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_group(args[:cloud_id])
+              found[resp.email] = resp if resp
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
           else
             resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_groups(customer: MU::Cloud::Google.customerID(args[:credentials]))
             if resp and resp.groups

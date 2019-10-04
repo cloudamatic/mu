@@ -566,9 +566,14 @@ next
           else
             if credcfg['masquerade_as']
               if args[:cloud_id]
+                begin
                 resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_role(customer, args[:cloud_id].to_i)
-                if resp
-                  found[args[:cloud_id].to_s] = resp
+                  if resp
+                    found[args[:cloud_id].to_s] = resp
+                  end
+                rescue ::Google::Apis::ClientError => e
+                  # XXX notFound is ok, we'll just return nil
+                  raise e if !e.message.match(/notFound: /)
                 end
               else
                 resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_roles(customer)
@@ -853,9 +858,17 @@ next
               }
             end
             MU::Cloud::Google::Habitat.find(credentials: credentials).keys.each { |project|
-              MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
-                insertBinding("projects", project, binding)
-              }
+              begin
+                MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
+                  insertBinding("projects", project, binding)
+                }
+              rescue ::Google::Apis::ClientError => e
+                if e.message.match(/forbidden: /)
+                  MU.log "Do not have permissions to retrieve bindings in project #{project}, skipping", MU::WARN
+                else
+                  raise e
+                end
+              end
 
             }
 

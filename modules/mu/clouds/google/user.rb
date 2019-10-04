@@ -287,9 +287,13 @@ module MU
 
           if args[:project]
             # project-local service accounts
-            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
-              "projects/"+args[:project]
-            )
+            resp = begin
+              MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
+                "projects/"+args[:project]
+              )
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Do not have permissions to retrieve service accounts for project #{args[:project]}", MU::WARN
+            end
 
             if resp and resp.accounts
               resp.accounts.each { |sa|

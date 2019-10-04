@@ -239,11 +239,15 @@ end
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
           resp = {}
           if args[:cloud_id] and args[:project]
+            begin
             vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
               args[:project],
               args[:cloud_id].to_s.sub(/^.*?\/([^\/]+)$/, '\1')
             )
             resp[args[:cloud_id]] = vpc if !vpc.nil?
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Do not have permissions to retrieve VPC #{args[:cloud_id]} in project #{args[:project]}", MU::WARN
+            end
           else # XXX other criteria
             vpcs = MU::Cloud::Google.compute(credentials: args[:credentials]).list_networks(
               args[:project]
@@ -598,12 +602,23 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               vpc_project = Regexp.last_match[1]
               vpc_name = Regexp.last_match[2]
               vpc_id = vpc_name.dup
+              # Make sure the peer is something we have permission to look at
+              peer_descs = MU::Cloud::Google::VPC.find(cloud_id: vpc_id, project: vpc_project)
+              if peer_descs.nil? or peer_descs.empty?
+                MU.log "VPC #{@cloud_id} peer #{vpc_id} #{vpc_project} is not accessible, will remove from peer list", MU::WARN
+                next
+              end
 # XXX need to decide which of these parameters to use based on whether the peer is also in the mix of things being harvested, which is above this method's pay grade
               bok['peers'] << { "vpc" => MU::Config::Ref.get(
                 id: vpc_id,
                 name: vpc_name,
                 cloud: "Google",
-                habitat: vpc_project,
+                habitat: MU::Config::Ref.get(
+                  id: vpc_project,
+                  cloud: "Google",
+                  credentials: @credentials,
+                  type: "habitats"
+                ),
                 credentials: @config['credentials'],
                 type: "vpcs"
               ) }

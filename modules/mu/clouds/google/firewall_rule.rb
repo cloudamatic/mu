@@ -213,6 +213,17 @@ end
         # calculate our own accordingly based on what's live in the cloud.
         def toKitten(rootparent: nil, billing: nil, habitats: nil)
 
+          if cloud_desc.name.match(/^[a-f0-9]+$/)
+            gke_ish = true
+            cloud_desc.target_tags.each { |tag|
+              gke_ish = false if !tag.match(/^gke-/)
+            }
+            if gke_ish
+              MU.log "FirewallRule #{cloud_desc.name} appears to belong to a ContainerCluster, skipping adoption", MU::DEBUG
+              return nil
+            end
+          end
+
           bok = {
             "cloud" => "Google",
             "project" => @config['project'],
@@ -222,6 +233,7 @@ end
           bok['rules'] = []
           bok['name'] = cloud_desc.name.dup
           bok['cloud_id'] = cloud_desc.name.dup
+
 
           cloud_desc.network.match(/(?:^|\/)projects\/(.*?)\/.*?\/networks\/([^\/]+)(?:$|\/)/)
           vpc_proj = Regexp.last_match[1]
@@ -250,7 +262,6 @@ end
               type: "vpcs"
             )
           end
-
 
           byport = {}
 

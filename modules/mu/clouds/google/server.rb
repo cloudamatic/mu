@@ -1080,16 +1080,21 @@ end
             proj = Regexp.last_match[1]
             az = Regexp.last_match[2]
             name = Regexp.last_match[3]
-            disk_desc = MU::Cloud::Google.compute(credentials: @credentials).get_disk(proj, az, name)
-            if disk_desc.source_image and disk.boot
-              bok['image_id'] ||= disk_desc.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/beta\//, '')
-            else
-              bok['storage'] ||= []
-              storage_blob = {
-                "size" => disk_desc.size_gb,
-                "device" => "/dev/xvd"+(disk.index+97).chr.downcase
-              }
-              bok['storage'] <<  storage_blob
+            begin
+              disk_desc = MU::Cloud::Google.compute(credentials: @credentials).get_disk(proj, az, name)
+              if disk_desc.source_image and disk.boot
+                bok['image_id'] ||= disk_desc.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/beta\//, '')
+              else
+                bok['storage'] ||= []
+                storage_blob = {
+                  "size" => disk_desc.size_gb,
+                  "device" => "/dev/xvd"+(disk.index+97).chr.downcase
+                }
+                bok['storage'] <<  storage_blob
+              end
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Failed to retrieve disk #{name} attached to server #{@cloud_id} in #{proj}/#{az}", MU::WARN, details: e.message
+              next
             end
             
 #            if disk.licenses
@@ -1116,6 +1121,19 @@ end
           end
           if cloud_desc.metadata and cloud_desc.metadata.items
             bok['metadata'] = cloud_desc.metadata.items.map { |m| MU.structToHash(m) }
+          end
+
+          # Skip nodes that are just members of GKE clusters
+          if bok['name'].match(/^gke-.*?-[a-f0-9]+-[a-z0-9]+$/) and
+             bok['image_id'].match(/^projects\/gke-node-images\//)
+            gke_ish = true
+            bok['network_tags'].each { |tag|
+              gke_ish = false if !tag.match(/^gke-/)
+            }
+            if gke_ish
+              MU.log "Server #{bok['name']} appears to belong to a ContainerCluster, skipping adoption", MU::NOTICE
+              return nil
+            end
           end
 
 #          MU.log @mu_name, MU::NOTICE, details: bok

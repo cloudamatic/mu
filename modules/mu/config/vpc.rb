@@ -705,7 +705,7 @@ module MU
         if !is_sibling
           begin
             if vpc_block['cloud'] != "CloudFormation"
-              if @@reference_cache[vpc_block]
+              ext_vpc = if @@reference_cache[vpc_block]
 MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                 @@reference_cache[vpc_block]
               else
@@ -725,7 +725,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                   dummy_ok: true
                 )
 
-                found.first if found.size == 1
+                found.first if found and found.size == 1
               end
 
               # Make sure we don't have a weird mismatch between requested
@@ -751,7 +751,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             raise MuError, e.inspect, e.backtrace
           ensure
             if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
-              MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent['name']} (called by #{caller[0]})", MU::ERR, details: vpc_block
+              MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_type} #{parent['name']} (called by #{caller[0]})", MU::ERR, details: vpc_block
               return false
             elsif !vpc_block["id"]
               MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent['name']}", MU::DEBUG, details: vpc_block
