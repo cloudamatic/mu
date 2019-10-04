@@ -22,8 +22,8 @@ function log
 }
 
 function fetchSecret([string]$file){
-  log "Fetching s3://<%= MU.adminBucketName("Google", credentials: $mu.credentials) %>/$file to $tmp/$file"
-  aws.cmd s3 cp s3://<%= MU.adminBucketName("Google", credentials: $mu.credentials) %>/$file $tmp/$file
+  log "Fetching s3://<%= $mu.adminBucketName %>/$file to $tmp/$file"
+  aws.cmd s3 cp s3://<%= $mu.adminBucketName %>/$file $tmp/$file
 }
 
 function importCert([string]$cert, [string]$store){
@@ -112,7 +112,7 @@ function removeChef($location){
   $install_chef = $false
   $my_chef = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).DisplayName
   if ($my_chef) {
-    if ($my_chef -match '<%= MU.chefVersion %>'.split('-')[0]) {
+    if ($my_chef -match '<%= $mu.chefVersion %>'.split('-')[0]) {
       $install_chef = $false
     } else{
       log "Uninstalling Chef"
@@ -142,13 +142,13 @@ If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
 }
 
 If ($install_chef){
-  log "Installing Chef <%= MU.chefVersion %>"
-  If (!(Test-Path $env:Temp/chef-installer-<%= MU.chefVersion %>.msi)){
+  log "Installing Chef <%= $mu.chefVersion %>"
+  If (!(Test-Path $env:Temp/chef-installer-<%= $mu.chefVersion %>.msi)){
     log "Downloading Chef installer"
-    $WebClient.DownloadFile("https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>","$env:Temp/chef-installer-<%= MU.chefVersion %>.msi")
+    $WebClient.DownloadFile("https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= $mu.chefVersion %>","$env:Temp/chef-installer-<%= $mu.chefVersion %>.msi")
   }
   log "Running Chef installer"
-  (Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer-<%= MU.chefVersion %>.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
+  (Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer-<%= $mu.chefVersion %>.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
   Set-Content "c:/mu_installed_chef" "yup"
 }
 

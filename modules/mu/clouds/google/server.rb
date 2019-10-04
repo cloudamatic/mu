@@ -47,6 +47,8 @@ module MU
                 "publicIP" => MU.mu_public_ip,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
+                "adminBucketName" => MU::Cloud::Google.adminBucketName(@credentials),
+                "chefVersion" => MU.chefVersion,
                 "mommaCatPort" => MU.mommaCatPort,
                 "resourceName" => @config["name"],
                 "resourceType" => "server",
