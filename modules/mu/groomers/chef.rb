@@ -730,6 +730,11 @@ retry
       # @return [Hash]: The data synchronized.
       def saveDeployData
         self.class.loadChefLib
+        if !haveBootstrapped?
+          MU.log "saveDeployData invoked on #{@server.to_s} before Chef has been bootstrapped!", MU::WARN, details: caller
+          return
+        end
+
         @server.describe(update_cache: true) # Make sure we're fresh
         saveChefMetadata
         begin
