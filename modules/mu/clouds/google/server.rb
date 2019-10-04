@@ -28,22 +28,11 @@ module MU
       # Google Cloud, this amounts to a single Instance in an Unmanaged
       # Instance Group.
       class Server < MU::Cloud::Server
-        @project_id = nil
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :deploy
-        attr_reader :cloud_id
-        attr_reader :cloud_desc
-        attr_reader :groomer
-        attr_accessor :mu_windows_name
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id = cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
 
           if @deploy
             @userdata = MU::Cloud.fetchUserdata(
@@ -66,17 +55,11 @@ module MU
               custom_append: @config['userdata_script']
             )
           end
-
-          if !mu_name.nil?
-            @mu_name = mu_name
-            @config['mu_name'] = @mu_name
+# XXX writing things into @config at runtime is a bad habit and we should stop
+          if !@mu_name.nil?
+            @config['mu_name'] = @mu_name # XXX whyyyy
             # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
           else
             if kitten_cfg.has_key?("basis")
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -85,42 +68,10 @@ module MU
             end
             @config['mu_name'] = @mu_name
 
-            @config['instance_secret'] = Password.random(50)
           end
+          @config['instance_secret'] ||= Password.random(50)
           @config['ssh_user'] ||= "muadmin"
-          @groomer = MU::Groomer.new(self)
 
-        end
-
-        # Generate a server-class specific service account, used to grant 
-        # permission to do various API things to a node.
-        # @param rolename [String]:
-        # @param project [String]:
-        # @param scopes [Array<String>]: https://developers.google.com/identity/protocols/googlescopes
-        # XXX this should be a MU::Cloud::Google::User resource
-        def self.createServiceAccount(rolename, deploy, project: nil, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"], credentials: nil)
-          project ||= MU::Cloud::Google.defaultProject(credentials)
-
-#https://www.googleapis.com/auth/devstorage.read_only ?
-          name = deploy.getResourceName(rolename, max_length: 30).downcase
-
-          saobj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
-            account_id: name.gsub(/[^a-z]/, ""), # XXX this mangling isn't required in the console, so why is it here?
-            service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
-              display_name: rolename,
-# do NOT specify project_id or name, we know that much
-            )
-          )
-
-          resp = MU::Cloud::Google.iam(credentials: credentials).create_service_account(
-            "projects/#{project}",
-            saobj
-          )
-
-          MU::Cloud::Google.compute(:ServiceAccount).new(
-            email: resp.email,
-            scopes: scopes
-          )
         end
 
         # Return the date/time a machine image was created.
@@ -164,9 +115,31 @@ module MU
             img = MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
             if !img.deprecated.nil? and !img.deprecated.replacement.nil?
               image_id = img.deprecated.replacement
-              img_proj = image_id.gsub(/.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
+              img_proj = image_id.gsub(/(?:https?:\/\/.*?\.googleapis\.com\/compute\/.*?\/)?.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
               img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
             end
+          rescue ::Google::Apis::ClientError => e
+            # SOME people *cough* don't use deprecation or image family names
+            # and just spew out images with a version appended to the name, so
+            # let's try some crude semantic versioning list.
+            if e.message.match(/^notFound: /) and img_name.match(/-[^\-]+$/)
+              list = MU::Cloud::Google.compute(credentials: credentials).list_images(img_proj, filter: "name eq #{img_name.sub(/-[^\-]+$/, '')}-.*")
+              if list and list.items
+                latest = nil
+                list.items.each { |candidate|
+                  created = DateTime.parse(candidate.creation_timestamp)
+                  if latest.nil? or created > latest
+                    latest = created
+                    img = candidate
+                  end
+                }
+                if latest
+                  MU.log "Mapped #{image_id} to #{img.name} with semantic versioning guesswork", MU::WARN
+                  return img
+                end
+              end
+            end
+            raise e # if our little semantic versioning party trick failed
           end while !img.deprecated.nil? and img.deprecated.state == "DEPRECATED" and !img.deprecated.replacement.nil?
           MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
         end
@@ -283,13 +256,28 @@ next if !create
         def create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
-          service_acct = MU::Cloud::Google::Server.createServiceAccount(
-            @mu_name.downcase,
-            @deploy,
-            project: @project_id,
-            credentials: @config['credentials']
+          sa = MU::Config::Ref.get(@config['service_account'])
+retries = 0
+begin
+          if !sa or !sa.kitten or !sa.kitten.cloud_desc
+            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+          end
+rescue Exception => e
+MU.log e.class.name+": "+e.message, MU::ERR, details: @config['service_account']
+if retries < 10
+  retries += 1
+  sleep 5
+  retry
+else
+  raise e
+end
+end
+
+          @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
+            email: sa.kitten.cloud_desc.email,
+            scopes: @config['scopes']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email, credentials: @config['credentials'])
+          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
 
           begin
             disks = MU::Cloud::Google::Server.diskConfig(@config, credentials: @config['credentials'])
@@ -305,24 +293,35 @@ next if !create
               :name => MU::Cloud::Google.nameStr(@mu_name),
               :can_ip_forward => !@config['src_dst_check'],
               :description => @deploy.deploy_id,
-              :service_accounts => [service_acct],
+              :service_accounts => [@service_acct],
               :network_interfaces => interfaces,
               :machine_type => "zones/"+@config['availability_zone']+"/machineTypes/"+@config['size'],
-              :metadata => {
-                :items => [
-                  {
-                    :key => "ssh-keys",
-                    :value => @config['ssh_user']+":"+@deploy.ssh_public_key
-                  },
-                  {
-                    :key => "startup-script",
-                    :value => @userdata
-                  }
-                ]
-              },
               :tags => MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
             }
             desc[:disks] = disks if disks.size > 0
+
+            metadata = {}
+            if @config['metadata']
+              metadata = Hash[@config['metadata'].map { |m|
+                [m["key"], m["value"]]
+              }]
+            end
+            metadata["startup-script"] = @userdata
+
+            deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
+            if metadata["ssh-keys"]
+              metadata["ssh-keys"] += "\n"+deploykey
+            else
+              metadata["ssh-keys"] = deploykey
+            end
+            desc[:metadata] = MU::Cloud::Google.compute(:Metadata).new(
+              :items => metadata.keys.map { |k|
+                MU::Cloud::Google.compute(:Metadata)::Item.new(
+                  key: k,
+                  value: metadata[k]
+                )
+              }
+            )
 
             # Tags in GCP means something other than what we think of;
             # labels are the thing you think you mean
@@ -334,10 +333,10 @@ next if !create
             }
             desc[:labels]["name"] = @mu_name.downcase
 
-
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
-            MU.log "Creating instance #{@mu_name}"
+            MU.log "Creating instance #{@mu_name}", MU::NOTICE, details: instanceobj
+
             begin
               instance = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance(
                 @project_id,
@@ -383,7 +382,7 @@ next if !create
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, flags: { "skipsnapshots" => true } )
+                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, flags: { "skipsnapshots" => true }, region: @config['region'] )
                 }
               end
             end
@@ -618,80 +617,82 @@ next if !create
         end #postBoot
 
         # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param ip [String]: An IP address associated with the instance
-        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {}, credentials: nil)
-# XXX put that 'ip' value into flags
+        def self.find(**args)
           instance = nil
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          if !region.nil? and MU::Cloud::Google.listRegions.include?(region)
-            regions = [region]
+          args[:project] ||= args[:habitat]
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          if !args[:region].nil? and MU::Cloud::Google.listRegions.include?(args[:region])
+            regions = [args[:region]]
           else
             regions = MU::Cloud::Google.listRegions
           end
 
-          found_instances = {}
+          found = {}
           search_semaphore = Mutex.new
           search_threads = []
 
           # If we got an instance id, go get it
-          if !cloud_id.nil? and !cloud_id.empty?
-            parent_thread_id = Thread.current.object_id
-            regions.each { |region|
-              search_threads << Thread.new {
-                Thread.abort_on_exception = false
-                MU.dupGlobals(parent_thread_id)
-                MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
-                MU::Cloud::Google.listAZs(region).each { |az|
-                  resp = nil
-                  begin
-                    resp = MU::Cloud::Google.compute(credentials: credentials).get_instance(
-                      flags["project"],
+          parent_thread_id = Thread.current.object_id
+          regions.each { |region|
+            search_threads << Thread.new {
+              Thread.abort_on_exception = false
+              MU.dupGlobals(parent_thread_id)
+              MU.log "Hunting for instance with cloud id '#{args[:cloud_id]}' in #{region}", MU::DEBUG
+              MU::Cloud::Google.listAZs(region).each { |az|
+                begin
+                  if !args[:cloud_id].nil? and !args[:cloud_id].empty?
+                    resp = MU::Cloud::Google.compute(credentials: args[:credentials]).get_instance(
+                      args[:project],
                       az,
-                      cloud_id
+                      args[:cloud_id]
                     )
-                  rescue ::OpenSSL::SSL::SSLError => e
-                    MU.log "Got #{e.message} looking for instance #{cloud_id} in project #{flags["project"]} (#{az}). Usually this means we've tried to query a non-functional region.", MU::DEBUG
-                  rescue ::Google::Apis::ClientError => e
-                    raise e if !e.message.match(/^notFound: /)
+                    search_semaphore.synchronize {
+                      found[args[:cloud_id]] = resp if !resp.nil?
+                    }
+                  else
+                    resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_instances(
+                      args[:project],
+                      az
+                    )
+                    if resp and resp.items
+                      search_semaphore.synchronize {
+                        resp.items.each { |instance|
+                          found[instance.name] = instance
+                        }
+                      }
+                    end
                   end
-                  found_instances[cloud_id] = resp if !resp.nil?
-                }
+                rescue ::OpenSSL::SSL::SSLError => e
+                  MU.log "Got #{e.message} looking for instance #{args[:cloud_id]} in project #{args[:project]} (#{az}). Usually this means we've tried to query a non-functional region.", MU::DEBUG
+                rescue ::Google::Apis::ClientError => e
+                  raise e if !e.message.match(/^notFound: /)
+                end
               }
             }
-            done_threads = []
-            begin
-              search_threads.each { |t|
-                joined = t.join(2)
-                done_threads << joined if !joined.nil?
-              }
-            end while found_instances.size < 1 and done_threads.size != search_threads.size
-          end
-
-          if found_instances.size > 0
-            return found_instances
-          end
-
+          }
+          done_threads = []
+          begin
+            search_threads.each { |t|
+              joined = t.join(2)
+              done_threads << joined if !joined.nil?
+            }
+          end while found.size < 1 and done_threads.size != search_threads.size
           # Ok, well, let's try looking it up by IP then
-          if instance.nil? and !ip.nil?
-            MU.log "Hunting for instance by IP '#{ip}'", MU::DEBUG
-          end
+#          if instance.nil? and !args[:ip].nil?
+#            MU.log "Hunting for instance by IP '#{args[:ip]}'", MU::DEBUG
+#          end
 
-          if !instance.nil?
-            return {instance.name => instance} if !instance.nil?
-          end
+#          if !instance.nil?
+#            return {instance.name => instance} if !instance.nil?
+#          end
 
           # Fine, let's try it by tag.
-          if !tag_value.nil?
-            MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
-          end
+#          if !args[:tag_value].nil?
+#            MU.log "Searching for instance by tag '#{args[:tag_key]}=#{args[:tag_value]}'", MU::DEBUG
+#          end
 
-          return found_instances
+          return found
         end
 
         # Return a description of this resource appropriate for deployment
@@ -833,12 +834,12 @@ next if !create
                 instance_id: @cloud_id,
                 region: @config['region'],
                 storage: @config['storage'],
-                family: ("mu-"+@config['platform']+"-"+MU.environment).downcase,
                 project: @project_id,
                 exclude_storage: img_cfg['image_exclude_storage'],
                 make_public: img_cfg['public'],
                 tags: @config['tags'],
                 zone: @config['availability_zone'],
+                family: @config['family'],
                 credentials: @config['credentials']
             )
             @deploy.notify("images", @config['name'], {"image_id" => image_id})
@@ -867,7 +868,7 @@ next if !create
         # @param region [String]: The cloud provider region
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample, credentials: nil)
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: nil, zone: MU::Cloud::Google.listAZs.sample, credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
           instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
           if instance.nil?
@@ -923,44 +924,19 @@ next if !create
           end
 
           labels["name"] = instance_id.downcase
-          imageobj = MU::Cloud::Google.compute(:Image).new(
-            name: name,
-            source_disk: bootdisk,
-            description: "Mu image created from #{name}",
-            labels: labels,
-            family: family
-          )
+          image_desc = {
+            :name => name,
+            :source_disk => bootdisk,
+            :description => "Mu image created from #{name}",
+            :labels => labels
+          }
+          image_desc[:family] = family if family
 
           newimage = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_image(
             project,
-            imageobj
+            MU::Cloud::Google.compute(:Image).new(image_desc)
           )
           newimage.name
-        end
-
-#        def cloud_desc
-#          max_retries = 5
-#          retries = 0
-#          if !@cloud_id.nil?
-#            begin
-#              return MU::Cloud::Google.compute(credentials: @config['credentials']).get_instance(
-#                @project_id,
-#                @config['availability_zone'],
-#                @cloud_id
-#              )
-#            rescue ::Google::Apis::ClientError => e
-#              if e.message.match(/^notFound: /)
-#                return nil
-#              else
-#                raise e
-#              end
-#            end
-#          end
-#          nil
-#        end
-
-        def cloud_desc
-          MU::Cloud::Google::Server.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
         end
 
         # Return the IP address that we, the Mu server, should be using to access
@@ -1063,6 +1039,87 @@ next if !create
           true
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "project" => @project_id
+          }
+          bok['name'] = cloud_desc.name
+
+          # XXX we can have multiple network interfaces, and often do; need
+          # language to account for this
+          iface = cloud_desc.network_interfaces.first
+          iface.network.match(/(?:^|\/)projects\/(.*?)\/.*?\/networks\/([^\/]+)(?:$|\/)/)
+          vpc_proj = Regexp.last_match[1]
+          vpc_id = Regexp.last_match[2]
+
+          bok['vpc'] = MU::Config::Ref.get(
+            id: vpc_id,
+            cloud: "Google",
+            habitat: MU::Config::Ref.get(
+              id: vpc_proj,
+              cloud: "Google",
+              credentials: @credentials,
+              type: "habitats"
+            ),
+            credentials: @credentials,
+            type: "vpcs",
+            subnet_id: iface.subnetwork.sub(/.*?\/([^\/]+)$/, '\1')
+          )
+
+          cloud_desc.disks.each { |disk|
+            next if !disk.source
+            disk.source.match(/\/projects\/([^\/]+)\/zones\/([^\/]+)\/disks\/(.*)/)
+            proj = Regexp.last_match[1]
+            az = Regexp.last_match[2]
+            name = Regexp.last_match[3]
+            disk_desc = MU::Cloud::Google.compute(credentials: @credentials).get_disk(proj, az, name)
+            if disk_desc.source_image and disk.boot
+              bok['image_id'] ||= disk_desc.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/beta\//, '')
+            else
+              bok['storage'] ||= []
+              storage_blob = {
+                "size" => disk_desc.size_gb,
+                "device" => "/dev/xvd"+(disk.index+97).chr.downcase
+              }
+              bok['storage'] <<  storage_blob
+            end
+            
+#            if disk.licenses
+#              disk.licenses.each { |license|
+#                license.match(/\/projects\/([^\/]+)\/global\/licenses\/(.*)/)
+#                proj = Regexp.last_match[1]
+#                lic_name = Regexp.last_match[2]
+#                MU.log disk.source, MU::NOTICE, details: MU::Cloud::Google.compute(credentials: @credentials).get_license(proj, lic_name)
+#              }
+#            end
+          }
+
+          if cloud_desc.labels
+            bok['tags'] = cloud_desc.labels.keys.map { |k| { "key" => k, "value" => cloud_desc.labels[k] } }
+          end
+          if cloud_desc.tags and cloud_desc.tags.items and cloud_desc.tags.items.size > 0
+            bok['network_tags'] = cloud_desc.tags.items
+          end
+          bok['src_dst_check'] = !cloud_desc.can_ip_forward
+          bok['size'] = cloud_desc.machine_type.sub(/.*?\/([^\/]+)$/, '\1')
+          bok['project'] = @project_id
+          if cloud_desc.service_accounts
+            bok['scopes'] = cloud_desc.service_accounts.map { |sa| sa.scopes }.flatten.uniq
+          end
+          if cloud_desc.metadata and cloud_desc.metadata.items
+            bok['metadata'] = cloud_desc.metadata.items.map { |m| MU.structToHash(m) }
+          end
+
+#          MU.log @mu_name, MU::NOTICE, details: bok
+          bok
+        end
+
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
@@ -1083,6 +1140,7 @@ next if !create
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
           skipsnapshots = flags["skipsnapshots"]
           onlycloud = flags["onlycloud"]
 # XXX make damn sure MU.deploy_id is set
@@ -1140,18 +1198,61 @@ next if !create
         def self.schema(config)
           toplevel_required = []
           schema = {
-            "image_id" => {
+            "create_image" => {
+              "properties" => {
+                "family" => {
+                  "type" => "string",
+                  "description" => "Add a GCP image +family+ string to the created image(s)"
+                }
+              }
+            },
+            "availability_zone" => {
               "type" => "string",
-              "description" => "The Google Cloud Platform Image on which to base this instance. Will use the default appropriate for the platform, if not specified."
+              "description" => "Target this instance to a specific Availability Zone"
             },
             "ssh_user" => {
               "type" => "string",
               "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
               "default" => "muadmin"
             },
+            "network_tags" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Add a network tag to this host, which can be used to selectively apply routes or firewall rules."
+              }
+            },
+            "service_account" => MU::Config::Ref.schema(
+              type: "users",
+              desc: "An existing service account to use instead of the default one generated by Mu during the deployment process."
+            ),
+            "metadata" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Custom key-value pairs to be added to the metadata of Google Cloud virtual machines",
+                "required" => ["key", "value"],
+                "properties" => {
+                  "key" => {
+                    "type" => "string"
+                  },
+                  "value" => {
+                    "type" => "string"
+                  }
+                }
+              }
+            },
             "routes" => {
               "type" => "array",
               "items" => MU::Config::VPC.routeschema
+            },
+            "scopes" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "API scopes to make available to this resource's service account."
+              },
+              "default" => ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/monitoring.write", "https://www.googleapis.com/auth/devstorage.read_only"]
             }
           }
           [toplevel_required, schema]
@@ -1162,30 +1263,36 @@ next if !create
         # @param size [String]: Instance type to check
         # @param region [String]: Region to check against
         # @return [String,nil]
-        def self.validateInstanceType(size, region)
-          types = (MU::Cloud::Google.listInstanceTypes(region))[region]
+        def self.validateInstanceType(size, region, project: nil, credentials: nil)
+          types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[region]
           if types and (size.nil? or !types.has_key?(size))
             # See if it's a type we can approximate from one of the other clouds
-            atypes = (MU::Cloud::AWS.listInstanceTypes)[MU::Cloud::AWS.myRegion]
             foundmatch = false
-            if atypes and atypes.size > 0 and atypes.has_key?(size)
-              vcpu = atypes[size]["vcpu"]
-              mem = atypes[size]["memory"]
-              ecu = atypes[size]["ecu"]
-              types.keys.sort.reverse.each { |type|
-                features = types[type]
-                next if ecu == "Variable" and ecu != features["ecu"]
-                next if features["vcpu"] != vcpu
-                if (features["memory"] - mem.to_f).abs < 0.10*mem
-                  foundmatch = true
-                  MU.log "You specified an Amazon instance type '#{size}.' Approximating with Google Compute type '#{type}.'", MU::WARN
-                  size = type
-                  break
-                end
-              }
-            end
+            MU::Cloud.availableClouds.each { |cloud|
+              next if cloud == "Google"
+              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
+                vcpu = foreign_types[size]["vcpu"]
+                mem = foreign_types[size]["memory"]
+                ecu = foreign_types[size]["ecu"]
+                types.keys.sort.reverse.each { |type|
+                  features = types[type]
+                  next if ecu == "Variable" and ecu != features["ecu"]
+                  next if features["vcpu"] != vcpu
+                  if (features["memory"] - mem.to_f).abs < 0.10*mem
+                    foundmatch = true
+                    MU.log "You specified #{cloud} instance type '#{size}.' Approximating with Google Compute type '#{type}.'", MU::WARN
+                    size = type
+                    break
+                  end
+                }
+              end
+              break if foundmatch
+            }
+
             if !foundmatch
-              MU.log "Invalid size '#{size}' for Google Compute instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              MU.log "Invalid size '#{size}' for Google Compute instance in #{region} (checked project #{project}). Supported types:", MU::ERR, details: types.keys.sort.join(", ")
               return nil
             end
           end
@@ -1202,12 +1309,47 @@ next if !create
 
           server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
 
-          server['size'] = validateInstanceType(server["size"], server["region"])
-          ok = false if server['size'].nil?
+          size = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
+          if size.nil?
+            MU.log "Failed to verify instance size #{server["size"]} for Server #{server['name']}", MU::WARN
+          else
+            server["size"] = size
+          end
 
           # If we're not targeting an availability zone, pick one randomly
           if !server['availability_zone']
             server['availability_zone'] = MU::Cloud::Google.listAZs(server['region']).sample
+          end
+
+          if server['service_account']
+            server['service_account']['cloud'] = "Google"
+            server['service_account']['habitat'] ||= server['project']
+            found = MU::Config::Ref.get(server['service_account'])
+            if found.id and !found.kitten
+              MU.log "GKE server #{server['name']} failed to locate service account #{server['service_account']} in project #{server['project']}", MU::ERR
+              ok = false
+            end
+          else
+            user = {
+              "name" => server['name'],
+              "cloud" => "Google",
+              "project" => server["project"],
+              "credentials" => server["credentials"],
+              "type" => "service"
+            }
+            configurator.insertKitten(user, "users", true)
+            server['dependencies'] ||= []
+            server['service_account'] = MU::Config::Ref.get(
+              type: "users",
+              cloud: "Google",
+              name: server["name"],
+              project: server["project"],
+              credentials: server["credentials"]
+            )
+            server['dependencies'] << {
+              "type" => "user",
+              "name" => server["name"]
+            }
           end
 
           subnets = nil
@@ -1246,7 +1388,7 @@ next if !create
           if server['image_id'].nil?
             img_id = MU::Cloud.getStockImage("Google", platform: server['platform'])
             if img_id
-              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::::Apis::ComputeBeta::Image")
+              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
             else
               MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
               ok = false
@@ -1257,7 +1399,7 @@ next if !create
           begin
             real_image = MU::Cloud::Google::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'])
           rescue ::Google::Apis::ClientError => e
-            MU.log e.inspect, MU::WARN
+            MU.log server['image_id'].to_s, MU::WARN, details: e.message
           end
 
           if real_image.nil?
@@ -1269,31 +1411,38 @@ next if !create
             img_project = Regexp.last_match[1]
             img_name = Regexp.last_match[2]
             begin
+              img = MU::Cloud::Google.compute(credentials: server['credentials']).get_image(img_project, img_name)
               snaps = MU::Cloud::Google.compute(credentials: server['credentials']).list_snapshots(
                 img_project,
                 filter: "name eq #{img_name}-.*"
               )
               server['storage'] ||= []
               used_devs = server['storage'].map { |disk| disk['device'].gsub(/.*?\//, "") }
-              snaps.items.each { |snap|
-                next if !snap.labels.is_a?(Hash) or !snap.labels["mu-device-name"] or snap.labels["mu-parent-image"] != img_name
-                devname = snap.labels["mu-device-name"]
+              if snaps and snaps.items
+                snaps.items.each { |snap|
+                  next if !snap.labels.is_a?(Hash) or !snap.labels["mu-device-name"] or snap.labels["mu-parent-image"] != img_name
+                  devname = snap.labels["mu-device-name"]
 
-                if used_devs.include?(devname)
-                  MU.log "Device name #{devname} already declared in server #{server['name']} (snapshot #{snap.name} wants the name)", MU::ERR
-                  ok = false
-                end
-                server['storage'] << {
-                  "snapshot_id" => snap.self_link,
-                  "size" => snap.disk_size_gb,
-                  "delete_on_termination" => true, 
-                  "device" => devname
+                  if used_devs.include?(devname)
+                    MU.log "Device name #{devname} already declared in server #{server['name']} (snapshot #{snap.name} wants the name)", MU::ERR
+                    ok = false
+                  end
+                  server['storage'] << {
+                    "snapshot_id" => snap.self_link,
+                    "size" => snap.disk_size_gb,
+                    "delete_on_termination" => true, 
+                    "device" => devname
+                  }
+                  used_devs << devname
                 }
-                used_devs << devname
-              }
+                if snaps.items.size > 0
+                  MU.log img_name, MU::WARN, details: snaps.items
+                end
+              end
             rescue ::Google::Apis::ClientError => e
               # it's ok, sometimes we don't have permission to list snapshots
               # in other peoples' projects
+              MU.log img_name, MU::WARN, details: img
               raise e if !e.message.match(/^forbidden: /)
             end
           end

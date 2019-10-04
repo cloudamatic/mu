@@ -48,27 +48,7 @@ module MU
       # Chunk of schema to reference an account/project, here to be embedded
       # into the schemas of other resources.
       def self.reference
-        {
-          "type" => "object",
-          "description" => "An IAM role to associate with this resource",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-            "id" => {
-              "type" => "string",
-              "description" => "Discover this role by looking for this cloud provider identifier, such as an AWS ARN"
-            },
-            "name" => {
-              "type" => "string",
-              "description" => "Discover this role by Mu-internal name; typically the shorthand 'name' field of a Role object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
-            },
-            "cloud" => MU::Config.cloud_primitive,
-            "deploy_id" => {
-              "type" => "string",
-              "description" => "Search for this Role in an existing Mu deploy by Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
-            }
-          }
-        }
+        MU::Config::Ref.schema(type: "roles")
       end
 
       # A generic, cloud-neutral descriptor for a policy that grants or denies
@@ -76,11 +56,11 @@ module MU
       # @param subobjects [Boolean]: Whether the returned schema should include a +path+ parameter
       # @param grant_to [Boolean]: Whether the returned schema should include an explicit +grant_to+ parameter
       # @return [Hash]
-      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false)
+      def self.policy_primitive(subobjects: false, grant_to: false, permissions_optional: false, targets_optional: false)
         cfg = {
           "type" => "object",
           "description" => "Policies which grant or deny permissions.",
-          "required" => ["name", "targets"],
+          "required" => ["name"],
 #          "additionalProperties" => false,
           "properties" => {
             "name" => {
@@ -126,28 +106,17 @@ module MU
         }
 
         cfg["required"] << "permissions" if !permissions_optional
+        cfg["required"] << "targets" if !targets_optional
+
+        schema_aliases = [
+          { "identifier" => "id" },
+        ]
 
         if grant_to
           cfg["properties"]["grant_to"] = {
             "type" => "array",
             "default" => [ { "identifier" => "*" } ],
-            "items" => {
-              "type" => "object",
-              "description" => "Entities to which this policy will grant or deny access.",
-              "required" => ["identifier"],
-              "additionalProperties" => false,
-              "properties" => {
-                "type" => {
-                  "type" => "string",
-                  "description" => "A Mu resource type, used when referencing a sibling Mu resource in this stack with +identifier+.",
-                  "enum" => MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort
-                },
-                "identifier" => {
-                  "type" => "string",
-                  "description" => "Either the name of a sibling Mu resource in this stack (used in conjunction with +entity_type+), or the full cloud identifier for a resource, such as an Amazon ARN or email-address-formatted Google Cloud username. Wildcards (+*+) are valid if supported by the cloud provider."
-                }
-              }
-            }
+            "items" => MU::Config::Ref.schema(schema_aliases, desc: "Entities to which this policy will grant or deny access.")
           }
         end
 

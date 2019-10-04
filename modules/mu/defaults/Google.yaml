@@ -1,16 +1,24 @@
 ---
-centos6: &centos6 projects/my-project-1474050033734/global/images/mu-dev-2017081809-tr-centos6
-centos7: &centos7 projects/centos-cloud/global/images/centos-7-v20170620
-rhel71: &rhel71 projects/rhel-cloud/global/images/rhel-7-v20170620
-ubuntu14: &ubuntu14 projects/ubuntu-os-cloud/global/images/ubuntu-1404-trusty-v20170619
-win2k12r2: &win2k12r2 projects/windows-cloud/global/images/windows-server-2012-r2-dc-v20170615
-win2k16: &win2k16 projects/windows-cloud/global/images/windows-server-2016-dc-v20170615
-google: &google projects/coreos-cloud/global/images/cos-stable-59-9460-64-0
+centos6: &centos6 centos-cloud/centos-6
+centos7: &centos7 centos-cloud/centos-7
+rhel71: &rhel71 rhel-cloud/rhel-7
+rhel6: &rhel6 rhel-cloud/rhel-6
+debian10: &debian10 debian-cloud/debian-10
+debian9: &debian9 debian-cloud/debian-9
+ubuntu14: &ubuntu14 ubuntu-os-cloud/ubuntu-1404-lts
+ubuntu16: &ubuntu16 ubuntu-os-cloud/ubuntu-1604-lts
+ubuntu18: &ubuntu18 ubuntu-os-cloud/ubuntu-1804-lts
+ubuntu19: &ubuntu19 ubuntu-os-cloud/ubuntu-1904
+win2k12r2: &win2k12r2 windows-cloud/windows-2012-r2
+win2k16: &win2k16 windows-cloud/windows-2016
+win2k19: &win2k19 windows-cloud/windows-2019
+google: &google coreos-cloud/coreos-stable
+coreos: *google
 win2k12: *win2k12r2
-win2k16: *win2k16
-windows: *win2k12r2
-ubuntu: *ubuntu14
+windows: *win2k16
+ubuntu: *ubuntu18
 centos: *centos7
 rhel7: *rhel71
 rhel: *rhel71
 linux: *centos7
+debian: *debian10

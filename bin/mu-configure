@@ -218,6 +218,11 @@ $CONFIGURABLES = {
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. GCP service accounts cannot view or manage GSuite resources (groups, users, etc) directly, but must instead masquerade as a GSuite user which has delegated authority to the service account. See also: https://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
       },
+      "customer_id" => {
+        "title" => "GSuite Customer ID",
+        "required" => false,
+        "desc" => "For Google Cloud projects which are attached to a GSuite domain. Some API calls (groups, users, etc) require this identifier. From admin.google.com, choose Security, the Single Sign On, and look for the Entity ID field. The value after idpid= in the URL there should be the customer ID."
+      },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,
@@ -230,28 +235,40 @@ $CONFIGURABLES = {
     "title" => "Microsoft Azure Cloud Computing Platform & Services",
     "named_subentries" => true,
     "subtree" => {
+      "directory_id" => {
+        "title" => "Directory ID",
+        "desc" => "AKA Tenant ID; the default Microsoft Azure Directory project in which we operate and deploy, from https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview"
+      },
+      "client_id" => {
+        "title" => "Client ID",
+        "desc" => "App client id used to authenticate to our subscription. From https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview"
+      },
+      "client_secret" => {
+        "title" => "Client Secret",
+        "desc" => "App client secret used to authenticate to our subscription. From https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview under the 'Certificates & secrets' tab, 'Client secrets.' This can only be retrieved upon initial secret creation."
+      },
       "subscription" => {
         "title" => "Default Subscription",
-        "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
+        "desc" => "Default Microsoft Azure Subscription we will use to deploy, from https://portal.azure.com/#blade/Microsoft_Azure_Billing/SubscriptionsBlade"
       },
-      "credentials" => {
-        "title" => "Credentials Vault:Item",
-        "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
-      },
+      # "credentials" => {
+      #   "title" => "Credentials Vault:Item",
+      #   "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      # },
       "credentials_file" => {
         "title" => "Credentials File",
-        "desc" => "JSON-formatted Service Account credentials for our Azure account, stored in plain text in a file."
+        "desc" => "JSON file which contains a hash of directory_id, client_id, client_secret, and subscription values. If found, these will be override values entered directly in mu-configure."
       },
       "region" => {
         "title" => "Default Region",
         "desc" => "Default Microsoft Azure region in which we operate and deploy",
         "default" => "eastus"
       },
-      "log_bucket_name" => {
-        "title" => "Log and Secret Bucket Name",
-        "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
-        "changes" => ["chefrun"]
-      },
+      # "log_bucket_name" => {
+      #   "title" => "Log and Secret Bucket Name",
+      #   "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
+      #   "changes" => ["chefrun"]
+      # },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,
@@ -368,7 +385,7 @@ end
 $INITIALIZE = (!File.size?(cfgPath) or $opts[:force])
 
 $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM and Dir.exists?("/opt/mu/lib")
+if !AMROOT and !$HAVE_GLOBAL_CONFIG and !$IN_GEM and Dir.exists?("/opt/mu/lib")
   puts "Global configuration has not been initialized or is missing. Must run as root to correct."
   exit 1
 end
@@ -1118,6 +1135,7 @@ if $INITIALIZE
   end
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+  saveMuConfig($MU_SET_DEFAULTS)
 else
   if AMROOT
     $NEW_CFG = $MU_CFG.merge(setConfigTree)

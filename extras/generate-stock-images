@@ -62,6 +62,7 @@ end
 
 now = DateTime.now
 
+exitcode = 0
 $opts[:clouds].each { |cloud|
   current_images = MU::Cloud.getStockImage(cloud, fail_hard: true)
   $opts[:platforms].each { |platform|
@@ -76,15 +77,18 @@ $opts[:clouds].each { |cloud|
         end
       else
         needed = false
-        current_images[platform].each_pair { |r, img_id|
-          age = cloudclass.imageTimeStamp(img_id, region: r)
-          if (now - age) >= $opts[:age]
-            MU.log "#{cloud} image for #{platform} was last built #{age.to_s}, refreshing", MU::NOTICE
-            needed = true
-            break
-          end
-        }
-        exit
+        if !current_images[platform]
+          needed = true
+        else
+          current_images[platform].each_pair { |r, img_id|
+            age = cloudclass.imageTimeStamp(img_id, region: r)
+            if (now - age) >= $opts[:age]
+              MU.log "#{cloud} image for #{platform} was last built #{age.to_s}, refreshing", MU::NOTICE
+              needed = true
+              break
+            end
+          }
+        end
         next if !needed
       end
       conf_engine = MU::Config.new(
@@ -96,18 +100,23 @@ $opts[:clouds].each { |cloud|
       if $opts[:dryrun]
         puts stack_conf.to_yaml
       else
-        deployer = MU::Deploy.new(
-          $opts[:environment],
-          stack_conf: stack_conf
-        )
-        deployer.run
-        MU.log "New images for #{cloud}:#{platform}", MU::NOTICE, details: deployer.mommacat.deployment['images']
-        current_images[platform] ||= {}
-        current_images.deep_merge!(deployer.mommacat.deployment['images'])
+        begin
+          deployer = MU::Deploy.new(
+            $opts[:environment],
+            stack_conf: stack_conf
+          )
+          deployer.run
+          MU.log "New images for #{cloud}:#{platform}", MU::NOTICE, details: deployer.mommacat.deployment['images']
+          current_images[platform] ||= {}
+          current_images.deep_merge!(deployer.mommacat.deployment['images'])
 
-        # Scrub any loose metadata left over from our image deployment. It's ok,
-        # this won't touch the images we just made.
-        MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
+          # Scrub any loose metadata left over from our image deployment. It's
+          # ok, this won't touch the images we just made.
+          MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
+        rescue Exception => e
+          MU.log e.message, MU::ERR
+          exitcode = 1
+        end
       end
     end
   }
@@ -119,3 +128,4 @@ $opts[:clouds].each { |cloud|
   end
 }
 
+exit exitcode

@@ -17,20 +17,11 @@ module MU
     class AWS
       # A user as configured in {MU::Config::BasketofKittens::roles}
       class Role < MU::Cloud::Role
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::roles}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          @mu_name = mu_name
-          @cloud_id ||= @mu_name # should be the same
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -133,7 +124,16 @@ module MU
                   )
 
                   if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
-                    MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy.values.first
+                    # Special exception- we don't want to overwrite extra rules
+                    # in MuSecrets policies, because our siblings might have 
+                    # (will have) injected those and they should stay.
+                    if policy.size == 1 and policy["MuSecrets"]
+                      ext = JSON.parse(URI.decode(version.policy_version.document))
+                      if (ext["Statement"][0]["Resource"] & policy["MuSecrets"]["Statement"][0]["Resource"]).sort == policy["MuSecrets"]["Statement"][0]["Resource"].sort
+                        next
+                      end
+                    end
+                    MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy
                     update_policy(arn, policy.values.first)
                     MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
                   else
@@ -271,40 +271,55 @@ module MU
             policy_arn: policy_arn
           )
           attachments.policy_users.each { |u|
-            MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
-              user_name: u.user_name,
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
+                user_name: u.user_name,
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
           attachments.policy_groups.each { |g|
-            MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(
-              group_name: g.group_name,
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(
+                group_name: g.group_name,
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
           attachments.policy_roles.each { |r|
-            MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
-              role_name: r.role_name,
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                role_name: r.role_name,
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
           versions = MU::Cloud::AWS.iam(credentials: credentials).list_policy_versions(
             policy_arn: policy_arn,
           ).versions
           versions.each { |v|
             next if v.is_default_version
-            MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
-              policy_arn: policy_arn,
-              version_id: v.version_id
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
+                policy_arn: policy_arn,
+                version_id: v.version_id
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           }
 
           # Delete the policy, unless it's one of the global canned ones owned
           # by AWS
           if !policy_arn.match(/^arn:aws:iam::aws:/)
-            MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
-              policy_arn: policy_arn
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
+                policy_arn: policy_arn
+              )
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
           end
         end
 

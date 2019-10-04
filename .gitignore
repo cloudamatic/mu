@@ -11,3 +11,6 @@ bin/vault
 .vscode
 Berksfile.lock
 cloud-mu-*.gem
+coverage
+spec/mu.yaml
+spec/azure_creds

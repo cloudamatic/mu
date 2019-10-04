@@ -1,0 +1,137 @@
+#!/bin/sh
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+updates_run=0
+need_reboot=0
+instance_id="`curl http://metadata.google.internal/computeMetadata/v1/instance/name`"
+if [ -f /etc/debian_version ];then
+	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
+		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
+	fi
+	apt-get update -y
+	if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
+<% if !$mu.skipApplyUpdates %>
+	if [ ! -f /.mu-installer-ran-updates ];then
+		service ssh stop
+		apt-get --fix-missing -y upgrade 
+		if [ $? -eq 0 ]
+		then
+		  echo "Successfully updated packages"
+		  updates_run=1
+		else
+		  echo "FAILED PACKAGE UPDATE" >&2
+		fi
+		# Proceed regardless
+		touch /.mu-installer-ran-updates
+
+		# XXX this logic works on Ubuntu, is it Debian-friendly?
+		latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
+		running_kernel="`uname -r`"
+		if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
+			need_reboot=1
+		else
+			service ssh start
+		fi
+	fi
+<% end %>
+elif [ -x /usr/bin/yum ];then
+	version=`/bin/rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+	if [ -z "$version" ];then
+		amazon_version=`/bin/rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
+		if [ "$amazon_version" == "2014" ] || [ "$amazon_version" == "2015" ] || [ "$amazon_version" == "2016" ];then
+			version=6
+		fi
+	fi
+	if [ $version -eq 7 ];then
+		userdata_dir="/var/lib/cloud/instances/$instance_id"
+	else
+		userdata_dir="/var/lib/cloud/instance"
+	fi
+	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
+		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
+	fi
+
+  sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
+
+	if [ $version == 7 ];then
+		chmod 755 /etc/rc.d/rc.local
+	fi
+	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
+	# Ugh, rando EPEL mirror
+	if [ ! -f /etc/yum.repos.d/epel.repo ];then
+		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
+	fi
+<% if !$mu.skipApplyUpdates %>
+	if [ ! -f /.mu-installer-ran-updates ];then
+		service sshd stop
+		kernel_update=`yum list updates | grep kernel`
+		yum -y update
+		if [ $? -eq 0 ]
+		then
+		  echo "Successfully updated packages"
+		  updates_run=1
+		else
+		  echo "FAILED PACKAGE UPDATE" >&2
+		fi
+		# Proceed regardless
+		touch /.mu-installer-ran-updates
+		if [ -n "$kernel_update" ]; then
+			need_reboot=1
+		else
+			service sshd start
+		fi
+	fi
+<% end %>
+fi
+
+umask 0077
+
+# Install Chef now, because why not?
+if [ ! -f /opt/chef/embedded/bin/ruby ];then
+	curl https://www.chef.io/chef/install.sh > chef-install.sh
+	set +e
+	# We may run afoul of a synchronous bootstrap process doing the same thing. So
+	# wait until we've managed to run successfully.
+	while ! sh chef-install.sh -v <%= $mu.chefVersion %>;do
+		sleep 10
+	done
+	touch /opt/mu_installed_chef
+	set -e
+fi
+
+<% if !$mu.skipApplyUpdates %>
+if [ "$need_reboot" == "1" ];then
+	shutdown -r now "Applying new kernel"
+fi
+<% end %>
+
+gsutil cp gs://<%= $mu.adminBucketName %>/<%= $mu.muID %>-secret .
+
+echo '
+require "openssl"
+require "base64"
+key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64("<%= $mu.deployKey %>"))
+print Base64.urlsafe_encode64(key.public_encrypt(File.read("<%= $mu.muID %>-secret")))
+' > encrypt_deploy_secret.rb
+
+deploykey="<%= $mu.deployKey %>"
+instance_id="`curl http://metadata.google.internal/computeMetadata/v1/instance/name`"
+
+# Make double-sure sshd is actually up
+service sshd restart
+
+/usr/bin/curl -k --data mu_id="<%= $mu.muID %>" --data mu_resource_name="<%= $mu.resourceName %>" --data mu_resource_type="<%= $mu.resourceType %>" --data mu_instance_id="$instance_id" --data mu_bootstrap="1" --data mu_user="<%= $mu.muUser %>" --data mu_deploy_secret="`/opt/chef/embedded/bin/ruby encrypt_deploy_secret.rb`" https://<%= $mu.publicIP %>:<%= $mu.mommaCatPort %>/
+/bin/rm -f <%= $mu.muID %>-secret mu_deploy_key.pub chef-install.sh encrypt_deploy_secret.rb
+touch /.mu_userdata_complete

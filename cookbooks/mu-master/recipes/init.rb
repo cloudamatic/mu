@@ -422,6 +422,7 @@ end
     package_name "bundler"
     action :upgrade if rubydir == "/usr/local/ruby-current"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
+    options('-q')
   end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"
@@ -443,6 +444,7 @@ end
         action :remove
         only_if { ::Dir.exist?(dir) }
         only_if { ::Dir.exist?(gemdir) }
+        options('-q')
       end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
@@ -582,9 +584,10 @@ end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
 }
-bash "fix extras directory permissions" do
+bash "fix misc permissions" do
   code <<-EOH
-    find #{MU_BASE}/lib/extras -type d -exec chmod go+rx {} \\;
-    find #{MU_BASE}/lib/extras -type f -exec chmod go+r {} \\;
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git" -type d -exec chmod go+r {} \\;
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+rx {} \\;
+    chmod go+rx #{MU_BASE}/lib/extras/generate-stock-images #{MU_BASE}/lib/extras/list-stock-amis #{MU_BASE}/lib/extras/clean-stock-amis
   EOH
 end

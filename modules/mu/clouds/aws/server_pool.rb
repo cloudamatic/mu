@@ -18,25 +18,11 @@ module MU
       # A server pool as configured in {MU::Config::BasketofKittens::server_pools}
       class ServerPool < MU::Cloud::ServerPool
 
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -841,6 +827,7 @@ module MU
 
               role = {
                 "name" => pool["name"],
+                "cloud" => "AWS",
                 "strip_path" => pool["role_strip_path"],
                 "can_assume" => [
                   {
@@ -959,6 +946,7 @@ module MU
               if policy["alarms"] && !policy["alarms"].empty?
                 policy["alarms"].each { |alarm|
                   alarm["name"] = "scaling-policy-#{pool["name"]}-#{alarm["name"]}"
+                  alarm["cloud"] = "AWS",
                   alarm['dimensions'] = [] if !alarm['dimensions']
                   alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                   alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?

@@ -18,37 +18,27 @@ module MU
       # A server pool as configured in {MU::Config::BasketofKittens::server_pools}
       class ServerPool < MU::Cloud::ServerPool
 
-        @deploy = nil
-        @project_id = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
           port_objs = []
+
+          sa = MU::Config::Ref.get(@config['service_account'])
+          if !sa or !sa.kitten or !sa.kitten.cloud_desc
+            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+          end
+          @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
+            email: sa.kitten.cloud_desc.email,
+            scopes: @config['scopes']
+          )
+          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+
 
           @config['named_ports'].each { |port_cfg|
             port_objs << MU::Cloud::Google.compute(:NamedPort).new(
@@ -77,20 +67,31 @@ module MU
             az = MU::Cloud::Google.listAZs(@config['region']).sample
           end
 
+          metadata = { # :items?
+            "startup-script" => @userdata
+          }
+          if @config['metadata']
+            desc[:metadata] = Hash[@config['metadata'].map { |m|
+              [m["key"], m["value"]]
+            }]
+          end
+          deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
+          if desc[:metadata]["ssh-keys"]
+            desc[:metadata]["ssh-keys"] += "\n"+deploykey
+          else
+            desc[:metadata]["ssh-keys"] = deploykey
+          end
+
           instance_props = MU::Cloud::Google.compute(:InstanceProperties).new(
             can_ip_forward: !@config['src_dst_check'],
             description: @deploy.deploy_id,
 #            machine_type: "zones/"+az+"/machineTypes/"+size,
             machine_type: size,
+            service_accounts: [@service_acct],
             labels: labels,
             disks: MU::Cloud::Google::Server.diskConfig(@config, false, false, credentials: @config['credentials']),
             network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
-            metadata: {
-              :items => [
-                :key => "ssh-keys",
-                :value => @config['ssh_user']+":"+@deploy.ssh_public_key
-              ]
-            },
+            metadata: metadata,
             tags: MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
           )
 
@@ -184,11 +185,10 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
-            "ssh_user" => {
-              "type" => "string",
-              "description" => "Account to use when connecting via ssh. Google Cloud images don't come with predefined remote access users, and some don't work with our usual default of +root+, so we recommend using some other (non-root) username.",
-              "default" => "muadmin"
-            },
+            "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
+            "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
+            "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
+            "scopes" => MU::Cloud::Google::Server.schema(config)[1]["scopes"],
             "named_ports" => {
               "type" => "array",
               "items" => {
@@ -216,6 +216,38 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
+
+          pool['project'] ||= MU::Cloud::Google.defaultProject(pool['credentials'])
+          if pool['service_account']
+            pool['service_account']['cloud'] = "Google"
+            pool['service_account']['habitat'] ||= pool['project']
+            found = MU::Config::Ref.get(pool['service_account'])
+            if found.id and !found.kitten
+              MU.log "GKE pool #{pool['name']} failed to locate service account #{pool['service_account']} in project #{pool['project']}", MU::ERR
+              ok = false
+            end
+          else
+            user = {
+              "name" => pool['name'],
+              "cloud" => "Google",
+              "project" => pool["project"],
+              "credentials" => pool["credentials"],
+              "type" => "service"
+            }
+            configurator.insertKitten(user, "users", true)
+            pool['dependencies'] ||= []
+            pool['service_account'] = MU::Config::Ref.get(
+              type: "users",
+              cloud: "Google",
+              name: pool["name"],
+              project: pool["project"],
+              credentials: pool["credentials"]
+            )
+            pool['dependencies'] << {
+              "type" => "user",
+              "name" => pool["name"]
+            }
+          end
 
           pool['named_ports'] ||= []
           if !pool['named_ports'].include?({"name" => "ssh", "port" => 22})
@@ -276,6 +308,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           if !flags["global"]
             ["region_autoscaler", "region_instance_group_manager"].each { |type|

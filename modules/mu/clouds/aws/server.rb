@@ -75,21 +75,10 @@ module MU
           @ephemeral_mappings
         end
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :deploy
-        attr_reader :cloud_id
-        attr_reader :cloud_desc
-        attr_reader :groomer
-        attr_accessor :mu_windows_name
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id = cloud_id
-
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           if @deploy
             @userdata = MU::Cloud.fetchUserdata(
               platform: @config["platform"],
@@ -115,10 +104,8 @@ module MU
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
 
-          if !mu_name.nil?
-            @mu_name = mu_name
+          if !@mu_name.nil?
             @config['mu_name'] = @mu_name
-            # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
@@ -128,9 +115,8 @@ module MU
             end
             @config['mu_name'] = @mu_name
 
-            @config['instance_secret'] = Password.random(50)
           end
-          @groomer = MU::Groomer.new(self)
+          @config['instance_secret'] ||= Password.random(50)
 
         end
 
@@ -384,6 +370,15 @@ module MU
           instance_descriptor[:block_device_mappings] = configured_storage
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
+
+          if @tags
+            instance_descriptor[:tag_specifications] = [{
+              :resource_type => "instance",
+              :tags => @tags.keys.map { |k|
+                { :key => k, :value => @tags[k] }
+              }
+            }]
+          end
 
           MU.log "Creating EC2 instance #{node}"
           MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
@@ -971,9 +966,16 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
-# XXX put that 'ip' value into opts
-          ip ||= flags['ip']
+#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        def self.find(**args)
+          ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
+
+          cloud_id = args[:cloud_id]
+          region = args[:region]
+          credentials = args[:credentials]
+          tag_key = args[:tag_key]
+          tag_value = args[:tag_value]
+
           instance = nil
           if !region.nil?
             regions = [region]
@@ -1262,6 +1264,8 @@ module MU
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":instance/"+@cloud_id
         end
 
+        # Return the cloud provider's description for this instance
+        # @return [Openstruct]
         def cloud_desc
           max_retries = 5
           retries = 0
@@ -1991,7 +1995,7 @@ module MU
             end
             if !onlycloud and !mu_name.nil?
               # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
-              if !zone_rrsets.empty?
+              if !zone_rrsets.nil? and !zone_rrsets.empty?
                 zone_rrsets.each { |rrset|
                   if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                     rrset.resource_records.each { |record|
@@ -2001,16 +2005,6 @@ module MU
                   end
                 }
               end
-
-              # Expunge traces left in Chef, Puppet or what have you
-              MU::Groomer.supportedGroomers.each { |groomer|
-                groomclass = MU::Groomer.loadGroomer(groomer)
-                if !server_obj.nil? and !server_obj.config.nil? and !server_obj.config['vault_access'].nil?
-                  groomclass.cleanup(mu_name, server_obj.config['vault_access'], noop)
-                else
-                  groomclass.cleanup(mu_name, [], noop)
-                end
-              }
 
 							if !noop
                 if !server_obj.nil? and !server_obj.config.nil?
@@ -2117,6 +2111,22 @@ module MU
           end
         end
 
+        # Return a BoK-style config hash describing a NAT instance. We use this
+        # to approximate NAT gateway functionality with a plain instance.
+        # @return [Hash]
+        def self.genericNAT
+          return {
+            "cloud" => "AWS",
+            "bastion" => true,
+            "size" => "t2.small",
+            "run_list" => [ "mu-utility::nat" ],
+            "platform" => "centos7",
+            "ssh_user" => "centos",
+            "associate_public_ip" => true,
+            "static_ip" => { "assign_ip" => true },
+          }
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -2125,11 +2135,7 @@ module MU
           schema = {
             "ami_id" => {
               "type" => "string",
-              "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
-            },
-            "image_id" => {
-              "type" => "string",
-              "description" => "Synonymous with ami_id"
+              "description" => "Alias for +image_id+"
             },
             "generate_iam_role" => {
               "type" => "boolean",
@@ -2192,28 +2198,32 @@ module MU
           end
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
-            gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
             foundmatch = false
-            if gtypes and gtypes.size > 0 and gtypes.has_key?(size)
-              vcpu = gtypes[size]["vcpu"]
-              mem = gtypes[size]["memory"]
-              ecu = gtypes[size]["ecu"]
-              types.keys.sort.reverse.each { |type|
-                features = types[type]
-                next if ecu == "Variable" and ecu != features["ecu"]
-                next if features["vcpu"] != vcpu
-                if (features["memory"] - mem.to_f).abs < 0.10*mem
-                  foundmatch = true
-                  MU.log "You specified a Google Compute instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
-                  size = type
-                  break
-                end
-              }
-            end
-            if types == {}
-              MU.log "The list of types is empty, going to assume our instance type is correct", MU::WARN
-              return size
-            elsif !foundmatch
+
+            MU::Cloud.availableClouds.each { |cloud|
+              next if cloud == "AWS"
+              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
+                vcpu = foreign_types[size]["vcpu"]
+                mem = foreign_types[size]["memory"]
+                ecu = foreign_types[size]["ecu"]
+                types.keys.sort.reverse.each { |type|
+                  features = types[type]
+                  next if ecu == "Variable" and ecu != features["ecu"]
+                  next if features["vcpu"] != vcpu
+                  if (features["memory"] - mem.to_f).abs < 0.10*mem
+                    foundmatch = true
+                    MU.log "You specified #{cloud} instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
+                    size = type
+                    break
+                  end
+                }
+              end
+              break if foundmatch
+            }
+
+            if !foundmatch
               MU.log "Invalid size '#{size}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
               return nil
             end

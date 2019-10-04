@@ -17,26 +17,12 @@ module MU
     class AWS
       # A ContainerCluster as configured in {MU::Config::BasketofKittens::container_clusters}
       class ContainerCluster < MU::Cloud::ContainerCluster
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-        # Return the list of regions where we know EKS is supported.
-        def self.EKSRegions
-          # XXX would prefer to query service API for this
-          ["us-east-1", "us-west-2", "eu-west-1"]
-        end
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -119,6 +105,9 @@ module MU
                 name: @mu_name
               )
               status = resp.cluster.status
+              if status == "FAILED"
+                raise MuError, "EKS cluster #{@mu_name} had FAILED status"
+              end
               if retries > 0 and (retries % 3) == 0 and status != "ACTIVE"
                 MU.log "Waiting for EKS cluster #{@mu_name} to become active (currently #{status})", MU::NOTICE
               end
@@ -153,8 +142,8 @@ module MU
           serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
-          if @config["flavor"] == "EKS"
-            kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig.erb"))
+          if @config['flavor'] == "EKS"
+            kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-eks.erb"))
             configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
             tagme = [@vpc.cloud_id]
             tagme_elb = []
@@ -167,7 +156,7 @@ module MU
             ).route_tables
             tagme.concat(rtbs.map { |r| r.route_table_id } )
             main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
-            tagme << main_sg.cloud_id
+            tagme << main_sg.cloud_id if main_sg
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])
@@ -193,37 +182,25 @@ module MU
               k.puts gitlab.result(binding)
             }
 
-            authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
+            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
             MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
             %x{#{authmap_cmd}}
 
 # and this one
-            admin_user_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
-            admin_role_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
+            admin_user_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
+            admin_role_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
             MU.log "Configuring Kubernetes admin-user and role", MU::NOTICE, details: admin_user_cmd+"\n"+admin_role_cmd
             %x{#{admin_user_cmd}}
             %x{#{admin_role_cmd}}
 
             if @config['kubernetes_resources']
-              count = 0
-              @config['kubernetes_resources'].each { |blob|
-                blobfile = @deploy.deploy_dir+"/k8s-resource-#{count.to_s}-#{@config['name']}"
-                File.open(blobfile, "w") { |f|
-                  f.puts blob.to_yaml
-                }
-                %x{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" get -f #{blobfile} > /dev/null 2>&1}
-                arg = $?.exitstatus == 0 ? "replace" : "create"
-                cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" #{arg} -f #{blobfile}}
-                MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", details: cmd
-                output = %x{#{cmd} 2>&1}
-                if $?.exitstatus == 0
-                  MU.log "Kuberentes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
-                else
-                  MU.log "Kuberentes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
-                end
-                count += 1
-              }
+              MU::Master.applyKubernetesResources(
+                @config['name'], 
+                @config['kubernetes_resources'],
+                kubeconfig: kube_conf,
+                outputdir: @deploy.deploy_dir
+              )
             end
 
             MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
@@ -697,50 +674,66 @@ MU.log c.name, MU::NOTICE, details: t
           return deploy_struct
         end
 
+        @@eks_versions = {}
+        @@eks_version_semaphore = Mutex.new
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
         # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
         # @param flavor [String]: ECS or EKS
-        def self.getECSImageId(flavor = "ECS", region = MU.myRegion)
-          if flavor == "ECS"
-            resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
+        # @param region [String]: Target AWS region
+        # @param version [String]: Version of Kubernetes, if +flavor+ is set to +EKS+
+        # @param gpu [Boolean]: Whether to request an image with GPU support
+        def self.getStandardImage(flavor = "ECS", region = MU.myRegion, version: nil, gpu: false)
+          resp = if flavor == "ECS"
+            MU::Cloud::AWS.ssm(region: region).get_parameters(
               names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
             )
-            if resp and resp.parameters and resp.parameters.size > 0
-              image_details = JSON.parse(resp.parameters.first.value)
-              return image_details['image_id']
-            end
-          elsif flavor == "EKS"
-            # XXX this is absurd, but these don't appear to be available from an API anywhere
-            # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
-            amis = {
-              "us-east-1" => "ami-0abcb9f9190e867ab",
-              "us-east-2" => "ami-04ea7cb66af82ae4a",
-              "us-west-2" => "ami-0923e4b35a30a5f53",
-              "eu-west-1" => "ami-08716b70cac884aaa",
-              "eu-west-2" => "ami-0c7388116d474ee10",
-              "eu-west-3" => "ami-0560aea042fec8b12",
-              "ap-northeast-1" => "ami-0bfedee6a7845c26d",
-              "ap-northeast-2" => "ami-0a904348b703e620c",
-              "ap-south-1" => "ami-09c3eb35bb3be46a4",
-              "ap-southeast-1" => "ami-07b922b9b94d9a6d2",
-              "ap-southeast-2" => "ami-0f0121e9e64ebd3dc"
+          else
+            @@eks_version_semaphore.synchronize {
+              if !@@eks_versions[region]
+                @@eks_versions[region] ||= []
+                versions = {}
+                resp = nil
+                next_token = nil
+                begin
+                  resp = MU::Cloud::AWS.ssm(region: region).get_parameters_by_path(
+                    path: "/aws/service/#{flavor.downcase}",
+                    recursive: true,
+                    next_token: next_token
+                  )
+                  resp.parameters.each { |p|
+                    p.name.match(/\/aws\/service\/eks\/optimized-ami\/([^\/]+?)\//)
+                    versions[Regexp.last_match[1]] = true
+                  }
+                  next_token = resp.next_token
+                end while !next_token.nil?
+                @@eks_versions[region] = versions.keys.sort { |a, b| MU.version_sort(a, b) }
+              end
             }
-            return amis[region]
+            if !version or version == "latest"
+              version = @@eks_versions[region].last
+            end
+            MU::Cloud::AWS.ssm(region: region).get_parameters(
+              names: ["/aws/service/#{flavor.downcase}/optimized-ami/#{version}/amazon-linux-2#{gpu ? "-gpu" : ""}/recommended"]
+            )
           end
-          nil
-        end
 
-        # Use the AWS SSM API to fetch the current version of the Amazon Linux
-        # EKS-optimized AMI, so we can use it as a default AMI for EKS deploys.
-        def self.getEKSImageId(region = MU.myRegion)
-          resp = MU::Cloud::AWS.ssm(region: region).get_parameters(
-            names: ["/aws/service/ekss/optimized-ami/amazon-linux/recommended"]
-          )
           if resp and resp.parameters and resp.parameters.size > 0
             image_details = JSON.parse(resp.parameters.first.value)
             return image_details['image_id']
           end
+
           nil
+        end
+
+        # Return the list of regions where we know EKS is supported.
+        def self.EKSRegions(credentials = nil)
+          eks_regions = []
+          MU::Cloud::AWS.listRegions(credentials: credentials).each { |r|
+            ami = getStandardImage("EKS", r)
+            eks_regions << r if ami
+          }
+
+          eks_regions
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -763,6 +756,7 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
+
 
           if resp and resp.cluster_arns and resp.cluster_arns.size > 0
             resp.cluster_arns.each { |arn|
@@ -821,6 +815,7 @@ MU.log c.name, MU::NOTICE, details: t
           tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
             family_prefix: MU.deploy_id
           )
+
           if tasks and tasks.task_definition_arns
             tasks.task_definition_arns.each { |arn|
               MU.log "Deregistering Fargate task definition #{arn}"
@@ -834,8 +829,14 @@ MU.log c.name, MU::NOTICE, details: t
 
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
 
+          resp = begin
+            MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
+          rescue Aws::EKS::Errors::AccessDeniedException
+            # EKS isn't actually live in this region, even though SSM lists
+            # base images for it
+            return
+          end
 
-          resp = MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
 
           if resp and resp.clusters
             resp.clusters.each { |cluster|
@@ -911,17 +912,24 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+
           schema = {
             "flavor" => {
-              "enum" => ["ECS", "EKS", "Fargate"],
+              "enum" => ["ECS", "EKS", "Fargate", "Kubernetes"],
+              "type" => "string",
+              "description" => "The AWS container platform to deploy",
               "default" => "ECS"
             },
             "kubernetes" => {
-              "default" => { "version" => "1.11" }
+              "default" => { "version" => "latest" }
+            },
+            "gpu" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Enable worker nodes with GPU capabilities"
             },
             "platform" => {
-              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else. Only valid for EKS and ECS flavors.",
-              "default" => "centos7"
+              "description" => "The platform to choose for worker nodes."
             },
             "ami_id" => {
               "type" => "string",
@@ -1498,6 +1506,8 @@ MU.log c.name, MU::NOTICE, details: t
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
+          cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)
+
           if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
@@ -1551,14 +1561,14 @@ MU.log c.name, MU::NOTICE, details: t
                   logdesc = {
                     "name" => logname,
                     "region" => cluster["region"],
-                    "cloud" => cluster["cloud"]
+                    "cloud" => "AWS"
                   }
                   configurator.insertKitten(logdesc, "logs")
 
                   if !c['role']
                     roledesc = {
                       "name" => rolename,
-                      "cloud" => cluster["cloud"],
+                      "cloud" => "AWS",
                       "can_assume" => [
                         {
                           "entity_id" => "ecs-tasks.amazonaws.com",
@@ -1620,7 +1630,7 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
-            std_ami = getECSImageId(cluster["flavor"], cluster['region'])
+            std_ami = getStandardImage(cluster["flavor"], cluster['region'], version: cluster['kubernetes']['version'], gpu: cluster['gpu'])
             cluster["host_image"] ||= std_ami
             if cluster["host_image"] != std_ami
               if cluster["flavor"] == "ECS"
@@ -1648,41 +1658,35 @@ MU.log c.name, MU::NOTICE, details: t
 
           end
 
-          cluster['ingress_rules'] ||= []
-          if cluster['flavor'] == "ECS"
-            cluster['ingress_rules'] << {
-              "sgs" => ["server_pool#{cluster['name']}workers"],
-              "port" => 443
-            }
-          end
           fwname = "container_cluster#{cluster['name']}"
 
-          acl = {
-            "name" => fwname,
-            "credentials" => cluster["credentials"],
-            "rules" => cluster['ingress_rules'],
-            "region" => cluster['region'],
-            "optional_tags" => cluster['optional_tags']
-          }
-          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
-          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-
-          ok = false if !configurator.insertKitten(acl, "firewall_rules")
-          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
-          cluster["add_firewall_rules"] << {"rule_name" => fwname}
-          cluster["dependencies"] << {
-            "name" => fwname,
-            "type" => "firewall_rule",
-          }
+          cluster['ingress_rules'] ||= []
+          if ["ECS", "EKS"].include?(cluster["flavor"])
+            cluster['ingress_rules'] << {
+              "sgs" => ["server_pool"+cluster["name"]+"workers"],
+              "port" => 443,
+              "proto" => "tcp",
+              "ingress" => true,
+              "comment" => "Allow worker nodes to access API"
+            }
+            ruleset = configurator.haveLitterMate?(fwname, "firewall_rules")
+            if ruleset
+              ruleset["rules"].concat(cluster['ingress_rules'])
+              ruleset["rules"].uniq!
+            end
+          end
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
+            cluster["max_size"] ||= cluster["instance_count"]
+            cluster["min_size"] ||= cluster["instance_count"]
 
             worker_pool = {
               "name" => cluster["name"]+"workers",
+              "cloud" => "AWS",
               "credentials" => cluster["credentials"],
               "region" => cluster['region'],
-              "min_size" => cluster["instance_count"],
-              "max_size" => cluster["instance_count"],
+              "min_size" => cluster["min_size"],
+              "max_size" => cluster["max_size"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
               "role_strip_path" => true,
@@ -1695,7 +1699,7 @@ MU.log c.name, MU::NOTICE, details: t
             }
             if cluster["flavor"] == "EKS"
               worker_pool["ingress_rules"] = [
-                "sgs" => ["container_cluster#{cluster['name']}"],
+                "sgs" => [fwname],
                 "port_range" => "1-65535"
               ]
               worker_pool["application_attributes"] ||= {}
@@ -1747,6 +1751,7 @@ MU.log c.name, MU::NOTICE, details: t
               role = {
                 "name" => cluster["name"]+"controlplane",
                 "credentials" => cluster["credentials"],
+                "cloud" => "AWS",
                 "can_assume" => [
                   { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
                 ],
