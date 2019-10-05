@@ -1162,6 +1162,7 @@ raise "NAH"
       MU::MommaCat.unlock("clean-terminated-instances", true)
     end
 
+    @@dummy_cache = {}
 
     # Locate a resource that's either a member of another deployment, or of no
     # deployment at all, and return a {MU::Cloud} object for it.
@@ -1196,6 +1197,7 @@ raise "NAH"
         dummy_ok: false,
         debug: false
     ) 
+      start = Time.now
       callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, dummy_ok: #{dummy_ok.to_s}, flags: #{flags.to_s}) from #{caller[0]}"
       callstack = caller.dup
 
@@ -1257,7 +1259,7 @@ raise "NAH"
         kittens = {}
         # Search our other deploys for matching resources
         if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
-          MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name})", loglevel
+          MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
           # Check our in-memory cache of live deploys before resorting to
           # metadata
@@ -1278,7 +1280,7 @@ raise "NAH"
             
             straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
             if straykitten
-              MU.log "Found matching kitten #{straykitten.mu_name} in-memory", loglevel
+              MU.log "Found matching kitten #{straykitten.mu_name} in-memory - #{sprintf("%.2fs", (Time.now-start))}", loglevel
               # Peace out if we found the exact resource we want
               if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
                 return [straykitten]
@@ -1291,10 +1293,10 @@ raise "NAH"
           }
 
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name, cloud_id: cloud_id)
-          MU.log "findStray: #{mu_descs.size.to_s} deploys had matches", loglevel
+          MU.log "findStray: #{mu_descs.size.to_s} deploys had matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
           mu_descs.each_pair { |deploy_id, matches|
-            MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches", loglevel
+            MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
             next if matches.nil? or matches.size == 0
 
             momma = MU::MommaCat.getLitter(deploy_id)
@@ -1304,13 +1306,13 @@ raise "NAH"
             # If we found exactly one match in this deploy, use its metadata to
             # guess at resource names we weren't told.
             if matches.size > 1 and cloud_id
-              MU.log "findStray: attempting to narrow down multiple matches with cloud_id #{cloud_id}", loglevel
+              MU.log "findStray: attempting to narrow down multiple matches with cloud_id #{cloud_id} - #{sprintf("%.2fs", (Time.now-start))}", loglevel
               straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, credentials: credentials, created_only: true)
             elsif matches.size == 1 and name.nil? and mu_name.nil?
               if cloud_id.nil?
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
               else
-                MU.log "findStray: fetching single match with cloud_id #{cloud_id}", loglevel
+                MU.log "findStray: fetching single match with cloud_id #{cloud_id} - #{sprintf("%.2fs", (Time.now-start))}", loglevel
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
               end
 #            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
@@ -1416,10 +1418,10 @@ raise "NAH"
               cloud_descs[p] = {}
               region_threads = []
               regions.each { |reg| region_threads << Thread.new(reg) { |r|
-                MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p})", loglevel
+                MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 begin
                 found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
-                MU.log "findStray: #{found ? found.size.to_s : "nil"} results", loglevel
+                MU.log "findStray: #{found ? found.size.to_s : "nil"} results - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 rescue Exception => e
 MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
 pp e.backtrace
@@ -1491,7 +1493,7 @@ end
                       name
                     end
                     if use_name.nil?
-                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", loglevel, details: caller
+                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return - #{sprintf("%.2fs", (Time.now-start))}", loglevel, details: caller
                       next
                     end
                     cfg = {
@@ -1523,10 +1525,16 @@ end
                         matches << newkitten
                       }
                     else
-                     MU.log "findStray: Generating dummy '#{type}' cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s}", loglevel, details: cfg
-                      newkitten = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
+                      if !@@dummy_cache[cfg_plural] or !@@dummy_cache[cfg_plural][cfg.to_s]
+                        MU.log "findStray: Generating dummy '#{resourceclass.to_s}' cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s} - #{sprintf("%.2fs", (Time.now-start))}", loglevel, details: cfg
+                        resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
+                        desc_semaphore.synchronize {
+                          @@dummy_cache[cfg_plural] ||= {}
+                          @@dummy_cache[cfg_plural][cfg.to_s] = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
+                        }
+                      end
                       desc_semaphore.synchronize {
-                        matches << newkitten
+                        matches << @@dummy_cache[cfg_plural][cfg.to_s]
                       }
                     end
                   end
@@ -3154,4 +3162,3 @@ MESSAGE_END
 
   end #class
 end #module
-

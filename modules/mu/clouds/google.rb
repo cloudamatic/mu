@@ -466,11 +466,11 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @param name [String]: A resource name for the certificate
       # @param cert [String,OpenSSL::X509::Certificate]: An x509 certificate
       # @param key [String,OpenSSL::PKey]: An x509 private key
-      # @return [Google::Apis::ComputeBeta::SslCertificate]
+      # @return [Google::Apis::ComputeV1::SslCertificate]
       def self.createSSLCertificate(name, cert, key, flags = {}, credentials: nil)
         flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         flags["description"] ||= MU.deploy_id
-        certobj = ::Google::Apis::ComputeBeta::SslCertificate.new(
+        certobj = ::Google::Apis::ComputeV1::SslCertificate.new(
           name: name,
           certificate: cert.to_s,
           private_key: key.to_s,
@@ -716,15 +716,15 @@ MU.log e.message, MU::WARN, details: e.inspect
       end
 
       # Google's Compute Service API
-      # @param subclass [<Google::Apis::ComputeBeta>]: If specified, will return the class ::Google::Apis::ComputeBeta::subclass instead of an API client instance
+      # @param subclass [<Google::Apis::ComputeV1>]: If specified, will return the class ::Google::Apis::ComputeV1::subclass instead of an API client instance
       def self.compute(subclass = nil, credentials: nil)
-        require 'google/apis/compute_beta'
+        require 'google/apis/compute_v1'
 
         if subclass.nil?
-          @@compute_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ComputeBeta::ComputeService", scopes: ['cloud-platform', 'compute.readonly'], credentials: credentials)
+          @@compute_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ComputeV1::ComputeService", scopes: ['cloud-platform', 'compute.readonly'], credentials: credentials)
           return @@compute_api[credentials]
         elsif subclass.is_a?(Symbol)
-          return Object.const_get("::Google").const_get("Apis").const_get("ComputeBeta").const_get(subclass)
+          return Object.const_get("::Google").const_get("Apis").const_get("ComputeV1").const_get(subclass)
         end
       end
 
@@ -978,7 +978,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
+        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
           @credentials = credentials
           @scopes = scopes.map { |s|
             if !s.match(/\//) # allow callers to use shorthand

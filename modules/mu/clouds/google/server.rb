@@ -91,6 +91,8 @@ module MU
           return DateTime.new
         end
 
+        @@image_id_map = {}
+
         # Retrieve the cloud descriptor for this machine image, which can be
         # a whole or partial URL. Will follow deprecation notices and retrieve
         # the latest version, if applicable.
@@ -98,6 +100,8 @@ module MU
         # @param credentials [String]
         # @return [Google::Apis::ComputeBeta::Image]
         def self.fetchImage(image_id, credentials: nil)
+          return @@image_id_map[image_id] if @@image_id_map[image_id]
+
           img_proj = img_name = nil
           if image_id.match(/\//)
             img_proj = image_id.gsub(/(?:https?:\/\/.*?\.googleapis\.com\/compute\/.*?\/)?.*?\/?(?:projects\/)?([^\/]+)\/.*/, '\1')
@@ -107,7 +111,8 @@ module MU
           end
 
           begin
-            return MU::Cloud::Google.compute(credentials: credentials).get_image_from_family(img_proj, img_name)
+            @@image_id_map[image_id] = MU::Cloud::Google.compute(credentials: credentials).get_image_from_family(img_proj, img_name)
+            return @@image_id_map[image_id]
           rescue ::Google::Apis::ClientError
             # This is fine- we don't know that what we asked for is really an
             # image family name, instead of just an image.
@@ -137,13 +142,16 @@ module MU
                 }
                 if latest
                   MU.log "Mapped #{image_id} to #{img.name} with semantic versioning guesswork", MU::WARN
-                  return img
+                  @@image_id_map[image_id] = img
+                  return @@image_id_map[image_id]
                 end
               end
             end
             raise e # if our little semantic versioning party trick failed
           end while !img.deprecated.nil? and img.deprecated.state == "DEPRECATED" and !img.deprecated.replacement.nil?
-          MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
+          final = MU::Cloud::Google.compute(credentials: credentials).get_image(img_proj, img_name)
+          @@image_id_map[image_id] = final
+          @@image_id_map[image_id]
         end
 
         # Generator for disk configuration parameters for a Compute instance
@@ -259,21 +267,10 @@ next if !create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           sa = MU::Config::Ref.get(@config['service_account'])
-retries = 0
-begin
+
           if !sa or !sa.kitten or !sa.kitten.cloud_desc
             raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
-rescue Exception => e
-MU.log e.class.name+": "+e.message, MU::ERR, details: @config['service_account']
-if retries < 10
-  retries += 1
-  sleep 5
-  retry
-else
-  raise e
-end
-end
 
           @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
             email: sa.kitten.cloud_desc.email,
@@ -334,6 +331,12 @@ end
               end
             }
             desc[:labels]["name"] = @mu_name.downcase
+
+            if @config['network_tags'] and @config['network_tags'].size > 0
+              desc[:tags] = U::Cloud::Google.compute(:Tags).new(
+                items: @config['network_tags']
+              )
+            end
 
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
@@ -1278,14 +1281,42 @@ end
           [toplevel_required, schema]
         end
 
+        @@instance_type_cache = {}
+
         # Confirm that the given instance size is valid for the given region.
         # If someone accidentally specified an equivalent size from some other cloud provider, return something that makes sense. If nothing makes sense, return nil.
         # @param size [String]: Instance type to check
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region, project: nil, credentials: nil)
+          if @@instance_type_cache[region] and
+             @@instance_type_cache[region][size]
+            return @@instance_type_cache[region][size]
+          end
+
+          if size.match(/\/?custom-(\d+)-(\d+)$/)
+            cpus = Regexp.last_match[1].to_i
+            mem = Regexp.last_match[2].to_i
+            ok = true
+            if cpus < 1 or cpus > 32 or (cpus % 2 != 0 and cpus != 1)
+              MU.log "Custom instance type #{size} illegal: CPU count must be 1 or an even number between 2 and 32", MU::ERR
+              ok = false
+            end
+            if (mem % 256) != 0
+              MU.log "Custom instance type #{size} illegal: Memory must be a multiple of 256 (MB)", MU::ERR
+              ok = false
+            end
+            if ok
+              return "custom-#{cpus.to_s}-#{mem.to_s}"
+            else
+              return nil
+            end
+          end
+
+          @@instance_type_cache[region] ||= {}
           types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[region]
-          if types and (size.nil? or !types.has_key?(size))
+          realsize = size.dup
+          if types and (realsize.nil? or !types.has_key?(realsize))
             # See if it's a type we can approximate from one of the other clouds
             foundmatch = false
             MU::Cloud.availableClouds.each { |cloud|
@@ -1302,8 +1333,8 @@ end
                   next if features["vcpu"] != vcpu
                   if (features["memory"] - mem.to_f).abs < 0.10*mem
                     foundmatch = true
-                    MU.log "You specified #{cloud} instance type '#{size}.' Approximating with Google Compute type '#{type}.'", MU::WARN
-                    size = type
+                    MU.log "You specified #{cloud} instance type '#{realsize}.' Approximating with Google Compute type '#{type}.'", MU::WARN
+                    realsize = type
                     break
                   end
                 }
@@ -1312,11 +1343,13 @@ end
             }
 
             if !foundmatch
-              MU.log "Invalid size '#{size}' for Google Compute instance in #{region} (checked project #{project}). Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              MU.log "Invalid size '#{realsize}' for Google Compute instance in #{region} (checked project #{project}). Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              @@instance_type_cache[region][size] = nil
               return nil
             end
           end
-          size
+          @@instance_type_cache[region][size] = realsize
+          @@instance_type_cache[region][size]
         end
 
 
@@ -1419,7 +1452,6 @@ end
           begin
             real_image = MU::Cloud::Google::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'])
           rescue ::Google::Apis::ClientError => e
-            MU.log server['image_id'].to_s, MU::WARN, details: e.message
           end
 
           if real_image.nil?
@@ -1456,13 +1488,13 @@ end
                   used_devs << devname
                 }
                 if snaps.items.size > 0
-                  MU.log img_name, MU::WARN, details: snaps.items
+#                  MU.log img_name, MU::WARN, details: snaps.items
                 end
               end
             rescue ::Google::Apis::ClientError => e
               # it's ok, sometimes we don't have permission to list snapshots
               # in other peoples' projects
-              MU.log img_name, MU::WARN, details: img
+#              MU.log img_name, MU::WARN, details: img
               raise e if !e.message.match(/^forbidden: /)
             end
           end

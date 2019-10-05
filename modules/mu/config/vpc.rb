@@ -721,12 +721,12 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                   region: vpc_block["region"],
                   flags: flags,
                   habitats: hab_arg,
-                  debug: false,
                   dummy_ok: true
                 )
 
                 found.first if found and found.size == 1
               end
+              @@reference_cache[vpc_block] ||= ext_vpc
 
               # Make sure we don't have a weird mismatch between requested
               # credential sets and the VPC we actually found
@@ -840,7 +840,6 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             end
           end
         end
-
 
         # ...and other times we get to pick
 

@@ -1149,7 +1149,6 @@ return
       }
       ok = true
 
-
       descriptor["#MU_CLOUDCLASS"] = classname
 
       applyInheritedDefaults(descriptor, cfg_plural)
@@ -1262,7 +1261,8 @@ return
           # thing exists, and also fetch its id now so later search routines
           # don't have to work so hard.
         else
-          if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
+          if !MU::Config::VPC.processReference(descriptor["vpc"],
+                                  cfg_plural,
                                   descriptor,
                                   self,
                                   credentials: descriptor['credentials'],
@@ -1467,7 +1467,6 @@ return
 
           descriptor['#MU_VALIDATED'] = true
         end
-
       end
 
       descriptor["dependencies"].uniq!
@@ -1475,6 +1474,7 @@ return
       @kittencfg_semaphore.synchronize {
         @kittens[cfg_plural] << descriptor if append
       }
+
       ok
     end
 

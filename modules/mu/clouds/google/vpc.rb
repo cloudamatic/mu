@@ -32,7 +32,7 @@ module MU
             if @cloud_id.nil? or @cloud_id.empty?
               @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
             end
-            loadSubnets(use_cache: true)
+            loadSubnets
           end
 
           @mu_name ||= @deploy.getResourceName(@config['name'])
@@ -224,6 +224,7 @@ end
               count += 1
             }
           end
+          loadSubnets(use_cache: false)
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -259,15 +260,7 @@ end
               }
             end
           end
-#MU.log "THINGY", MU::WARN, details: resp
-          resp.each_pair { |cloud_id, vpc|
-            routes = MU::Cloud::Google.compute(credentials: args[:credentials]).list_routes(
-              args[:project],
-              filter: "network eq #{vpc.self_link}"
-            ).items
-#            pp routes
-          }
-#MU.log "RETURNING RESPONSE FROM VPC FIND (#{resp.class.name})", MU::WARN, details: resp
+
           resp
         end
 
@@ -287,7 +280,8 @@ end
         # resources.
         # @param use_cache [Boolean]: If available, use saved deployment metadata to describe subnets, instead of querying the cloud API
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
-        def loadSubnets(use_cache: false)
+        def loadSubnets(use_cache: true)
+          return @subnets if use_cache and @subnets and @subnets.size > 0
           network = cloud_desc
 
           if network.nil?
@@ -296,7 +290,7 @@ end
           end
           found = []
 
-          if use_cache and @deploy and @deploy.deployment and
+          if @deploy and @deploy.deployment and
              @deploy.deployment["vpcs"] and
              @deploy.deployment["vpcs"][@config['name']] and
              @deploy.deployment["vpcs"][@config['name']]["subnets"]
@@ -312,17 +306,12 @@ end
               @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
             }
           else
-            resp = nil
-            MU::Cloud::Google.listRegions(@config['us_only']).each { |r|
-              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_subnetworks(
-                @project_id,
-                r,
-                filter: "network eq #{network.self_link}"
-              )
-              next if resp.nil? or resp.items.nil?
-              resp.items.each { |subnet|
-                found << subnet
-              }
+            resp = MU::Cloud::Google.compute(credentials: @config['credentials']).list_subnetwork_usable(
+              @project_id,
+              filter: "network eq #{network.self_link}"
+            )
+            resp.items.each { |subnet|
+              found << subnet
             }
 
             @subnetcachesemaphore.synchronize {
@@ -337,13 +326,14 @@ end
                   subnet['region'] = @config['region']
                   found.each { |desc|
                     if desc.ip_cidr_range == subnet["ip_block"]
-                      subnet["cloud_id"] = desc.name
-                      subnet["url"] = desc.self_link
-                      subnet['az'] = desc.region.gsub(/.*?\//, "")
+                      desc.subnetwork.match(/\/projects\/[^\/]+\/regions\/([^\/]+)\/subnetworks\/(.+)$/)
+                      subnet['az'] = Regexp.last_match[1]
+                      subnet['name'] = Regexp.last_match[2]
+                      subnet["cloud_id"] = subnet['name']
+                      subnet["url"] = desc.subnetwork
                       break
                     end
                   }
-
 
                   if !ext_ids.include?(subnet["cloud_id"])
                     @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
@@ -355,12 +345,14 @@ end
               elsif !found.nil?
                 found.each { |desc|
                   subnet = {}
+                  desc.subnetwork.match(/\/projects\/[^\/]+\/regions\/([^\/]+)\/subnetworks\/(.+)$/)
+                  subnet['az'] = Regexp.last_match[1]
+                  subnet['name'] = Regexp.last_match[2]
+                  subnet["cloud_id"] = subnet['name']
                   subnet["ip_block"] = desc.ip_cidr_range
-                  subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+                  subnet["url"] = desc.subnetwork
                   subnet['mu_name'] = @mu_name+"-"+subnet['name']
-                  subnet["cloud_id"] = desc.name
-                  subnet['az'] = subnet['region'] = desc.region.gsub(/.*?\//, "")
-                  if !ext_ids.include?(desc.name)
+                  if !ext_ids.include?(subnet["cloud_id"])
                     @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
                   end
                 }
@@ -436,13 +428,12 @@ end
         # Check for a subnet in this VPC matching one or more of the specified
         # criteria, and return it if found.
         def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
-          loadSubnets
           if !cloud_id.nil? and cloud_id.match(/^https:\/\//)
             cloud_id.gsub!(/.*?\//, "")
           end
           MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block})", MU::DEBUG, details: caller[0]
 
-          @subnets.each { |subnet|
+          subnets.each { |subnet|
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
             elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
