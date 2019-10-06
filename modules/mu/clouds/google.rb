@@ -1136,7 +1136,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                 MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-                MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? "\nScopes:\n#{@scopes.join("\n")}" : "" }", MU::ERR, details: arguments
+                MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? "\nScopes:\n#{@scopes.join("\n")}" : "" }", MU::DEBUG, details: arguments
                 raise e
               end
               @@enable_semaphores ||= {}

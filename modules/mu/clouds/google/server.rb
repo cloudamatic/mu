@@ -639,8 +639,8 @@ next if !create
 
           # If we got an instance id, go get it
           parent_thread_id = Thread.current.object_id
-          regions.each { |region|
-            search_threads << Thread.new {
+          regions.each { |r|
+            search_threads << Thread.new(r) { |region|
               Thread.abort_on_exception = false
               MU.dupGlobals(parent_thread_id)
               MU.log "Hunting for instance with cloud id '#{args[:cloud_id]}' in #{region}", MU::DEBUG
@@ -661,8 +661,8 @@ next if !create
                       az
                     )
                     if resp and resp.items
-                      search_semaphore.synchronize {
-                        resp.items.each { |instance|
+                      resp.items.each { |instance|
+                        search_semaphore.synchronize {
                           found[instance.name] = instance
                         }
                       }
@@ -1128,7 +1128,7 @@ next if !create
 
           # Skip nodes that are just members of GKE clusters
           if bok['name'].match(/^gke-.*?-[a-f0-9]+-[a-z0-9]+$/) and
-             bok['image_id'].match(/^projects\/gke-node-images\//)
+             bok['image_id'].match(/(:?^|\/)projects\/gke-node-images\//)
             gke_ish = true
             bok['network_tags'].each { |tag|
               gke_ish = false if !tag.match(/^gke-/)
@@ -1139,7 +1139,10 @@ next if !create
             end
           end
 
-#          MU.log @mu_name, MU::NOTICE, details: bok
+          if bok['name'] == "artifactory651"
+            MU.log bok['name'], MU::WARN, details: bok['vpc'].to_h
+          end
+
           bok
         end
 
