@@ -11,4 +11,5 @@ bin/vault
 .vscode
 Berksfile.lock
 cloud-mu-*.gem
+.kitchen/.kitchen.local.yml
 .kitchen/
