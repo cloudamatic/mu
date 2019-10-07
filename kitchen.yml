@@ -17,28 +17,48 @@ provisioner:
   roles_path: roles
 
 platforms:
-  # - name: ubuntu
+  - name: ubuntu
   - name: centos-7
-  # - name: centos-6
-  # - name: rhel-7
-  # - name: rhel-6
-  # - name: amazon
+  - name: centos-6
+  - name: rhel-7
+  - name: rhel-6
+  - name: amazon
+  - name: amazon2
+  - name: windows
 
 suites:
   - name: mu-install
     run_list:
       - recipe[mu-test::installer]
+    excludes:
+      - ubuntu
+      - centos-6
+      # - centos-7
+      - rhel-7
+      - rhel-6
+      - amazon
+      # - amazon2
+      - windows
 
-  - name: mu-bootstrap
-    run_list:
-      - recipe[mu-tools::newclient]
-      - recipe[mu-tools::selinux]
-      - recipe[mu-tools::gcloud]
+  # - name: mu-bootstrap
+  #   run_list:
+  #     - recipe[mu-tools::newclient]
+  #     - recipe[mu-tools::selinux]
+  #     - recipe[mu-tools::gcloud]
 
   - name: mu-node
     run_list:
       - role[mu-node]
+    excludes:
+      # - ubuntu
+      - centos-6
+      # - centos-7
+      - rhel-7
+      - rhel-6
+      - amazon
+      # - amazon2
+      - windows
 
-  - name: mu-master
-    run_list:
-      - role[mu-master]
+  # - name: mu-master
+  #   run_list:
+  #     - role[mu-master]
