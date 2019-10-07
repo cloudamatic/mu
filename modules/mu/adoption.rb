@@ -174,6 +174,7 @@ end
           exit 1
         end
 
+        threads = []
         @clouds.each { |cloud|
           @scraped.each_pair { |type, resources|
             res_class = begin
@@ -187,19 +188,9 @@ end
             bok[res_class.cfg_plural] ||= []
 
             class_semaphore = Mutex.new
-            threads = []
 
             Thread.abort_on_exception = true
             resources.each_pair { |cloud_id_thr, obj_thr|
-              if threads.size >= 10
-                sleep 1
-                begin
-                  threads.each { |t|
-                    t.join(0.1)
-                  }
-                  threads.reject! { |t| !t.status }
-                end while threads.size >= 10
-              end
               threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
 
                 kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)

@@ -220,9 +220,48 @@ ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 require 'mu/logger'
 module MU
 
-  # The maximum number of concurrent threads that {MU::Deploy} or {MU::Cleanup}
-  # will try to run concurrently.
-  MAXTHREADS = 32
+  # Subclass core thread so we can gracefully handle it when we hit system
+  # thread limits. Back off and wait makes sense for us, since most of our
+  # threads are terminal (in the dependency sense) and this is unlikely to get
+  # us deadlocks.
+  class Thread < ::Thread
+    @@mu_global_threads = []
+    @@mu_global_thread_semaphore = Mutex.new
+
+    def initialize(*args, &block)
+      @@mu_global_thread_semaphore.synchronize {
+        @@mu_global_threads.reject! { |t| t.nil? or !t.status }
+      }
+      newguy = begin
+        super(*args, &block)
+      rescue ::ThreadError => e
+        if e.message.match(/Resource temporarily unavailable/)
+          toomany = @@mu_global_threads.size
+          MU.log "Hit the wall at #{toomany.to_s} threads, waiting until there are fewer", MU::DEBUG
+          if @@mu_global_threads.size >= toomany
+            sleep 1
+            begin
+              @@mu_global_thread_semaphore.synchronize {
+                @@mu_global_threads.each { |t|
+                  next if t == ::Thread.current
+                  t.join(0.1)
+                }
+                @@mu_global_threads.reject! { |t| t.nil? or !t.status }
+              }
+            end while @@mu_global_threads.size >= toomany
+          end
+          retry
+        else
+          raise e
+        end
+      end
+
+      @@mu_global_thread_semaphore.synchronize {
+        @@mu_global_threads << newguy
+      }
+      newguy
+    end
+  end
 
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.

@@ -159,16 +159,6 @@ module MU
                   projectthreads = []
                   projects.each { |project|
                     next if !habitatclass.isLive?(project, credset)
-                    # cap our concurrency somewhere so we don't just grow to
-                    # infinity and bonk against system thread limits
-                    begin
-                      projectthreads.each do |thr|
-                        thr.join(0.1)
-                      end
-                      projectthreads.reject! { |thr| !thr.alive? }
-                      sleep 0.1
-
-                    end while (regionthreads.size * projectthreads.size) > MU::MAXTHREADS
 
                     projectthreads << Thread.new {
                       MU.dupGlobals(parent_thread_id)

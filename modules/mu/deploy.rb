@@ -576,21 +576,6 @@ MESSAGE_END
     end
 
     #########################################################################
-    # Wait for things to finish, if we're teetering near our global thread
-    # limit. XXX It might be possible to define enough dependencies in a
-    # legal deploy that this will deadlock. Hrm.
-    #########################################################################
-    def waitForThreadCount
-      begin
-        @my_threads.each do |thr|
-          thr.join(0.1)
-        end
-        @my_threads.reject! { |thr| !thr.alive? }
-        sleep 0.1
-      end while @my_threads.size > MU::MAXTHREADS
-    end
-
-    #########################################################################
     # Kick off a thread to create a resource.
     #########################################################################
     def createResources(services, mode="create")
@@ -601,18 +586,6 @@ MESSAGE_END
       services.uniq!
       services.each do |service|
         begin
-          # XXX This is problematic. In theory we can create a deploy where 
-          # this causes a deadlock, because the thread for a resource with a 
-          # dependency launches before the thing on which it's dependent, which
-          # then never gets to run because the queue is full...
-#          begin
-#            @my_threads.each do |thr|
-#              thr.join(0.1) if thr.object_id != Thread.current.object_id
-#            end
-#            @my_threads.reject! { |thr| !thr.alive? }
-#            sleep 0.1
-#          end while @my_threads.size > MU::MAXTHREADS
-
           @my_threads << Thread.new(service) { |myservice|
             MU.dupGlobals(parent_thread_id)
             threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
