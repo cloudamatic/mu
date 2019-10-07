@@ -28,8 +28,9 @@ platforms:
 
 suites:
   - name: mu-install
-    run_list:
-      - recipe[mu-test::installer]
+    provisioner:
+      name:   shell
+      script: 'install/installer'
     excludes:
       - ubuntu
       - centos-6
