@@ -25,14 +25,20 @@ platforms:
   # - name: amazon
 
 suites:
+  - name: mu-install
+    run_list:
+      - recipe[mu-test::installer]
+
   - name: mu-bootstrap
     run_list:
       - recipe[mu-tools::newclient]
       - recipe[mu-tools::selinux]
       - recipe[mu-tools::gcloud]
+
   - name: mu-node
     run_list:
       - role[mu-node]
+
   - name: mu-master
     run_list:
       - role[mu-master]
