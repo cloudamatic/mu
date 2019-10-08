@@ -19,6 +19,7 @@ module MU
       # Creation of Virtual Private Clouds and associated artifacts (routes, subnets, etc).
       class VPC < MU::Cloud::VPC
         attr_reader :cloud_desc_cache
+        attr_reader :routes
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
@@ -36,7 +37,6 @@ module MU
           end
 
           @mu_name ||= @deploy.getResourceName(@config['name'])
-
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -336,7 +336,7 @@ end
                   }
 
                   if !ext_ids.include?(subnet["cloud_id"])
-                    @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
+                    @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
                   end
                 }
 
@@ -353,7 +353,7 @@ end
                   subnet["url"] = desc.subnetwork
                   subnet['mu_name'] = @mu_name+"-"+subnet['name']
                   if !ext_ids.include?(subnet["cloud_id"])
-                    @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
+                    @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
                   end
                 }
               end
@@ -1027,11 +1027,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # Is this subnet privately-routable only, or public?
           # @return [Boolean]
           def private?
-            routes = MU::Cloud::Google.compute(credentials: @parent.config['credentials']).list_routes(
-              @parent.habitat_id,
-              filter: "network eq #{@parent.url}"
-            ).items
-            routes.map { |r|
+            @parent.cloud_desc 
+            @parent.routes.map { |r|
               if r.dest_range == "0.0.0.0/0" and !r.next_hop_gateway.nil? and
                  (r.tags.nil? or r.tags.size == 0) and
                  r.next_hop_gateway.match(/\/global\/gateways\/default-internet-gateway/)

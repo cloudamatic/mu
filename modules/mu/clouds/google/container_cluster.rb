@@ -974,7 +974,7 @@ module MU
           ok = true
           cluster['project'] ||= MU::Cloud::Google.defaultProject(cluster['credentials'])
 
-          cluster['master_az'] ||= cluster['availability_zone']
+          cluster['master_az'] ||= cluster['availability_zone'] if cluster['availability_zone']
 
           if cluster['private_cluster'] or cluster['custom_subnet'] or
              cluster['services_ip_block'] or cluster['services_ip_block_name'] or
@@ -985,7 +985,12 @@ module MU
 
           if cluster['service_account']
             cluster['service_account']['cloud'] = "Google"
-            cluster['service_account']['habitat'] ||= cluster['project']
+            cluster['service_account']['habitat'] ||= MU::Config::Ref.get(
+              id: cluster['project'],
+              cloud: "Google",
+              credentials: cluster['credentials'],
+              type: "habitats"
+            )
             found = MU::Config::Ref.get(cluster['service_account'])
             if found.id and !found.kitten
               MU.log "GKE cluster #{cluster['name']} failed to locate service account #{cluster['service_account']} in project #{cluster['project']}", MU::ERR

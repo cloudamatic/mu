@@ -671,13 +671,14 @@ next if !create
                 rescue ::OpenSSL::SSL::SSLError => e
                   MU.log "Got #{e.message} looking for instance #{args[:cloud_id]} in project #{args[:project]} (#{az}). Usually this means we've tried to query a non-functional region.", MU::DEBUG
                 rescue ::Google::Apis::ClientError => e
-                  raise e if !e.message.match(/^notFound: /)
+                  raise e if !e.message.match(/^(?:notFound|forbidden): /)
                 end
               }
             }
           }
           done_threads = []
           begin
+            search_threads.reject! { |t| t.nil? }
             search_threads.each { |t|
               joined = t.join(2)
               done_threads << joined if !joined.nil?
@@ -1086,7 +1087,7 @@ next if !create
             begin
               disk_desc = MU::Cloud::Google.compute(credentials: @credentials).get_disk(proj, az, name)
               if disk_desc.source_image and disk.boot
-                bok['image_id'] ||= disk_desc.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/beta\//, '')
+                bok['image_id'] ||= disk_desc.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/[^\/]+\//, '')
               else
                 bok['storage'] ||= []
                 storage_blob = {
@@ -1100,14 +1101,6 @@ next if !create
               next
             end
             
-#            if disk.licenses
-#              disk.licenses.each { |license|
-#                license.match(/\/projects\/([^\/]+)\/global\/licenses\/(.*)/)
-#                proj = Regexp.last_match[1]
-#                lic_name = Regexp.last_match[2]
-#                MU.log disk.source, MU::NOTICE, details: MU::Cloud::Google.compute(credentials: @credentials).get_license(proj, lic_name)
-#              }
-#            end
           }
 
           if cloud_desc.labels
@@ -1137,10 +1130,6 @@ next if !create
               MU.log "Server #{bok['name']} appears to belong to a ContainerCluster, skipping adoption", MU::NOTICE
               return nil
             end
-          end
-
-          if bok['name'] == "artifactory651"
-            MU.log bok['name'], MU::WARN, details: bok['vpc'].to_h
           end
 
           bok

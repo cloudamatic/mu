@@ -232,12 +232,17 @@ module MU
       @@mu_global_thread_semaphore.synchronize {
         @@mu_global_threads.reject! { |t| t.nil? or !t.status }
       }
-      newguy = begin
-        super(*args, &block)
+      newguy = nil
+      begin
+        newguy = super(*args, &block)
+        if newguy.nil?
+          MU.log "I somehow got a nil trying to create a thread", MU::WARN, details: caller
+          sleep 1
+        end
       rescue ::ThreadError => e
         if e.message.match(/Resource temporarily unavailable/)
           toomany = @@mu_global_threads.size
-          MU.log "Hit the wall at #{toomany.to_s} threads, waiting until there are fewer", MU::DEBUG
+          MU.log "Hit the wall at #{toomany.to_s} threads, waiting until there are fewer", MU::WARN
           if @@mu_global_threads.size >= toomany
             sleep 1
             begin
@@ -254,7 +259,7 @@ module MU
         else
           raise e
         end
-      end
+      end while newguy.nil?
 
       @@mu_global_thread_semaphore.synchronize {
         @@mu_global_threads << newguy

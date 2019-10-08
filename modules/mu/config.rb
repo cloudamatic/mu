@@ -947,7 +947,7 @@ return
     # Very useful for debugging.
     def visualizeDependencies
       # GraphViz won't like MU::Config::Tail, pare down to plain Strings
-      config = MU::Config.manxify(Marshal.load(Marshal.dump(@config)))
+      config = MU::Config.manxify(Marshal.load(Marshal.dump(MU.structToHash(@config.dup))))
       begin
         g = GraphViz.new(:G, :type => :digraph)
         # Generate a GraphViz node for each resource in this stack
@@ -1132,6 +1132,7 @@ return
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
     def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false)
       append = false
+      start = Time.now
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
 
       if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)

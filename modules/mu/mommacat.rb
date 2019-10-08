@@ -1531,6 +1531,7 @@ end
                         desc_semaphore.synchronize {
                           @@dummy_cache[cfg_plural] ||= {}
                           @@dummy_cache[cfg_plural][cfg.to_s] = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
+                          MU.log "findStray: Finished generating dummy '#{resourceclass.to_s}' cloudobj - #{sprintf("%.2fs", (Time.now-start))}", loglevel
                         }
                       end
                       desc_semaphore.synchronize {
@@ -1540,10 +1541,12 @@ end
                   end
                 }
               } }
+              MU.log "findStray: tying up #{region_threads.size.to_s} region threads - #{sprintf("%.2fs", (Time.now-start))}", loglevel
               region_threads.each { |t|
                 t.join
               }
             } }
+            MU.log "findStray: tying up #{habitat_threads.size.to_s} habitat threads - #{sprintf("%.2fs", (Time.now-start))}", loglevel
             habitat_threads.each { |t|
               t.join
             }
@@ -1552,6 +1555,7 @@ end
       rescue Exception => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
+      MU.log "findStray: returning #{matches.size.to_s} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
       matches
     end
