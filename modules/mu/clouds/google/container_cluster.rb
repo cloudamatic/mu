@@ -47,11 +47,17 @@ module MU
 
 
           sa = MU::Config::Ref.get(@config['service_account'])
-          if !sa or !sa.kitten or !sa.kitten.cloud_desc
-            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+          if sa.name and @deploy.findLitterMate(name: sa.name, type: "users")
+            @service_acct = @deploy.findLitterMate(name: sa.name, type: "users").cloud_desc
+          else
+            if !sa or !sa.kitten or !sa.kitten.cloud_desc
+              raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+            end
+            @service_acct = sa.kitten.cloud_desc
           end
-          @service_acct = sa.kitten.cloud_desc
-          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+          if !@config['scrub_mu_isms']
+            MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+          end
 
           @config['ssh_user'] ||= "muadmin"
 
@@ -248,6 +254,10 @@ module MU
           resp = nil
           begin
             resp = MU::Cloud::Google.container(credentials: @config['credentials']).get_project_location_cluster(@cloud_id)
+            if resp.status == "ERROR"
+              MU.log "GKE cluster #{@cloud_id} failed", MU::ERR, details: resp.status_message
+              raise MuError, "GKE cluster #{@cloud_id} failed: #{resp.status_message}"
+            end
             sleep 30 if resp.status != "RUNNING"
           end while resp.nil? or resp.status != "RUNNING"
 
@@ -991,8 +1001,17 @@ module MU
               credentials: cluster['credentials'],
               type: "habitats"
             )
+            if cluster['service_account']['name'] and
+               !cluster['service_account']['id']
+              cluster['dependencies'] ||= []
+              cluster['dependencies'] << {
+                "type" => "user",
+                "name" => cluster['service_account']['name']
+              }
+            end
             found = MU::Config::Ref.get(cluster['service_account'])
-            if found.id and !found.kitten
+            # XXX verify that found.kitten fails when it's supposed to
+            if cluster['service_account']['id'] and !found.kitten
               MU.log "GKE cluster #{cluster['name']} failed to locate service account #{cluster['service_account']} in project #{cluster['project']}", MU::ERR
               ok = false
             end

@@ -37,7 +37,9 @@ module MU
             email: sa.kitten.cloud_desc.email,
             scopes: @config['scopes']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+          if !@config['scrub_mu_isms']
+            MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+          end
 
 
           @config['named_ports'].each { |port_cfg|
@@ -85,7 +87,6 @@ module MU
           instance_props = MU::Cloud::Google.compute(:InstanceProperties).new(
             can_ip_forward: !@config['src_dst_check'],
             description: @deploy.deploy_id,
-#            machine_type: "zones/"+az+"/machineTypes/"+size,
             machine_type: size,
             service_accounts: [@service_acct],
             labels: labels,
@@ -173,10 +174,155 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          MU.log "XXX ServerPool.find not yet implemented", MU::WARN
-          return {}
+        def self.find(**args)
+          args[:project] ||= args[:habitat]
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+
+          regions = if args[:region]
+            [args[:region]]
+          else
+            MU::Cloud::Google.listRegions
+          end
+          found = {}
+
+          regions.each { |r|
+            begin
+              resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_region_instance_group_managers(args[:project], args[:region])
+              if resp and resp.items
+                resp.items.each { |igm|
+                  found[igm.name] = igm
+                }
+              end
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
+
+            begin
+# XXX can these guys have name collisions? test this
+              MU::Cloud::Google.listAZs(r).each { |az|
+                resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_instance_group_managers(args[:project], az)
+                if resp and resp.items
+                  resp.items.each { |igm|
+                    found[igm.name] = igm
+                  }
+                end
+              }
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
+          }
+
+          return found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @credentials,
+            "cloud_id" => @cloud_id,
+            "region" => @config['region'],
+            "project" => @project_id,
+          }
+          bok['name'] = cloud_desc.name
+
+          scalers = if cloud_desc.zone and cloud_desc.zone.match(/-[a-z]$/)
+            bok['availability_zone'] = cloud_desc.zone.sub(/.*?\/([^\/]+)$/, '\1')
+            MU::Cloud::Google.compute(credentials: @credentials).list_autoscalers(@project_id, bok['availability_zone'])
+          else
+            MU::Cloud::Google.compute(credentials: @credentials).list_region_autoscalers(@project_id, @config['region'], filter: "target eq #{cloud_desc.self_link}")
+          end
+
+          if scalers and scalers.items and scalers.items.size > 0
+            scaler = scalers.items.first
+MU.log bok['name'], MU::WARN, details: scaler.autoscaling_policy
+# scaler.cpu_utilization.utilization_target
+# scaler.cool_down_period_sec
+            bok['min_size'] = scaler.autoscaling_policy.min_num_replicas
+            bok['max_size'] = scaler.autoscaling_policy.max_num_replicas
+          else
+            bok['min_size'] = bok['max_size'] = cloud_desc.target_size
+          end
+if cloud_desc.auto_healing_policies and cloud_desc.auto_healing_policies.size > 0
+MU.log bok['name'], MU::WARN, details: cloud_desc.auto_healing_policies
+end
+
+          template = MU::Cloud::Google.compute(credentials: @credentials).get_instance_template(@project_id, cloud_desc.instance_template.sub(/.*?\/([^\/]+)$/, '\1'))
+
+          iface = template.properties.network_interfaces.first
+          iface.network.match(/(?:^|\/)projects\/(.*?)\/.*?\/networks\/([^\/]+)(?:$|\/)/)
+          vpc_proj = Regexp.last_match[1]
+          vpc_id = Regexp.last_match[2]
+
+          bok['vpc'] = MU::Config::Ref.get(
+            id: vpc_id,
+            cloud: "Google",
+            habitat: MU::Config::Ref.get(
+              id: vpc_proj,
+              cloud: "Google",
+              credentials: @credentials,
+              type: "habitats"
+            ),
+            credentials: @credentials,
+            type: "vpcs",
+            subnet_pref: "any" # "anywhere in this VPC" is what matters
+          )
+
+          bok['basis'] = {
+            "launch_config" => {
+              "name" => bok['name']
+            }
+          }
+
+          template.properties.disks.each { |disk|
+            if disk.initialize_params.source_image and disk.boot
+              bok['basis']['launch_config']['image_id'] ||= disk.initialize_params.source_image.sub(/^https:\/\/www\.googleapis\.com\/compute\/[^\/]+\//, '')
+            elsif disk.type != "SCRATCH"
+              bok['basis']['launch_config']['storage'] ||= []
+              storage_blob = {
+                "size" => disk.initialize_params.disk_size_gb,
+                "device" => "/dev/xvd"+(disk.index+97).chr.downcase
+              }
+              bok['basis']['launch_config']['storage'] <<  storage_blob
+            else
+              MU.log "Need to sort out scratch disks", MU::WARN, details: disk
+            end
+            
+          }
+
+          if template.properties.labels
+            bok['tags'] = template.properties.labels.keys.map { |k| { "key" => k, "value" => template.properties.labels[k] } }
+          end
+          if template.properties.tags and template.properties.tags.items and template.properties.tags.items.size > 0
+            bok['network_tags'] = template.properties.tags.items
+          end
+          bok['src_dst_check'] = !template.properties.can_ip_forward
+          bok['basis']['launch_config']['size'] = template.properties.machine_type.sub(/.*?\/([^\/]+)$/, '\1')
+          bok['project'] = @project_id
+          if template.properties.service_accounts
+            bok['scopes'] = template.properties.service_accounts.map { |sa| sa.scopes }.flatten.uniq
+          end
+          if template.properties.metadata and template.properties.metadata.items
+            bok['metadata'] = template.properties.metadata.items.map { |m| MU.structToHash(m) }
+          end
+
+          # Skip nodes that are just members of GKE clusters
+          if bok['name'].match(/^gke-.*?-[a-f0-9]+-[a-z0-9]+$/) and
+             bok['basis']['launch_config']['image_id'].match(/(:?^|\/)projects\/gke-node-images\//)
+            gke_ish = true
+            bok['network_tags'].each { |tag|
+              gke_ish = false if !tag.match(/^gke-/)
+            }
+            if gke_ish
+              MU.log "ServerPool #{bok['name']} appears to belong to a ContainerCluster, skipping adoption", MU::NOTICE
+              return nil
+            end
+          end
+#MU.log bok['name'], MU::WARN, details: [cloud_desc, template]
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -189,6 +335,11 @@ module MU
             "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
             "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
             "scopes" => MU::Cloud::Google::Server.schema(config)[1]["scopes"],
+            "network_tags" => MU::Cloud::Google::Server.schema(config)[1]["network_tags"],
+            "availability_zone" => {
+              "type" => "string",
+              "description" => "Target a specific availability zone for this pool, which will create zonal instance managers and scalers instead of regional ones."
+            },
             "named_ports" => {
               "type" => "array",
               "items" => {
@@ -216,7 +367,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
-
+start = Time.now
           pool['project'] ||= MU::Cloud::Google.defaultProject(pool['credentials'])
           if pool['service_account']
             pool['service_account']['cloud'] = "Google"

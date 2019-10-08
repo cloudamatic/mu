@@ -23,7 +23,11 @@ module MU
         def initialize(**args)
           super
 
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+          @mu_name ||= if !@config['scrub_mu_isms']
+            @deploy.getResourceName(@config["name"])
+          else
+            @config['name']
+          end
 
           # If we're being reverse-engineered from a cloud descriptor, use that
           # to determine what sort of account we are.
@@ -1063,6 +1067,20 @@ If this value is not specified, and the role name matches the name of an existin
                 "name" => role['project']
               }
             end
+          end
+
+          if role['bindings']
+            role['bindings'].each { |binding|
+              if binding['entity'] and binding['entity']['name'] and 
+                 configurator.haveLitterMate?(binding['entity']['name'], binding['entity']['type'])
+                role['dependencies'] ||= []
+                role['dependencies'] << {
+                  "type" => binding['entity']['type'].sub(/s$/, ''),
+                  "name" => binding['entity']['name']
+                }
+
+              end
+            }
           end
 
           ok

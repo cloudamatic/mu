@@ -42,7 +42,7 @@ module MU
             end
           end
 
-          @mu_name ||= if @config['unique_name'] or @config['type'] == "service"
+          @mu_name ||= if (@config['unique_name'] or @config['type'] == "service") and !@config['scrub_mu_isms']
             @deploy.getResourceName(@config["name"])
           else
             @config['name']
@@ -53,19 +53,41 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           if @config['type'] == "service"
+            acct_id = @config['scrub_mu_isms'] ? @config['name'] : @deploy.getResourceName(@config["name"], max_length: 30).downcase
             req_obj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
-              account_id: @deploy.getResourceName(@config["name"], max_length: 30).downcase,
+              account_id: acct_id,
               service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
                 display_name: @mu_name,
-                description: @deploy.deploy_id
+                description: @config['scrub_mu_isms'] ? nil : @deploy.deploy_id
               )
             )
-            MU.log "Creating service account #{@mu_name}"
-            resp = MU::Cloud::Google.iam(credentials: @config['credentials']).create_service_account(
-              "projects/"+@config['project'],
-              req_obj
-            )
-            @cloud_id = resp.name
+            if @config['use_if_exists']
+              # XXX maybe just set @cloud_id to projects/#{@project_id}/serviceAccounts/#{@mu_name}@#{@project_id}.iam.gserviceaccount.com and see if cloud_desc returns something
+              found = MU::Cloud::Google::User.find(project: @project_id, cloud_id: @mu_name)
+              if found.size == 1
+                @cloud_id = found.keys.first
+                MU.log "Service account #{@cloud_id} already existed, using it"
+              end
+            end
+
+            if !@cloud_id
+              MU.log "Creating service account #{@mu_name}"
+              resp = MU::Cloud::Google.iam(credentials: @config['credentials']).create_service_account(
+                "projects/"+@config['project'],
+                req_obj
+              )
+              @cloud_id = resp.name
+            end
+
+            # make sure we've been created before moving on
+            begin
+              cloud_desc
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/notFound:/)
+                sleep 3
+                retry
+              end
+            end
           elsif @config['external']
             @cloud_id = @config['email']
             MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
@@ -93,6 +115,7 @@ module MU
             MU.log "Creating user #{@mu_name}", details: user_obj
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_user(user_obj)
             @cloud_id = resp.primary_email
+
           end
         end
 

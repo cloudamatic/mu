@@ -276,7 +276,9 @@ next if !create
             email: sa.kitten.cloud_desc.email,
             scopes: @config['scopes']
           )
-          MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+          if !@config['scrub_mu_isms']
+            MU::Cloud::Google.grantDeploySecretAccess(@service_acct.email, credentials: @config['credentials'])
+          end
 
           begin
             disks = MU::Cloud::Google::Server.diskConfig(@config, credentials: @config['credentials'])

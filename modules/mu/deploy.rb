@@ -102,7 +102,7 @@ module MU
       @dependency_semaphore = Mutex.new
 
       @main_config = stack_conf
-      @original_config = Marshal.load(Marshal.dump(stack_conf))
+      @original_config = Marshal.load(Marshal.dump(MU.structToHash(stack_conf.dup)))
       @original_config.freeze
       @admins = stack_conf["admins"]
       @mommacat = deploy_obj
