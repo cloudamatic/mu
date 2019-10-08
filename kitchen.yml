@@ -16,6 +16,9 @@ provisioner:
   name: chef_zero
   roles_path: roles
 
+verifier:
+  name: inspec
+
 platforms:
   - name: ubuntu
   - name: centos-7
@@ -31,35 +34,29 @@ suites:
     provisioner:
       name:   shell
       script: 'install/installer'
-    excludes:
-      - ubuntu
-      - centos-6
-      # - centos-7
-      - rhel-7
-      - rhel-6
-      - amazon
-      # - amazon2
-      - windows
+    includes:
+      - centos-7
+      - amazon2
+
+  - name: mu-node
+    run_list:
+      - role[mu-node]
+    includes:
+      - name: ubuntu
+      - name: centos-7
+      # - name: centos-6
+      # - name: rhel-7
+      # - name: rhel-6
+      # - name: amazon
+      - name: amazon2
+      # - name: windows
+
+  # - name: mu-master
+  #   run_list:
+  #     - role[mu-master]
 
   # - name: mu-bootstrap
   #   run_list:
   #     - recipe[mu-tools::newclient]
   #     - recipe[mu-tools::selinux]
   #     - recipe[mu-tools::gcloud]
-
-  - name: mu-node
-    run_list:
-      - role[mu-node]
-    excludes:
-      # - ubuntu
-      - centos-6
-      # - centos-7
-      - rhel-7
-      - rhel-6
-      - amazon
-      # - amazon2
-      - windows
-
-  # - name: mu-master
-  #   run_list:
-  #     - role[mu-master]
