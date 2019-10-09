@@ -233,6 +233,7 @@ module MU
         @@mu_global_threads.reject! { |t| t.nil? or !t.status }
       }
       newguy = nil
+      start = Time.now
       begin
         newguy = super(*args, &block)
         if newguy.nil?
@@ -253,6 +254,10 @@ module MU
                 }
                 @@mu_global_threads.reject! { |t| t.nil? or !t.status }
               }
+              if (Time.now - start) > 150
+                MU.log "Failed to get a free thread slot after 150 seconds- are we in a deadlock situation?", MU::ERR, details: caller
+                raise e
+              end
             end while @@mu_global_threads.size >= toomany
           end
           retry
@@ -993,7 +998,7 @@ module MU
       }
     elsif struct.is_a?(String)
       # Cleanse weird encoding problems
-      return struct.to_s.force_encoding("ASCII-8BIT").encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+      return struct.dup.to_s.force_encoding("ASCII-8BIT").encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
     else
       return struct
     end

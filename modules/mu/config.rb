@@ -233,6 +233,14 @@ module MU
       return config
     end
 
+    # Make a deep copy of a config hash and pare it down to only primitive
+    # types, even at the leaves.
+    # @param config [Hash]
+    # @return [Hash]
+    def self.stripConfig(config)
+      MU::Config.manxify(Marshal.load(Marshal.dump(MU.structToHash(config.dup))))
+    end
+
     # A wrapper class for resources to refer to other resources, whether they
     # be a sibling object in the current deploy, an object in another deploy,
     # or a plain cloud id from outside of Mu.
@@ -947,7 +955,7 @@ return
     # Very useful for debugging.
     def visualizeDependencies
       # GraphViz won't like MU::Config::Tail, pare down to plain Strings
-      config = MU::Config.manxify(Marshal.load(Marshal.dump(MU.structToHash(@config.dup))))
+      config = MU::Config.stripConfig(@config)
       begin
         g = GraphViz.new(:G, :type => :digraph)
         # Generate a GraphViz node for each resource in this stack
@@ -1423,7 +1431,7 @@ return
         # here
         ok = false if !schemaclass.validate(descriptor, self)
 
-        plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
+        plain_cfg = MU::Config.stripConfig(descriptor)
         plain_cfg.delete("#MU_CLOUDCLASS")
         plain_cfg.delete("#TARGETCLASS")
         plain_cfg.delete("#TARGETNAME")
@@ -1450,7 +1458,7 @@ return
         # on stuff that will cause spurious alarms further in
         if ok
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
-          original_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
+          original_descriptor = MU::Config.stripConfig(descriptor)
           passed = parser.validateConfig(descriptor, self)
 
           if !passed
