@@ -471,10 +471,18 @@ module MU
           found = {}
 
           if args[:cloud_id]
-            resp = MU::Cloud::Google.container(credentials: args[:credentials]).get_project_location_cluster(args[:cloud_id])
+            resp = begin
+              MU::Cloud::Google.container(credentials: args[:credentials]).get_project_location_cluster(args[:cloud_id])
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden:/)
+            end
             found[args[:cloud_id]] = resp if resp
           else
-            resp = MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/-")
+            resp = begin
+              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/-")
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden:/)
+            end
             if resp and resp.clusters and !resp.clusters.empty?
               resp.clusters.each { |c|
                 found[c.self_link.sub(/.*?\/projects\//, 'projects/')] = c

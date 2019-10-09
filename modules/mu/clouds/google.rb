@@ -1132,7 +1132,16 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise e
               end
             rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
-              if e.message.match(/^invalidParameter:|^badRequest:/)
+              if e.message.match(/^quotaExceeded: Request rate/)
+                if retries <= 10
+                  sleep wait_backoff
+                  retries += 1
+                  wait_backoff = wait_backoff * 2
+                  retry
+                else
+                  raise e
+                end
+              elsif e.message.match(/^invalidParameter:|^badRequest:/)
                 MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
