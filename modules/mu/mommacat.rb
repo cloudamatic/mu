@@ -1414,38 +1414,57 @@ raise "NAH"
             desc_semaphore = Mutex.new
 
             cloud_descs = {}
-            habitats.each { |hab| habitat_threads << Thread.new(hab) { |p|
-              cloud_descs[p] = {}
-              region_threads = []
-              regions.each { |reg| region_threads << Thread.new(reg) { |r|
-                MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+            habitats.each { |hab|
+              begin
+                habitat_threads.each { |t| t.join(0.1) }
+                habitat_threads.reject! { |t| t.nil? or !t.status }
+                sleep 1 if habitat_threads.size > 5
+              end while habitat_threads.size > 5
+              habitat_threads << Thread.new(hab) { |p|
+                MU.log "findStray: Searching #{p} (#{habitat_threads.size.to_s} habitat threads running) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+                cloud_descs[p] = {}
+                region_threads = []
+                regions.each { |reg| region_threads << Thread.new(reg) { |r|
+                  MU.log "findStray: Searching #{r} in #{p} (#{region_threads.size.to_s} region threads running) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+                  MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 begin
-                found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
-                MU.log "findStray: #{found ? found.size.to_s : "nil"} results - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+                  found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
+                  MU.log "findStray: #{found ? found.size.to_s : "nil"} results - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 rescue Exception => e
 MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
 pp e.backtrace
 MU.log "#{callstr}", MU::WARN, details: callstack
 exit
 end
-                if found
-                  desc_semaphore.synchronize {
-                    cloud_descs[p][r] = found
-                  }
-                end
-                # Stop if you found the thing by a specific cloud_id
-                if cloud_id and found and !found.empty?
-                  found_the_thing = true
-                  Thread.exit
-                end
-              } }
-              region_threads.each { |t|
-                t.join
+                  if found
+                    desc_semaphore.synchronize {
+                      cloud_descs[p][r] = found
+                    }
+                  end
+                  # Stop if you found the thing by a specific cloud_id
+                  if cloud_id and found and !found.empty?
+                    found_the_thing = true
+                    Thread.exit
+                  end
+                } }
+                begin
+                  region_threads.each { |t| t.join(0.1) }
+                  region_threads.reject! { |t| t.nil? or !t.status }
+                  if region_threads.size > 0
+                    MU.log "#{region_threads.size.to_s} regions still running in #{p}", loglevel
+                    sleep 3
+                  end
+                end while region_threads.size > 0
               }
-            } }
-            habitat_threads.each { |t|
-              t.join
             }
+            begin
+              habitat_threads.each { |t| t.join(0.1) }
+              habitat_threads.reject! { |t| t.nil? or !t.status }
+              if habitat_threads.size > 0
+                MU.log "#{habitat_threads.size.to_s} habitats still running", loglevel
+                sleep 3
+              end
+            end while habitat_threads.size > 0
 
             habitat_threads = []
             habitats.each { |hab| habitat_threads << Thread.new(hab) { |p|
