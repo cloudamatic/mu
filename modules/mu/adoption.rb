@@ -109,13 +109,7 @@ module MU
               MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
               found.each { |obj|
-begin
-if obj.cloud_desc.labels and obj.cloud_desc.labels["mu-id"]
-  MU.log "skipping #{obj.cloud_id}", MU::WARN
-  next
-end
-rescue NoMethodError => e
-end
+                # XXX apply any filters (e.g. MU-ID tags)
                 @scraped[type][obj.cloud_id] = obj
               }
             end

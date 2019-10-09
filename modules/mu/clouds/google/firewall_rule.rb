@@ -167,7 +167,11 @@ end
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
 
           found = {}
-          resp = MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project])
+          resp = begin
+            MU::Cloud::Google.compute(credentials: args[:credentials]).list_firewalls(args[:project])
+          rescue  ::Google::Apis::ClientError => e
+            raise e if !e.message.match(/^(?:notFound|forbidden): /)
+          end
           if resp and resp.items
             resp.items.each { |fw|
               next if !args[:cloud_id].nil? and fw.name != args[:cloud_id]
