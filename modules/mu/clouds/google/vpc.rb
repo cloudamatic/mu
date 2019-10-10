@@ -247,12 +247,16 @@ end
             )
             resp[args[:cloud_id]] = vpc if !vpc.nil?
             rescue ::Google::Apis::ClientError => e
-              MU.log "Do not have permissions to retrieve VPC #{args[:cloud_id]} in project #{args[:project]}", MU::WARN
+              MU.log "Do not have permissions to retrieve VPC #{args[:cloud_id]} in project #{args[:project]}", MU::WARN, details: caller
             end
           else # XXX other criteria
-            vpcs = MU::Cloud::Google.compute(credentials: args[:credentials]).list_networks(
-              args[:project]
-            )
+            vpcs = begin
+              MU::Cloud::Google.compute(credentials: args[:credentials]).list_networks(
+                args[:project]
+              )
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/^(?:notFound|forbidden): /)
+            end
 
             if vpcs and vpcs.items
               vpcs.items.each { |vpc|

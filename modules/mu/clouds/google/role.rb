@@ -539,11 +539,19 @@ next
 
           if args[:project]
             canned = Hash[MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles.roles.map { |r| [r.name, r] }]
-            MU::Cloud::Google::Habitat.bindings(args[:project], credentials: args[:credentials]).each { |binding|
-              found[binding.role] = canned[binding.role]
-            }
+            begin
+              MU::Cloud::Google::Habitat.bindings(args[:project], credentials: args[:credentials]).each { |binding|
+                found[binding.role] = canned[binding.role]
+              }
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
 
-            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_roles("projects/"+args[:project])
+            resp = begin
+              MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_roles("projects/"+args[:project])
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
             if resp and resp.roles
               resp.roles.each { |role|
                 found[role.name] = role
@@ -571,13 +579,12 @@ next
             if credcfg['masquerade_as']
               if args[:cloud_id]
                 begin
-                resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_role(customer, args[:cloud_id].to_i)
+                  resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).get_role(customer, args[:cloud_id].to_i)
                   if resp
                     found[args[:cloud_id].to_s] = resp
                   end
                 rescue ::Google::Apis::ClientError => e
-                  # XXX notFound is ok, we'll just return nil
-                  raise e if !e.message.match(/notFound: /)
+                  raise e if !e.message.match(/(?:forbidden|notFound): /)
                 end
               else
                 resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_roles(customer)
@@ -590,12 +597,22 @@ next
 
             end
 #            These are the canned roles
-            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles
-            resp.roles.each { |role|
-              found[role.name] = role
-            }
+            resp = begin
+              MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
+            if resp
+              resp.roles.each { |role|
+                found[role.name] = role
+              }
+            end
 
-            resp = MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
+            resp = begin
+              MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden: /)
+            end
             if resp and resp.roles
               resp.roles.each { |role|
                 found[role.name] = role

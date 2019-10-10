@@ -1057,6 +1057,10 @@ next if !create
             "cloud_id" => @cloud_id,
             "project" => @project_id
           }
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
           bok['name'] = cloud_desc.name
 
           # XXX we can have multiple network interfaces, and often do; need

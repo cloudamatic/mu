@@ -179,7 +179,11 @@ module MU
           if args[:cloud_id]
             found[args[:cloud_id]] = MU::Cloud::Google.storage(credentials: args[:credentials]).get_bucket(args[:cloud_id])
           else
-            resp = MU::Cloud::Google.storage(credentials: args[:credentials]).list_buckets(args[:project])
+            resp = begin
+              MU::Cloud::Google.storage(credentials: args[:credentials]).list_buckets(args[:project])
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden:/)
+            end
 
             if resp and resp.items
               resp.items.each { |bucket|
