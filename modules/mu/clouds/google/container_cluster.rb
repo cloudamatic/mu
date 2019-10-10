@@ -468,6 +468,8 @@ module MU
         def self.find(**args)
           args[:project] ||= args[:habitat]
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          location = args[:region] || args[:availability_zone] || "-"
+
           found = {}
 
           if args[:cloud_id]
@@ -479,7 +481,7 @@ module MU
             found[args[:cloud_id]] = resp if resp
           else
             resp = begin
-              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/-")
+              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/#{location}")
             rescue ::Google::Apis::ClientError => e
               raise e if !e.message.match(/forbidden:/)
             end
