@@ -10,6 +10,7 @@ driver:
   tags:
       Name: kitchen-mu-node
       created-by: test-kitchen
+  sudo: true
 
 provisioner:
   name: chef_zero
@@ -32,7 +33,7 @@ suites:
   - name: mu-install
     provisioner:
       name:   shell
-      script: 'install/installer'
+      command: 'sudo $MU_BRANCH="development" su root -c "/opt/mu/lib/install/installer"'
     includes:
       - centos-7
       - amazon2
