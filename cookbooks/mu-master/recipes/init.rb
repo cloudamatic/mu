@@ -422,7 +422,6 @@ end
     package_name "bundler"
     action :upgrade if rubydir == "/usr/local/ruby-current"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
-    options('-q')
   end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"
@@ -444,7 +443,6 @@ end
         action :remove
         only_if { ::Dir.exist?(dir) }
         only_if { ::Dir.exist?(gemdir) }
-        options('-q')
       end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
