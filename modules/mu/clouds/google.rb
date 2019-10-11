@@ -514,9 +514,14 @@ MU.log e.message, MU::WARN, details: e.inspect
             @@authorizers[credentials][scopes.to_s]
           end
 
-          if cfg["credentials_file"]
+          if cfg["credentials_file"] or cfg["credentials_encoded"]
+
             begin
-              data = JSON.parse(File.read(cfg["credentials_file"]))
+              data = if cfg["credentials_encoded"]
+                JSON.parse(Base64.decode64(cfg["credentials_encoded"]))
+              else
+                JSON.parse(File.read(cfg["credentials_file"]))
+              end
               @@default_project ||= data["project_id"]
               creds = {
                 :json_key_io => StringIO.new(MultiJson.dump(data)),
