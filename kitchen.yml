@@ -15,6 +15,7 @@ driver:
 provisioner:
   name: chef_zero
   roles_path: roles
+  chef_license: accept
 
 verifier:
   name: inspec
@@ -33,24 +34,26 @@ suites:
   - name: mu-install
     provisioner:
       name:   shell
-      command: 'sudo $MU_BRANCH="development" su root -c "/opt/mu/lib/install/installer"'
+      script: "install/installer"
+      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/kitchen/installer -p $myip -e zach@zach.systems'
+      root_path: '/tmp/kitchen/'
     includes:
       - centos-7
       - amazon2
 
-  - name: mu-node
-    run_list:
-      - recipe[mu-tools::newclient]
-      - recipe[mu-tools::gcloud]
-      # - role[mu-node]
-    includes:
-      - ubuntu
-      - centos-7
-      - centos-6
+  #- name: mu-node
+  #  run_list:
+  #    - recipe[mu-tools::newclient]
+  #    - recipe[mu-tools::gcloud]
+  #    - role[mu-node]
+  #  includes:
+      # - ubuntu
+  #    - centos-7
+      # - centos-6
       # - rhel-7
       # - rhel-6
       # - amazon
-      - amazon2
+  #    - amazon2
       # - windows
 
   # - name: mu-master

@@ -166,16 +166,32 @@ Gem Parser Test:
     variables:
     - $IMAGE_BUILD
 
+Test Kitchen:
+  stage: Smoke Teest
+  script:
+  - wget https://packages.chef.io/files/stable/chefdk/4.4.27/el/7/chefdk-4.4.27-1.el7.x86_64.rpm
+  - rpm -Uvh chefdk-4.4.27-1.el7.x86_64.rpm
+  - sudo yum install python34-setuptools
+  - pip3 install awscli
+  - kitchen test
+  - kitchen create
+  - kitchen converge mu-install-amazon2
+  - kitchen destroy
+  only:
+  - master
+  - development
+  - mess_with_test_kitchen
+
 Smoke Test:
   stage: Smoke Test
   script:
-    - mu-upload-chef-artifacts -sn
-    - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
+  - mu-upload-chef-artifacts -sn
+  - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
   tags: 
-    - mu-master
+  - mu-master
   only:
-    - master
-    - development
+  - master
+  - development
   when: manual
   except:
     variables:
