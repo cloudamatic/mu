@@ -1895,7 +1895,7 @@ return
                   }
                 end
                 if !found
-                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR, details: names_seen
+                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR, details: names_seen
                   ok = false
                 end
               }

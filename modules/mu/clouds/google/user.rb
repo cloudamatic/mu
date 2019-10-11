@@ -297,6 +297,14 @@ module MU
           cred_cfg = MU::Cloud::Google.credConfig(args[:credentials])
           args[:project] ||= args[:habitat]
 
+          found = {}
+
+          if args[:cloud_id] and args[:flags] and
+             args[:flags]["skip_provider_owned"] and
+             MU::Cloud::Google::User.cannedServiceAcctName?(args[:cloud_id])
+            return found
+          end
+
           # If the project id is embedded in the cloud_id, honor it
           if args[:cloud_id]
             if args[:cloud_id].match(/projects\/(.+?)\//)
@@ -305,8 +313,6 @@ module MU
               args[:project] = Regexp.last_match[1]
             end
           end
-
-          found = {}
 
           if args[:project]
             # project-local service accounts
@@ -320,6 +326,10 @@ module MU
 
             if resp and resp.accounts
               resp.accounts.each { |sa|
+                if args[:flags] and args[:flags]["skip_provider_owned"] and
+                   MU::Cloud::Google::User.cannedServiceAcctName?(sa.name)
+                  next
+                end
                 if !args[:cloud_id] or (sa.display_name and sa.display_name == args[:cloud_id]) or (sa.name and sa.name == args[:cloud_id]) or (sa.email and sa.email == args[:cloud_id])
                   found[sa.name] = sa
                 end
@@ -343,11 +353,29 @@ module MU
         # GCP service account, as distinct from one we might create or manage
         def self.cannedServiceAcctName?(name)
           return false if !name
-          name.match(/^\d+\-compute@developer\.gserviceaccount\.com$/) or
-          name.match(/^project-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
-          name.match(/^\d+@cloudbuild\.gserviceaccount\.com$/) or
-          name.match(/^service-\d+@cloud-tpu\.iam\.gserviceaccount\.com$/) or
-          name.match(/^p\d+\-\d+@gcp-sa-logging\.iam\.gserviceaccount\.com$/)
+          name.match(/\b\d+\-compute@developer\.gserviceaccount\.com$/) or
+          name.match(/\bproject-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
+          name.match(/\b\d+@cloudbuild\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@containerregistry\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-bigquerydatatransfer\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-cloudasset\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-cloudiot\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-cloudscheduler\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@compute-system\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@container-engine-robot\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-admin-robot\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-containerscanning\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@dataflow-service-producer-prod\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@dataproc-accounts\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@endpoints-portal\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@cloud-filer\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@cloud-redis\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@firebase-rules\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@cloud-tpu\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-vpcaccess\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-websecurityscanner\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@sourcerepo-service-accounts\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bp\d+\-\d+@gcp-sa-logging\.iam\.gserviceaccount\.com$/)
         end
 
         # We can either refer to a service account, which is scoped to a project
@@ -361,14 +389,17 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          if MU::Cloud::Google::User.cannedServiceAcctName?(@cloud_id)
+            return nil
+          end
+
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
 
-          # TODO fill in other stock service accounts which we should ignore
-          if ["Compute Engine default service account",
-              "App Engine default service account"].include?(@config['name'])
+          if cloud_desc.nil?
+            MU.log @config['name']+" couldn't fetch its cloud descriptor", MU::WARN, details: @cloud_id
             return nil
           end
 

@@ -101,7 +101,8 @@ module MU
               allow_multi: true,
               habitats: @habitats.dup,
               dummy_ok: true,
-              debug: false
+              debug: false,
+              flags: { "skip_provider_owned" => true }
             )
 
 
@@ -122,6 +123,7 @@ module MU
         MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
       end
       MU.log "Scraping complete"
+exit
     end
 
     # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
@@ -385,6 +387,7 @@ module MU
           pp parent.cloud_desc
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
+        hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
         cfg = hashcfg
       elsif cfg.is_a?(Hash)
         deletia = []
