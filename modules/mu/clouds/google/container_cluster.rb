@@ -220,6 +220,7 @@ module MU
             end
 
             desc[:ip_allocation_policy] = MU::Cloud::Google.container(:IpAllocationPolicy).new(alloc_desc)
+            pp alloc_desc
           end
 
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
@@ -577,15 +578,6 @@ module MU
             }
             if cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
               bok['custom_subnet']['node_ip_block'] = cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
-            end
-          else
-            if cloud_desc.ip_allocation_policy.services_secondary_range_name and
-               !cloud_desc.ip_allocation_policy.services_secondary_range_name.match(/^gke-#{cloud_desc.name}-services-[a-f\d]{8}$/)
-              bok['services_ip_block_name'] = cloud_desc.ip_allocation_policy.services_secondary_range_name
-            end
-            if cloud_desc.ip_allocation_policy.cluster_secondary_range_name and
-               !cloud_desc.ip_allocation_policy.services_secondary_range_name.match(/^gke-#{cloud_desc.name}-pods-[a-f\d]{8}$/)
-              bok['pod_ip_block_name'] = cloud_desc.ip_allocation_policy.cluster_secondary_range_name
             end
           end
 
