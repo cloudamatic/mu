@@ -168,9 +168,8 @@ Gem Parser Test:
 
 Test Kitchen:
   stage: Smoke Test
+  image: chef/chefdk:latest
   script:
-  - wget https://packages.chef.io/files/stable/chefdk/4.4.27/el/7/chefdk-4.4.27-1.el7.x86_64.rpm
-  - rpm -Uvh chefdk-4.4.27-1.el7.x86_64.rpm
   - sudo yum install python34-setuptools
   - pip3 install awscli
   - kitchen test
