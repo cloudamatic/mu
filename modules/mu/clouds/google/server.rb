@@ -1292,7 +1292,7 @@ next if !create
             return @@instance_type_cache[region][size]
           end
 
-          if size.match(/\/?custom-(\d+)-(\d+)$/)
+          if size.match(/\/?custom-(\d+)-(\d+)(?:-ext)?$/)
             cpus = Regexp.last_match[1].to_i
             mem = Regexp.last_match[2].to_i
             ok = true
