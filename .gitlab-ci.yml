@@ -170,7 +170,8 @@ Test Kitchen:
   stage: Smoke Test
   image: chef/chefdk:latest
   script:
-  - yum -y install python34-setuptools
+  - apt-get -qq update
+  - apt-get -qq -y install python34-setuptools
   - pip3 install awscli
   - kitchen test
   - kitchen create
