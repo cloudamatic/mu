@@ -17,19 +17,11 @@ module MU
     class AWS
       # Creates an AWS account as configured in {MU::Config::BasketofKittens::habitats}
       class Habitat < MU::Cloud::Habitat
-        @deploy = nil
-        @config = nil
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::habitats}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 63)
         end
 
@@ -135,6 +127,12 @@ module MU
             }
           }
           [toplevel_required, schema]
+        end
+
+        # @param account_number [String]
+        # @return [Boolean]
+        def self.isLive?(account_number, credentials = nil)
+          true
         end
 
         # Figure out what account we're calling from, and then figure out if

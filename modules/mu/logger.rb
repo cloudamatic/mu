@@ -36,21 +36,24 @@ module MU
     @verbosity = MU::Logger::NORMAL
     @quiet = false
     @html = false
+    @color = true
     @handle = STDOUT
 
     @@log_semaphere = Mutex.new
 
     # @param verbosity [Integer]: See {MU::Logger.QUIET}, {MU::Logger.NORMAL}, {MU::Logger.LOUD}
     # @param html [Boolean]: Enable web-friendly log output.
-    def initialize(verbosity=MU::Logger::NORMAL, html=false, handle=STDOUT)
+    def initialize(verbosity=MU::Logger::NORMAL, html=false, handle=STDOUT, color=true)
       @verbosity = verbosity
       @html = html
       @handle = handle
+      @color = color
       @summary = []
     end
 
     attr_reader :summary
     attr_accessor :verbosity
+    attr_accessor :color
     attr_accessor :quiet
     attr_accessor :html
     attr_accessor :handle
@@ -65,7 +68,8 @@ module MU
             details: nil,
             html: @html,
             verbosity: @verbosity,
-            handle: @handle
+            handle: @handle,
+            color: @color
     )
       verbosity = MU::Logger::NORMAL if verbosity.nil?
       return if verbosity == MU::Logger::SILENT
@@ -98,12 +102,14 @@ module MU
       # We get passed literal quoted newlines sometimes, fix 'em. Get Windows'
       # ugly line feeds too.
       if !details.nil?
+        details = details.dup # in case it's frozen or something
         details.gsub!(/\\n/, "\n")
         details.gsub!(/(\\r|\r)/, "")
       end
 
       msg = msg.first if msg.is_a?(Array)
       msg = "" if msg == nil
+      msg = msg.to_s if !msg.is_a?(String) and msg.respond_to?(:to_s)
 
       @@log_semaphere.synchronize {
         case level
@@ -114,9 +120,12 @@ module MU
               if @html
                 html_out "#{time} - #{caller_name} - #{msg}", "orange"
                 html_out "&nbsp;#{details}" if details
-              else
+              elsif color
                 handle.puts "#{time} - #{caller_name} - #{msg}".yellow.on_black
                 handle.puts "#{details}".white.on_black if details
+              else
+                handle.puts "#{time} - #{caller_name} - #{msg}"
+                handle.puts "#{details}" if details
               end
               Syslog.log(Syslog::LOG_DEBUG, msg.gsub(/%/, ''))
               Syslog.log(Syslog::LOG_DEBUG, details.gsub(/%/, '')) if details
@@ -125,14 +134,18 @@ module MU
             if verbosity >= MU::Logger::NORMAL
               if @html
                 html_out "#{time} - #{caller_name} - #{msg}", "green"
-              else
+              elsif color
                 handle.puts "#{time} - #{caller_name} - #{msg}".green.on_black
+              else
+                handle.puts "#{time} - #{caller_name} - #{msg}"
               end
               if verbosity >= MU::Logger::LOUD
                 if @html
                   html_out "&nbsp;#{details}"
-                else
+                elsif color
                   handle.puts "#{details}".white.on_black if details
+                else
+                  handle.puts "#{details}" if details
                 end
               end
               Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
@@ -141,14 +154,18 @@ module MU
           when NOTICE
             if @html
               html_out "#{time} - #{caller_name} - #{msg}", "yellow"
-            else
+            elsif color
               handle.puts "#{time} - #{caller_name} - #{msg}".yellow.on_black
+            else
+              handle.puts "#{time} - #{caller_name} - #{msg}"
             end
             if verbosity >= MU::Logger::LOUD
               if @html
                 html_out "#{caller_name} - #{msg}"
-              else
+              elsif color
                 handle.puts "#{details}".white.on_black if details
+              else
+                handle.puts "#{details}" if details
               end
             end
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
@@ -156,14 +173,18 @@ module MU
           when WARN
             if @html
               html_out "#{time} - #{caller_name} - #{msg}", "orange"
-            else
+            elsif color
               handle.puts "#{time} - #{caller_name} - #{msg}".light_red.on_black
+            else
+              handle.puts "#{time} - #{caller_name} - #{msg}"
             end
             if verbosity >= MU::Logger::LOUD
               if @html
                 html_out "#{caller_name} - #{msg}"
-              else
+              elsif color
                 handle.puts "#{details}".white.on_black if details
+              else
+                handle.puts "#{details}" if details
               end
             end
             Syslog.log(Syslog::LOG_WARNING, msg.gsub(/%/, ''))
@@ -172,9 +193,12 @@ module MU
             if @html
               html_out "#{time} - #{caller_name} - #{msg}", "red"
               html_out "&nbsp;#{details}" if details
-            else
+            elsif color
               handle.puts "#{time} - #{caller_name} - #{msg}".red.on_black
               handle.puts "#{details}".white.on_black if details
+            else
+              handle.puts "#{time} - #{caller_name} - #{msg}"
+              handle.puts "#{details}" if details
             end
             Syslog.log(Syslog::LOG_ERR, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_ERR, details.gsub(/%/, '')) if details
@@ -182,9 +206,12 @@ module MU
             if @html
               html_out "#{time} - #{caller_name} - #{msg}"
               html_out "&nbsp;#{details}" if details
-            else
+            elsif color
               handle.puts "#{time} - #{caller_name} - #{msg}".white.on_black
               handle.puts "#{details}".white.on_black if details
+            else
+              handle.puts "#{time} - #{caller_name} - #{msg}"
+              handle.puts "#{details}" if details
             end
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details

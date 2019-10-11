@@ -295,8 +295,25 @@ module MU
               retval = ssh.exec!(cmd) { |ch, stream, data|
                 puts data
                 output << data
-                raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
-                raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+                raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
+                if data.match(/#{error_signal}/)
+                  error_msg = ""
+                  clip = false
+                  output.each { |chunk|
+                    chunk.split(/\n/).each { |line|
+                      if !clip and line.match(/^========+/)
+                        clip = true
+                      elsif clip and line.match(/^Running handlers:/)
+                        break
+                      end
+
+                      if clip and line.match(/[a-z0-9]/)
+                        error_msg += line.gsub(/\e\[(\d+)m/, '')+"\n"
+                      end
+                    }
+                  }
+                  raise MU::Groomer::RunError, error_msg
+                end
               }
             }
           else
@@ -336,7 +353,7 @@ module MU
             if resp.exitcode == 1 and output.join("\n").match(/Chef Client finished/)
               MU.log "resp.exit code 1"
             elsif resp.exitcode != 0
-              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
+              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
             end
           end
@@ -397,10 +414,12 @@ module MU
             sleep 30
             retry
           else
+            @server.deploy.sendAdminSlack("Chef run '#{purpose}' failed on `#{@server.mu_name}` :crying_cat_face:", msg: e.message)
             raise MU::Groomer::RunError, "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times, last error was: #{e.message}"
           end
         rescue Exception => e
-          raise MU::Groomer::RunError, "Caught unexpected #{e.inspect} on #{@server.mu_name} in @groomer.run"
+          @server.deploy.sendAdminSlack("Chef run '#{purpose}' failed on `#{@server.mu_name}` :crying_cat_face:", msg: e.inspect)
+          raise MU::Groomer::RunError, "Caught unexpected #{e.inspect} on #{@server.mu_name} in @groomer.run at #{e.backtrace[0]}"
 
         end
 
@@ -440,20 +459,33 @@ module MU
           end
           guardfile = "/opt/mu_installed_chef"
 
-          ssh = @server.getSSHSession(15)
-          if leave_ours
-            MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
-            begin 
-              ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
-            rescue IOError => e
-              # TO DO - retry this in a cleaner way
-              MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE, details: %Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}}
-              ssh = @server.getSSHSession(15)
-              ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          retries = 0
+          begin
+            ssh = @server.getSSHSession(15)
+            Timeout::timeout(60) {
+              if leave_ours
+                MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
+                begin 
+                  ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+                rescue IOError => e
+                  # TO DO - retry this in a cleaner way
+                  MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE, details: %Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}}
+                  ssh = @server.getSSHSession(15)
+                  ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+                end
+              else
+                MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE
+                ssh.exec!(remove_cmd)
+              end
+            }
+          rescue Timeout::Error
+            if retries < 5
+              retries += 1
+              sleep 5
+              retry
+            else
+              raise MuError, "Failed to preClean #{@server.mu_name} after repeated timeouts"
             end
-          else
-            MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE
-            ssh.exec!(remove_cmd)
           end
   
           ssh.close
@@ -523,6 +555,7 @@ module MU
       def bootstrap
         self.class.loadChefLib
         stashHostSSLCertSecret
+        splunkVaultInit
         if !@config['cleaned_chef']
           begin
             leave_ours = @config['scrub_groomer'] ? false : true
@@ -654,8 +687,8 @@ retry
           end
         }
         knifeAddToRunList("role[mu-node]")
+        knifeAddToRunList("mu-tools::selinux")
 
-        splunkVaultInit
         grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?
         grantSecretAccess(@server.mu_name, "ssl_cert")
 
@@ -669,6 +702,7 @@ retry
           run(purpose: "Base configuration", update_runlist: false, max_retries: 20)
         end
         ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[mu-tools::updates]"], {}) if !@config['skipinitialupdates']
+        ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[mu-tools::selinux]"], {})
 
         # This will deal with Active Directory integration.
         if !@config['active_directory'].nil?
@@ -696,6 +730,11 @@ retry
       # @return [Hash]: The data synchronized.
       def saveDeployData
         self.class.loadChefLib
+        if !haveBootstrapped?
+          MU.log "saveDeployData invoked on #{@server.to_s} before Chef has been bootstrapped!", MU::WARN, details: caller
+          return
+        end
+
         @server.describe(update_cache: true) # Make sure we're fresh
         saveChefMetadata
         begin
@@ -724,10 +763,12 @@ retry
             }
           end
 
-          if chef_node.normal['deployment'] != @server.deploy.deployment
+          if !@server.deploy.deployment.nil? and 
+             (chef_node.normal['deployment'].nil? or 
+               (chef_node.normal['deployment'].to_h <=> @server.deploy.deployment) != 0
+             )
             MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
             chef_node.normal['deployment'].merge!(@server.deploy.deployment)
-            chef_node.normal['deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
             chef_node.save
           end
           return chef_node['deployment']
@@ -764,6 +805,15 @@ retry
         MU.log "knife client delete #{node}"
         if !noop
           knife_cd = ::Chef::Knife::ClientDelete.new(['client', 'delete', node])
+          knife_cd.config[:yes] = true
+          begin
+            knife_cd.run
+          rescue Net::HTTPServerException
+          end
+        end
+        MU.log "knife data bag delete #{node}"
+        if !noop
+          knife_cd = ::Chef::Knife::ClientDelete.new(['data', 'bag', 'delete', node])
           knife_cd.config[:yes] = true
           begin
             knife_cd.run
@@ -812,6 +862,7 @@ retry
         begin
           chef_node = ::Chef::Node.load(@server.mu_name)
         rescue Net::HTTPServerException
+          @server.deploy.sendAdminSlack("Couldn't load Chef metadata on `#{@server.mu_name}` :crying_cat_face:")
           raise MU::Groomer::RunError, "Couldn't load Chef node #{@server.mu_name}"
         end
 
@@ -821,6 +872,7 @@ retry
 
         chef_node.normal.app = @config['application_cookbook'] if !@config['application_cookbook'].nil?
         chef_node.normal["service_name"] = @config["name"]
+        chef_node.normal["credentials"] = @config["credentials"]
         chef_node.normal["windows_admin_username"] = @config['windows_admin_username']
         chef_node.chef_environment = MU.environment.downcase
         if @server.config['cloud'] == "AWS"

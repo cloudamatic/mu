@@ -341,6 +341,14 @@ module MU
           nil
         end
 
+        # Return the date/time a machine image was created.
+        # @param ami_id [String]: AMI identifier of an Amazon Machine Image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(ami_id, credentials: nil, region: nil)
+          MU::Cloud::AWS.imageTimeStamp(ami_id, credentials: credentials, region: region)
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource

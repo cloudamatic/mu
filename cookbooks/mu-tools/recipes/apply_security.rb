@@ -145,7 +145,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
       end
   
   
-      if node.normal.root_login_disabled
+      if node['root_login_disabled']
         #some code
       end
   
@@ -333,10 +333,9 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
         device node['application_attributes']['home']['mount_device']
         size node['application_attributes']['home']['volume_size_gb']
         preserve_data true
-        not_if "awk '{print $2}' < /etc/mtab | grep '^/home$'"
       end
 
-      Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
+      Chef::Log.info("Value of login_disabled is #{node['root_login_disabled']}")
   
       ruby_block "do a bunch of weird stuff" do # ~FC014
         block do

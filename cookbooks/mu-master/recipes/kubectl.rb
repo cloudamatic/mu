@@ -1,5 +1,5 @@
 # Cookbook Name:: mu-master
-# Recipe:: eks-kubectl
+# Recipe:: kubectl
 #
 # Copyright:: Copyright (c) 2018 eGlobalTech, Inc., all rights reserved
 #
@@ -23,13 +23,13 @@
 # templates.
 #
 remote_file "/opt/mu/bin/kubectl" do
-  source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/kubectl"
+  source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.14.6/2019-08-22/bin/linux/amd64/kubectl"
   mode 0755
-  not_if "test -f /opt/mu/bin/kubectl"
+  not_if "test -f /opt/mu/bin/kubectl && kubectl version --short | grep 1.14.6"
 end
 
 remote_file "/opt/mu/bin/aws-iam-authenticator" do
-  source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator"
+  source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.14.6/2019-08-22/bin/linux/amd64/aws-iam-authenticator"
   mode 0755
   not_if "test -f /opt/mu/bin/aws-iam-authenticator"
 end

@@ -416,9 +416,8 @@ module MU
           "platform" => {
               "type" => "string",
               "default" => "linux",
-              "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "win2k16", "centos7", "rhel7", "rhel71", "amazon"],
-# XXX change to reflect available keys in mu/defaults/amazon_images.yaml and mu/defaults/google_images.yaml
-              "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
+              "enum" => MU::Cloud.listPlatforms,
+              "description" => "Helps select default machine images, and enables correct grooming behavior based on operating system type.",
           },
           "run_list" => {
               "type" => "array",
@@ -504,11 +503,19 @@ module MU
           "description" => "Create individual server instances.",
           "properties" => {
               "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "A", need_zone: true),
+              "bastion" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Allow this server to be automatically used as a bastion host"
+              },
+              "image_id" => {
+                "type" => "string",
+                "description" => "The cloud provider image on which to base this instance. Will use the default appropriate for the +platform+, if not specified."
+              },
               "create_image" => {
                   "type" => "object",
                   "title" => "create_image",
                   "required" => ["image_then_destroy", "image_exclude_storage", "public"],
-                  "additionalProperties" => false,
                   "description" => "Create a reusable image of this server once it is complete.",
                   "properties" => {
                       "public" => {
@@ -574,7 +581,7 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
 
-        if !server['scrub_mu_isms']
+        if !server['scrub_mu_isms'] and server["cloud"] != "Azure"
           server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
         end
 
@@ -597,6 +604,16 @@ module MU
               "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],
               "phase" => "groom"
             }
+          elsif !server["vpc"]["name"].nil?
+            siblingvpc = configurator.haveLitterMate?(server["vpc"]["name"], "vpcs")
+            if siblingvpc and siblingvpc['bastion'] and
+               server['name'] != siblingvpc['bastion'].to_h['name']
+              server["dependencies"] << {
+                "type" => "server",
+                "name" => siblingvpc['bastion'].to_h['name'],
+                "phase" => "groom"
+              }
+            end
           end
         end
 

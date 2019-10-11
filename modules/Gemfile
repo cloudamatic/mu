@@ -25,7 +25,7 @@ gemspec :path => "../", :name => "cloud-mu"
 #gem 'color'
 gem 'rack'
 gem 'thin'
-gem 'berkshelf', '~> 7.0.6'
+gem 'berkshelf', '~> 7.0'
 gem 'pg', '~> 0.18.4'
 gem 'mysql2'
 gem 'ruby-wmi'

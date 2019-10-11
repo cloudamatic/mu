@@ -56,6 +56,10 @@ else
       raw "-A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT"
       position 97
     end
+    firewall_rule "inbound from NAT network" do
+      raw "-A INPUT -s #{$ip_block} -j ACCEPT"
+      position 98
+    end
     firewall_rule "NAT forwarding" do
       raw "-A FORWARD -s #{$ip_block} -j ACCEPT"
       position 98

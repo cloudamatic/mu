@@ -8,7 +8,7 @@ long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 14.0' if respond_to?(:chef_version)
-version '0.3.0'
+version '0.3.1'
 
 %w( centos ubuntu ).each do |os|
 	supports os

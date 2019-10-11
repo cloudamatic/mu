@@ -245,7 +245,7 @@ if $opts[:logs]
 
     resp = MU::Cloud::AWS.s3(credentials: credset).list_buckets
     resp.buckets.each { |bucket|
-      exists = true if bucket['name'] == bucketname
+      exists = true if bucket.name == bucketname
     }
     if !exists
       MU.log "Creating #{bucketname} bucket"

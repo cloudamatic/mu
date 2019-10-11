@@ -5,7 +5,8 @@
   "run_list": [
     "recipe[mu-tools::base_repositories]",
     "recipe[mu-tools::nrpe]",
-    "recipe[mu-master]"
+    "recipe[mu-master]",
+    "recipe[mu-master::kubectl]"
   ],
   "description": "Run List for Mu master servers",
   "chef_type": "role"

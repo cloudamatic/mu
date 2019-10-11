@@ -163,7 +163,7 @@ module MU
         end
         cluster["multi_az"] = true if cluster["node_count"] > 1
 
-        if !cluster['scrub_mu_isms']
+        if !cluster['scrub_mu_isms'] and cluster["cloud"] != "Azure"
           cluster['dependencies'] << configurator.adminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'], credentials: cluster['credentials'])
         end
 

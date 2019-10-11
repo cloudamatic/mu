@@ -370,6 +370,87 @@ module MU
       all_user_data
     end
 
+
+    @@kubectl_path = nil
+    # Locate a working +kubectl+ executable and return its fully-qualified
+    # path.
+    def self.kubectl
+      return @@kubectl_path if @@kubectl_path
+
+      paths = ["/opt/mu/bin"]+ENV['PATH'].split(/:/)
+      best = nil
+      best_version = nil
+      paths.uniq.each { |path|
+        if File.exists?(path+"/kubectl")
+          version = %x{#{path}/kubectl version --short --client}.chomp.sub(/.*Client version:\s+v/i, '')
+          next if !$?.success?
+          if !best_version or MU.version_sort(best_version, version) > 0
+            best_version = version
+            best = path+"/kubectl"
+          end
+        end
+      }
+      if !best
+        MU.log "Failed to find a working kubectl executable in any path", MU::WARN, details: paths.uniq.sort
+        return nil
+      else
+        MU.log "Kubernetes commands will use #{best} (#{best_version})"
+      end
+
+      @@kubectl_path = best
+      @@kubectl_path
+    end
+
+    # Given an array of hashes representing Kubernetes resources, 
+    def self.applyKubernetesResources(name, blobs = [], kubeconfig: nil, outputdir: nil)
+      use_tmp = false
+      if !outputdir
+        require 'tempfile'
+        use_tmp = true
+      end
+
+      count = 0
+      blobs.each { |blob|
+        f = nil
+        blobfile = if use_tmp
+          f = Tempfile.new("k8s-resource-#{count.to_s}-#{name}")
+          f.puts blob.to_yaml
+          f.close
+          f.path
+        else
+          path = outputdir+"/k8s-resource-#{count.to_s}-#{name}"
+          File.open(path, "w") { |f|
+            f.puts blob.to_yaml
+          }
+          path
+        end
+        done = false
+        retries = 0
+        begin
+          %x{#{kubectl} --kubeconfig "#{kubeconfig}" get -f #{blobfile} > /dev/null 2>&1}
+          arg = $?.exitstatus == 0 ? "apply" : "create"
+          cmd = %Q{#{kubectl} --kubeconfig "#{kubeconfig}" #{arg} -f #{blobfile}}
+          MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", MU::NOTICE, details: cmd
+          output = %x{#{cmd} 2>&1}
+          if $?.exitstatus == 0
+            MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
+            done = true
+          else
+            MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
+            if retries < 5
+              sleep 5
+            else
+              MU.log "Giving up on Kubernetes resource #{count.to_s} #{arg}"
+              done = true
+            end
+            retries += 1
+          end
+          f.unlink if use_tmp
+        end while !done
+        count += 1
+      }
+    end
+
     # Update Mu's local cache/metadata for the given user, fixing permissions
     # and updating stored values. Create a single-user group for the user, as
     # well.

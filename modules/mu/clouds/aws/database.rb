@@ -19,38 +19,22 @@ module MU
     class AWS
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-        attr_reader :groomer    
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
-          if !mu_name.nil?
-            @mu_name = mu_name
-          else
-            @mu_name ||=
-              if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
-                @deploy.getResourceName(@config["name"], max_length: 15)
-              else
-                @deploy.getResourceName(@config["name"], max_length: 63)
-              end
+          @mu_name ||=
+            if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
+              @deploy.getResourceName(@config["name"], max_length: 15)
+            else
+              @deploy.getResourceName(@config["name"], max_length: 63)
+            end
 
-            @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
-          end
+          @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -1465,7 +1449,7 @@ module MU
             },
             "serverless_scaling" => {
               "type" => "object",
-              "descriptions" => "Scaling configuration for a +serverless+ Aurora cluster",
+              "description" => "Scaling configuration for a +serverless+ Aurora cluster",
               "default" => {
                 "auto_pause" => false,
                 "min_capacity" => 2,

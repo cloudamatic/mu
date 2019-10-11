@@ -145,7 +145,7 @@ Environment='KUBELET_EXTRA_ARGS=$KUBELET_EXTRA_ARGS'
 
   ["/var/lib/kubelet/kubeconfig", "/root/.kube/config"].each { |kubecfg|
     template kubecfg do
-      source "kubeconfig.erb"
+      source "kubeconfig-eks.erb"
       variables(
         :endpoint => endpoint,
         :cluster => cluster,

@@ -34,27 +34,28 @@ module MU
       # Chunk of schema to reference a folder/OU, here to be embedded
       # into the schemas of other resources.
       def self.reference
-        {
-          "type" => "object",
-          "description" => "Deploy into or connect with resources in a specific account/project",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-            "id" => {
-              "type" => "string",
-              "description" => "Discover this folder/OU by looking by its cloud provider identifier "
-            },
-            "name" => {
-              "type" => "string",
-              "description" => "Discover this folder/OU by Mu-internal name; typically the shorthand 'name' field of an Folder object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
-            },
-            "cloud" => MU::Config.cloud_primitive,
-            "deploy_id" => {
-              "type" => "string",
-              "description" => "Search for this folder in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
-            }
-          }
-        }
+#        {
+#          "type" => "object",
+#          "description" => "Deploy into or connect with resources in a specific account/project",
+#          "minProperties" => 1,
+#          "additionalProperties" => false,
+#          "properties" => {
+#            "id" => {
+#              "type" => "string",
+#              "description" => "Discover this folder/OU by looking by its cloud provider identifier "
+#            },
+#            "name" => {
+#              "type" => "string",
+#              "description" => "Discover this folder/OU by Mu-internal name; typically the shorthand 'name' field of an Folder object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+#            },
+#            "cloud" => MU::Config.cloud_primitive,
+#            "deploy_id" => {
+#              "type" => "string",
+#              "description" => "Search for this folder in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
+#            }
+#          }
+#        }
+        MU::Config::Ref.schema(type: "folders")
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::folder}, bare and unvalidated.

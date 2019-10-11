@@ -104,7 +104,7 @@ if [ ! -f /opt/chef/embedded/bin/ruby ];then
 	set +e
 	# We may run afoul of a synchronous bootstrap process doing the same thing. So
 	# wait until we've managed to run successfully.
-	while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
+	while ! sh chef-install.sh -v <%= $mu.chefVersion %>;do
 		sleep 10
 	done
 	touch /opt/mu_installed_chef
@@ -117,7 +117,7 @@ if [ "$need_reboot" == "1" ];then
 fi
 <% end %>
 
-gsutil cp gs://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+gsutil cp gs://<%= $mu.adminBucketName %>/<%= $mu.muID %>-secret .
 
 echo '
 require "openssl"

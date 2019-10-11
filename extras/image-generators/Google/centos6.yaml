@@ -3,6 +3,7 @@
   servers: 
   - name: centos6
     cloud: Google
+    image_id: "centos-cloud/centos-6"
     platform: centos6
     ssh_user: centos
     size: g1-small

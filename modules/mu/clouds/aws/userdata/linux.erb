@@ -149,7 +149,7 @@ if [ ! -f /opt/chef/embedded/bin/ruby ];then
   set +e
   # We may run afoul of a synchronous bootstrap process doing the same thing. So
   # wait until we've managed to run successfully.
-  while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
+  while ! sh chef-install.sh -v <%= $mu.chefVersion %>;do
     sleep 10
   done
   touch /opt/mu_installed_chef
@@ -163,7 +163,7 @@ fi
 <% end %>
 
 if [ "$AWSCLI" != "" ];then
-  $AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+  $AWSCLI --region="$region" s3 cp s3://<%= $mu.adminBucketName %>/<%= $mu.muID %>-secret .
 fi
 
 echo '
