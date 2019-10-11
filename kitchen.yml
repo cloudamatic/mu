@@ -42,11 +42,11 @@ suites:
     run_list:
       - recipe[mu-tools::newclient]
       - recipe[mu-tools::gcloud]
-      - role[mu-node]
+      # - role[mu-node]
     includes:
-      # - ubuntu
+      - ubuntu
       - centos-7
-      # - centos-6
+      - centos-6
       # - rhel-7
       # - rhel-6
       # - amazon

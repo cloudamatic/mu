@@ -16,3 +16,4 @@ cloud-mu-*.gem
 coverage
 spec/mu.yaml
 spec/azure_creds
+.kitchen.local.yml
