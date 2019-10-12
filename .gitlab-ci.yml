@@ -171,7 +171,7 @@ Test Kitchen:
   image: chef/chefdk:latest
   script:
   - apt-get -qq update
-  - apt-get -qq -y install python34-setuptools
+  - apt-get -qq -y install python-setuptools
   - pip3 install awscli
   - kitchen test
   - kitchen create
