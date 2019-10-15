@@ -35,7 +35,7 @@ suites:
     provisioner:
       name:   shell
       script: "install/installer"
-      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/kitchen/installer -p $myip -e zach@zach.systems'
+      command: 'pwd && find / -name "installer" -type f' # && myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/kitchen/installer -p $myip -e zach@zach.systems'
       root_path: '/tmp/kitchen/'
     includes:
       - centos-7
