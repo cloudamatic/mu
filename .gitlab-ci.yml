@@ -172,7 +172,8 @@ Test Kitchen:
   script:
   - apt-get -qq update
   - apt-get -qq -y install python3-pip
-  - pip install awscli
+  - pip3 --version 
+  - pip3 install awscli
   - kitchen test
   - kitchen create
   - kitchen converge mu-install-amazon2
