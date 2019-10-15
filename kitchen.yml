@@ -34,9 +34,9 @@ suites:
   - name: mu-install
     provisioner:
       name:   shell
-      #script: "/builds/cloudamatic/mu/install/installer"
+      script: "/builds/cloudamatic/mu/install/installer"
       command: 'ls -la /tmp/ && myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"' #&& sudo MU_BRANCH=development /tmp/kitchen/installer -p $myip -e zach@zach.systems'
-      root_path: '/tmp/kitchen/'
+      root_path: '/tmp/'
     includes:
       - centos-7
       - amazon2
