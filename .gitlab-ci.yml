@@ -173,8 +173,7 @@ Test Kitchen:
   - apt-get -qq update
   - apt-get -qq -y install python3-pip
   - pip3 install awscli
-  - pwd && find / -name "installer" -type f
-  - kitchen test mu-install-amazon2
+  - kitchen test
   only:
   - master
   - development
