@@ -1128,15 +1128,28 @@ next if !create
           # Skip nodes that are just members of GKE clusters
           if bok['name'].match(/^gke-.*?-[a-f0-9]+-[a-z0-9]+$/) and
              bok['image_id'].match(/(:?^|\/)projects\/gke-node-images\//)
-            gke_ish = true
+            found_gke_tag = false
             bok['network_tags'].each { |tag|
-              gke_ish = false if !tag.match(/^gke-/)
+              if tag.match(/^gke-/)
+                found_gke_tag = true
+                break
+              end
             }
-            if gke_ish
-              MU.log "Server #{bok['name']} appears to belong to a ContainerCluster, skipping adoption", MU::NOTICE
+            if found_gke_tag
+              MU.log "Server #{bok['name']} appears to belong to a ContainerCluster, skipping adoption", MU::DEBUG
               return nil
             end
           end
+
+          if bok['metadata']
+            bok['metadata'].each { |item|
+              if item[:key] == "created-by" and item[:value].match(/\/instanceGroupManagers\//)
+                MU.log "Server #{bok['name']} appears to belong to a ServerPool, skipping adoption", MU::DEBUG, details: item[:value]
+                return nil
+              end
+            }
+          end
+
 
           bok
         end

@@ -290,13 +290,19 @@ module MU
             }
             if saw_match and !saw_mismatch
               # populate empty fields we got from this request
-              needed_values.each { |field|
-                ref.instance_variable_set("@#{field.to_s}".to_sym, cfg[field])
-                if !ref.respond_to?(field)
-                  ref.singleton_class.instance_eval { attr_reader field.to_sym }
-                end
-              }
-              return ref
+              if needed_values.size > 0
+                newref = ref.dup
+                needed_values.each { |field|
+                  newref.instance_variable_set("@#{field.to_s}".to_sym, cfg[field])
+                  if !newref.respond_to?(field)
+                    newref.singleton_class.instance_eval { attr_reader field.to_sym }
+                  end
+                }
+                @@refs << newref
+                return newref
+              else
+                return ref
+              end
             end
           }
 
