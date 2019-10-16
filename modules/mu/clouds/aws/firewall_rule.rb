@@ -699,7 +699,7 @@ module MU
                 rule['sgs'].uniq!
                 rule['sgs'].each { |sg_name|
                   dependencies # Make sure our cache is fresh
-                  sg = @deploy.findLitterMate(type: "firewall_rule", name: sg_name)
+                  sg = @deploy.findLitterMate(type: "firewall_rule", name: sg_name) if @deploy
                   sg ||= if sg_name == @config['name']
                     self
                   elsif @dependencies.has_key?("firewall_rule") and
