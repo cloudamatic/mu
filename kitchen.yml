@@ -35,7 +35,7 @@ suites:
     provisioner:
       name:   shell
       script: "/builds/cloudamatic/mu/install/installer"
-      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -e zach@zach.systems'
+      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -h $HOSTNAME -o 2260'
       root_path: '/tmp/'
     includes:
       - centos-7
