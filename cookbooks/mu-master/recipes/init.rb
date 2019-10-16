@@ -386,7 +386,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
   end
 end
 
-["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
+["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh", "mu-adopt"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end
