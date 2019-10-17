@@ -9,6 +9,7 @@ stages:
   - Merge/Tag
   - Dockerbuild
   - Deploy
+  - Cleanup
   
 Rubocop:
   stage: Lint Test
@@ -174,6 +175,17 @@ Test Kitchen:
   - apt-get -qq -y install python3-pip
   - pip3 install awscli
   - kitchen test
+  only:
+  - master
+  - development
+  - mess_with_test_kitchen
+
+Cleanup Kitchen:
+  stage: Cleanup
+  image: chef/chefdk:latest
+  script:
+  - kitchen destroy
+  when: on_failure
   only:
   - master
   - development
