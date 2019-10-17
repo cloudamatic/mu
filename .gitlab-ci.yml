@@ -9,7 +9,6 @@ stages:
   - Merge/Tag
   - Dockerbuild
   - Deploy
-  - Cleanup
   
 Rubocop:
   stage: Lint Test
@@ -179,17 +178,8 @@ Test Kitchen:
   - master
   - development
   - mess_with_test_kitchen
-
-Cleanup Kitchen:
-  stage: Cleanup
-  image: chef/chefdk:latest
-  script:
+  after_script:
   - kitchen destroy
-  when: on_failure
-  only:
-  - master
-  - development
-  - mess_with_test_kitchen
 
 Smoke Test:
   stage: Smoke Test
