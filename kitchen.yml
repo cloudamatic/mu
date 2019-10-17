@@ -2,7 +2,8 @@ driver:
   name: ec2
   region: us-east-1
   subnet_id: subnet-00f6ebfde53bbdccd
-  instance_type: t3.medium
+  instance_type: t2.medium
+  iam_profile_name: mu-master-role
   associate_public_ip: true
   interface: dns
   shared_credentials_profile: test_kitchen
