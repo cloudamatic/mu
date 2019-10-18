@@ -71,6 +71,10 @@ module MU
                 min_node_count: @config['min_size'],
                 max_node_count: @config['max_size'],
               ),
+              management: MU::Cloud::Google.container(:NodeManagement).new(
+                auto_upgrade: @config['auto_upgrade'],
+                auto_repair: @config['auto_repair']
+              ),
               config: MU::Cloud::Google.container(:NodeConfig).new(node_desc)
             )
           else
@@ -468,6 +472,8 @@ module MU
         def self.find(**args)
           args[:project] ||= args[:habitat]
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          location = args[:region] || args[:availability_zone] || "-"
+
           found = {}
 
           if args[:cloud_id]
@@ -479,7 +485,7 @@ module MU
             found[args[:cloud_id]] = resp if resp
           else
             resp = begin
-              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/-")
+              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/#{location}")
             rescue ::Google::Apis::ClientError => e
               raise e if !e.message.match(/forbidden:/)
             end
@@ -610,8 +616,6 @@ module MU
             bok['kubernetes']['alpha'] = true
           end
 
-#            :tags => [@mu_name.downcase],
-
           if cloud_desc.node_pools and cloud_desc.node_pools.size > 0
             pool = cloud_desc.node_pools.first # we don't really support multiples atm
             bok["instance_type"] = pool.config.machine_type
@@ -625,6 +629,12 @@ module MU
             if pool.autoscaling and pool.autoscaling.enabled
               bok['max_size'] = pool.autoscaling.max_node_count
               bok['min_size'] = pool.autoscaling.min_node_count
+            end
+            bok['auto_repair'] = false
+            bok['auto_upgrade'] = false
+            if pool.management
+              bok['auto_repair'] = true if pool.management.auto_repair
+              bok['auto_upgrade'] = true if pool.management.auto_upgrade
             end
             [:local_ssd_count, :min_cpu_platform, :image_type, :disk_size_gb, :preemptible, :service_account].each { |field|
               if pool.config.respond_to?(field)
@@ -793,6 +803,16 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "auto_upgrade" => {
+              "type" => "boolean",
+              "description" => "Automatically upgrade worker nodes during maintenance windows",
+              "default" => true
+            },
+            "auto_repair" => {
+              "type" => "boolean",
+              "description" => "Automatically replace worker nodes which fail health checks",
+              "default" => true
+            },
             "local_ssd_count" => {
               "type" => "integer",
               "description" => "The number of local SSD disks to be attached to workers. See https://cloud.google.com/compute/docs/disks/local-ssd#local_ssd_limits"

@@ -1250,7 +1250,7 @@ raise "NAH"
 
         # See if the thing we're looking for is a member of the deploy that's
         # asking after it.
-        if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
+        if !deploy_id.nil? and !calling_deploy.nil? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
           handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
           return [handle] if !handle.nil?
@@ -1258,7 +1258,7 @@ raise "NAH"
 
         kittens = {}
         # Search our other deploys for matching resources
-        if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
+        if (deploy_id or name or mu_name or cloud_id)
           MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
           # Check our in-memory cache of live deploys before resorting to
