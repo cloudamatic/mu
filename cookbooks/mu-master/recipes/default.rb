@@ -187,8 +187,16 @@ if !node['update_nagios_only']
   include_recipe "apache2::mod_proxy"
   include_recipe "apache2::mod_proxy_http"
   include_recipe "apache2::mod_rewrite"
-  include_recipe "apache2::mod_ldap"
-  include_recipe "apache2::mod_authnz_ldap"
+
+  if node['platform_family'] == "rhel" and node['platform_version'].split('.')[0].to_i == 6
+    package "httpd24-mod_ldap"
+    apache_module 'ldap' do
+      conf true
+    end
+  else
+    include_recipe "apache2::mod_authnz_ldap"
+  end
+
   apache_site "default" do
     enable false
   end
