@@ -159,6 +159,8 @@ module MU
         return MU::Cloud::Azure.hosted?
       end
 
+      # If we're running this cloud, return the $MU_CFG blob we'd use to
+      # describe this environment as our target one.
       def self.hosted_config
         return nil if !hosted?
         region = get_metadata()['compute']['location']
@@ -215,9 +217,9 @@ module MU
             # MU.log "Found default subscription in mu.yml. Using that..."
             @@default_subscription = cfg['subscription']
 
-          elsif list_subscriptions().length == 1
+          elsif listSubscriptions().length == 1
             #MU.log "Found a single subscription on your account. Using that... (This may be incorrect)", MU::WARN, details: e.message
-            @@default_subscription = list_subscriptions()[0]
+            @@default_subscription = listSubscriptions()[0]
 
           elsif MU::Cloud::Azure.hosted?
             #MU.log "Found a subscriptionID in my metadata. Using that... (This may be incorrect)", MU::WARN, details: e.message
@@ -231,7 +233,9 @@ module MU
         return @@default_subscription
       end
 
-      # LIST THE REGIONS FROM AZURE
+      # List visible Azure regions
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # return [Array<String>]
       def self.listRegions(credentials: nil)
         cfg = credConfig(credentials)
         return nil if !cfg
@@ -242,7 +246,7 @@ module MU
         end
         
         begin
-          sdk_response = MU::Cloud::Azure.subs.subscriptions().list_locations(subscription)
+          sdk_response = MU::Cloud::Azure.subs(credentials: credentials).subscriptions().list_locations(subscription)
         rescue Exception => e
           MU.log e.inspect, MU::ERR, details: e.backtrace
           #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
@@ -257,10 +261,13 @@ module MU
         return @@regions
       end
 
-      def self.list_subscriptions()
+      # List subscriptions visible to the given credentials
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # return [Array<String>]
+      def self.listSubscriptions(credentials = nil)
         subscriptions = []
 
-        sdk_response = MU::Cloud::Azure.subs.subscriptions().list
+        sdk_response = MU::Cloud::Azure.subs(credentials: credentials).subscriptions().list
 
         sdk_response.each do |subscription|
           subscriptions.push(subscription.subscription_id)
@@ -269,6 +276,11 @@ module MU
         return subscriptions
       end
 
+      # List the Availability Zones associated with a given Azure region.
+      # If no region is given, search the one in which this MU master
+      # server resides (if it resides in this cloud provider's ecosystem).
+      # @param region [String]: The region to search.
+      # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = nil)
         az_list = ['1', '2', '3']
 
@@ -282,6 +294,7 @@ module MU
         return az_list
       end
 
+      # A non-working example configuration
       def self.config_example
         sample = hosted_config
         sample ||= {
@@ -315,7 +328,7 @@ module MU
       # Purge cloud-specific deploy meta-artifacts (SSH keys, resource groups,
       # etc)
       # @param deploy_id [String]
-      # @param credentials [String]
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
         threads = []
 
@@ -336,6 +349,9 @@ module MU
         }
       end
 
+      # Azure resources are deployed into a containing artifact called a Resource Group, which we will map 1:1 with Mu deployments
+      # @param name [String]: A name for this resource group
+      # @param region [String]: The region in which to create this resource group
       def self.createResourceGroup(name, region, credentials: nil)
         rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
         rg_obj.location = region
@@ -355,8 +371,11 @@ module MU
         )
       end
 
+      # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
+      # @param deploy_id [String]: The deploy for which we're writing the secret
+      # @param value [String]: The contents of the secret
       def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
-        
+# XXX this ain't it hoss
       end
 
       # Return the name strings of all known sets of credentials for this cloud
@@ -369,8 +388,12 @@ module MU
         $MU_CFG['azure'].keys
       end
 
+      # Return what we think of as a cloud object's habitat.  If this is not
+      # applicable, such as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::Azure]: The resource from which to extract the habitat id
+      # @return [String,nil]
       def self.habitat(cloudobj, nolookup: false, deploy: nil)
-        nil
+        nil # we don't know how to do anything with subscriptions yet, really
       end
 
       @@my_hosted_cfg = nil
@@ -433,11 +456,19 @@ module MU
 
         @@instance_types
       end
-      
+
+      # Resolve the administrative Cloud Storage bucket for a given credential
+      # set, or return a default.
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [String]
       def self.adminBucketName(credentials = nil)
         "TODO"
       end
 
+      # Resolve the administrative Cloud Storage bucket for a given credential
+      # set, or return a default.
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [String]
       def self.adminBucketUrl(credentials = nil)
         "TODO"
       end
@@ -469,7 +500,7 @@ module MU
       # Map our SDK authorization options from MU configuration into an options
       # hash that Azure understands. Raises an exception if any fields aren't
       # available.
-      # @param credentials [String]
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [Hash]
       def self.getSDKOptions(credentials = nil)
         cfg = credConfig(credentials)
@@ -513,7 +544,7 @@ module MU
       # Find or allocate a static public IP address resource
       # @param resource_group [String]
       # @param name [String]
-      # @param credentials [String]
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @param region [String]
       # @param tags [Hash<String>]
       # @return [Azure::Network::Mgmt::V2019_02_01::Models::PublicIPAddress]
@@ -542,7 +573,7 @@ module MU
       # @param model [<Azure::Apis::Subscriptions::Mgmt::V2015_11_01::Models>]: If specified, will return the class ::Azure::Apis::Subscriptions::Mgmt::V2015_11_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
       # @param alt_object [String]: Return an instance of something other than the usual API client object
-      # @param credentials [String]:
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
       def self.subs(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_11_01")
         require 'azure_mgmt_subscriptions'
@@ -560,7 +591,7 @@ module MU
       # @param model [<Azure::Apis::Subscriptions::Mgmt::V2018_03_01_preview::Models>]: If specified, will return the class ::Azure::Apis::Subscriptions::Mgmt::V2018_03_01_preview::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
       # @param alt_object [String]: Return an instance of something other than the usual API client object
-      # @param credentials [String]:
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
       def self.subfactory(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_03_01_preview")
         require 'azure_mgmt_subscriptions'
@@ -578,7 +609,7 @@ module MU
       # @param model [<Azure::Apis::Compute::Mgmt::V2019_04_01::Models>]: If specified, will return the class ::Azure::Apis::Compute::Mgmt::V2019_04_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
       # @param alt_object [String]: Return an instance of something other than the usual API client object
-      # @param credentials [String]:
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
       def self.compute(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_03_01")
         require 'azure_mgmt_compute'
@@ -596,7 +627,7 @@ module MU
       # @param model [<Azure::Apis::Network::Mgmt::V2019_02_01::Models>]: If specified, will return the class ::Azure::Apis::Network::Mgmt::V2019_02_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
       # @param alt_object [String]: Return an instance of something other than the usual API client object
-      # @param credentials [String]:
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
       def self.network(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_02_01")
         require 'azure_mgmt_network'
@@ -610,14 +641,30 @@ module MU
         return @@network_api[credentials]
       end
 
-      def self.storage(model = nil, alt_object: nil, credentials: nil)
+      # The Azure Storage API
+      # @param model [<Azure::Apis::Storage::Mgmt::V2019_04_01::Models>]: If specified, will return the class ::Azure::Apis::Storage::Mgmt::V2019_04_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.storage(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_04_01")
         require 'azure_mgmt_storage'
 
-        @@storage_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Storage", credentials: credentials, subclass: alt_object)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Storage").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@storage_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Storage", credentials: credentials, subclass: alt_object)
+        end
 
         return @@storage_api[credentials]
       end
 
+      # The Azure ApiManagement API
+      # @param model [<Azure::Apis::ApiManagement::Mgmt::V2019_01_01::Models>]: If specified, will return the class ::Azure::Apis::ApiManagement::Mgmt::V2019_01_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.apis(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_01_01")
         require 'azure_mgmt_api_management'
 
@@ -630,6 +677,12 @@ module MU
         return @@apis_api[credentials]
       end
 
+      # The Azure MarketplaceOrdering API
+      # @param model [<Azure::Apis::MarketplaceOrdering::Mgmt::V2015_06_01::Models>]: If specified, will return the class ::Azure::Apis::MarketplaceOrdering::Mgmt::V2015_06_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.marketplace(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_06_01")
         require 'azure_mgmt_marketplace_ordering'
 
@@ -642,6 +695,12 @@ module MU
         return @@marketplace_api[credentials]
       end
 
+      # The Azure Resources API
+      # @param model [<Azure::Apis::Resources::Mgmt::V2018_05_01::Models>]: If specified, will return the class ::Azure::Apis::Resources::Mgmt::V2018_05_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.resources(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_05_01")
         require 'azure_mgmt_resources'
 
@@ -654,6 +713,12 @@ module MU
         return @@resources_api[credentials]
       end
 
+      # The Azure Features API
+      # @param model [<Azure::Apis::Features::Mgmt::V2015_12_01::Models>]: If specified, will return the class ::Azure::Apis::Features::Mgmt::V2015_12_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.features(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_12_01")
         require 'azure_mgmt_features'
 
@@ -666,6 +731,12 @@ module MU
         return @@features_api[credentials]
       end
 
+      # The Azure ContainerService API
+      # @param model [<Azure::Apis::ContainerService::Mgmt::V2019_04_01::Models>]: If specified, will return the class ::Azure::Apis::ContainerService::Mgmt::V2019_04_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.containers(model = nil, alt_object: nil, credentials: nil, model_version: "V2019_04_01")
         require 'azure_mgmt_container_service'
 
@@ -678,11 +749,17 @@ module MU
         return @@containers_api[credentials]
       end
 
-      def self.serviceaccts(model = nil, alt_object: nil, credentials: nil)
+      # The Azure ManagedServiceIdentity API
+      # @param model [<Azure::Apis::ManagedServiceIdentity::Mgmt::V2015_08_31_preview::Models>]: If specified, will return the class ::Azure::Apis::ManagedServiceIdentity::Mgmt::V2015_08_31_preview::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.serviceaccts(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_08_31_preview")
         require 'azure_mgmt_msi'
 
         if model and model.is_a?(Symbol)
-          return Object.const_get("Azure").const_get("ManagedServiceIdentity").const_get("Mgmt").const_get("V2015_08_31_preview").const_get("Models").const_get(model)
+          return Object.const_get("Azure").const_get("ManagedServiceIdentity").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
           @@service_identity_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "ManagedServiceIdentity", credentials: credentials, subclass: alt_object)
         end
@@ -690,6 +767,12 @@ module MU
         return @@service_identity_api[credentials]
       end
 
+      # The Azure Authorization API
+      # @param model [<Azure::Apis::Authorization::Mgmt::V2015_07_01::Models>]: If specified, will return the class ::Azure::Apis::Authorization::Mgmt::V2015_07_01::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
       def self.authorization(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_07_01")
         require 'azure_mgmt_authorization'
 
@@ -702,14 +785,28 @@ module MU
         return @@authorization_api[credentials]
       end
 
-      def self.billing(model = nil, alt_object: nil, credentials: nil)
+      # The Azure Billing API
+      # @param model [<Azure::Apis::Billing::Mgmt::V2018_03_01_preview::Models>]: If specified, will return the class ::Azure::Apis::Billing::Mgmt::V2018_03_01_preview::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.billing(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_03_01_preview")
         require 'azure_mgmt_billing'
 
-        @@billing_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Billing", credentials: credentials, subclass: alt_object)
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("Billing").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@billing_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Billing", credentials: credentials, subclass: alt_object)
+        end
 
         return @@billing_api[credentials]
       end
 
+      # Make sure that a provider is enabled ("Registered" in Azure-ese).
+      # @param provider [String]: Provider name, typically formatted like +Microsoft.ContainerService+ 
+      # @param force [Boolean]: Run the operation even if the provider already appears to be enabled
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       def self.ensureProvider(provider, force: false, credentials: nil)
         state = MU::Cloud::Azure.resources(credentials: credentials).providers.get(provider)
         if state.registration_state != "Registered" or force
@@ -728,6 +825,9 @@ module MU
         end
       end
 
+      # Make sure that a feature is enabled ("Registered" in Azure-ese), usually invoked for preview features which are off by default.
+      # @param feature_string [String]: The name of a feature, such as +WindowsPreview+
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       def self.ensureFeature(feature_string, credentials: nil)
         provider, feature = feature_string.split(/\//)
         feature_state = MU::Cloud::Azure.features(credentials: credentials).features.get(provider, feature)
