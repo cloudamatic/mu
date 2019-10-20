@@ -98,7 +98,7 @@ $CONFIGURABLES = {
     "title" => "Momma Cat Listen Port",
     "pattern" => /^[0-9]+$/i,
     "default" => 2260,
-    "required" => true,
+    "required" => $IN_GEM,
     "desc" => "Listen port for the Momma Cat grooming daemon",
     "changes" => ["chefrun"]
   },
