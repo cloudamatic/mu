@@ -794,6 +794,7 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          gke_defaults = defaults
           schema = {
             "auto_upgrade" => {
               "type" => "boolean",
@@ -902,9 +903,9 @@ module MU
             },
             "image_type" => {
               "type" => "string",
-              "enum" => defaults.valid_image_types,
+              "enum" => gke_defaults ? gke_defaults.valid_image_types : ["COS"],
               "description" => "The image type to use for workers. Note that for a given image type, the latest version of it will be used.",
-              "default" => defaults.default_image_type
+              "default" => gke_defaults ? gke_defaults.default_image_type : "COS"
             },
             "availability_zone" => {
               "type" => "string",
@@ -1200,6 +1201,7 @@ module MU
         @@server_config = {}
         def self.defaults(credentials = nil, az: nil)
           az ||= MU::Cloud::Google.listAZs.sample
+          return nil if az.nil?
           @@server_config[credentials] ||= {}
           if @@server_config[credentials][az]
             return @@server_config[credentials][az]

@@ -678,6 +678,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
       # @return [Hash]
       def self.listInstanceTypes(region = self.myRegion, credentials: nil, project: MU::Cloud::Google.defaultProject)
+        return {} if !credConfig(credentials)
         if @@instance_types and
            @@instance_types[project] and
            @@instance_types[project][region]
@@ -715,6 +716,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = self.myRegion)
+        return [] if !credConfig
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
         raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
         @@regions[region]
