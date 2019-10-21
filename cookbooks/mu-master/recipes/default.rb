@@ -19,7 +19,7 @@
 # XXX this is nonsense if we're not in AWS
 response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
 instance_id = response.body
-search_domains = ["ec2.internal", "sclearerver.#{instance_id}.platform-mu", "platform-mu"]
+search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
