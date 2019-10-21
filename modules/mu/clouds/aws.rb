@@ -164,7 +164,11 @@ module MU
       # @param r [String]
       # @return [String]
       def self.validate_region(r)
-        MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+        begin
+          MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+        rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
+          raise MuError, "Got #{e.message} trying to validate region #{r}"
+        end
       end
 
       # Tag a resource with all of our standard identifying tags.
