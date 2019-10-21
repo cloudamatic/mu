@@ -1419,7 +1419,7 @@ module MU
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
-            if @vpc.config['bastion'] and
+            if @vpc and @vpc.config and @vpc.config['bastion'] and
                @vpc.config['bastion'].to_h['name'] != @config['name']
               refhash = @vpc.config['bastion'].to_h
               refhash['deploy_id'] ||= @vpc.deploy.deploy_id
@@ -1468,7 +1468,9 @@ module MU
           end
 
           # Google accounts usually have a useful default VPC we can use
-          if @vpc.nil? and @project_id and @cloud == "Google"
+          if @vpc.nil? and @project_id and @cloud == "Google" and
+             self.class.can_live_in_vpc
+            MU.log "Seeing about default VPC for #{self.to_s}", MU::NOTICE
             vpcs = MU::MommaCat.findStray(
               "Google",
               "vpc",

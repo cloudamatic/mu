@@ -266,7 +266,7 @@ module MU
       # @return [MU::Config::Ref]
       def self.get(cfg)
         return cfg if cfg.is_a?(MU::Config::Ref)
-        checkfields = [:cloud, :type, :id, :region, :credentials, :habitat, :deploy_id, :name]
+        checkfields = cfg.keys.map { |k| k.to_sym }
         required = [:id, :type]
 
         @@ref_semaphore.synchronize {
@@ -274,10 +274,14 @@ module MU
           @@refs.each { |ref|
             saw_mismatch = false
             saw_match = false
+            needed_values = []
             checkfields.each { |field|
               next if !cfg[field]
               ext_value = ref.instance_variable_get("@#{field.to_s}".to_sym)
-              next if !ext_value
+              if !ext_value
+                needed_values << field
+                next
+              end
               if cfg[field] != ext_value
                 saw_mismatch = true
               elsif required.include?(field) and cfg[field] == ext_value
@@ -285,7 +289,20 @@ module MU
               end
             }
             if saw_match and !saw_mismatch
-              return ref
+              # populate empty fields we got from this request
+              if needed_values.size > 0
+                newref = ref.dup
+                needed_values.each { |field|
+                  newref.instance_variable_set("@#{field.to_s}".to_sym, cfg[field])
+                  if !newref.respond_to?(field)
+                    newref.singleton_class.instance_eval { attr_reader field.to_sym }
+                  end
+                }
+                @@refs << newref
+                return newref
+              else
+                return ref
+              end
             end
           }
 

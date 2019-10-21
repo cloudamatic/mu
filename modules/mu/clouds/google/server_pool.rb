@@ -168,12 +168,7 @@ module MU
         end
 
         # Locate an existing ServerPool or ServerPools and return an array containing matching Google resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
         def self.find(**args)
           args[:project] ||= args[:habitat]
           args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])

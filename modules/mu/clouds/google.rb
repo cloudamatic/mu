@@ -504,19 +504,33 @@ MU.log e.message, MU::WARN, details: e.inspect
           data = nil
           @@authorizers[credentials] ||= {}
   
-          def self.get_machine_credentials(scopes)
+          def self.get_machine_credentials(scopes, credentials = nil)
             @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
             MU.log "We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
 
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth.get_application_default(scopes)
             @@authorizers[credentials][scopes.to_s].fetch_access_token!
             @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
+            begin
+              listRegions(credentials: credentials)
+              listInstanceTypes(credentials: credentials)
+              listProjects(credentials)
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
+              @@authorizers.delete(credentials)
+              return nil
+            end
             @@authorizers[credentials][scopes.to_s]
           end
 
-          if cfg["credentials_file"]
+          if cfg["credentials_file"] or cfg["credentials_encoded"]
+
             begin
-              data = JSON.parse(File.read(cfg["credentials_file"]))
+              data = if cfg["credentials_encoded"]
+                JSON.parse(Base64.decode64(cfg["credentials_encoded"]))
+              else
+                JSON.parse(File.read(cfg["credentials_file"]))
+              end
               @@default_project ||= data["project_id"]
               creds = {
                 :json_key_io => StringIO.new(MultiJson.dump(data)),
@@ -530,7 +544,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise MuError, "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid (#{e.message})"
               end
               MU.log "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
-              return get_machine_credentials(scopes)
+              return get_machine_credentials(scopes, credentials)
             end
           elsif cfg["credentials"]
             begin
@@ -541,7 +555,9 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
               end
               MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}", MU::WARN
-              return get_machine_credentials(scopes)
+              found = get_machine_credentials(scopes, credentials)
+              raise MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+              return found
             end
 
             @@default_project ||= data["project_id"]
@@ -553,7 +569,9 @@ MU.log e.message, MU::WARN, details: e.inspect
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
             return @@authorizers[credentials][scopes.to_s]
           elsif MU::Cloud::Google.hosted?
-            return get_machine_credentials(scopes)
+            found = get_machine_credentials(scopes, credentials)
+            raise MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+            return found
           else
             raise MuError, "Google Cloud credentials not configured"
           end
@@ -673,6 +691,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
       # @return [Hash]
       def self.listInstanceTypes(region = self.myRegion, credentials: nil, project: MU::Cloud::Google.defaultProject)
+        return {} if !credConfig(credentials)
         if @@instance_types and
            @@instance_types[project] and
            @@instance_types[project][region]
@@ -710,6 +729,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = self.myRegion)
+        return [] if !credConfig
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
         raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
         @@regions[region]
@@ -989,6 +1009,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           @masquerade = masquerade
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(@scopes, credentials: credentials)
+          raise MuError, "No useable Google credentials found#{credentials ? " with set '#{credentials}'" : ""}" if @api.authorization.nil?
           if @masquerade
             begin
               @api.authorization.sub = @masquerade

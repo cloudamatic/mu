@@ -36,6 +36,6 @@ end
 
 # in brand new accounts where no load balancer has been created, something
 # has to do this before EKS has to, because by default it can't
-execute "aws iam create-service-linked-role --aws-service-name 'elasticloadbalancing.amazonaws.com'" do
-  not_if "aws iam list-roles | grep /aws-service-role/elasticloadbalancing.amazonaws.com/"
+execute "PATH=\"/usr/local/python-current/bin:${PATH}\" aws iam create-service-linked-role --aws-service-name 'elasticloadbalancing.amazonaws.com'" do
+  not_if "PATH=\"/usr/local/python-current/bin:${PATH}\" aws iam list-roles | grep /aws-service-role/elasticloadbalancing.amazonaws.com/"
 end

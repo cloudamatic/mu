@@ -220,6 +220,7 @@ module MU
             end
 
             desc[:ip_allocation_policy] = MU::Cloud::Google.container(:IpAllocationPolicy).new(alloc_desc)
+            pp alloc_desc
           end
 
           if @config['authorized_networks'] and @config['authorized_networks'].size > 0
@@ -578,15 +579,6 @@ module MU
             if cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
               bok['custom_subnet']['node_ip_block'] = cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
             end
-          else
-            if cloud_desc.ip_allocation_policy.services_secondary_range_name and
-               !cloud_desc.ip_allocation_policy.services_secondary_range_name.match(/^gke-#{cloud_desc.name}-services-[a-f\d]{8}$/)
-              bok['services_ip_block_name'] = cloud_desc.ip_allocation_policy.services_secondary_range_name
-            end
-            if cloud_desc.ip_allocation_policy.cluster_secondary_range_name and
-               !cloud_desc.ip_allocation_policy.services_secondary_range_name.match(/^gke-#{cloud_desc.name}-pods-[a-f\d]{8}$/)
-              bok['pod_ip_block_name'] = cloud_desc.ip_allocation_policy.cluster_secondary_range_name
-            end
           end
 
           bok['log_facility'] = if cloud_desc.logging_service == "logging.googleapis.com"
@@ -802,6 +794,7 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          gke_defaults = defaults
           schema = {
             "auto_upgrade" => {
               "type" => "boolean",
@@ -910,9 +903,9 @@ module MU
             },
             "image_type" => {
               "type" => "string",
-              "enum" => defaults.valid_image_types,
+              "enum" => gke_defaults ? gke_defaults.valid_image_types : ["COS"],
               "description" => "The image type to use for workers. Note that for a given image type, the latest version of it will be used.",
-              "default" => defaults.default_image_type
+              "default" => gke_defaults ? gke_defaults.default_image_type : "COS"
             },
             "availability_zone" => {
               "type" => "string",
@@ -1208,6 +1201,7 @@ module MU
         @@server_config = {}
         def self.defaults(credentials = nil, az: nil)
           az ||= MU::Cloud::Google.listAZs.sample
+          return nil if az.nil?
           @@server_config[credentials] ||= {}
           if @@server_config[credentials][az]
             return @@server_config[credentials][az]

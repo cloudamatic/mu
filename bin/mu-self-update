@@ -200,7 +200,7 @@ fi
 
 /bin/rm -rf /root/.berkshelf/
 if [ "$rebuild_chef_artifacts" == "1" ];then
-  cd $MU_LIBDIR && berks install
+  cd $MU_LIBDIR && berks install && berks update
   $bindir/mu-upload-chef-artifacts -p
 fi
 

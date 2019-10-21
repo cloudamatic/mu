@@ -182,7 +182,7 @@ when 'rhel'
 
   case node['platform_version'].split('.')[0].to_i
   when 6
-    basepackages.concat(["mysql-devel"])
+    basepackages.concat(["cryptsetup-luks", "mysql-devel", "centos-release-scl"])
     removepackages = ["nagios"]
 
   when 7
@@ -317,12 +317,19 @@ execute "clean up old ruby-2.3.1" do
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
+execute "yum makecache" do
+  action :nothing
+end
+
 # Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
     if pkg == "ruby25" 
       options '--prefix=/opt/rubies/'
+    end
+    if pkg == "epel-release" 
+      notifies :run, "execute[yum makecache]", :immediately
     end
     if pkg == "chef-server-core"
       notifies :stop, "service[iptables]", :before
@@ -386,7 +393,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
   end
 end
 
-["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
+["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh", "mu-adopt"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end

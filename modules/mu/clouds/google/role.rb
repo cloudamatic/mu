@@ -109,8 +109,28 @@ module MU
           elsif @config['role_source'] == "org"
           elsif @config['role_source'] == "project"
           elsif @config['role_source'] == "canned"
-# XXX I'm just here for the bindings ma'am
           end
+
+          @config['bindings'].each { |binding|
+            binding.keys.each { |scopetype|
+              next if scopetype == "entity"
+              binding[scopetype].each { |scope|
+# XXX handle entity being a MU::Config::Ref
+                entity_id = if binding["entity"]["name"]
+                  sib = @deploy.findLitterMate(name: binding["entity"]["name"], type: binding["entity"]["type"])
+                  raise MuError, "Failed to look up sibling #{binding["entity"]["type"]}:#{binding["entity"]["name"]}" if !sib
+                  if binding["entity"]["type"] == "users" and sib.config["type"] == "service"
+                    binding["entity"]["type"] = "serviceAccount"
+                  end
+                  sib.cloud_id
+                else
+                  binding["entity"]["id"]
+                end
+# XXX resolve scope as well, if it's named or a MU::Config::Ref
+                bindToIAM(binding["entity"]["type"], entity_id.sub(/.*?\/([^\/]+)$/, '\1'), scopetype, scope["id"])
+              }
+            }
+          }
         end
 
         # Return the cloud descriptor for the Role
@@ -145,7 +165,7 @@ module MU
 
         # Wrapper for #{MU::Cloud::Google::Role.bindToIAM}
         def bindToIAM(entity_type, entity_id, scope_type, scope_id)
-          MU::Cloud::Google::Role.bindToIAM(@cloud_id, entity_type, entity_id, bindings, scope_type, scope_id, credentials: @config['credentials'])
+          MU::Cloud::Google::Role.bindToIAM(@cloud_id, entity_type, entity_id, scope_type, scope_id, credentials: @config['credentials'])
         end
 
         @@role_bind_semaphore = Mutex.new

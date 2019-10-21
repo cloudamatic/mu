@@ -98,7 +98,7 @@ $CONFIGURABLES = {
     "title" => "Momma Cat Listen Port",
     "pattern" => /^[0-9]+$/i,
     "default" => 2260,
-    "required" => true,
+    "required" => $IN_GEM,
     "desc" => "Listen port for the Momma Cat grooming daemon",
     "changes" => ["chefrun"]
   },
@@ -201,6 +201,10 @@ $CONFIGURABLES = {
       "credentials_file" => {
         "title" => "Credentials File",
         "desc" => "JSON-formatted Service Account credentials for our GCP account, stored in plain text in a file. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON and point this argument to the file. This is less secure than using 'credentials' to store in a vault."
+      },
+      "credentials_encoded" => {
+        "title" => "Base64-Encoded Credentials",
+        "desc" => "JSON-formatted Service Account credentials for our GCP account, b64-encoded and dropped directly into mu.yaml. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON and point this argument to the file. This is less secure than using 'credentials' to store in a vault."
       },
       "region" => {
         "title" => "Default Region",

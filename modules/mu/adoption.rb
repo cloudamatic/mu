@@ -123,7 +123,6 @@ module MU
         MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
       end
       MU.log "Scraping complete"
-exit
     end
 
     # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
