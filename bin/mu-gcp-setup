@@ -120,7 +120,11 @@ if $opts[:sg]
 
   if !admin_sg
     admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: "mu-master-"+MU.myInstanceId)
-    admin_sg.create
+    begin
+      admin_sg.create
+    rescue ::Google::Apis::ClientError => e
+      raise if !e.message.match(/alreadyExists: /)
+    end
     admin_sg.groom
   else
 # TODO Make sure the rules and tags are up to date
