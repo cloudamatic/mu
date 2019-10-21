@@ -460,6 +460,8 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+
+          term_policies = MU::Cloud::AWS.credConfig ? MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types : ["AllocationStrategy", "ClosestToNextInstanceHour", "Default", "NewestInstance", "OldestInstance", "OldestLaunchConfiguration", "OldestLaunchTemplate"]
           
           schema = {
             "role_strip_path" => {
@@ -570,7 +572,7 @@ module MU
               "items" => {
                 "type" => "String",
                 "default" => "Default",
-                "enum" => MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types
+                "enum" => term_policies
               }
             },
             "scaling_policies" => {
