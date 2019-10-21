@@ -555,7 +555,9 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
               end
               MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}", MU::WARN
-              return get_machine_credentials(scopes, credentials)
+              found = get_machine_credentials(scopes, credentials)
+              return MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+              return found
             end
 
             @@default_project ||= data["project_id"]
@@ -567,7 +569,9 @@ MU.log e.message, MU::WARN, details: e.inspect
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
             return @@authorizers[credentials][scopes.to_s]
           elsif MU::Cloud::Google.hosted?
-            return get_machine_credentials(scopes, credentials)
+            found = get_machine_credentials(scopes, credentials)
+            return MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+            return found
           else
             raise MuError, "Google Cloud credentials not configured"
           end
