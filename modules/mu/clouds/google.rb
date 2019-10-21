@@ -504,13 +504,22 @@ MU.log e.message, MU::WARN, details: e.inspect
           data = nil
           @@authorizers[credentials] ||= {}
   
-          def self.get_machine_credentials(scopes)
+          def self.get_machine_credentials(scopes, credentials = nil)
             @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
             MU.log "We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
 
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth.get_application_default(scopes)
             @@authorizers[credentials][scopes.to_s].fetch_access_token!
             @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
+            begin
+              listRegions(credentials: credentials)
+              listInstanceTypes(credentials: credentials)
+              listProjects(credentials)
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Found service account credentials #{@@svc_account_name}, but these don't appear to have sufficient privileges", MU::WARN, details: e.message
+              @@authorizers.delete(credentials)
+              return nil
+            end
             @@authorizers[credentials][scopes.to_s]
           end
 
@@ -535,7 +544,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise MuError, "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid (#{e.message})"
               end
               MU.log "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
-              return get_machine_credentials(scopes)
+              return get_machine_credentials(scopes, credentials)
             end
           elsif cfg["credentials"]
             begin
@@ -546,7 +555,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                 raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
               end
               MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}", MU::WARN
-              return get_machine_credentials(scopes)
+              return get_machine_credentials(scopes, credentials)
             end
 
             @@default_project ||= data["project_id"]
@@ -558,7 +567,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
             return @@authorizers[credentials][scopes.to_s]
           elsif MU::Cloud::Google.hosted?
-            return get_machine_credentials(scopes)
+            return get_machine_credentials(scopes, credentials)
           else
             raise MuError, "Google Cloud credentials not configured"
           end
