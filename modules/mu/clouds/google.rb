@@ -1009,6 +1009,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           @masquerade = masquerade
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(@scopes, credentials: credentials)
+          raise MuError, "No useable Google credentials found#{credentials ? : " with set '#{credentials}'" : ""}" if @api.authorization.nil?
           if @masquerade
             begin
               @api.authorization.sub = @masquerade
