@@ -163,11 +163,11 @@ module MU
       # Given an AWS region, check the API to make sure it's a valid one
       # @param r [String]
       # @return [String]
-      def self.validate_region(r)
+      def self.validate_region(r, credentials: nil)
         begin
-          MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+          MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_availability_zones.availability_zones.first.region_name
         rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
-          raise MuError, "Got #{e.message} trying to validate region #{r}"
+          raise MuError, "Got #{e.message} trying to validate region #{r} with credentials #{credentials}"
         end
       end
 
@@ -230,7 +230,7 @@ module MU
           $MU_CFG['aws'].each_pair { |credset, cfg|
             next if credentials and credset != credentials
             next if !cfg['region']
-            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'])
+            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'], credentials: credset)
               @@myRegion_var = cfg['region']
               break if cfg['default'] or credentials
             end
