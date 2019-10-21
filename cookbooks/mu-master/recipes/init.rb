@@ -182,7 +182,7 @@ when 'rhel'
 
   case node['platform_version'].split('.')[0].to_i
   when 6
-    basepackages.concat(["mysql-devel", "centos-release-scl"])
+    basepackages.concat(["cryptsetup-luks", "mysql-devel", "centos-release-scl"])
     removepackages = ["nagios"]
 
   when 7
