@@ -240,7 +240,7 @@ module MU
         # Knock habitats and folders, which would contain the above resources,
         # once they're all done.
         creds.each_pair { |provider, credsets|
-          credsets.each_pair { |credset, regions|
+          credsets.keys.each { |credset|
             next if credsused and !credsused.include?(credset)
             ["Habitat", "Folder"].each { |t|
               flags = {
@@ -257,14 +257,14 @@ module MU
 
         creds.each_pair { |provider, credsets|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
-          credsets.each_pair { |creds, regions|
+          credsets.keys.each { |creds|
             cloudclass.cleanDeploy(MU.deploy_id, credentials: creds, noop: @noop)
           }
         }
       end
 
       # Scrub any residual Chef records with matching tags
-      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exists?("/opt/mu/lib"))
+      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exist?("/opt/mu/lib"))
         begin
           MU::Groomer::Chef.loadChefLib
           if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")

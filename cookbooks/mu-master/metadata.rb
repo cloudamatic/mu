@@ -28,3 +28,4 @@ depends 'consul-cluster', '~> 2.0.0'
 depends 'chef-sugar' # undeclared dependency of consul 2.1, which can't be upgraded without creating a conflict with consul-cluster and vault-cluster -zr2d2
 depends 'hostsfile', '~> 3.0.1'
 depends 'chef-vault', '~> 3.1.1'
+depends 'apache2', '< 6.0.0'
