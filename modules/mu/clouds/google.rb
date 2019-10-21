@@ -516,7 +516,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               listInstanceTypes(credentials: credentials)
               listProjects(credentials)
             rescue ::Google::Apis::ClientError => e
-              MU.log "Found service account credentials #{@@svc_account_name}, but these don't appear to have sufficient privileges", MU::WARN, details: e.message
+              MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
               @@authorizers.delete(credentials)
               return nil
             end
@@ -556,7 +556,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               end
               MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}", MU::WARN
               found = get_machine_credentials(scopes, credentials)
-              return MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+              raise MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
               return found
             end
 
@@ -570,7 +570,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             return @@authorizers[credentials][scopes.to_s]
           elsif MU::Cloud::Google.hosted?
             found = get_machine_credentials(scopes, credentials)
-            return MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+            raise MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
             return found
           else
             raise MuError, "Google Cloud credentials not configured"
