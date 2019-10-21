@@ -507,6 +507,7 @@ module MU
       # @return [String]
       def self.adminBucketName(credentials = nil)
         cfg = credConfig(credentials)
+        return nil if !cfg
         if !cfg['log_bucket_name']
           cfg['log_bucket_name'] = $MU_CFG['hostname'] 
           MU.log "No AWS log bucket defined for credentials #{credentials}, attempting to use default of #{cfg['log_bucket_name']}", MU::WARN
@@ -536,6 +537,7 @@ module MU
       # @param credentials [String]
       # @return [String]
       def self.adminBucketUrl(credentials = nil)
+        return nil if !credConfig(credentials)
         "s3://"+adminBucketName(credentials)+"/"
       end
 
