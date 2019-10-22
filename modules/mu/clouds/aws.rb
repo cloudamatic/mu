@@ -163,8 +163,12 @@ module MU
       # Given an AWS region, check the API to make sure it's a valid one
       # @param r [String]
       # @return [String]
-      def self.validate_region(r)
-        MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+      def self.validate_region(r, credentials: nil)
+        begin
+          MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_availability_zones.availability_zones.first.region_name
+        rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
+          raise MuError, "Got #{e.message} trying to validate region #{r} with credentials #{credentials}"
+        end
       end
 
       # Tag a resource with all of our standard identifying tags.
@@ -226,13 +230,17 @@ module MU
           $MU_CFG['aws'].each_pair { |credset, cfg|
             next if credentials and credset != credentials
             next if !cfg['region']
-            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'])
+            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'], credentials: credset)
               @@myRegion_var = cfg['region']
               break if cfg['default'] or credentials
             end
           }
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty? and
-              validate_region(ENV['EC2_REGION'])
+              validate_region(ENV['EC2_REGION']) and
+              (
+               (ENV.has_key?("AWS_SECRET_ACCESS_KEY") and ENV.has_key?("AWS_SECRET_ACCESS_KEY") ) or
+               (Aws.config['access_key'] and Aws.config['access_secret'])
+              )
           # Make sure this string is valid by way of the API
           @@myRegion_var = ENV['EC2_REGION']
         end
@@ -507,6 +515,7 @@ module MU
       # @return [String]
       def self.adminBucketName(credentials = nil)
         cfg = credConfig(credentials)
+        return nil if !cfg
         if !cfg['log_bucket_name']
           cfg['log_bucket_name'] = $MU_CFG['hostname'] 
           MU.log "No AWS log bucket defined for credentials #{credentials}, attempting to use default of #{cfg['log_bucket_name']}", MU::WARN
@@ -536,6 +545,7 @@ module MU
       # @param credentials [String]
       # @return [String]
       def self.adminBucketUrl(credentials = nil)
+        return nil if !credConfig(credentials)
         "s3://"+adminBucketName(credentials)+"/"
       end
 

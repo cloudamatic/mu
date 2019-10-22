@@ -109,6 +109,7 @@ if $opts[:sg]
   }
   cfg = {
     "name" => admin_sg_name,
+    "scrub_mu_isms" => true,
     "cloud" => "Google",
     "rules" => rules,
     "project" => MU::Cloud::Google.myProject,
@@ -119,11 +120,16 @@ if $opts[:sg]
   }
 
   if !admin_sg
-    admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: "mu-master-"+MU.myInstanceId)
-    admin_sg.create
-    admin_sg.groom
+    admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: admin_sg_name)
+    begin
+      admin_sg.create
+    rescue ::Google::Apis::ClientError => e
+      raise e if !e.message.match(/alreadyExists: /)
+    ensure
+      admin_sg.groom
+    end
   else
-# TODO Make sure the rules and tags are up to date
+    admin_sg.groom
   end
 
 end

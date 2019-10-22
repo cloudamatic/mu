@@ -143,6 +143,13 @@ module MU
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
           if @config['flavor'] == "EKS"
+            # This will be needed if a loadbalancer has never been created in
+            # this account; EKS applications might want one, but will fail in
+            # confusing ways if this hasn't been done.
+            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_service_linked_role(
+              aws_service_name: "elasticloadbalancing.amazonaws.com"
+            )
+
             kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-eks.erb"))
             configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
             tagme = [@vpc.cloud_id]
@@ -181,6 +188,7 @@ module MU
             File.open(gitlab_helper, "w"){ |k|
               k.puts gitlab.result(binding)
             }
+            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
 
             authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
             MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd

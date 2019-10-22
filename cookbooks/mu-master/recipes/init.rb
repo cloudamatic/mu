@@ -592,7 +592,7 @@ end
 bash "fix misc permissions" do
   code <<-EOH
     find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git" -type d -exec chmod go+r {} \\;
-    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+rx {} \\;
-    chmod go+rx #{MU_BASE}/lib/extras/generate-stock-images #{MU_BASE}/lib/extras/list-stock-amis #{MU_BASE}/lib/extras/clean-stock-amis
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+r {} \\;
+    chmod go+rx #{MU_BASE}/lib/bin/* #{MU_BASE}/lib/extras/*-stock-* #{MU_BASE}/lib/extras/vault_tools/*.sh
   EOH
 end
