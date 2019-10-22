@@ -236,7 +236,11 @@ module MU
             end
           }
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty? and
-              validate_region(ENV['EC2_REGION'])
+              validate_region(ENV['EC2_REGION']) and
+              (
+               (ENV.has_key?("AWS_SECRET_ACCESS_KEY") and ENV.has_key?("AWS_SECRET_ACCESS_KEY") ) or
+               (Aws.config['access_key'] and Aws.config['access_secret'])
+              )
           # Make sure this string is valid by way of the API
           @@myRegion_var = ENV['EC2_REGION']
         end
