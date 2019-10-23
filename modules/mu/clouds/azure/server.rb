@@ -217,8 +217,6 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           found = {}
-
-          # Azure resources are namedspaced by resource group. If we weren't
           # told one, we may have to search all the ones we can see.
           resource_groups = if args[:resource_group]
             [args[:resource_group]]

@@ -757,6 +757,8 @@ module MU
       @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
     elsif MU::Cloud::AWS.hosted?
       @@myRegion_var ||= MU::Cloud::AWS.myRegion
+    elsif MU::Cloud::Azure.hosted?
+      @@myRegion_var ||= MU::Cloud::Azure.myRegion
     else
       @@myRegion_var = nil
     end
@@ -776,7 +778,8 @@ module MU
       @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
       return "AWS"
     elsif MU::Cloud::Azure.hosted?
-      @@myInstanceId = MU::Cloud::Azure.get_metadata()["compute"]["vmId"]
+      metadata = MU::Cloud::Azure.get_metadata()["compute"]
+      @@myInstanceId = MU::Cloud::Azure::Id.new("/subscriptions/"+metadata["subscriptionId"]+"/resourceGroups/"+metadata["resourceGroupName"]+"/providers/Microsoft.Compute/virtualMachines/"+metadata["name"])
       return "Azure"
     end
     nil

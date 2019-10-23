@@ -1517,6 +1517,7 @@ return
         @@allregions = []
         MU::Cloud.supportedClouds.each { |cloud|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          return @allregions if !cloudclass.listRegions()
           @@allregions.concat(cloudclass.listRegions())
         }
       end

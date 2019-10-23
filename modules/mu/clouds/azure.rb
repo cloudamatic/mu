@@ -238,8 +238,9 @@ module MU
       # return [Array<String>]
       def self.listRegions(credentials: nil)
         cfg = credConfig(credentials)
-        return nil if !cfg
+        return nil if !cfg and !hosted?
         subscription = cfg['subscription']
+        subscription ||= default_subscription()
 
         if @@regions.length() > 0 && subscription == default_subscription()
           return @@regions
@@ -478,13 +479,21 @@ module MU
 
       # Fetch (ALL) Azure instance metadata
       # @return [Hash, nil]
-      def self.get_metadata()
-        base_url = "http://169.254.169.254/metadata/instance"
-        api_version = '2017-08-01'
+      def self.get_metadata(svc = "instance", api_version = "2017-08-01", args: {})
+        return @@metadata if svc == "instance" and @@metadata
+        base_url = "http://169.254.169.254/metadata/#{svc}"
+        args["api-version"] = api_version
+        arg_str = args.keys.map { |k| k.to_s+"="+args[k].to_s }.join("&")
 
         begin
           Timeout.timeout(2) do
-            @@metadata ||= JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
+            MU.log "curl -H Metadata:true "+"#{base_url}/?#{arg_str}", MU::DEBUG
+            resp = JSON.parse(open("#{base_url}/?#{arg_str}","Metadata"=>"true").read)
+            if svc != "instance"
+              return resp
+            else
+              @@metadata = resp
+            end
           end
           return @@metadata
 
@@ -533,6 +542,10 @@ module MU
         }
 
         if missing.size > 0
+          if (!credentials or credentials == "#default") and hosted?
+            # Let the SDK try to use machine credentials
+            return nil
+          end
           raise MuError, "Missing fields while trying to load Azure SDK options for credential set #{credentials ? credentials : "<default>" }: #{missing.map { |m| m.to_s }.join(", ")}"
         end
 
@@ -891,6 +904,18 @@ module MU
 
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+          if !@cred_hash and MU::Cloud::Azure.hosted?
+            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" })
+            if !token
+            end
+            machine = MU::Cloud::Azure.get_metadata
+            @cred_hash = {
+              credentials: MsRest::TokenCredentials.new(token["access_token"]),
+              client_id: token["client_id"],
+              subscription: machine["compute"]["subscriptionId"],
+              subscription_id: machine["compute"]["subscriptionId"]
+            }
+          end
 
           # There seem to be multiple ways to get at clients, and different 
           # profiles available depending which way you do it, so... try that?
@@ -899,6 +924,7 @@ module MU
             # Standard approach: get a client from a canned, approved profile
             @api = Object.const_get(stdpath).new(@cred_hash)
           rescue NameError => e
+            raise e if !@cred_hash[:client_secret]
             # Weird approach: generate our own credentials object and invoke a
             # client directly from a particular model profile
             token_provider = MsRestAzure::ApplicationTokenProvider.new(
