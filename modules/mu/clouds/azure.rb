@@ -46,10 +46,17 @@ module MU
         class << self
           attr_reader :resource_group
         end
-        return if !cloudobj or !deploy 
+        return if !cloudobj
+
+        rg = if !deploy
+          return if !hosted?
+          MU.myInstanceId.resource_group
+        else
+          region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
+          deploy.deploy_id+"-"+region.upcase
+        end
         
-        region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
-        cloudobj.instance_variable_set(:@resource_group, deploy.deploy_id+"-"+region.upcase)
+        cloudobj.instance_variable_set(:@resource_group, rg)
 
       end
 
@@ -479,7 +486,8 @@ module MU
 
       # Fetch (ALL) Azure instance metadata
       # @return [Hash, nil]
-      def self.get_metadata(svc = "instance", api_version = "2017-08-01", args: {})
+      def self.get_metadata(svc = "instance", api_version = "2017-08-01", args: {}, debug: false)
+        loglevel = debug ? MU::NOTICE : MU::DEBUG
         return @@metadata if svc == "instance" and @@metadata
         base_url = "http://169.254.169.254/metadata/#{svc}"
         args["api-version"] = api_version
@@ -487,8 +495,8 @@ module MU
 
         begin
           Timeout.timeout(2) do
-            MU.log "curl -H Metadata:true "+"#{base_url}/?#{arg_str}", MU::DEBUG
             resp = JSON.parse(open("#{base_url}/?#{arg_str}","Metadata"=>"true").read)
+            MU.log "curl -H Metadata:true "+"#{base_url}/?#{arg_str}", loglevel, details: resp
             if svc != "instance"
               return resp
             else
@@ -907,6 +915,8 @@ module MU
           if !@cred_hash and MU::Cloud::Azure.hosted?
             token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" })
             if !token
+              MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
+              raise MuError, "Failed to get machine oauth token"
             end
             machine = MU::Cloud::Azure.get_metadata
             @cred_hash = {
