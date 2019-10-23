@@ -121,11 +121,12 @@ if $opts[:sg]
         "hosts" => ["0.0.0.0/0"]
       }
     }
-# TODO this is getting subsumed in all the 0.0.0.0/0 above; what we really want is a separate rule for this
+
     rules << {
       "proto" => "tcp",
       "port" => 22,
-      "hosts" => ["#{preferred_ip}/32"]
+#      "hosts" => ["#{preferred_ip}/32"]
+      "hosts" => ["0.0.0.0/0"]
     }
     cfg = {
       "name" => admin_sg_name,
