@@ -18,6 +18,9 @@ module MU
       # Creates an Azure directory as configured in {MU::Config::BasketofKittens::habitats}
       class Habitat < MU::Cloud::Habitat
 
+        # Placeholder method, just here to see which bits of the subscription
+        # API actually work. Delete this once we actually have enough
+        # functionality for a real implementation.
         def self.testcalls
 
 #pp MU::Cloud::Azure::Habitat.find

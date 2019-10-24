@@ -419,7 +419,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in whatever Groomer was used.
