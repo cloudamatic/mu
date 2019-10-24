@@ -36,6 +36,17 @@ module MU
       class APIError < MU::MuError
       end
 
+      # Return a random Azure-valid GUID, because for some baffling reason some
+      # API calls expect us to roll our own.
+      def self.genGUID
+        hexchars = Array("a".."f") + Array(0..9)
+        guid_chunks = []
+        [8, 4, 4, 4, 12].each { |count|
+          guid_chunks << Array.new(count) { hexchars.sample }.join
+        }
+        guid_chunks.join("-")
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
@@ -794,16 +805,17 @@ module MU
       # @param alt_object [String]: Return an instance of something other than the usual API client object
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
-      def self.authorization(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_07_01")
+      def self.authorization(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_07_01", endpoint_profile: "Latest")
         require 'azure_mgmt_authorization'
 
         if model and model.is_a?(Symbol)
           return Object.const_get("Azure").const_get("Authorization").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
-          @@authorization_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass", profile: "V2018_03_01")
+          @@authorization_api[credentials] ||= {}
+          @@authorization_api[credentials][endpoint_profile] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass", profile: endpoint_profile)
         end
 
-        return @@authorization_api[credentials]
+        return @@authorization_api[credentials][endpoint_profile]
       end
 
       # The Azure Billing API
