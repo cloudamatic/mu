@@ -2192,12 +2192,16 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
-          begin
-            types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
-          rescue Aws::Pricing::Errors::UnrecognizedClientException
+          size = size.dup.to_s
+          types = begin
+            (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          rescue Aws::Pricing::Errors::Unrecognitypes.has_key?(size)
             MU.log "Saw authentication error communicating with Pricing API, going to assume our instance type is correct", MU::WARN
             return size
           end
+
+          return size if types.has_key?(size)
+
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
             foundmatch = false

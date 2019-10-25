@@ -146,9 +146,12 @@ module MU
             # This will be needed if a loadbalancer has never been created in
             # this account; EKS applications might want one, but will fail in
             # confusing ways if this hasn't been done.
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_service_linked_role(
-              aws_service_name: "elasticloadbalancing.amazonaws.com"
-            )
+            begin
+              MU::Cloud::AWS.iam(credentials: @config['credentials']).create_service_linked_role(
+                aws_service_name: "elasticloadbalancing.amazonaws.com"
+              )
+            rescue ::Aws::IAM::Errors::InvalidInput
+            end
 
             kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-eks.erb"))
             configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
