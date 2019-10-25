@@ -566,6 +566,25 @@ module MU
           end
           server['vpc']['subnet_pref'] ||= "private"
 
+          svcacct_desc = {
+            "name" => server["name"]+"user",
+            "region" => server["region"],
+            "type" => "service",
+            "cloud" => "Azure",
+            "create_api_key" => true,
+            "credentials" => server["credentials"],
+            "roles" => [
+              "Owner" # this is a terrible default
+            ]
+          }
+          server['dependencies'] ||= []
+          server['dependencies'] << {
+            "type" => "user",
+            "name" => server["name"]+"user"
+          }
+
+          ok = false if !configurator.insertKitten(svcacct_desc, "users")
+
           ok
         end
 
@@ -716,6 +735,14 @@ module MU
             os_obj.linux_configuration = lnx_obj
           end
 
+          vm_id_obj = MU::Cloud::Azure.compute(:VirtualMachineIdentity).new
+          vm_id_obj.type = "UserAssigned"
+          svc_acct = @deploy.findLitterMate(type: "user", name: @config['name']+"user")
+          raise MuError, "Failed to locate service account #{@config['name']}user" if !svc_acct
+          vm_id_obj.user_assigned_identities  = {
+            svc_acct.cloud_desc.id => svc_acct.cloud_desc
+          }
+
           vm_obj = MU::Cloud::Azure.compute(:VirtualMachine).new
           vm_obj.location = @config['region']
           vm_obj.tags = @tags
@@ -723,6 +750,7 @@ module MU
           vm_obj.network_profile.network_interfaces = [iface]
           vm_obj.hardware_profile = hw_obj
           vm_obj.os_profile = os_obj
+          vm_obj.identity = vm_id_obj
           vm_obj.storage_profile = MU::Cloud::Azure.compute(:StorageProfile).new
           vm_obj.storage_profile.image_reference = img_obj
 
@@ -765,6 +793,7 @@ module MU
 
 
 if !@cloud_id
+# XXX actually guard this correctly
           MU.log "Creating VM #{@mu_name}", details: vm_obj
           vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
           @cloud_id = Id.new(vm.id)

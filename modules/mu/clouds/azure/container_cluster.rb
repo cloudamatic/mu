@@ -219,6 +219,11 @@ module MU
               "Azure Kubernetes Service Cluster Admin Role"
             ]
           }
+          cluster['dependencies'] ||= []
+          cluster['dependencies'] << {
+            "type" => "user",
+            "name" => cluster["name"]+"user"
+          }
 
           ok = false if !configurator.insertKitten(svcacct_desc, "users")
 
@@ -266,11 +271,16 @@ module MU
 
           svc_principal_obj = MU::Cloud::Azure.containers(:ManagedClusterServicePrincipalProfile).new
 # XXX this should come from a MU::Cloud::Azure::User object, but right now
-# the API call to tie roles to those managed principals doesn't seem to work.
+# there's no way to get the 'secret' field from a user-assigned identity afaict
 # For now, we'll cheat with Mu's system credentials.
           creds = MU::Cloud::Azure.credConfig(@config['credentials'])
           svc_principal_obj.client_id = creds["client_id"]
           svc_principal_obj.secret = creds["client_secret"]
+
+#          svc_acct = @deploy.findLitterMate(type: "user", name: @config['name']+"user")
+#          raise MuError, "Failed to locate service account #{@config['name']}user" if !svc_acct
+#          svc_principal_obj.client_id = svc_acct.cloud_desc.client_id
+#          svc_principal_obj.secret = svc_acct.getSecret
 
           agent_profiles = if !ext_cluster
             profile_obj = MU::Cloud::Azure.containers(:ManagedClusterAgentPoolProfile).new
