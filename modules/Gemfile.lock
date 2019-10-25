@@ -43,7 +43,7 @@ GEM
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
     aws-eventstream (1.0.3)
-    aws-sdk-core (2.11.375)
+    aws-sdk-core (2.11.381)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.1.0)
@@ -675,7 +675,6 @@ GEM
     parallel (1.18.0)
     parser (2.6.5.0)
       ast (~> 2.4.0)
-    pg (0.18.4)
     plist (3.5.0)
     polyglot (0.3.5)
     proxifier (1.0.3)
@@ -741,7 +740,7 @@ GEM
     solve (4.0.2)
       molinillo (~> 0.6)
       semverse (>= 1.1, < 4.0)
-    specinfra (2.82.2)
+    specinfra (2.82.3)
       net-scp
       net-ssh (>= 2.7)
       net-telnet (= 0.1.1)
@@ -796,7 +795,6 @@ DEPENDENCIES
   foodcritic (~> 14.1.0)
   knife-windows!
   mysql2
-  pg (~> 0.18.4)
   rack
   ruby-wmi
   thin
