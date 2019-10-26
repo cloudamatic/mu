@@ -438,6 +438,7 @@ module MU
           hosts_schema = MU::Config::CIDR_PRIMITIVE
           hosts_schema["pattern"] = "^(\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}|\\*)$"
           schema = {
+            "roles" => MU::Cloud::Azure::User.schema(config)[1]["roles"],
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -573,9 +574,7 @@ module MU
             "cloud" => "Azure",
             "create_api_key" => true,
             "credentials" => server["credentials"],
-            "roles" => [
-              "Owner" # this is a terrible default
-            ]
+            "roles" => server["roles"]
           }
           server['dependencies'] ||= []
           server['dependencies'] << {

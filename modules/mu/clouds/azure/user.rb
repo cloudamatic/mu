@@ -208,11 +208,11 @@ module MU
             },
             "roles" => {
               "type" => "array",
-              "description" => "One or more Azure Authorization roles to associate with this user.",
+              "description" => "One or more Azure Authorization roles to associate with this resource.",
               "default" => ["Reader"],
               "items" => {
                 "type" => "string",
-                "description" => "One or more Azure Authorization roles to associate with this user. If no roles are specified, we default to +Reader+, which permits read-only access subscription-wide."
+                "description" => "One or more Azure Authorization roles to associate with this resource. If no roles are specified, we default to +Reader+, which permits read-only access subscription-wide."
               }
             }
           }
