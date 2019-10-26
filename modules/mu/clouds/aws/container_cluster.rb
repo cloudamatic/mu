@@ -1694,6 +1694,7 @@ MU.log c.name, MU::NOTICE, details: t
             worker_pool = {
               "name" => cluster["name"]+"workers",
               "cloud" => "AWS",
+              "skipinitialupdates" => (cluster["flavor"] == "EKS"),
               "credentials" => cluster["credentials"],
               "region" => cluster['region'],
               "min_size" => cluster["min_size"],
