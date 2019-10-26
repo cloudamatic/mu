@@ -45,7 +45,7 @@ module MU
         # Called by {MU::Deploy#createResources}
         def groom
           create_update
-pp @config.keys
+
           oldrules = {}
           newrules = {}
           cloud_desc.security_rules.each { |rule|
@@ -78,9 +78,9 @@ pp @config.keys
               )
 
               newrules_semaphore.synchronize {
-                newrules[rname] = desc
+                newrules[desc.name] = desc
                 if !was_new
-                  oldrules[rname] = desc
+                  oldrules[desc.name] = desc
                 end
               }
 
@@ -215,7 +215,7 @@ pp @config.keys
           else
             default_priority = 999
             begin
-              default_priority += 1
+              default_priority += 1 + num
               rule_obj.priority = default_priority
             end while used_priorities.include?(default_priority)
           end

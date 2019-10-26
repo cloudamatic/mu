@@ -532,6 +532,22 @@ module MU
       # @return [Hash]
       def self.getSDKOptions(credentials = nil)
         cfg = credConfig(credentials)
+
+        if cfg and MU::Cloud::Azure.hosted?
+          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" })
+          if !token
+            MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
+            raise MuError, "Failed to get machine oauth token"
+          end
+          machine = MU::Cloud::Azure.get_metadata
+          return {
+            credentials: MsRest::TokenCredentials.new(token["access_token"]),
+            client_id: token["client_id"],
+            subscription: machine["compute"]["subscriptionId"],
+            subscription_id: machine["compute"]["subscriptionId"]
+          }
+        end
+
         return nil if !cfg
 
         map = { #... from mu.yaml-ese to Azure SDK-ese
@@ -924,20 +940,6 @@ module MU
 
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
-          if !@cred_hash and MU::Cloud::Azure.hosted?
-            token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" })
-            if !token
-              MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
-              raise MuError, "Failed to get machine oauth token"
-            end
-            machine = MU::Cloud::Azure.get_metadata
-            @cred_hash = {
-              credentials: MsRest::TokenCredentials.new(token["access_token"]),
-              client_id: token["client_id"],
-              subscription: machine["compute"]["subscriptionId"],
-              subscription_id: machine["compute"]["subscriptionId"]
-            }
-          end
 
           # There seem to be multiple ways to get at clients, and different 
           # profiles available depending which way you do it, so... try that?
