@@ -803,6 +803,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 # theoretically our upstream validation should have inserted
                 # a NAT/bastion host we can use
                 nat = configurator.haveLitterMate?(vpc['name']+"-natstion", "servers")
+                if vpc['virtual_name']
+                  nat ||= configurator.haveLitterMate?(vpc['virtual_name']+"-natstion", "servers")
+                end
+
                 if !nat
                   MU.log "Google VPC #{vpc['name']} declared a #NAT route, but I don't see an upstream NAT host I can use. Do I even have public subnets?", MU::ERR
                   ok = false
