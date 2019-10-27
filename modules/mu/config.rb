@@ -709,6 +709,7 @@ return
     # Load up our YAML or JSON and parse it through ERB, optionally substituting
     # externally-supplied parameters.
     def resolveConfig(path: @@config_path, param_pass: false)
+MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, details: caller[0]
       config = nil
       @param_pass = param_pass
 
@@ -720,6 +721,7 @@ return
           "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
         else
           tail = getTail(var_name.to_s)
+
           if tail.is_a?(Array)
             if @param_pass
               return tail.map {|f| f.values.first.to_s }.join(",")
@@ -729,7 +731,11 @@ return
               return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
             end
           else
-            return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+            if @param_pass
+              tail.value
+            else
+              return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+            end
           end
         end
       end
@@ -753,13 +759,25 @@ return
         "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
       end
 
+      # Make sure our parameter values are all available in the local namespace
+      # that ERB will be using, minus any that conflict with existing variables
+      erb_binding = get_binding
+      @@tails.each_pair { |key, tail|
+        begin
+          erb_binding.local_variable_get(key.to_sym)
+        rescue NameError
+          erb_binding.local_variable_set(key.to_sym, tail.value)
+        end
+      }
+
       # Figure out what kind of file we're loading. We handle includes 
       # differently if YAML is involved. These globals get used inside
       # templates. They're globals on purpose. Stop whining.
       $file_format = MU::Config.guessFormat(path)
       $yaml_refs = {}
       erb = ERB.new(File.read(path), nil, "<>")
-      raw_text = erb.result(get_binding)
+
+      raw_text = erb.result(erb_binding)
       raw_json = nil
 
       # If we're working in YAML, do some magic to make includes work better.
