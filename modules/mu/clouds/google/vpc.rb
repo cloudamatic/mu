@@ -693,16 +693,24 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
             vpc["subnets"] = []
             vpc['route_tables'].each { |t|
+              is_public = false
+              t['routes'].each { |r|
+                is_public = true if r["gateway"] == "#INTERNET"
+              }
               count = 0
               vpc['regions'].each { |r|
                 block = blocks.shift
-                vpc["subnets"] << {
+                subnet = {
                   "availability_zone" => r,
                   "route_table" => t["name"],
                   "ip_block" => block.to_s,
-                  "name" => "Subnet"+count.to_s+t["name"].capitalize,
-                  "map_public_ips" => true
+                  "name" => "Subnet"+count.to_s+t["name"].capitalize
                 }
+                if is_public
+                  subnet["map_public_ips"] = true
+                  subnet["is_public"] = true
+                end
+                vpc["subnets"] << subnet
                 count = count + 1
               }
             }
@@ -758,6 +766,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               vpc["subnets"].each { |subnet|
                 newvpc["subnets"] << subnet if subnet["route_table"] == tbl["name"]
               }
+
               ok = false if !configurator.insertKitten(newvpc, "vpcs", true)
             }
             configurator.removeKitten(vpc['name'], "vpcs")

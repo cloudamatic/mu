@@ -459,6 +459,7 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
+          size = size.dup.to_s
           types = (MU::Cloud::Azure.listInstanceTypes(region))[region]
           if types and (size.nil? or !types.has_key?(size))
             # See if it's a type we can approximate from one of the other clouds

@@ -442,7 +442,7 @@ module MU
         # if we're peering with other on-the-fly VPCs who might be using
         # the default range, make sure our ip_blocks don't overlap
         peer_blocks = []
-        my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
+        my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'].to_s)
         if vpc["peers"]
           siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
           siblings.each { |v|
@@ -886,11 +886,14 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             }
           else
             sibling_vpcs.each { |ext_vpc|
-              if ext_vpc['name'].to_s == vpc_block['name'].to_s and ext_vpc['subnets']
+              if (ext_vpc['name'].to_s == vpc_block['name'].to_s or
+                 ext_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
+                 ext_vpc['subnets']
                 subnet_ptr = "subnet_name"
+
                 ext_vpc['subnets'].each { |subnet|
                   next if dflt_region and vpc_block["cloud"] == "Google" and subnet['availability_zone'] != dflt_region
-                  if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
+                  if subnet['is_public']
                     public_subnets << {"subnet_name" => subnet['name'].to_s}
                   else
                     private_subnets << {"subnet_name" => subnet['name'].to_s}
@@ -900,7 +903,6 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                     end
                   end
                 }
-                break
               end
             }
           end
