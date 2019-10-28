@@ -581,7 +581,7 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
 
-        if !server['scrub_mu_isms'] and server["cloud"] != "Azure"
+        if server["cloud"] != "Azure"
           server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
         end
 

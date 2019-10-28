@@ -633,6 +633,11 @@ return
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
       end
+      # Concatenate like a string
+      def +(o)
+        return to_s if o.nil?
+        to_s + o.to_s
+      end
       # Perform global substitutions like a String
       def gsub(*args)
         to_s.gsub(*args)
@@ -1647,6 +1652,8 @@ return
         ]
       end
 
+      resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("FirewallRule")
+
       if rules_only
         return rules
       end
@@ -1679,7 +1686,9 @@ return
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
       acl.delete("vpc") if !acl["vpc"]
-      acl["region"] = region if !region.nil? and !region.empty?
+      if !resclass.isGlobal? and !region.nil? and !region.empty?
+        acl["region"] = region
+      end
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end

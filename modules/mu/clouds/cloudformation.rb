@@ -87,8 +87,8 @@ module MU
       # Stub method- there's no such thing as being "hosted" in a CloudFormation
       # environment. Calls {MU::Cloud::AWS.myRegion} to return sensible
       # values, if we happen to have AWS credentials configured.
-      def self.myRegion
-        MU::Cloud::AWS.myRegion
+      def self.myRegion(credentials = nil)
+        MU::Cloud::AWS.myRegion(credentials)
       end
 
       # Stub method- there's no such thing as being "hosted" in a CloudFormation

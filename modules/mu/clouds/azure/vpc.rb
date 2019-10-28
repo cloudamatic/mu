@@ -30,10 +30,12 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
-            cloud_desc
-            @cloud_id = Id.new(cloud_desc.id)
-            @resource_group ||= @cloud_id.resource_group
-            loadSubnets(use_cache: true)
+            if @cloud_id
+              cloud_desc
+              @cloud_id = Id.new(cloud_desc.id)
+              @resource_group ||= @cloud_id.resource_group
+              loadSubnets(use_cache: true)
+            end
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
           else
