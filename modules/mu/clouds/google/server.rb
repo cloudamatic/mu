@@ -1303,9 +1303,10 @@ next if !create
         # @return [String,nil]
         def self.validateInstanceType(size, region, project: nil, credentials: nil)
           size = size.dup.to_s
-          if @@instance_type_cache[region] and
-             @@instance_type_cache[region][size]
-            return @@instance_type_cache[region][size]
+          if @@instance_type_cache[project] and
+             @@instance_type_cache[project][region] and
+             @@instance_type_cache[project][region][size]
+            return @@instance_type_cache[project][region][size]
           end
 
           if size.match(/\/?custom-(\d+)-(\d+)(?:-ext)?$/)
@@ -1327,9 +1328,11 @@ next if !create
             end
           end
 
-          @@instance_type_cache[region] ||= {}
-          types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[region]
+          @@instance_type_cache[project] ||= {}
+          @@instance_type_cache[project][region] ||= {}
+          types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[project][region]
           realsize = size.dup
+
           if types and (realsize.nil? or !types.has_key?(realsize))
             # See if it's a type we can approximate from one of the other clouds
             foundmatch = false
@@ -1358,12 +1361,12 @@ next if !create
 
             if !foundmatch
               MU.log "Invalid size '#{realsize}' for Google Compute instance in #{region} (checked project #{project}). Supported types:", MU::ERR, details: types.keys.sort.join(", ")
-              @@instance_type_cache[region][size] = nil
+              @@instance_type_cache[project][region][size] = nil
               return nil
             end
           end
-          @@instance_type_cache[region][size] = realsize
-          @@instance_type_cache[region][size]
+          @@instance_type_cache[project][region][size] = realsize
+          @@instance_type_cache[project][region][size]
         end
 
 
@@ -1375,8 +1378,8 @@ next if !create
           ok = true
 
           server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
-
           size = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
+
           if size.nil?
             MU.log "Failed to verify instance size #{server["size"]} for Server #{server['name']}", MU::WARN
           else
