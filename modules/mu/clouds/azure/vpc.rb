@@ -295,15 +295,15 @@ module MU
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion, credentials: nil)
 
-          target_instance.network_profile.network_interfaces.each { |iface|
-            iface_id = Id.new(iface.is_a?(Hash) ? iface['id'] : iface.id)
-            iface_desc = MU::Cloud::Azure.network(credentials: credentials).network_interfaces.get(iface_id.resource_group, iface_id.to_s)
-            iface_desc.ip_configurations.each { |ipcfg|
-              if ipcfg.respond_to?(:public_ipaddress) and ipcfg.public_ipaddress
-                return true # XXX invalid if Mu can't talk to the internet
-              end
-            }
-          }
+#          target_instance.network_profile.network_interfaces.each { |iface|
+#            iface_id = Id.new(iface.is_a?(Hash) ? iface['id'] : iface.id)
+#            iface_desc = MU::Cloud::Azure.network(credentials: credentials).network_interfaces.get(iface_id.resource_group, iface_id.to_s)
+#            iface_desc.ip_configurations.each { |ipcfg|
+#              if ipcfg.respond_to?(:public_ipaddress) and ipcfg.public_ipaddress
+#                return true # XXX invalid if Mu can't talk to the internet
+#              end
+#            }
+#          }
 
           return false if MU.myCloud != "Azure"
 # XXX if we're in Azure, see if this is in our VPC or if we're peered to its VPC
