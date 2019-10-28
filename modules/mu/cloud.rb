@@ -1062,11 +1062,11 @@ module MU
             # Use pre-existing mu_name (we're probably loading an extant deploy)
             # if available
             if args[:mu_name]
-              @mu_name = args[:mu_name]
+              @mu_name = args[:mu_name].dup
             # If scrub_mu_isms is set, our mu_name is always just the bare name
             # field of the resource.
             elsif @config['scrub_mu_isms']
-              @mu_name = @config['name']
+              @mu_name = @config['name'].dup
 # XXX feck it insert an inheritable method right here? Set a default? How should resource implementations determine whether they're instantiating a new object?
             end
 
