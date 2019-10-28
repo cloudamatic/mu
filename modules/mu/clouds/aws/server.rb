@@ -79,8 +79,10 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@config['scrub_mu_isms']
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "AWS",
               credentials: @config['credentials'],

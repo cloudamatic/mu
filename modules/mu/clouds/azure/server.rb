@@ -32,8 +32,10 @@ module MU
         def initialize(**args)
           super
 
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@scrub_mu_isms
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "Azure",
               credentials: @config['credentials'],

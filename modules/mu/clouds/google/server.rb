@@ -34,8 +34,10 @@ module MU
         def initialize(**args)
           super
 
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@config['scrub_mu_isms']
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "Google",
               credentials: @config['credentials'],
@@ -308,7 +310,7 @@ next if !create
                 [m["key"], m["value"]]
               }]
             end
-            metadata["startup-script"] = @userdata
+            metadata["startup-script"] = @userdata if @userdata and !@userdata.empty?
 
             deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
             if metadata["ssh-keys"]
