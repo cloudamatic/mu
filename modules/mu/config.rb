@@ -709,7 +709,6 @@ return
     # Load up our YAML or JSON and parse it through ERB, optionally substituting
     # externally-supplied parameters.
     def resolveConfig(path: @@config_path, param_pass: false)
-MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, details: caller[0]
       config = nil
       @param_pass = param_pass
 
@@ -732,7 +731,7 @@ MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, detai
             end
           else
             if @param_pass
-              tail.value
+              tail.to_s
             else
               return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
             end
@@ -766,7 +765,7 @@ MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, detai
         begin
           erb_binding.local_variable_get(key.to_sym)
         rescue NameError
-          erb_binding.local_variable_set(key.to_sym, tail.value)
+          erb_binding.local_variable_set(key.to_sym, tail.to_s)
         end
       }
 
@@ -1341,6 +1340,7 @@ MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, detai
          (descriptor['ingress_rules'] or
          ["server", "server_pool", "database"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
+        fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
         acl = {
           "name" => fwname,
@@ -1348,8 +1348,17 @@ MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, detai
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
-        acl['region'] ||= classobj.myRegion(acl['credentials'])
-        acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
+        if !fw_classobj.isGlobal?
+          acl['region'] = descriptor['region']
+          acl['region'] ||= classobj.myRegion(acl['credentials'])
+        else
+          acl.delete("region")
+        end
+        if descriptor["vpc"]
+          acl["vpc"] = descriptor['vpc'].dup
+          acl["vpc"].delete("subnet_pref")
+        end
+MU.log cfg_name+" "+descriptor['name'], MU::NOTICE, details: acl['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
@@ -1468,6 +1477,7 @@ MU.log "called resolveConfig(param_pass: #{param_pass.to_s})", MU::NOTICE, detai
 
         plain_cfg = MU::Config.stripConfig(descriptor)
         plain_cfg.delete("#MU_CLOUDCLASS")
+        plain_cfg.delete("#MU_VALIDATION_ATTEMPTED")
         plain_cfg.delete("#TARGETCLASS")
         plain_cfg.delete("#TARGETNAME")
         plain_cfg.delete("parent_block") if cfg_plural == "vpcs"
