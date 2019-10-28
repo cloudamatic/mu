@@ -762,6 +762,7 @@ return
       # that ERB will be using, minus any that conflict with existing variables
       erb_binding = get_binding
       @@tails.each_pair { |key, tail|
+        next if !tail.is_a?(MU::Config::Tail) or tail.is_list_element
         begin
           erb_binding.local_variable_get(key.to_sym)
         rescue NameError
@@ -1358,7 +1359,7 @@ return
           acl["vpc"] = descriptor['vpc'].dup
           acl["vpc"].delete("subnet_pref")
         end
-MU.log cfg_name+" "+descriptor['name'], MU::NOTICE, details: acl['vpc']
+
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
