@@ -695,7 +695,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         if @@instance_types and
            @@instance_types[project] and
            @@instance_types[project][region]
-          return @@instance_types[project]
+          return @@instance_types
         end
 
         return {} if !project
