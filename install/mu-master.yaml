@@ -1,0 +1,42 @@
+---
+appname: mu
+parameters:
+- name: cloud
+  default: <%= MU.myCloud || "AWS" %>
+  valid_values:
+<% MU::Cloud.availableClouds.each { |c| %>
+  - <%= c %>
+<% } %>
+- name: public
+  default: true
+- name: name
+  default: mu-master
+scrub_mu_isms: true
+servers: 
+- name: <%= name %>
+  groomer: Ansible
+  platform: centos7
+  cloud: <%= cloud %>
+  size: m3.medium
+  vpc:
+    name: <%= name %>-vpc
+<% if public %>
+    subnet_pref: public
+  static_ip:
+    assign_ip: true
+<% else %>
+    subnet_pref: private
+<% end %>
+<% if cloud == "AWS" %>
+  canned_iam_policies: 
+  - AdministratorAccess
+<% elsif cloud == "Azure" %>
+  roles:
+  - Owner
+<% elsif cloud == "Google" %>
+  roles:
+  - Admin
+<% end %>
+vpcs:
+- name: <%= name %>-vpc
+  cloud: <%= cloud %>
