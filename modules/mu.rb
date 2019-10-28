@@ -872,6 +872,8 @@ module MU
       return hash
     elsif struct.is_a?(MU::Config::Ref)
       struct = struct.to_h
+    elsif struct.is_a?(MU::Cloud::Azure::Id)
+      struct = struct.to_s
     elsif struct.is_a?(Hash)
       if stringify_keys
         newhash = {}

@@ -15,6 +15,8 @@ scrub_mu_isms: true
 servers: 
 - name: <%= name %>
   groomer: Ansible
+  run_list:
+  - mu-installer
   platform: centos7
   cloud: <%= cloud %>
   size: m3.medium
@@ -40,3 +42,6 @@ servers:
 vpcs:
 - name: <%= name %>-vpc
   cloud: <%= cloud %>
+<% if public %>
+  create_bastion: false
+<% end %>
