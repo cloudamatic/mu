@@ -1096,7 +1096,9 @@ return
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         if @kittens[cfg_plural]
           @kittens[cfg_plural].each { |kitten|
-            if kitten['name'] == name.to_s or kitten['virtual_name'] == name.to_s or (has_multiple and name.nil?)
+            if kitten['name'].to_s == name.to_s or
+               kitten['virtual_name'].to_s == name.to_s or
+               (has_multiple and name.nil?)
               if has_multiple
                 matches << kitten
               else
