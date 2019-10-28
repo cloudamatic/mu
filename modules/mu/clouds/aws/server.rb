@@ -373,7 +373,7 @@ module MU
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
 
-          if @tags
+          if @tags and @tags.size > 0
             instance_descriptor[:tag_specifications] = [{
               :resource_type => "instance",
               :tags => @tags.keys.map { |k|
@@ -391,6 +391,9 @@ module MU
           retries = 0
           begin
             response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+          rescue Aws::EC2::Errors::InvalidRequest => e
+            MU.log e.message, MU::ERR, details: instance_descriptor
+            raise e
           rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
             if retries < 10
               if retries > 7
