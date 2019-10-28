@@ -647,6 +647,7 @@ module MU
         if vpc_block['region'].nil? and dflt_region and !dflt_region.empty?
           vpc_block['region'] = dflt_region.to_s
         end
+        dflt_region ||= vpc_block['region']
         vpc_block['name'] ||= vpc_block['vpc_name'] if vpc_block['vpc_name']
         vpc_block['id'] ||= vpc_block['vpc_id'] if vpc_block['vpc_id']
 
@@ -892,7 +893,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                 subnet_ptr = "subnet_name"
 
                 ext_vpc['subnets'].each { |subnet|
-                  next if dflt_region and vpc_block["cloud"] == "Google" and subnet['availability_zone'] != dflt_region
+                  next if dflt_region and vpc_block["cloud"].to_s == "Google" and subnet['availability_zone'] != dflt_region
                   if subnet['is_public']
                     public_subnets << {"subnet_name" => subnet['name'].to_s}
                   else
