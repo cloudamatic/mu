@@ -26,15 +26,10 @@ module MU
         def initialize(**args)
           super
 
-          @subnets = []
+          @subnets ||= []
           @subnetcachesemaphore = Mutex.new
 
-          if !@mu_name.nil?
-            if @cloud_id.nil? or @cloud_id.empty?
-              @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
-            end
-            loadSubnets
-          end
+          loadSubnets if @cloud_id
 
           @mu_name ||= @deploy.getResourceName(@config['name'])
         end
@@ -62,7 +57,7 @@ module MU
                 MU.dupGlobals(parent_thread_id)
                 subnet_name = subnet['name']
 
-                subnet_mu_name = MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
+                subnet_mu_name = @config['scrub_mu_isms'] ? subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
@@ -285,7 +280,9 @@ end
         # @param use_cache [Boolean]: If available, use saved deployment metadata to describe subnets, instead of querying the cloud API
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets(use_cache: true)
-          return @subnets if use_cache and @subnets and @subnets.size > 0
+          @subnetcachesemaphore.synchronize {
+            return @subnets if use_cache and @subnets and @subnets.size > 0
+          }
           network = cloud_desc
 
           if network.nil?
@@ -297,7 +294,8 @@ end
           if @deploy and @deploy.deployment and
              @deploy.deployment["vpcs"] and
              @deploy.deployment["vpcs"][@config['name']] and
-             @deploy.deployment["vpcs"][@config['name']]["subnets"]
+             @deploy.deployment["vpcs"][@config['name']]["subnets"] and
+             @deploy.deployment["vpcs"][@config['name']]["subnets"].size > 0
             @deploy.deployment["vpcs"][@config['name']]["subnets"].each { |desc|
               subnet = {}
               subnet["ip_block"] = desc['ip_block']
@@ -321,7 +319,6 @@ end
             @subnetcachesemaphore.synchronize {
               @subnets ||= []
               ext_ids = @subnets.each.collect { |s| s.cloud_id }
-
               # If we're a plain old Mu resource, load our config and deployment
               # metadata. Like ya do.
               if !@config.nil? and @config.has_key?("subnets")
@@ -436,11 +433,11 @@ end
             cloud_id.gsub!(/.*?\//, "")
           end
           MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block})", MU::DEBUG, details: caller[0]
-
           subnets.each { |subnet|
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
-            elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
+            elsif !name.nil? and !subnet.name.nil? and
+                  subnet.name.downcase.to_s == name.downcase.to_s
               return subnet
             end
           }
@@ -882,7 +879,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 raise MuError, "Failed to find NAT host for #NAT route in #{@mu_name} (#{route})"
               end
 
-              routeobj = ::Google::Apis::ComputeBeta::Route.new(
+              routeobj = ::Google::Apis::ComputeV1::Route.new(
                 name: routename,
                 next_hop_instance: nat_instance.cloud_desc.self_link,
                 dest_range: route['destination_network'],
@@ -907,7 +904,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               }
             end
           elsif route['gateway'] == "#INTERNET"
-            routeobj = ::Google::Apis::ComputeBeta::Route.new(
+            routeobj = ::Google::Apis::ComputeV1::Route.new(
               name: routename,
               next_hop_gateway: "global/gateways/default-internet-gateway",
               dest_range: route['destination_network'],

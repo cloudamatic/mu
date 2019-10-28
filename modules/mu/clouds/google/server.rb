@@ -98,7 +98,7 @@ module MU
         # the latest version, if applicable.
         # @param image_id [String]: URL to a Google disk image
         # @param credentials [String]
-        # @return [Google::Apis::ComputeBeta::Image]
+        # @return [Google::Apis::ComputeV1::Image]
         def self.fetchImage(image_id, credentials: nil)
           return @@image_id_map[image_id] if @@image_id_map[image_id]
 
@@ -245,6 +245,7 @@ next if !create
           end
           subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
           if subnet.nil?
+            pp subnet_cfg
             raise MuError, "Couldn't find subnet details while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
           end
           base_iface_obj = {
@@ -1232,6 +1233,7 @@ next if !create
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "roles" => MU::Cloud::Google::User.schema(config)[1]["roles"],
             "create_image" => {
               "properties" => {
                 "family" => {
@@ -1300,6 +1302,7 @@ next if !create
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region, project: nil, credentials: nil)
+          size = size.dup.to_s
           if @@instance_type_cache[region] and
              @@instance_type_cache[region][size]
             return @@instance_type_cache[region][size]
@@ -1452,7 +1455,7 @@ next if !create
           if server['image_id'].nil?
             img_id = MU::Cloud.getStockImage("Google", platform: server['platform'])
             if img_id
-              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
+              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeV1::Image")
             else
               MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
               ok = false
