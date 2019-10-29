@@ -768,9 +768,11 @@ return
       erb_binding = get_binding
       @@tails.each_pair { |key, tail|
         next if !tail.is_a?(MU::Config::Tail) or tail.is_list_element
+        # XXX figure out what to do with lists
         begin
-          erb_binding.local_variable_get(key.to_sym)
+          erb_binding.local_variable_set(key.to_sym, tail.to_s)
         rescue NameError
+          MU.log "Binding #{key} = #{tail.to_s}", MU::DEBUG
           erb_binding.local_variable_set(key.to_sym, tail.to_s)
         end
       }
@@ -908,15 +910,19 @@ return
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
+              next
+            else # not required, no default
+              next
             end
-            if param.has_key?("cloudtype")
-              getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
-            else
-              getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
-            end
+          end
+          if param.has_key?("cloudtype")
+            getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+          else
+            getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
           end
         }
       end
+
       raise ValidationError if !ok
       @@parameters.each_pair { |name, val|
         next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
