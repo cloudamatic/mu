@@ -31,7 +31,7 @@ module MU
 
           loadSubnets if @cloud_id
 
-          @mu_name ||= @deploy.getResourceName(@config['name'])
+          @mu_name ||= @config['scrub_mu_isms'] ? @config['name'] : @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -57,7 +57,7 @@ module MU
                 MU.dupGlobals(parent_thread_id)
                 subnet_name = subnet['name']
 
-                subnet_mu_name = @config['scrub_mu_isms'] ? subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
+                subnet_mu_name = @config['scrub_mu_isms'] ? @cloud_id+subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
@@ -300,10 +300,10 @@ end
               subnet = {}
               subnet["ip_block"] = desc['ip_block']
               subnet["name"] = desc["name"]
+              subnet['mu_name'] = @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
  # XXX delete this later
-              subnet['mu_name'] = MU::Cloud::Google.nameStr(@deploy.getResourceName(desc["name"], max_length: 61))
- # XXX delete this later
-              subnet["cloud_id"] = subnet['mu_name']
+              subnet["cloud_id"] = desc['cloud_id']
+              subnet["cloud_id"] ||= subnet['mu_name']
               subnet['az'] = subnet['region'] = desc["availability_zone"]
               @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
             }
@@ -323,14 +323,15 @@ end
               # metadata. Like ya do.
               if !@config.nil? and @config.has_key?("subnets")
                 @config['subnets'].each { |subnet|
-                  subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+#                  subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+                  subnet['mu_name'] ||= @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
                   subnet['region'] = @config['region']
                   found.each { |desc|
                     if desc.ip_cidr_range == subnet["ip_block"]
                       desc.subnetwork.match(/\/projects\/[^\/]+\/regions\/([^\/]+)\/subnetworks\/(.+)$/)
                       subnet['az'] = Regexp.last_match[1]
-                      subnet['name'] = Regexp.last_match[2]
-                      subnet["cloud_id"] = subnet['name']
+                      subnet['name'] ||= Regexp.last_match[2]
+                      subnet["cloud_id"] = subnet['mu_name']
                       subnet["url"] = desc.subnetwork
                       break
                     end
@@ -529,13 +530,29 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           ["route", "network"].each { |type|
 # XXX tagged routes aren't showing up in list, and the networks that own them
 # fail to delete silently
-            MU::Cloud::Google.compute(credentials: credentials).delete(
-              type,
-              flags["project"],
-              nil,
-              noop
-            )
+            begin
+              MU::Cloud::Google.compute(credentials: credentials).delete(
+                type,
+                flags["project"],
+                nil,
+                noop
+              )
+            rescue ::Google::Apis::ClientError => e
+puts e.message
+              if e.message.match(/Try again later/i)
+                MU.log e.message, MU::WARN
+                sleep 5
+                retry
+              end
+              raise e
+            rescue Exception => e
+  puts e.class.name
+  MU.log e.message, MU::WARN
+  sleep 5
+  retry
+            end
           }
+
         end
 
         # Reverse-map our cloud description into a runnable config hash.

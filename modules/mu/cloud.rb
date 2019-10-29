@@ -1369,18 +1369,30 @@ module MU
                   sib_by_name.each { |sibling|
                     all_private = sibling.subnets.map { |s| s.private? }.all?(true)
                     all_public = sibling.subnets.map { |s| s.private? }.all?(false)
+                    names = sibling.subnets.map { |s| s.name }
+                    ids = sibling.subnets.map { |s| s.cloud_id }
                     if all_private and ["private", "all_private"].include?(@config['vpc']['subnet_pref'])
                       @vpc = sibling
                       break
                     elsif all_public and ["public", "all_public"].include?(@config['vpc']['subnet_pref'])
                       @vpc = sibling
                       break
-                    else
-                      MU.log "Got multiple matching VPCs for #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}"
+                    elsif @config['vpc']['subnet_name'] and
+                          names.include?(@config['vpc']['subnet_name'])
+puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
+                      @vpc = sibling
+                      break
+                    elsif @config['vpc']['subnet_id'] and
+                          ids.include?(@config['vpc']['subnet_id'])
                       @vpc = sibling
                       break
                     end
                   }
+                  if !@vpc
+                    sibling = sib_by_name.sample
+                    MU.log "Got multiple matching VPCs for #{self.class.cfg_name} #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}", MU::WARN, details: @config['vpc']
+                    @vpc = sibling
+                  end
                 end
               else
                 @vpc = sib_by_name

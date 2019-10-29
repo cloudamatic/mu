@@ -672,6 +672,30 @@ module MU
           return ok
         end
 
+        # Resolve "forked" Google VPCs to the correct literal resources, based
+        # on the original reference to the (now virtual) parent VPC and, if
+        # set, subnet_pref or subnet_name
+        sibling_vpcs.each { |sibling|
+          if sibling['virtual_name'] and
+             sibling['virtual_name'] == vpc_block['name']
+            if vpc_block['region'] and
+               sibling['regions'].include?(vpc_block['region'])
+              gateways = sibling['route_tables'].map { |rtb|
+                rtb['routes'].map { |r| r["gateway"] }
+              }.flatten.uniq
+              if ["public", "all_public"].include?(vpc_block['subnet_pref']) and
+                 gateways.include?("#INTERNET")
+                vpc_block['name'] = sibling['name']
+                break
+              elsif ["private", "all_private"].include?(vpc_block['subnet_pref']) and
+                 !gateways.include?("#INTERNET")
+                vpc_block['name'] = sibling['name']
+                break
+              end
+            end
+          end
+        }
+
         is_sibling = (vpc_block['name'] and configurator.haveLitterMate?(vpc_block["name"], "vpcs"))
 
         # Sometimes people set subnet_pref to "private" or "public" when they

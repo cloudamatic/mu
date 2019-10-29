@@ -32,6 +32,7 @@ servers:
     subnet_pref: public
   static_ip:
     assign_ip: true
+  associate_public_ip: true
 <% else %>
     subnet_pref: private
 <% end %>
