@@ -692,6 +692,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             vpc['route_tables'].each { |t|
               is_public = false
               t['routes'].each { |r|
+                if !vpc["virtual_name"] and !vpc["create_nat_gateway"] and
+                   r["gateway"] == "#NAT"
+                  r["gateway"] = "#DENY"
+                end
                 is_public = true if r["gateway"] == "#INTERNET"
               }
               count = 0
