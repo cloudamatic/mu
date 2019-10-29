@@ -8,4 +8,6 @@
 
 - name: Run Mu Installer
   command: /root/mu_install.sh -n --mu-admin-email {{ mu_admin_email }} --mu-admin-name {{ mu_service_name }} --hostname {{ mu_service_name }} --public-address {{ mu_canonical_ip }}
+  environment:
+    MU_BRANCH: development
   become: yes

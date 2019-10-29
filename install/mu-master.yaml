@@ -19,10 +19,16 @@ servers:
   - mu-installer
   platform: centos7
   cloud: <%= cloud %>
-  size: m3.medium
+<% if cloud == "AWS" %>
+  size: t2.medium
+<% elsif cloud == "Azure" %>
+  size: Standard_DS1_v2
+<% elsif cloud == "Google" %>
+  size: n1-standard-1
+<% end %>
   vpc:
     name: <%= name %>-vpc
-<% if public %>
+<% if public == "true" %>
     subnet_pref: public
   static_ip:
     assign_ip: true
@@ -37,7 +43,8 @@ servers:
   - Owner
 <% elsif cloud == "Google" %>
   roles:
-  - Admin
+  - role:
+      id: Admin
 <% end %>
 vpcs:
 - name: <%= name %>-vpc
