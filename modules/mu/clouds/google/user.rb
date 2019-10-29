@@ -357,6 +357,7 @@ module MU
           name.match(/\bproject-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
           name.match(/\b\d+@cloudbuild\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@containerregistry\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@container-analysis\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@gcp-sa-bigquerydatatransfer\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@gcp-sa-cloudasset\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@gcp-sa-cloudiot\.iam\.gserviceaccount\.com$/) or
