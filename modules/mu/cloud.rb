@@ -1834,7 +1834,9 @@ module MU
                 if !output.nil? and !output.empty?
                   raise MU::Cloud::BootstrapTempFail, "Linux package manager is still doing something, need to wait (#{output})"
                 end
-                if !@config['skipinitialupdates']
+                if !@config['skipinitialupdates'] and
+                   !@config['scrub_mu_isms'] and
+                   !@config['userdata_script']
                   output = ssh.exec!(lnx_updates_check)
                   if !output.nil? and output.match(/userdata still running/)
                     raise MU::Cloud::BootstrapTempFail, "Waiting for initial userdata system updates to complete"
