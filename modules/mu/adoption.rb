@@ -249,7 +249,7 @@ module MU
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
-        MU.log "Minimizing footprint of #{count.to_s} found resources"
+        MU.log "Minimizing footprint of #{count.to_s} found resources", MU::DEBUG
         @boks[bok['appname']] = vacuum(bok, origin: origin, save: @savedeploys)
 
         if @diff and !deploy
@@ -340,7 +340,7 @@ module MU
       globals.each_pair { |field, counts|
         next if counts.size != 1
         bok[field] = counts.keys.first
-        MU.log "Setting global default #{field} to #{bok[field]} (#{deploy.deploy_id})"
+        MU.log "Setting global default #{field} to #{bok[field]} (#{deploy.deploy_id})", MU::DEBUG
         MU::Cloud.resource_types.each_pair { |typename, attrs|
           if bok[attrs[:cfg_plural]]
             new_resources = []

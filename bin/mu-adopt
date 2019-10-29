@@ -104,7 +104,7 @@ end
 
 adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats])
 adoption.scrapeClouds
-MU.log "Generating baskets"
+MU.log "Generating baskets", MU::DEBUG
 boks = adoption.generateBaskets(prefix: $opt[:appname])
 
 boks.each_pair { |appname, bok|
