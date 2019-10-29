@@ -117,16 +117,14 @@ if $opts[:sg]
     open_ports.each { |port|
       rules << {
         "proto" => "tcp",
-        "port" => port.to_s,
-        "hosts" => ["0.0.0.0/0"]
+        "port" => port.to_s
       }
     }
 
     rules << {
       "proto" => "tcp",
-      "port" => 22,
+      "port" => 22
 #      "hosts" => ["#{preferred_ip}/32"]
-      "hosts" => ["0.0.0.0/0"]
     }
     cfg = {
       "name" => admin_sg_name,

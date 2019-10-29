@@ -159,7 +159,8 @@ module MU
             if !rule_obj.destination_application_security_groups and
                !rule_obj.destination_address_prefix and
                !rule_obj.destination_address_prefixes
-              rule_obj.destination_address_prefixes = ["*"]
+              rule_obj.source_address_prefix = "*"
+              rule_obj.destination_address_prefix = "*"
             end
           else
             rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Inbound
@@ -177,7 +178,9 @@ module MU
             if !rule_obj.source_application_security_groups and
                !rule_obj.source_address_prefix and
                !rule_obj.source_address_prefixes
-              rule_obj.source_address_prefixes = ["*"]
+              # should probably only do this if a port or port_range is named
+              rule_obj.source_address_prefix = "*"
+              rule_obj.destination_address_prefix = "*"
             end
           end
 
