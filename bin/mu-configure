@@ -426,8 +426,8 @@ end
 $IN_AZURE = false
 begin
   Timeout.timeout(2) do
-    instance_id = open("http://169.254.169.254/metadata/instance/compute").read
-    $IN_AZURE = true if !instance_id.nil? and instance_id.size > 0
+    instance = open("http://169.254.169.254/metadata/instance/compute?api-version=2017-08-01","Metadata"=>"true").read
+    $IN_AZURE = true if !instance.nil? and instance.size > 0
   end
 rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
 end
@@ -1272,6 +1272,9 @@ if $IN_AWS and AMROOT
 end
 if $IN_GOOGLE and AMROOT
   system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
+end
+if $IN_AZURE and AMROOT
+  system("#{MU_BASE}/lib/bin/mu-azure-setup --sg")
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")
