@@ -156,6 +156,7 @@ module MU
 
         count = 0
         allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
+        next if (types & allowed_types).size == 0
         origin = {
           "appname" => bok['appname'],
           "types" => (types & allowed_types).sort,
@@ -244,7 +245,7 @@ module MU
         }
 
         # No matching resources isn't necessarily an error
-        next if count == 0
+        next if count == 0 or bok.nil?
 
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
@@ -258,6 +259,10 @@ module MU
 
         if deploy and @diff
           prevcfg = MU::Config.manxify(vacuum(deploy.original_config, deploy: deploy))
+          if !prevcfg
+            MU.log "#{deploy.deploy_id} didn't have a working original config for me to compare", MU::ERR
+            exit 1
+          end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
 
           prevcfg.diff(newcfg)
