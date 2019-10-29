@@ -63,6 +63,7 @@ end
 
 sgs_to_ifaces = {}
 ifaces_to_sgs = {}
+sgs = []
 if MU::Cloud::Azure.hosted?
   instance = MU.myCloudDescriptor
   # Azure VMs can have exactly one security group per network interface, so if
@@ -74,14 +75,33 @@ if MU::Cloud::Azure.hosted?
     iface_desc = MU::Cloud::Azure.network.network_interfaces.get(MU.myInstanceId.resource_group, iface_id.to_s)
     if iface_desc.network_security_group
       sg_id = MU::Cloud::Azure::Id.new(iface_desc.network_security_group.id)
+      sgs << sg_id
       sgs_to_ifaces[sg_id] = iface_id
       ifaces_to_sgs[iface_id] = sg_id
     else
       ifaces_to_sgs[iface_id] = "mu-master-"+MU.myInstanceId.name
       ifaces_to_sgs[iface_id] += "-"+iface_num.to_s if iface_num > 0
     end
+    if iface_desc.ip_configurations
+      iface_desc.ip_configurations.each { |ipcfg|
+        ipcfg.subnet.id.match(/resourceGroups\/([^\/]+)\/providers\/Microsoft.Network\/virtualNetworks\/([^\/]+)\/subnets\/(.*)/)
+        rg = Regexp.last_match[1]
+        vpc_id = Regexp.last_match[2]
+        subnet_id = Regexp.last_match[3]
+        subnet = MU::Cloud::Azure.network.subnets.get(
+          rg,
+          vpc_id,
+          subnet_id
+        )
+        if subnet.network_security_group
+          sg_id = MU::Cloud::Azure::Id.new(subnet.network_security_group.id)
+          sgs << sg_id
+        end
+      }
+    end
     iface_num += 1
   }
+  sgs.uniq!
 
 #  if !instance.tags.items or !instance.tags.items.include?(admin_sg_name)
 #    newitems = instance.tags.items ? instance.tags.items.dup : []
@@ -107,7 +127,7 @@ end
 if $opts[:sg]
   open_ports = [80, 443, MU.mommaCatPort, 7443, 8443, 9443, 8200]
 
-  ifaces_to_sgs.each_pair { |iface_id, sg_id|
+  sgs.each { |sg_id|
     admin_sg_name = sg_id.is_a?(String) ? sg_id : sg_id.name
 
     found = MU::MommaCat.findStray("Azure", "firewall_rule", dummy_ok: true, cloud_id: admin_sg_name, region: instance.location)
