@@ -1408,6 +1408,9 @@ next if !create
               "credentials" => server["credentials"],
               "type" => "service"
             }
+            if server['roles']
+              user['roles'] = server['roles'].dup
+            end
             configurator.insertKitten(user, "users", true)
             server['dependencies'] ||= []
             server['service_account'] = MU::Config::Ref.get(
