@@ -495,7 +495,7 @@ end
           end
         end
 
-        if !@obj
+        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id))
 
           begin
             hab_arg = if @habitat.nil?
