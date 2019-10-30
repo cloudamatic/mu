@@ -1144,7 +1144,7 @@ module MU
             end
           end
 
-          cluster['instance_type'] = MU::Cloud::Google::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
+          cluster['instance_type'] = MU::Cloud::Google::Server.validateInstanceType(cluster["instance_type"], cluster["region"], project: cluster['project'], credentials: cluster['credentials'])
           ok = false if cluster['instance_type'].nil?
 
           ok

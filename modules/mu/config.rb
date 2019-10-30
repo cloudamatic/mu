@@ -495,7 +495,7 @@ end
           end
         end
 
-        if !@obj
+        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id))
 
           begin
             hab_arg = if @habitat.nil?
@@ -633,6 +633,11 @@ return
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
       end
+      # Concatenate like a string
+      def +(o)
+        return to_s if o.nil?
+        to_s + o.to_s
+      end
       # Perform global substitutions like a String
       def gsub(*args)
         to_s.gsub(*args)
@@ -720,6 +725,7 @@ return
           "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
         else
           tail = getTail(var_name.to_s)
+
           if tail.is_a?(Array)
             if @param_pass
               return tail.map {|f| f.values.first.to_s }.join(",")
@@ -729,7 +735,11 @@ return
               return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
             end
           else
-            return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+            if @param_pass
+              tail.to_s
+            else
+              return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+            end
           end
         end
       end
@@ -753,13 +763,28 @@ return
         "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
       end
 
+      # Make sure our parameter values are all available in the local namespace
+      # that ERB will be using, minus any that conflict with existing variables
+      erb_binding = get_binding
+      @@tails.each_pair { |key, tail|
+        next if !tail.is_a?(MU::Config::Tail) or tail.is_list_element
+        # XXX figure out what to do with lists
+        begin
+          erb_binding.local_variable_set(key.to_sym, tail.to_s)
+        rescue NameError
+          MU.log "Binding #{key} = #{tail.to_s}", MU::DEBUG
+          erb_binding.local_variable_set(key.to_sym, tail.to_s)
+        end
+      }
+
       # Figure out what kind of file we're loading. We handle includes 
       # differently if YAML is involved. These globals get used inside
       # templates. They're globals on purpose. Stop whining.
       $file_format = MU::Config.guessFormat(path)
       $yaml_refs = {}
       erb = ERB.new(File.read(path), nil, "<>")
-      raw_text = erb.result(get_binding)
+
+      raw_text = erb.result(erb_binding)
       raw_json = nil
 
       # If we're working in YAML, do some magic to make includes work better.
@@ -885,15 +910,19 @@ return
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
+              next
+            else # not required, no default
+              next
             end
-            if param.has_key?("cloudtype")
-              getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
-            else
-              getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
-            end
+          end
+          if param.has_key?("cloudtype")
+            getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+          else
+            getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
           end
         }
       end
+
       raise ValidationError if !ok
       @@parameters.each_pair { |name, val|
         next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
@@ -1078,7 +1107,9 @@ return
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         if @kittens[cfg_plural]
           @kittens[cfg_plural].each { |kitten|
-            if kitten['name'] == name.to_s or kitten['virtual_name'] == name.to_s or (has_multiple and name.nil?)
+            if kitten['name'].to_s == name.to_s or
+               kitten['virtual_name'].to_s == name.to_s or
+               (has_multiple and name.nil?)
               if has_multiple
                 matches << kitten
               else
@@ -1323,6 +1354,7 @@ return
          (descriptor['ingress_rules'] or
          ["server", "server_pool", "database"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
+        fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
         acl = {
           "name" => fwname,
@@ -1330,8 +1362,17 @@ return
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
-        acl['region'] ||= classobj.myRegion(acl['credentials'])
-        acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
+        if !fw_classobj.isGlobal?
+          acl['region'] = descriptor['region']
+          acl['region'] ||= classobj.myRegion(acl['credentials'])
+        else
+          acl.delete("region")
+        end
+        if descriptor["vpc"]
+          acl["vpc"] = descriptor['vpc'].dup
+          acl["vpc"].delete("subnet_pref")
+        end
+
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
@@ -1450,6 +1491,7 @@ return
 
         plain_cfg = MU::Config.stripConfig(descriptor)
         plain_cfg.delete("#MU_CLOUDCLASS")
+        plain_cfg.delete("#MU_VALIDATION_ATTEMPTED")
         plain_cfg.delete("#TARGETCLASS")
         plain_cfg.delete("#TARGETNAME")
         plain_cfg.delete("parent_block") if cfg_plural == "vpcs"
@@ -1517,6 +1559,7 @@ return
         @@allregions = []
         MU::Cloud.supportedClouds.each { |cloud|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          return @allregions if !cloudclass.listRegions()
           @@allregions.concat(cloudclass.listRegions())
         }
       end
@@ -1615,6 +1658,8 @@ return
         ]
       end
 
+      resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("FirewallRule")
+
       if rules_only
         return rules
       end
@@ -1647,7 +1692,9 @@ return
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
       acl.delete("vpc") if !acl["vpc"]
-      acl["region"] = region if !region.nil? and !region.empty?
+      if !resclass.isGlobal? and !region.nil? and !region.empty?
+        acl["region"] = region
+      end
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end

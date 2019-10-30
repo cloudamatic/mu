@@ -757,6 +757,8 @@ module MU
       @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
     elsif MU::Cloud::AWS.hosted?
       @@myRegion_var ||= MU::Cloud::AWS.myRegion
+    elsif MU::Cloud::Azure.hosted?
+      @@myRegion_var ||= MU::Cloud::Azure.myRegion
     else
       @@myRegion_var = nil
     end
@@ -776,7 +778,8 @@ module MU
       @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
       return "AWS"
     elsif MU::Cloud::Azure.hosted?
-      @@myInstanceId = MU::Cloud::Azure.get_metadata()["compute"]["vmId"]
+      metadata = MU::Cloud::Azure.get_metadata()["compute"]
+      @@myInstanceId = MU::Cloud::Azure::Id.new("/subscriptions/"+metadata["subscriptionId"]+"/resourceGroups/"+metadata["resourceGroupName"]+"/providers/Microsoft.Compute/virtualMachines/"+metadata["name"])
       return "Azure"
     end
     nil
@@ -821,6 +824,78 @@ module MU
       end
     end
     @@myAZ_var
+  end
+
+  # Recursively turn a Ruby OpenStruct into a Hash
+  # @param struct [OpenStruct]
+  # @param stringify_keys [Boolean]
+  # @return [Hash]
+  def self.structToHash(struct, stringify_keys: false)
+    google_struct = false
+    begin
+      google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
+    rescue NameError
+    end
+
+    aws_struct = false
+    begin
+      aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
+    rescue NameError
+    end
+
+    azure_struct = false
+    begin
+      azure_struct = struct.class.ancestors.include?(::MsRestAzure) or struct.class.name.match(/Azure::.*?::Mgmt::.*?::Models::/)
+    rescue NameError
+    end
+
+    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
+       google_struct or aws_struct or azure_struct
+
+      hash = if azure_struct
+        MU::Cloud::Azure.respToHash(struct)
+      else
+        struct.to_h
+      end
+
+      if stringify_keys
+        newhash = {}
+        hash.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        hash = newhash 
+      end
+
+      hash.each_pair { |key, value|
+        hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
+      }
+      return hash
+    elsif struct.is_a?(MU::Config::Ref)
+      struct = struct.to_h
+    elsif struct.is_a?(MU::Cloud::Azure::Id)
+      struct = struct.to_s
+    elsif struct.is_a?(Hash)
+      if stringify_keys
+        newhash = {}
+        struct.each_pair { |k, v|
+          newhash[k.to_s] = v
+        }
+        struct = newhash 
+      end
+      struct.each_pair { |key, value|
+        struct[key] = self.structToHash(value, stringify_keys: stringify_keys)
+      }
+      return struct
+    elsif struct.is_a?(Array)
+      struct.map! { |elt|
+        self.structToHash(elt, stringify_keys: stringify_keys)
+      }
+    elsif struct.is_a?(String)
+      # Cleanse weird encoding problems
+      return struct.dup.to_s.force_encoding("ASCII-8BIT").encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
+    else
+      return struct
+    end
   end
 
   @@myCloudDescriptor = nil
@@ -933,76 +1008,6 @@ module MU
     end
   end
 
-
-  # Recursively turn a Ruby OpenStruct into a Hash
-  # @param struct [OpenStruct]
-  # @param stringify_keys [Boolean]
-  # @return [Hash]
-  def self.structToHash(struct, stringify_keys: false)
-    google_struct = false
-    begin
-      google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
-    rescue NameError
-    end
-
-    aws_struct = false
-    begin
-      aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
-    rescue NameError
-    end
-
-    azure_struct = false
-    begin
-      azure_struct = struct.class.ancestors.include?(::MsRestAzure) or struct.class.name.match(/Azure::.*?::Mgmt::.*?::Models::/)
-    rescue NameError
-    end
-
-    if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
-       google_struct or aws_struct or azure_struct
-
-      hash = if azure_struct
-        MU::Cloud::Azure.respToHash(struct)
-      else
-        struct.to_h
-      end
-
-      if stringify_keys
-        newhash = {}
-        hash.each_pair { |k, v|
-          newhash[k.to_s] = v
-        }
-        hash = newhash 
-      end
-
-      hash.each_pair { |key, value|
-        hash[key] = self.structToHash(value, stringify_keys: stringify_keys)
-      }
-      return hash
-    elsif struct.is_a?(MU::Config::Ref)
-      struct = struct.to_h
-    elsif struct.is_a?(Hash)
-      if stringify_keys
-        newhash = {}
-        struct.each_pair { |k, v|
-          newhash[k.to_s] = v
-        }
-        struct = newhash 
-      end
-      struct.each_pair { |key, value|
-        struct[key] = self.structToHash(value, stringify_keys: stringify_keys)
-      }
-      return struct
-    elsif struct.is_a?(Array)
-      struct.map! { |elt|
-        self.structToHash(elt, stringify_keys: stringify_keys)
-      }
-    elsif struct.is_a?(String)
-      # Cleanse weird encoding problems
-      return struct.dup.to_s.force_encoding("ASCII-8BIT").encode('UTF-8', invalid: :replace, undef: :replace, replace: '?')
-    else
-      return struct
-    end
-  end
 
   # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
   # return [String]: A password string.

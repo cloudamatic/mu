@@ -36,6 +36,17 @@ module MU
       class APIError < MU::MuError
       end
 
+      # Return a random Azure-valid GUID, because for some baffling reason some
+      # API calls expect us to roll our own.
+      def self.genGUID
+        hexchars = Array("a".."f") + Array(0..9)
+        guid_chunks = []
+        [8, 4, 4, 4, 12].each { |count|
+          guid_chunks << Array.new(count) { hexchars.sample }.join
+        }
+        guid_chunks.join("-")
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
@@ -46,10 +57,17 @@ module MU
         class << self
           attr_reader :resource_group
         end
-        return if !cloudobj or !deploy 
+        return if !cloudobj
+
+        rg = if !deploy
+          return if !hosted?
+          MU.myInstanceId.resource_group
+        else
+          region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
+          deploy.deploy_id+"-"+region.upcase
+        end
         
-        region = cloudobj.config['region'] || MU::Cloud::Azure.myRegion(cloudobj.config['credentials'])
-        cloudobj.instance_variable_set(:@resource_group, deploy.deploy_id+"-"+region.upcase)
+        cloudobj.instance_variable_set(:@resource_group, rg)
 
       end
 
@@ -238,8 +256,9 @@ module MU
       # return [Array<String>]
       def self.listRegions(credentials: nil)
         cfg = credConfig(credentials)
-        return nil if !cfg
+        return nil if !cfg and !hosted?
         subscription = cfg['subscription']
+        subscription ||= default_subscription()
 
         if @@regions.length() > 0 && subscription == default_subscription()
           return @@regions
@@ -478,13 +497,22 @@ module MU
 
       # Fetch (ALL) Azure instance metadata
       # @return [Hash, nil]
-      def self.get_metadata()
-        base_url = "http://169.254.169.254/metadata/instance"
-        api_version = '2017-08-01'
+      def self.get_metadata(svc = "instance", api_version = "2017-08-01", args: {}, debug: false)
+        loglevel = debug ? MU::NOTICE : MU::DEBUG
+        return @@metadata if svc == "instance" and @@metadata
+        base_url = "http://169.254.169.254/metadata/#{svc}"
+        args["api-version"] = api_version
+        arg_str = args.keys.map { |k| k.to_s+"="+args[k].to_s }.join("&")
 
         begin
           Timeout.timeout(2) do
-            @@metadata ||= JSON.parse(open("#{base_url}/?api-version=#{ api_version }","Metadata"=>"true").read)
+            resp = JSON.parse(open("#{base_url}/?#{arg_str}","Metadata"=>"true").read)
+            MU.log "curl -H Metadata:true "+"#{base_url}/?#{arg_str}", loglevel, details: resp
+            if svc != "instance"
+              return resp
+            else
+              @@metadata = resp
+            end
           end
           return @@metadata
 
@@ -504,6 +532,22 @@ module MU
       # @return [Hash]
       def self.getSDKOptions(credentials = nil)
         cfg = credConfig(credentials)
+
+        if cfg and MU::Cloud::Azure.hosted?
+          token = MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" })
+          if !token
+            MU::Cloud::Azure.get_metadata("identity/oauth2/token", "2018-02-01", args: { "resource"=>"https://management.azure.com/" }, debug: true)
+            raise MuError, "Failed to get machine oauth token"
+          end
+          machine = MU::Cloud::Azure.get_metadata
+          return {
+            credentials: MsRest::TokenCredentials.new(token["access_token"]),
+            client_id: token["client_id"],
+            subscription: machine["compute"]["subscriptionId"],
+            subscription_id: machine["compute"]["subscriptionId"]
+          }
+        end
+
         return nil if !cfg
 
         map = { #... from mu.yaml-ese to Azure SDK-ese
@@ -533,6 +577,10 @@ module MU
         }
 
         if missing.size > 0
+          if (!credentials or credentials == "#default") and hosted?
+            # Let the SDK try to use machine credentials
+            return nil
+          end
           raise MuError, "Missing fields while trying to load Azure SDK options for credential set #{credentials ? credentials : "<default>" }: #{missing.map { |m| m.to_s }.join(", ")}"
         end
 
@@ -773,16 +821,17 @@ module MU
       # @param alt_object [String]: Return an instance of something other than the usual API client object
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # @return [MU::Cloud::Azure::SDKClient]
-      def self.authorization(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_07_01")
+      def self.authorization(model = nil, alt_object: nil, credentials: nil, model_version: "V2015_07_01", endpoint_profile: "Latest")
         require 'azure_mgmt_authorization'
 
         if model and model.is_a?(Symbol)
           return Object.const_get("Azure").const_get("Authorization").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
         else
-          @@authorization_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass", profile: "V2018_03_01")
+          @@authorization_api[credentials] ||= {}
+          @@authorization_api[credentials][endpoint_profile] ||= MU::Cloud::Azure::SDKClient.new(api: "Authorization", credentials: credentials, subclass: "AuthorizationManagementClass", profile: endpoint_profile)
         end
 
-        return @@authorization_api[credentials]
+        return @@authorization_api[credentials][endpoint_profile]
       end
 
       # The Azure Billing API
@@ -899,6 +948,7 @@ module MU
             # Standard approach: get a client from a canned, approved profile
             @api = Object.const_get(stdpath).new(@cred_hash)
           rescue NameError => e
+            raise e if !@cred_hash[:client_secret]
             # Weird approach: generate our own credentials object and invoke a
             # client directly from a particular model profile
             token_provider = MsRestAzure::ApplicationTokenProvider.new(

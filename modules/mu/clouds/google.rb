@@ -110,6 +110,17 @@ module MU
         sample
       end
 
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPCObj
+        return nil if !hosted?
+        instance = MU.myCloudDescriptor
+        return nil if !instance or !instance.network_interfaces or instance.network_interfaces.size == 0
+        vpc = MU::MommaCat.findStray("Google", "vpc", cloud_id: instance.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1'), dummy_ok: true, habitats: [myProject])
+        return nil if vpc.nil? or vpc.size == 0
+        vpc.first
+      end
+
       # Return the name strings of all known sets of credentials for this cloud
       # @return [Array<String>]
       def self.listCredentials
@@ -695,7 +706,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         if @@instance_types and
            @@instance_types[project] and
            @@instance_types[project][region]
-          return @@instance_types[project]
+          return @@instance_types
         end
 
         return {} if !project
@@ -1053,6 +1064,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             resp.items.each { |obj|
               threads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
+                Thread.abort_on_exception = false
                 MU.log "Removing #{type.gsub(/_/, " ")} #{obj.name}"
                 delete_sym = "delete_#{type}".to_sym
                 if !noop
@@ -1071,9 +1083,10 @@ MU.log e.message, MU::WARN, details: e.inspect
                       failed = true
                       retries += 1
                       if resp.error.errors.first.code == "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE" and retries < 6
-                        sleep 15
+                        sleep 10
                       else
                         MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
+                        Thread.abort_on_exception = false
                         raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
                       end
                     else

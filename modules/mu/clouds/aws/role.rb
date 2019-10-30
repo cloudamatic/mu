@@ -355,11 +355,25 @@ module MU
             }
           end
 
+          deleteme = []
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_roles(
             path_prefix: "/"+MU.deploy_id+"/"
           )
-          if resp and resp.roles
-            resp.roles.each { |r|
+          deleteme.concat(resp.roles) if resp and resp.roles
+          if flags and flags["known"]
+            resp = MU::Cloud::AWS.iam(credentials: credentials).list_roles(
+              max_items: 1000
+            )
+            if resp and resp.roles
+              resp.roles.each { |r|
+                deleteme << r if flags["known"].include?(r.role_name)
+              }
+            end
+            deleteme.uniq!
+          end
+
+          if deleteme.size > 0
+            deleteme.each { |r|
               MU.log "Deleting IAM role #{r.role_name}"
               if !noop
                 # purgePolicy won't touch roles we don't own, so gently detach

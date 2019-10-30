@@ -59,152 +59,32 @@ module MU
           num_rules = 0
 
           rulethreads = []
+          return if !@config['rules']
           @config['rules'].each { |rule_cfg|
             num_rules += 1
             rulethreads << Thread.new(rule_cfg, num_rules) { |rule, num|
-              rule_obj = MU::Cloud::Azure.network(:SecurityRule).new
-              resolved_sgs = []
-# XXX these are *Application* Security Groups, which are a different kind of
-# artifact. They take no parameters. Are they essentially a stub that can be
-# attached to certain artifacts to allow them to be referenced here?
-# http://54.175.86.194/docs/azure/Azure/Network/Mgmt/V2019_02_01/ApplicationSecurityGroups.html#create_or_update-instance_method
-              if rule["sgs"]
-                rule["sgs"].each { |sg|
-# look up cloud id for... whatever these are
-                }
-              end
+              was_new, desc = addRule(
+                rule["hosts"],
+                proto: rule["proto"],
+                port: rule["port"],
+                egress: rule["egress"],
+                port_range: rule["port_range"],
+                sgs: rule["sgs"],
+                lbs: rule["lbs"],
+                deny: rule["deny"],
+                weight: rule["weight"],
+                oldrules: oldrules,
+                num: num
+              )
 
-              resolved_lbs = []
-              if rule["lbs"]
-                rule["lbs"].each { |lbs|
-# TODO awaiting LoadBalancer implementation
-                }
-              end
-
-              if rule["egress"]
-                rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Outbound
-                if rule["hosts"] and !rule["hosts"].empty?
-                  rule_obj.source_address_prefix = "*"
-                  if rule["hosts"] == ["*"]
-                    rule_obj.destination_address_prefix = "*"
-                  else
-                    rule_obj.destination_address_prefixes = rule["hosts"]
-                  end
+              newrules_semaphore.synchronize {
+                newrules[desc.name] = desc
+                if !was_new
+                  oldrules[desc.name] = desc
                 end
-                if !resolved_sgs.empty?
-                  rule_obj.destination_application_security_groups = resolved_sgs
-                end
-                if !rule_obj.destination_application_security_groups and
-                   !rule_obj.destination_address_prefix and
-                   !rule_obj.destination_address_prefixes
-                  rule_obj.destination_address_prefixes = ["*"]
-                end
-              else
-                rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Inbound
-                if rule["hosts"] and !rule["hosts"].empty?
-                  if rule["hosts"] == ["*"]
-                    rule_obj.source_address_prefix = "*"
-                  else
-                    rule_obj.source_address_prefixes = rule["hosts"]
-                  end
-                  rule_obj.destination_address_prefix = "*"
-                end
-                if !resolved_sgs.empty?
-                  rule_obj.source_application_security_groups = resolved_sgs
-                end
-                if !rule_obj.source_application_security_groups and
-                   !rule_obj.source_address_prefix and
-                   !rule_obj.source_address_prefixes
-                  rule_obj.source_address_prefixes = ["*"]
-                end
-              end
+              }
 
-              rname_port = "port-"
-              if rule["port"] and rule["port"].to_s != "-1"
-                rule_obj.destination_port_range = rule["port"].to_s
-                rname_port += rule["port"].to_s
-              elsif rule["port_range"] and rule["port_range"] != "-1"
-                rule_obj.destination_port_range = rule["port_range"]
-                rname_port += rule["port_range"]
-              else
-                rule_obj.destination_port_range = "*"
-                rname_port += "all"
-              end
-
-              # We don't bother supporting restrictions on originating ports,
-              # because practically nobody does that.
-              rule_obj.source_port_range = "*"
-
-              rule_obj.protocol = MU::Cloud::Azure.network(:SecurityRuleProtocol).const_get(rule["proto"].capitalize)
-              rname_proto = "proto-"+ (rule["proto"] == "asterisk" ? "all" : rule["proto"])
-
-              if rule["deny"]
-                rule_obj.access = MU::Cloud::Azure.network(:SecurityRuleAccess)::Deny
-              else
-                rule_obj.access = MU::Cloud::Azure.network(:SecurityRuleAccess)::Allow
-              end
-
-              rname = rule_obj.access.downcase+"-"+rule_obj.direction.downcase+"-"+rname_proto+"-"+rname_port+"-"+num.to_s
-
-              if rule["weight"]
-                rule_obj.priority = rule["weight"]
-              elsif oldrules[rname]
-                rule_obj.priority = oldrules[rname].priority
-              else
-                default_priority = 999
-                begin
-                  default_priority += 1
-                  rule_obj.priority = default_priority
-                end while used_priorities.include?(default_priority)
-              end
-              used_priorities << rule_obj.priority
-
-              rule_obj.description = "#{@mu_name} #{num.to_s}: #{rname}"
-           
-              # Now compare this to existing rules, and see if we need to update
-              # anything.
-              need_update = false
-              if oldrules[rname]
-                rule_obj.instance_variables.each { |var|
-                  oldval = oldrules[rname].instance_variable_get(var)
-                  newval = rule_obj.instance_variable_get(var)
-                  need_update = true if oldval != newval
-                }
-
-                [:@destination_address_prefix, :@destination_address_prefixes,
-                 :@destination_application_security_groups,
-                 :@destination_address_prefix,
-                 :@destination_address_prefixes,
-                 :@destination_application_security_groups].each { |var|
-                  next if !oldrules[rname].instance_variables.include?(var)
-                  oldval = oldrules[rname].instance_variable_get(var)
-                  newval = rule_obj.instance_variable_get(var)
-                  if newval.nil? and !oldval.nil? and !oldval.empty?
-                    need_update = true
-                  end
-                }
-              else
-                need_update = true
-              end
-
-              if need_update
-                if oldrules[rname]
-                  MU.log "Updating rule #{rname} in #{@mu_name}", MU::NOTICE, details: rule_obj
-                else
-                  MU.log "Creating rule #{rname} in #{@mu_name}", details: rule_obj
-                end
-
-                resp = MU::Cloud::Azure.network(credentials: @config['credentials']).security_rules.create_or_update(@resource_group, @mu_name, rname, rule_obj)
-                newrules_semaphore.synchronize {
-                  newrules[rname] = resp
-                }
-              else
-                newrules_semaphore.synchronize {
-                  newrules[rname] = oldrules[rname]
-                }
-              end
-
-            }
+            } # rulethreads
           }
 
           rulethreads.each { |t|
@@ -232,8 +112,159 @@ module MU
         # @param port [Integer]: A port number. Only valid with udp or tcp.
         # @param egress [Boolean]: Whether this is an egress ruleset, instead of ingress.
         # @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
-        # @return [void]
-        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535")
+        # @return [Array<Boolean,OpenStruct>]
+        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535", sgs: [], lbs: [], deny: false, weight: nil, oldrules: nil, num: 0, description: "")
+          if !oldrules
+            oldrules = {}
+            cloud_desc(use_cache: false).security_rules.each { |rule|
+              if rule.description and rule.description.match(/^#{Regexp.quote(@mu_name)} \d+:/)
+                oldrules[rule.name] = rule
+              end
+            }
+          end
+          used_priorities = oldrules.values.map { |r| r.priority }
+
+          rule_obj = MU::Cloud::Azure.network(:SecurityRule).new
+          resolved_sgs = []
+# XXX these are *Application* Security Groups, which are a different kind of
+# artifact. They take no parameters. Are they essentially a stub that can be
+# attached to certain artifacts to allow them to be referenced here?
+# http://54.175.86.194/docs/azure/Azure/Network/Mgmt/V2019_02_01/ApplicationSecurityGroups.html#create_or_update-instance_method
+          if sgs
+            sgs.each { |sg|
+# look up cloud id for... whatever these are
+            }
+          end
+
+          resolved_lbs = []
+          if lbs
+            lbs.each { |lbs|
+# TODO awaiting LoadBalancer implementation
+            }
+          end
+
+          if egress
+            rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Outbound
+            if hosts and !hosts.empty?
+              rule_obj.source_address_prefix = "*"
+              if hosts == ["*"]
+                rule_obj.destination_address_prefix = "*"
+              else
+                rule_obj.destination_address_prefixes = hosts
+              end
+            end
+            if !resolved_sgs.empty?
+              rule_obj.destination_application_security_groups = resolved_sgs
+            end
+            if !rule_obj.destination_application_security_groups and
+               !rule_obj.destination_address_prefix and
+               !rule_obj.destination_address_prefixes
+              rule_obj.source_address_prefix = "*"
+              rule_obj.destination_address_prefix = "*"
+            end
+          else
+            rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Inbound
+            if hosts and !hosts.empty?
+              if hosts == ["*"]
+                rule_obj.source_address_prefix = "*"
+              else
+                rule_obj.source_address_prefixes = hosts
+              end
+              rule_obj.destination_address_prefix = "*"
+            end
+            if !resolved_sgs.empty?
+              rule_obj.source_application_security_groups = resolved_sgs
+            end
+            if !rule_obj.source_application_security_groups and
+               !rule_obj.source_address_prefix and
+               !rule_obj.source_address_prefixes
+              # should probably only do this if a port or port_range is named
+              rule_obj.source_address_prefix = "*"
+              rule_obj.destination_address_prefix = "*"
+            end
+          end
+
+          rname_port = "port-"
+          if port and port.to_s != "-1"
+            rule_obj.destination_port_range = port.to_s
+            rname_port += port.to_s
+          elsif port_range and port_range != "-1"
+            rule_obj.destination_port_range = port_range
+            rname_port += port_range
+          else
+            rule_obj.destination_port_range = "*"
+            rname_port += "all"
+          end
+
+          # We don't bother supporting restrictions on originating ports,
+          # because practically nobody does that.
+          rule_obj.source_port_range = "*"
+
+          rule_obj.protocol = MU::Cloud::Azure.network(:SecurityRuleProtocol).const_get(proto.capitalize)
+          rname_proto = "proto-"+ (proto == "asterisk" ? "all" : proto)
+
+          if deny
+            rule_obj.access = MU::Cloud::Azure.network(:SecurityRuleAccess)::Deny
+          else
+            rule_obj.access = MU::Cloud::Azure.network(:SecurityRuleAccess)::Allow
+          end
+
+          rname = rule_obj.access.downcase+"-"+rule_obj.direction.downcase+"-"+rname_proto+"-"+rname_port+"-"+num.to_s
+
+          if weight
+            rule_obj.priority = weight
+          elsif oldrules[rname]
+            rule_obj.priority = oldrules[rname].priority
+          else
+            default_priority = 999
+            begin
+              default_priority += 1 + num
+              rule_obj.priority = default_priority
+            end while used_priorities.include?(default_priority)
+          end
+          used_priorities << rule_obj.priority
+
+          rule_obj.description = "#{@mu_name} #{num.to_s}: #{rname}"
+       
+          # Now compare this to existing rules, and see if we need to update
+          # anything.
+          need_update = false
+          if oldrules[rname]
+            rule_obj.instance_variables.each { |var|
+              oldval = oldrules[rname].instance_variable_get(var)
+              newval = rule_obj.instance_variable_get(var)
+              need_update = true if oldval != newval
+            }
+
+            [:@destination_address_prefix, :@destination_address_prefixes,
+             :@destination_application_security_groups,
+             :@destination_address_prefix,
+             :@destination_address_prefixes,
+             :@destination_application_security_groups].each { |var|
+              next if !oldrules[rname].instance_variables.include?(var)
+              oldval = oldrules[rname].instance_variable_get(var)
+              newval = rule_obj.instance_variable_get(var)
+              if newval.nil? and !oldval.nil? and !oldval.empty?
+                need_update = true
+              end
+            }
+          else
+            need_update = true
+          end
+
+          if need_update
+            if oldrules[rname]
+              MU.log "Updating rule #{rname} in #{@mu_name}", MU::NOTICE, details: rule_obj
+            else
+              MU.log "Creating rule #{rname} in #{@mu_name}", details: rule_obj
+            end
+
+            resp = MU::Cloud::Azure.network(credentials: @config['credentials']).security_rules.create_or_update(@resource_group, @mu_name, rname, rule_obj)
+            return [!oldrules[rname].nil?, resp]
+          else
+            return [false, oldrules[rname]]
+          end
+
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -293,7 +324,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Stub method. Azure resources are cleaned up by removing the parent

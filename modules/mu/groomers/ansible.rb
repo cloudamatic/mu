@@ -268,12 +268,13 @@ module MU
         @server.describe(update_cache: true) # Make sure we're fresh
 
         allvars = {
-          "deployment" => @server.deploy.deployment,
-          "service_name" => @config["name"],
-          "windows_admin_username" => @config['windows_admin_username'],
-          "mu_environment" => MU.environment.downcase,
+          "mu_deployment" => MU.structToHash(@server.deploy.deployment),
+          "mu_service_name" => @config["name"],
+          "mu_canonical_ip" => @server.canonicalIP,
+          "mu_admin_email" => $MU_CFG['mu_admin_email'],
+          "mu_environment" => MU.environment.downcase
         }
-        allvars['deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
+        allvars['mu_deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
 
         if @server.config['cloud'] == "AWS"
           allvars["ec2"] = MU.structToHash(@server.cloud_desc, stringify_keys: true)
@@ -293,7 +294,7 @@ module MU
           f.flock(File::LOCK_UN)
         }
 
-        groupvars = {}
+        groupvars = allvars.dup
         if @server.deploy.original_config.has_key?('parameters')
           groupvars["mu_parameters"] = @server.deploy.original_config['parameters']
         end

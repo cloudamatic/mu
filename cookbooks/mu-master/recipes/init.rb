@@ -393,7 +393,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
   end
 end
 
-["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh", "mu-adopt"].each { |exe|
+["mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh", "mu-adopt", "mu-azure-setup", "mu-gcp-setup", "mu-aws-setup"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end
@@ -454,26 +454,15 @@ end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
 
-# XXX rely on bundler to get this right for us
-#    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
-#      gem_binary gembin
-#      package_name "knife-windows"
-#      version KNIFE_WINDOWS
-#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-#    end
-
-#    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
-#      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
-#      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
-#      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
-#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      only_if { ::Dir.exist?(gemdir) }
-      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-#    end
   end
 }
 
+# This is mostly to make sure Berkshelf has a clean and current environment to
+# live with.
+execute "/usr/local/ruby-current/bin/bundle clean --force" do
+  cwd "#{MU_BASE}/lib/modules"
+  only_if { RUNNING_STANDALONE }
+end
 
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"

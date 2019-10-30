@@ -588,64 +588,64 @@ MESSAGE_END
         begin
           @my_threads << Thread.new(service) { |myservice|
             MU.dupGlobals(parent_thread_id)
-            threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
+            threadname = myservice["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
             Thread.current.thread_variable_set("name", threadname)
             Thread.current.thread_variable_set("owned_by_mu", true)
 #            Thread.abort_on_exception = false
             waitOnThreadDependencies(threadname)
 
-            if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !service['dependencies'].nil? and !service['dependencies'].size == 0
+            if myservice["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !myservice['dependencies'].nil? and !myservice['dependencies'].size == 0
               if mode == "create"
-                MU::MommaCat.lock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
+                MU::MommaCat.lock(myservice["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
               elsif mode == "groom"
-                MU::MommaCat.unlock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
+                MU::MommaCat.unlock(myservice["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
               end
             end
 
             MU.log "Launching thread #{threadname}", MU::DEBUG
             begin
-              if service['#MUOBJECT'].nil?
+              if myservice['#MUOBJECT'].nil?
                 if @mommacat
-                  ext_obj = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_plural, name: service['name'], credentials: service['credentials'], created_only: true, return_all: false)
+                  ext_obj = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_plural, name: myservice['name'], credentials: myservice['credentials'], created_only: true, return_all: false)
                   if @updating
-                    raise MuError, "Failed to findLitterMate(type: #{service["#MU_CLOUDCLASS"].cfg_plural}, name: #{service['name']}, credentials: #{service['credentials']}, created_only: true, return_all: false) in deploy #{@mommacat.deploy_id}" if !ext_obj
-                    ext_obj.config!(service)
+                    raise MuError, "Failed to findLitterMate(type: #{myservice["#MU_CLOUDCLASS"].cfg_plural}, name: #{myservice['name']}, credentials: #{myservice['credentials']}, created_only: true, return_all: false) in deploy #{@mommacat.deploy_id}" if !ext_obj
+                    ext_obj.config!(myservice)
                   end
-                  service['#MUOBJECT'] = ext_obj
+                  myservice['#MUOBJECT'] = ext_obj
                 end
-                service['#MUOBJECT'] ||= service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
+                myservice['#MUOBJECT'] ||= myservice["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
               end
             rescue Exception => e
               MU::MommaCat.unlockAll
-              @main_thread.raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
+              @main_thread.raise MuError, "Error instantiating object from #{myservice["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
               raise e
             end
             begin
-              run_this_method = service['#MUOBJECT'].method(mode)
+              run_this_method = myservice['#MUOBJECT'].method(mode)
             rescue Exception => e
               MU::MommaCat.unlockAll
-              @main_thread.raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+              @main_thread.raise MuError, "Error invoking #{myservice["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
               raise e
             end
             begin
-              MU.log "Checking whether to run #{service['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG
+              MU.log "Checking whether to run #{myservice['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG
               if !@updating or mode != "create"
                 myservice = run_this_method.call
               else
 
                 # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
                 opts = {}
-                if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
-                  opts['classic'] = service['classic'] ? true : false
+                if myservice["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
+                  opts['classic'] = myservice['classic'] ? true : false
                 end
 
-                found = MU::MommaCat.findStray(service['cloud'],
-                                   service["#MU_CLOUDCLASS"].cfg_name,
-                                   name: service['name'],
-                                   credentials: service['credentials'],
-                                   region: service['region'],
+                found = MU::MommaCat.findStray(myservice['cloud'],
+                                   myservice["#MU_CLOUDCLASS"].cfg_name,
+                                   name: myservice['name'],
+                                   credentials: myservice['credentials'],
+                                   region: myservice['region'],
                                    deploy_id: @mommacat.deploy_id,
-#                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
+#                                 allow_multi: myservice["#MU_CLOUDCLASS"].has_multiple,
                                    tag_key: "MU-ID",
                                    tag_value: @mommacat.deploy_id,
                                    flags: opts,
@@ -657,16 +657,16 @@ MESSAGE_END
                 }
 
                 if found.size == 0
-                  MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
+                  MU.log "#{myservice["#MU_CLOUDCLASS"].name} #{myservice['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
                 else
-                  real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
+                  real_descriptor = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_name, name: myservice['name'], created_only: true)
 
                   if !real_descriptor
-                    MU.log "Invoking #{run_this_method.to_s} #{service['name']} #{service['name']}", MU::NOTICE
+                    MU.log "Invoking #{run_this_method.to_s} #{myservice['name']} #{myservice['name']}", MU::NOTICE
                     myservice = run_this_method.call
                   end
-#MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']}", MU::NOTICE
+#MU.log "#{myservice["#MU_CLOUDCLASS"].cfg_name} #{myservice['name']}", MU::NOTICE
                 end
 
               end

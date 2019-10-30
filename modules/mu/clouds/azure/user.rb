@@ -25,7 +25,7 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
-            @cloud_id = Id.new(cloud_desc.id)
+            @cloud_id = Id.new(cloud_desc.id) if @cloud_id
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 31)
           end
@@ -62,7 +62,46 @@ module MU
               MU::Cloud::Azure.handleError(e)
             end
 
+            begin
+              sleep 1
+            end while cloud_desc(use_cache: false).nil? or cloud_desc.client_id.nil?
+
           end
+        end
+
+        # If we're a managed service identity or otherwise have a URL for
+        # fetching our client secret, fetch it and return it.
+        # XXX this doesn't work, and may not be intended to
+        # @return [String]
+        def getSecret
+          if cloud_desc and cloud_desc.client_secret_url
+            cred_hash = MU::Cloud::Azure.getSDKOptions(@credentials)
+
+            token_provider = MsRestAzure::ApplicationTokenProvider.new(
+              cred_hash[:tenant_id],
+              cred_hash[:client_id],
+              cred_hash[:client_secret]
+            )
+            cred_obj = MsRest::TokenCredentials.new(token_provider)
+
+            client = ::MsRest::ServiceClient.new(cred_obj)
+            cloud_desc.client_secret_url.match(/^(http.*?\.azure\.net)(\/.*)/)
+            base = Regexp.last_match[1]
+            path = Regexp.last_match[2]
+#MU.log "Calling into #{base} #{path}"
+            promise = client.make_request_async(
+              cloud_desc.client_secret_url,
+              :get,
+              path
+            )
+
+            # XXX this is async, need to stop and wait somehow
+            promise.then do | result|
+              resp = result.response
+#              MU.log "RESPONSE", MU::WARN, details: resp
+            end
+          end
+          nil
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -120,7 +159,6 @@ module MU
 # XXX Had to register Microsoft.ApiManagement at https://portal.azure.com/#@eglobaltechlabs.onmicrosoft.com/resource/subscriptions/3d20ddd8-4652-4074-adda-0d127ef1f0e0/resourceproviders
 # ffs automate this process, it's just like API enabling in GCP
 
-
           # Azure resources are namedspaced by resource group. If we weren't
           # told one, we may have to search all the ones we can see.
           resource_groups = if args[:resource_group]
@@ -170,11 +208,11 @@ module MU
             },
             "roles" => {
               "type" => "array",
-              "description" => "One or more Azure Authorization roles to associate with this user.",
+              "description" => "One or more Azure Authorization roles to associate with this resource.",
               "default" => ["Reader"],
               "items" => {
                 "type" => "string",
-                "description" => "One or more Azure Authorization roles to associate with this user. If no roles are specified, we default to +Reader+, which permits read-only access subscription-wide."
+                "description" => "One or more Azure Authorization roles to associate with this resource. If no roles are specified, we default to +Reader+, which permits read-only access subscription-wide."
               }
             }
           }

@@ -1852,6 +1852,7 @@ end
     # should be applied to all taggable cloud provider resources.
     # @return [Hash<String,String>]
     def self.listStandardTags
+      return {} if !MU.deploy_id
       {
         "MU-ID" => MU.deploy_id,
         "MU-APP" => MU.appname,

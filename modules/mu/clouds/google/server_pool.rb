@@ -134,9 +134,9 @@ module MU
 # TODO this thing supports based on CPU usage, LB usage, or an arbitrary Cloud
 # Monitoring metric. The default is "sustained 60%+ CPU usage". We should
 # support all that.
-# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeBeta/AutoscalingPolicyCpuUtilization
-# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeBeta/AutoscalingPolicyLoadBalancingUtilization
-# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeBeta/AutoscalingPolicyCustomMetricUtilization
+# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeV1/AutoscalingPolicyCpuUtilization
+# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeV1/AutoscalingPolicyLoadBalancingUtilization
+# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeV1/AutoscalingPolicyCustomMetricUtilization
           policy_obj = MU::Cloud::Google.compute(:AutoscalingPolicy).new(
             cooldown_period_sec: @config['default_cooldown'],
             max_num_replicas: @config['max_size'],
@@ -409,7 +409,7 @@ start = Time.now
             if launch['image_id'].nil?
               img_id = MU::Cloud.getStockImage("Google", platform: pool['platform'])
               if img_id
-                launch['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: img_id, prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
+                launch['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: img_id, prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeV1::Image")
               else
                 MU.log "No image specified for #{pool['name']} and no default available for platform #{pool['platform']}", MU::ERR, details: launch
                 ok = false

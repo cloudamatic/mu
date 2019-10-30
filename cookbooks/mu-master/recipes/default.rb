@@ -35,6 +35,27 @@ elsif node['gce']
   search_domains << "google.internal."
 end
 
+if ::File.exist?("/etc/sudoers.d/waagent")
+  sshgroup = if node['platform'] == "centos"
+    "centos"
+  elsif node['platform'] == "ubuntu"
+    "ubuntu"
+  elsif node['platform'] == "windows"
+    "windows"
+  else
+    "root"
+  end
+  
+  File.readlines("/etc/sudoers.d/waagent").each { |l|
+    l.chomp!
+    user = l.sub(/ .*/, '')
+    group sshgroup do
+      members user
+      append true
+    end
+  }
+end
+
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
 include_recipe 'mu-master::firewall-holes'

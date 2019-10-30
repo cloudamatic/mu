@@ -79,8 +79,10 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@config['scrub_mu_isms']
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "AWS",
               credentials: @config['credentials'],
@@ -373,7 +375,7 @@ module MU
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
 
-          if @tags
+          if @tags and @tags.size > 0
             instance_descriptor[:tag_specifications] = [{
               :resource_type => "instance",
               :tags => @tags.keys.map { |k|
@@ -391,6 +393,9 @@ module MU
           retries = 0
           begin
             response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+          rescue Aws::EC2::Errors::InvalidRequest => e
+            MU.log e.message, MU::ERR, details: instance_descriptor
+            raise e
           rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
             if retries < 10
               if retries > 7
@@ -2192,12 +2197,16 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
-          begin
-            types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
-          rescue Aws::Pricing::Errors::UnrecognizedClientException
+          size = size.dup.to_s
+          types = begin
+            (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          rescue Aws::Pricing::Errors::Unrecognitypes.has_key?(size)
             MU.log "Saw authentication error communicating with Pricing API, going to assume our instance type is correct", MU::WARN
             return size
           end
+
+          return size if types.has_key?(size)
+
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
             foundmatch = false

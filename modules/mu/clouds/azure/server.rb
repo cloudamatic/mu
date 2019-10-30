@@ -32,8 +32,10 @@ module MU
         def initialize(**args)
           super
 
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@scrub_mu_isms
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "Azure",
               credentials: @config['credentials'],
@@ -217,8 +219,6 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           found = {}
-
-          # Azure resources are namedspaced by resource group. If we weren't
           # told one, we may have to search all the ones we can see.
           resource_groups = if args[:resource_group]
             [args[:resource_group]]
@@ -421,7 +421,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::ALPHA
+          MU::Cloud::BETA
         end
 
         # Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in whatever Groomer was used.
@@ -440,6 +440,7 @@ module MU
           hosts_schema = MU::Config::CIDR_PRIMITIVE
           hosts_schema["pattern"] = "^(\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}|\\*)$"
           schema = {
+            "roles" => MU::Cloud::Azure::User.schema(config)[1]["roles"],
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -460,6 +461,7 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
+          size = size.dup.to_s
           types = (MU::Cloud::Azure.listInstanceTypes(region))[region]
           if types and (size.nil? or !types.has_key?(size))
             # See if it's a type we can approximate from one of the other clouds
@@ -567,6 +569,23 @@ module MU
             }
           end
           server['vpc']['subnet_pref'] ||= "private"
+
+          svcacct_desc = {
+            "name" => server["name"]+"user",
+            "region" => server["region"],
+            "type" => "service",
+            "cloud" => "Azure",
+            "create_api_key" => true,
+            "credentials" => server["credentials"],
+            "roles" => server["roles"]
+          }
+          server['dependencies'] ||= []
+          server['dependencies'] << {
+            "type" => "user",
+            "name" => server["name"]+"user"
+          }
+
+          ok = false if !configurator.insertKitten(svcacct_desc, "users")
 
           ok
         end
@@ -718,6 +737,14 @@ module MU
             os_obj.linux_configuration = lnx_obj
           end
 
+          vm_id_obj = MU::Cloud::Azure.compute(:VirtualMachineIdentity).new
+          vm_id_obj.type = "UserAssigned"
+          svc_acct = @deploy.findLitterMate(type: "user", name: @config['name']+"user")
+          raise MuError, "Failed to locate service account #{@config['name']}user" if !svc_acct
+          vm_id_obj.user_assigned_identities  = {
+            svc_acct.cloud_desc.id => svc_acct.cloud_desc
+          }
+
           vm_obj = MU::Cloud::Azure.compute(:VirtualMachine).new
           vm_obj.location = @config['region']
           vm_obj.tags = @tags
@@ -725,6 +752,7 @@ module MU
           vm_obj.network_profile.network_interfaces = [iface]
           vm_obj.hardware_profile = hw_obj
           vm_obj.os_profile = os_obj
+          vm_obj.identity = vm_id_obj
           vm_obj.storage_profile = MU::Cloud::Azure.compute(:StorageProfile).new
           vm_obj.storage_profile.image_reference = img_obj
 
@@ -767,6 +795,7 @@ module MU
 
 
 if !@cloud_id
+# XXX actually guard this correctly
           MU.log "Creating VM #{@mu_name}", details: vm_obj
           vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
           @cloud_id = Id.new(vm.id)

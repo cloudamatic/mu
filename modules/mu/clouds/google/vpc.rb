@@ -26,17 +26,12 @@ module MU
         def initialize(**args)
           super
 
-          @subnets = []
+          @subnets ||= []
           @subnetcachesemaphore = Mutex.new
 
-          if !@mu_name.nil?
-            if @cloud_id.nil? or @cloud_id.empty?
-              @cloud_id = MU::Cloud::Google.nameStr(@mu_name)
-            end
-            loadSubnets
-          end
+          loadSubnets if @cloud_id
 
-          @mu_name ||= @deploy.getResourceName(@config['name'])
+          @mu_name ||= @config['scrub_mu_isms'] ? @config['name'] : @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -62,7 +57,7 @@ module MU
                 MU.dupGlobals(parent_thread_id)
                 subnet_name = subnet['name']
 
-                subnet_mu_name = MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
+                subnet_mu_name = @config['scrub_mu_isms'] ? @cloud_id+subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
@@ -285,7 +280,9 @@ end
         # @param use_cache [Boolean]: If available, use saved deployment metadata to describe subnets, instead of querying the cloud API
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets(use_cache: true)
-          return @subnets if use_cache and @subnets and @subnets.size > 0
+          @subnetcachesemaphore.synchronize {
+            return @subnets if use_cache and @subnets and @subnets.size > 0
+          }
           network = cloud_desc
 
           if network.nil?
@@ -297,16 +294,18 @@ end
           if @deploy and @deploy.deployment and
              @deploy.deployment["vpcs"] and
              @deploy.deployment["vpcs"][@config['name']] and
-             @deploy.deployment["vpcs"][@config['name']]["subnets"]
+             @deploy.deployment["vpcs"][@config['name']]["subnets"] and
+             @deploy.deployment["vpcs"][@config['name']]["subnets"].size > 0
             @deploy.deployment["vpcs"][@config['name']]["subnets"].each { |desc|
               subnet = {}
               subnet["ip_block"] = desc['ip_block']
               subnet["name"] = desc["name"]
- # XXX delete this later
-              subnet['mu_name'] = MU::Cloud::Google.nameStr(@deploy.getResourceName(desc["name"], max_length: 61))
- # XXX delete this later
-              subnet["cloud_id"] = subnet['mu_name']
-              subnet['az'] = subnet['region'] = desc["availability_zone"]
+              subnet['mu_name'] = @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
+              subnet["cloud_id"] = desc['cloud_id']
+              subnet["cloud_id"] ||= desc['self_link'].gsub(/.*?\/([^\/]+)$/, '\1')
+              subnet["cloud_id"] ||= subnet['mu_name']
+              subnet['az'] = desc["az"]
+              subnet['az'] ||= desc["region"].gsub(/.*?\/([^\/]+)$/, '\1')
               @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
             }
           else
@@ -321,19 +320,19 @@ end
             @subnetcachesemaphore.synchronize {
               @subnets ||= []
               ext_ids = @subnets.each.collect { |s| s.cloud_id }
-
               # If we're a plain old Mu resource, load our config and deployment
               # metadata. Like ya do.
               if !@config.nil? and @config.has_key?("subnets")
                 @config['subnets'].each { |subnet|
-                  subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+#                  subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+                  subnet['mu_name'] ||= @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
                   subnet['region'] = @config['region']
                   found.each { |desc|
                     if desc.ip_cidr_range == subnet["ip_block"]
                       desc.subnetwork.match(/\/projects\/[^\/]+\/regions\/([^\/]+)\/subnetworks\/(.+)$/)
                       subnet['az'] = Regexp.last_match[1]
-                      subnet['name'] = Regexp.last_match[2]
-                      subnet["cloud_id"] = subnet['name']
+                      subnet['name'] ||= Regexp.last_match[2]
+                      subnet["cloud_id"] = subnet['mu_name']
                       subnet["url"] = desc.subnetwork
                       break
                     end
@@ -436,11 +435,11 @@ end
             cloud_id.gsub!(/.*?\//, "")
           end
           MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block})", MU::DEBUG, details: caller[0]
-
           subnets.each { |subnet|
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
-            elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
+            elsif !name.nil? and !subnet.name.nil? and
+                  subnet.name.downcase.to_s == name.downcase.to_s
               return subnet
             end
           }
@@ -532,13 +531,40 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           ["route", "network"].each { |type|
 # XXX tagged routes aren't showing up in list, and the networks that own them
 # fail to delete silently
-            MU::Cloud::Google.compute(credentials: credentials).delete(
-              type,
-              flags["project"],
-              nil,
-              noop
-            )
+            retries = 0
+
+            begin
+              MU::Cloud::Google.compute(credentials: credentials).delete(
+                type,
+                flags["project"],
+                nil,
+                noop
+              )
+            rescue MU::MuError, ::Google::Apis::ClientError => e
+              if retries < 5
+                if type == "network"
+                  MU.log e.message, MU::WARN
+                  if e.message.match(/Failed to delete network (.+)/)
+                    network_name = Regexp.last_match[1]
+                    fwrules = MU::Cloud::Google::FirewallRule.find(project: flags['project'], credentials: credentials)
+                    fwrules.reject! { |name, desc|
+                      !desc.network.match(/.*?\/#{Regexp.quote(network_name)}$/)
+                    }
+                    fwrules.keys.each { |name|
+                      MU.log "Attempting to delete firewall rule #{name} so that VPC #{network_name} can be removed", MU::NOTICE
+                      MU::Cloud::Google.compute(credentials: credentials).delete_firewall(flags['project'], name)
+                    }
+                  end
+                end
+                sleep retries*3
+                retries += 1
+                retry
+              else
+                raise e
+              end
+            end
           }
+
         end
 
         # Reverse-map our cloud description into a runnable config hash.
@@ -693,16 +719,28 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
             vpc["subnets"] = []
             vpc['route_tables'].each { |t|
+              is_public = false
+              t['routes'].each { |r|
+                if !vpc["virtual_name"] and !vpc["create_nat_gateway"] and
+                   r["gateway"] == "#NAT"
+                  r["gateway"] = "#DENY"
+                end
+                is_public = true if r["gateway"] == "#INTERNET"
+              }
               count = 0
               vpc['regions'].each { |r|
                 block = blocks.shift
-                vpc["subnets"] << {
+                subnet = {
                   "availability_zone" => r,
                   "route_table" => t["name"],
                   "ip_block" => block.to_s,
-                  "name" => "Subnet"+count.to_s+t["name"].capitalize,
-                  "map_public_ips" => true
+                  "name" => "Subnet"+count.to_s+t["name"].capitalize
                 }
+                if is_public
+                  subnet["map_public_ips"] = true
+                  subnet["is_public"] = true
+                end
+                vpc["subnets"] << subnet
                 count = count + 1
               }
             }
@@ -758,6 +796,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               vpc["subnets"].each { |subnet|
                 newvpc["subnets"] << subnet if subnet["route_table"] == tbl["name"]
               }
+
               ok = false if !configurator.insertKitten(newvpc, "vpcs", true)
             }
             configurator.removeKitten(vpc['name'], "vpcs")
@@ -794,6 +833,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 # theoretically our upstream validation should have inserted
                 # a NAT/bastion host we can use
                 nat = configurator.haveLitterMate?(vpc['name']+"-natstion", "servers")
+                if vpc['virtual_name']
+                  nat ||= configurator.haveLitterMate?(vpc['virtual_name']+"-natstion", "servers")
+                end
+
                 if !nat
                   MU.log "Google VPC #{vpc['name']} declared a #NAT route, but I don't see an upstream NAT host I can use. Do I even have public subnets?", MU::ERR
                   ok = false
@@ -869,7 +912,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 raise MuError, "Failed to find NAT host for #NAT route in #{@mu_name} (#{route})"
               end
 
-              routeobj = ::Google::Apis::ComputeBeta::Route.new(
+              routeobj = ::Google::Apis::ComputeV1::Route.new(
                 name: routename,
                 next_hop_instance: nat_instance.cloud_desc.self_link,
                 dest_range: route['destination_network'],
@@ -894,7 +937,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               }
             end
           elsif route['gateway'] == "#INTERNET"
-            routeobj = ::Google::Apis::ComputeBeta::Route.new(
+            routeobj = ::Google::Apis::ComputeV1::Route.new(
               name: routename,
               next_hop_gateway: "global/gateways/default-internet-gateway",
               dest_range: route['destination_network'],

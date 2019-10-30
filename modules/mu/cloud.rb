@@ -952,7 +952,7 @@ module MU
               MU.log "Initializing a detached #{self.class.name} named #{args[:mu_name]}", MU::DEBUG, details: args[:kitten_cfg]
             end
 
-            my_cloud = args[:kitten_cfg]['cloud'] || MU::Config.defaultCloud
+            my_cloud = args[:kitten_cfg]['cloud'].to_s || MU::Config.defaultCloud
             if my_cloud.nil? or !MU::Cloud.supportedClouds.include?(my_cloud)
               raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
             end
@@ -1062,11 +1062,11 @@ module MU
             # Use pre-existing mu_name (we're probably loading an extant deploy)
             # if available
             if args[:mu_name]
-              @mu_name = args[:mu_name]
+              @mu_name = args[:mu_name].dup
             # If scrub_mu_isms is set, our mu_name is always just the bare name
             # field of the resource.
             elsif @config['scrub_mu_isms']
-              @mu_name = @config['name']
+              @mu_name = @config['name'].dup
 # XXX feck it insert an inheritable method right here? Set a default? How should resource implementations determine whether they're instantiating a new object?
             end
 
@@ -1369,18 +1369,30 @@ module MU
                   sib_by_name.each { |sibling|
                     all_private = sibling.subnets.map { |s| s.private? }.all?(true)
                     all_public = sibling.subnets.map { |s| s.private? }.all?(false)
+                    names = sibling.subnets.map { |s| s.name }
+                    ids = sibling.subnets.map { |s| s.cloud_id }
                     if all_private and ["private", "all_private"].include?(@config['vpc']['subnet_pref'])
                       @vpc = sibling
                       break
                     elsif all_public and ["public", "all_public"].include?(@config['vpc']['subnet_pref'])
                       @vpc = sibling
                       break
-                    else
-                      MU.log "Got multiple matching VPCs for #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}"
+                    elsif @config['vpc']['subnet_name'] and
+                          names.include?(@config['vpc']['subnet_name'])
+puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
+                      @vpc = sibling
+                      break
+                    elsif @config['vpc']['subnet_id'] and
+                          ids.include?(@config['vpc']['subnet_id'])
                       @vpc = sibling
                       break
                     end
                   }
+                  if !@vpc
+                    sibling = sib_by_name.sample
+                    MU.log "Got multiple matching VPCs for #{self.class.cfg_name} #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}", MU::WARN, details: @config['vpc']
+                    @vpc = sibling
+                  end
                 end
               else
                 @vpc = sib_by_name
@@ -1834,7 +1846,9 @@ module MU
                 if !output.nil? and !output.empty?
                   raise MU::Cloud::BootstrapTempFail, "Linux package manager is still doing something, need to wait (#{output})"
                 end
-                if !@config['skipinitialupdates']
+                if !@config['skipinitialupdates'] and
+                   !@config['scrub_mu_isms'] and
+                   !@config['userdata_script']
                   output = ssh.exec!(lnx_updates_check)
                   if !output.nil? and output.match(/userdata still running/)
                     raise MU::Cloud::BootstrapTempFail, "Waiting for initial userdata system updates to complete"

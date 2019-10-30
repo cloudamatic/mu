@@ -424,6 +424,7 @@ module MU
           }
           path
         end
+        next if !kubectl
         done = false
         retries = 0
         begin

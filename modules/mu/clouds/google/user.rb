@@ -124,9 +124,8 @@ module MU
           if @config['external']
             MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           elsif @config['type'] == "interactive"
-
-            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'], deploy: @deploy)
             need_update = false
+            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
 
             if @config['force_password_change'] and !cloud_desc.change_password_at_next_login
               MU.log "Forcing #{@mu_name} to change their password at next login", MU::NOTICE
@@ -171,6 +170,7 @@ module MU
             end
 
           else
+            MU::Cloud::Google::Role.bindFromConfig("serviceAccount", @cloud_id.gsub(/.*?\/([^\/]+)$/, '\1'), @config['roles'], credentials: @config['credentials'])
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
                 cloud_desc.name
@@ -357,6 +357,7 @@ module MU
           name.match(/\bproject-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
           name.match(/\b\d+@cloudbuild\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@containerregistry\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@container-analysis\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@gcp-sa-bigquerydatatransfer\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@gcp-sa-cloudasset\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@gcp-sa-cloudiot\.iam\.gserviceaccount\.com$/) or
@@ -564,13 +565,6 @@ If we are binding (rather than creating) a user and no roles are specified, we w
                       }
                     }
                   ]
-                  if my_org
-                    user['roles'][0]["organizations"] = [my_org.name]
-                  else
-                    user['roles'][0]["projects"] = {
-                      "id" => user["project"]
-                    }
-                  end
                   MU.log "External Google user specified with no role binding, will grant 'viewer' in #{my_org ? "organization #{my_org.display_name}" : "project #{user['project']}"}", MU::WARN
                 end
               else # this is actually targeting a domain we manage! yay!
@@ -616,6 +610,16 @@ If we are binding (rather than creating) a user and no roles are specified, we w
                   "type" => "role",
                   "name" => r['role']['name']
                 }
+              end
+
+              if !r["projects"] and !r["organizations"] and !r["folders"]
+                if my_org
+                  r["organizations"] = [my_org.name]
+                else
+                  r["projects"] = [
+                    "id" => user["project"]
+                  ]
+                end
               end
             }
           end

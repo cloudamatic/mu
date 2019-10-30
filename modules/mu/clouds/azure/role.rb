@@ -24,7 +24,7 @@ module MU
           super
           if !mu_name.nil?
             @mu_name = mu_name
-            @cloud_id = Id.new(cloud_desc.id)
+            @cloud_id = Id.new(cloud_desc.id) if @cloud_id
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 31)
           end
@@ -80,41 +80,47 @@ module MU
 
           end
 
+          existing = MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.list()
+
           roles = MU::Cloud::Azure::Role.find(cloud_id: role_id, role_name: role_name, credentials: credentials)
           role = roles.values.first # XXX handle failures and multiples
 
-#          assign_props = MU::Cloud::Azure.authorization(:RoleAssignmentPropertiesWithScope).new
-          assign_props = MU::Cloud::Azure.authorization(:RoleAssignmentProperties).new
-#          assign_props.scope = "/subscriptions/"+MU::Cloud::Azure.default_subscription(credentials)
-          assign_props.principal_id = principal
-          assign_props.role_definition_id = role.id
+          assign_obj = MU::Cloud::Azure.authorization(:RoleAssignmentCreateParameters, model_version: "V2018_09_01_preview").new
+          assign_obj.principal_id = principal
+          assign_obj.principal_type = "ServicePrincipal"
+          assign_obj.role_definition_id = role.id
 
+          # TODO this should defintiely be configurable, and for most Mu
+          # deploy resources will be scoped to the resource group level
+          scope = "/subscriptions/"+MU::Cloud::Azure.default_subscription(credentials)
 
-#          assign_obj = MU::Cloud::Azure.authorization(:RoleAssignmentCreateParameters, model_version: "V2015_07_01").new
-          assign_obj = MU::Cloud::Azure.authorization(:RoleAssignmentCreateParameters).new
-          assign_obj.properties = assign_props
-#          assign_obj.principal_id = principal
-#          assign_obj.role_definition_id = role.id
-#          assign_obj.scope = "/subscriptions/"+MU::Cloud::Azure.default_subscription(credentials)
           role_name = begin
             role.role_name
           rescue NoMethodError
             role.properties.role_name
           end
-          MU.log "Assigning role '#{role_name}' to principal #{principal}", MU::NOTICE, details: assign_obj
-begin
-# XXX this API call don't work yo
-# Required property 'permissions' not found in JSON. Path 'properties', line 1, position 228.'
-# (there is no such parameter)
-#          MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.create_by_id(
-#            role.id,
-#            assign_obj
-#          )
-rescue Exception => e
-MU.log e.inspect, MU::ERR            
-end
+          
+          used_ids = []
+          existing.each { |ext_assignment|
+            used_ids << ext_assignment.name
+            if ext_assignment.role_definition_id == role.id and
+               ext_assignment.scope == scope and
+               ext_assignment.principal_id == principal
+              return
+            end
+          }
 
-#MU::Cloud::Azure.authorization(credentials: @config['credentials']).role_assigments.list_for_resource_group(rgroup_name)
+          guid = nil
+          begin
+            guid = MU::Cloud::Azure.genGUID
+          end while used_ids.include?(guid)
+
+          MU.log "Assigning role '#{role_name}' to principal #{principal}", details: assign_obj
+          MU::Cloud::Azure.authorization(credentials: credentials).role_assignments.create(
+            scope,
+            guid,
+            assign_obj
+          )
         end
 
         @@role_list_cache = {}

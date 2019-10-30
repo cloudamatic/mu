@@ -58,7 +58,7 @@ module MU
             if !@config["private"]
 #TODO ip_address, port_range, target
               realproto = ["HTTP", "HTTPS"].include?(l['lb_protocol']) ? l['lb_protocol'] : "TCP"
-              ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
+              ruleobj = ::Google::Apis::ComputeV1::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
                 load_balancing_scheme: "EXTERNAL",
@@ -68,7 +68,7 @@ module MU
               )
             else
 # TODO network, subnetwork, port_range, target
-              ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
+              ruleobj = ::Google::Apis::ComputeV1::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
                 load_balancing_scheme: "INTERNAL",

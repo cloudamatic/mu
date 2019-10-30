@@ -34,8 +34,10 @@ module MU
         def initialize(**args)
           super
 
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@config['scrub_mu_isms']
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "Google",
               credentials: @config['credentials'],
@@ -98,7 +100,7 @@ module MU
         # the latest version, if applicable.
         # @param image_id [String]: URL to a Google disk image
         # @param credentials [String]
-        # @return [Google::Apis::ComputeBeta::Image]
+        # @return [Google::Apis::ComputeV1::Image]
         def self.fetchImage(image_id, credentials: nil)
           return @@image_id_map[image_id] if @@image_id_map[image_id]
 
@@ -245,7 +247,7 @@ next if !create
           end
           subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
           if subnet.nil?
-            raise MuError, "Couldn't find subnet details while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
+            raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
           end
           base_iface_obj = {
             :network => vpc.url,
@@ -307,7 +309,7 @@ next if !create
                 [m["key"], m["value"]]
               }]
             end
-            metadata["startup-script"] = @userdata
+            metadata["startup-script"] = @userdata if @userdata and !@userdata.empty?
 
             deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
             if metadata["ssh-keys"]
@@ -1232,6 +1234,7 @@ next if !create
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "roles" => MU::Cloud::Google::User.schema(config)[1]["roles"],
             "create_image" => {
               "properties" => {
                 "family" => {
@@ -1300,9 +1303,11 @@ next if !create
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region, project: nil, credentials: nil)
-          if @@instance_type_cache[region] and
-             @@instance_type_cache[region][size]
-            return @@instance_type_cache[region][size]
+          size = size.dup.to_s
+          if @@instance_type_cache[project] and
+             @@instance_type_cache[project][region] and
+             @@instance_type_cache[project][region][size]
+            return @@instance_type_cache[project][region][size]
           end
 
           if size.match(/\/?custom-(\d+)-(\d+)(?:-ext)?$/)
@@ -1324,9 +1329,11 @@ next if !create
             end
           end
 
-          @@instance_type_cache[region] ||= {}
-          types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[region]
+          @@instance_type_cache[project] ||= {}
+          @@instance_type_cache[project][region] ||= {}
+          types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[project][region]
           realsize = size.dup
+
           if types and (realsize.nil? or !types.has_key?(realsize))
             # See if it's a type we can approximate from one of the other clouds
             foundmatch = false
@@ -1355,12 +1362,12 @@ next if !create
 
             if !foundmatch
               MU.log "Invalid size '#{realsize}' for Google Compute instance in #{region} (checked project #{project}). Supported types:", MU::ERR, details: types.keys.sort.join(", ")
-              @@instance_type_cache[region][size] = nil
+              @@instance_type_cache[project][region][size] = nil
               return nil
             end
           end
-          @@instance_type_cache[region][size] = realsize
-          @@instance_type_cache[region][size]
+          @@instance_type_cache[project][region][size] = realsize
+          @@instance_type_cache[project][region][size]
         end
 
 
@@ -1372,8 +1379,8 @@ next if !create
           ok = true
 
           server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
-
           size = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
+
           if size.nil?
             MU.log "Failed to verify instance size #{server["size"]} for Server #{server['name']}", MU::WARN
           else
@@ -1401,6 +1408,9 @@ next if !create
               "credentials" => server["credentials"],
               "type" => "service"
             }
+            if server['roles']
+              user['roles'] = server['roles'].dup
+            end
             configurator.insertKitten(user, "users", true)
             server['dependencies'] ||= []
             server['service_account'] = MU::Config::Ref.get(
@@ -1452,7 +1462,7 @@ next if !create
           if server['image_id'].nil?
             img_id = MU::Cloud.getStockImage("Google", platform: server['platform'])
             if img_id
-              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
+              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeV1::Image")
             else
               MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
               ok = false
