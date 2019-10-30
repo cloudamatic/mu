@@ -1064,6 +1064,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             resp.items.each { |obj|
               threads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
+                Thread.abort_on_exception = false
                 MU.log "Removing #{type.gsub(/_/, " ")} #{obj.name}"
                 delete_sym = "delete_#{type}".to_sym
                 if !noop
@@ -1082,9 +1083,10 @@ MU.log e.message, MU::WARN, details: e.inspect
                       failed = true
                       retries += 1
                       if resp.error.errors.first.code == "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE" and retries < 6
-                        sleep 15
+                        sleep 10
                       else
                         MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
+                        Thread.abort_on_exception = false
                         raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
                       end
                     else

@@ -531,6 +531,8 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           ["route", "network"].each { |type|
 # XXX tagged routes aren't showing up in list, and the networks that own them
 # fail to delete silently
+            retries = 0
+
             begin
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
@@ -539,17 +541,27 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 noop
               )
             rescue MU::MuError, ::Google::Apis::ClientError => e
-              if e.message.match(/Try again later/i)
-                MU.log e.message, MU::WARN
-                sleep 5
+              if retries < 5
+                if type == "network"
+                  MU.log e.message, MU::WARN
+                  if e.message.match(/Failed to delete network (.+)/)
+                    network_name = Regexp.last_match[1]
+                    fwrules = MU::Cloud::Google::FirewallRule.find(project: flags['project'], credentials: credentials)
+                    fwrules.reject! { |name, desc|
+                      !desc.network.match(/.*?\/#{Regexp.quote(network_name)}$/)
+                    }
+                    fwrules.keys.each { |name|
+                      MU.log "Attempting to delete firewall rule #{name} so that VPC #{network_name} can be removed", MU::NOTICE
+                      MU::Cloud::Google.compute(credentials: credentials).delete_firewall(flags['project'], name)
+                    }
+                  end
+                end
+                sleep retries*3
+                retries += 1
                 retry
+              else
+                raise e
               end
-              raise e
-            rescue Exception => e
-  puts e.class.name
-  MU.log e.message, MU::WARN
-  sleep 5
-  retry
             end
           }
 
