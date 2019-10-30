@@ -65,7 +65,7 @@ my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 
 if MU::Cloud::Google.hosted?
   instance = MU.myCloudDescriptor
-  admin_sg_name = MU.myInstanceId+"-"+MU.myVPC.cloud_id+"-ingress-allow"
+  admin_sg_name = MU.myInstanceId+"-"+MU.myVPC+"-ingress-allow"
   if !instance.tags.items or !instance.tags.items.include?(admin_sg_name)
     newitems = instance.tags.items ? instance.tags.items.dup : []
     newitems << admin_sg_name
@@ -116,7 +116,7 @@ if $opts[:sg]
     "project" => MU::Cloud::Google.myProject,
     "target_tags" => [admin_sg_name],
     "vpc" => {
-      "id" => MU.myVPC.cloud_id
+      "id" => MU.myVPC
     }
   }
 
