@@ -152,7 +152,7 @@ Gem Parser Test:
   script:
     - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
     - gem install cloud-mu-*.gem
-    - MY_ADDR=`/sbin/ifconfig eth0 | grep "inet addr" | awk '{print $2}' | cut -d':' -f2`
+    - MY_ADDR=`hostname -I | awk '{print $2}'`
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${MY_ADDR}"
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
@@ -171,7 +171,7 @@ Gem Parser Test:
 Smoke Test:
   stage: Smoke Test
   script:
-    - MY_ADDR=`/sbin/ifconfig eth0 | grep "inet addr" | awk '{print $2}' | cut -d':' -f2`
+    - MY_ADDR=`hostname -I | awk '{print $2}'`
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${MY_ADDR}"
     - mu-upload-chef-artifacts -sn
     - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
@@ -201,7 +201,7 @@ Gen Docs:
   stage: Merge/Tag
   script:
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-  - MY_ADDR=`/sbin/ifconfig eth0 | grep "inet addr" | awk '{print $2}' | cut -d':' -f2`
+  - MY_ADDR=`hostname -I | awk '{print $2}'`
   - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${MY_ADDR}"
   - gem install cloud-mu-*.gem
   - ruby bin/mu-gen-docs
