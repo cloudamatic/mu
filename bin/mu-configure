@@ -29,6 +29,8 @@ require 'erb'
 require 'tmpdir'
 
 $IN_GEM = false
+pp Gem.paths
+puts File.dirname(__FILE__)
 if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
   $IN_GEM = true
 end
