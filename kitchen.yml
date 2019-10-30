@@ -51,7 +51,7 @@ suites:
       command:
       - sudo yum install -y bind-utils
       - chown root /tmp/installer
-      - ll /tmp/
+      - ls -la /tmp/
       - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
       - sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
       - sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure
