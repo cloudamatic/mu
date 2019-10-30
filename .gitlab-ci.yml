@@ -170,6 +170,10 @@ Gem Parser Test:
 Test Kitchen:
   stage: Smoke Test
   image: chef/chefdk:latest
+  before_script:
+  - AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
+  - AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
+  - AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
   script:
   - apt-get -qq update
   - apt-get -qq -y install python3-pip
