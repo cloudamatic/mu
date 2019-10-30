@@ -301,10 +301,11 @@ end
               subnet["ip_block"] = desc['ip_block']
               subnet["name"] = desc["name"]
               subnet['mu_name'] = @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
- # XXX delete this later
               subnet["cloud_id"] = desc['cloud_id']
+              subnet["cloud_id"] ||= desc['self_link'].gsub(/.*?\/([^\/]+)$/, '\1')
               subnet["cloud_id"] ||= subnet['mu_name']
-              subnet['az'] = subnet['region'] = desc["availability_zone"]
+              subnet['az'] = desc["az"]
+              subnet['az'] ||= desc["region"].gsub(/.*?\/([^\/]+)$/, '\1')
               @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
             }
           else
@@ -537,8 +538,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 nil,
                 noop
               )
-            rescue ::Google::Apis::ClientError => e
-puts e.message
+            rescue MU::MuError, ::Google::Apis::ClientError => e
               if e.message.match(/Try again later/i)
                 MU.log e.message, MU::WARN
                 sleep 5
