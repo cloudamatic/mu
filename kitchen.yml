@@ -48,7 +48,13 @@ suites:
       script:
       - "./install/installer"
       - "./install/mu-master.yaml"
-      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n && sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure'
+      command:
+      - sudo yum install -y bind-utils
+      - chown root /tmp/installer
+      - ll /tmp/
+      - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+      - sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
+      - sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure
       root_path: '/tmp/'
     includes:
       - centos-7
@@ -60,7 +66,10 @@ suites:
       script:
       - "./install/installer"
       - "./install/mu-master.yaml"
-      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n && sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure'
+      command:
+      - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+      - sudo ll /tmp/ && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
+      - sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure
       root_path: '/tmp/'
     includes:
       - centos-7-az

@@ -178,7 +178,8 @@ Test Kitchen:
   - apt-get -qq update
   - apt-get -qq -y install python3-pip
   - pip3 install awscli
-  - kitchen test
+  - echo "client_id = $AZURE_CLIENT_ID="
+  - kitchen test mu-install-aws-amazon2
   only:
   - master
   - development
