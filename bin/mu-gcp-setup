@@ -65,7 +65,7 @@ my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 
 if MU::Cloud::Google.hosted?
   instance = MU.myCloudDescriptor
-  admin_sg_name = "mu-master-"+MU.myInstanceId+"-ingress-allow"
+  admin_sg_name = MU.myInstanceId+"-"+MU.myVPC.cloud_id+"-ingress-allow"
   if !instance.tags.items or !instance.tags.items.include?(admin_sg_name)
     newitems = instance.tags.items ? instance.tags.items.dup : []
     newitems << admin_sg_name
@@ -91,6 +91,7 @@ if $opts[:sg]
   open_ports = [80, 443, MU.mommaCatPort, 7443, 8443, 9443, 8200]
 
   found = MU::MommaCat.findStray("Google", "firewall_rule", dummy_ok: true, cloud_id: admin_sg_name)
+  found.reject! { |v| v.cloud_desc.network != MU.myVPC }
   admin_sg = found.first if !found.nil? and found.size > 0
 
   rules = []
@@ -115,7 +116,7 @@ if $opts[:sg]
     "project" => MU::Cloud::Google.myProject,
     "target_tags" => [admin_sg_name],
     "vpc" => {
-      "vpc_id" => instance.network_interfaces.first.network
+      "id" => MU.myVPC.cloud_id
     }
   }
 

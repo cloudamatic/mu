@@ -45,7 +45,7 @@ servers:
 <% elsif cloud == "Google" %>
   roles:
   - role:
-      id: Admin
+      id: roles/owner
 <% end %>
 vpcs:
 - name: <%= name %>-vpc

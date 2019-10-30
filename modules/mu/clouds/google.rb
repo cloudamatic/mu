@@ -110,6 +110,17 @@ module MU
         sample
       end
 
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPCObj
+        return nil if !hosted?
+        instance = MU.myCloudDescriptor
+        return nil if !instance or !instance.network_interfaces or instance.network_interfaces.size == 0
+        vpc = MU::MommaCat.findStray("Google", "vpc", cloud_id: instance.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1'), dummy_ok: true, habitats: [myProject])
+        return nil if vpc.nil? or vpc.size == 0
+        vpc.first
+      end
+
       # Return the name strings of all known sets of credentials for this cloud
       # @return [Array<String>]
       def self.listCredentials
