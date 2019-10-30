@@ -68,6 +68,7 @@ $CONFIGURABLES = {
   "public_address" => {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
+    "default" => %x{/sbin/ifconfig eth0 | grep "inet addr" | awk '{print $2}' | cut -d: -f2}.chomp
     "required" => true,
     "pattern" => /^(#{$impossible_addresses.map { |a| Regexp.quote(a) }.join("|") })$/,
     "negate_pattern" => true,
