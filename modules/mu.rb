@@ -474,8 +474,9 @@ module MU
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir(for_user = MU.mu_user)
-    if (Process.uid == 0 and (for_user.nil? or for_user.empty?)) or
-       for_user == "mu" or for_user == "root"
+    if !localOnly and
+       ((Process.uid == 0 and (for_user.nil? or for_user.empty?)) or
+        for_user == "mu" or for_user == "root")
       return @myDataDir
     else
       for_user ||= MU.mu_user
