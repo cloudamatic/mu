@@ -2671,7 +2671,7 @@ MESSAGE_END
 		# Start the Momma Cat daemon and return the exit status of the command used
     # @return [Integer]
     def self.start
-      base = Process.uid == 0 ? "/var" : MU.dataDir
+      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
       [base, "#{base}/log", "#{base}/run"].each { |dir|
        if !Dir.exists?(dir)
           MU.log "Creating #{dir}"
@@ -2680,7 +2680,7 @@ MESSAGE_END
       }
       return 0 if status
     
-      MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}"
+      MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}, PID file #{daemonPidFile}"
       origdir = Dir.getwd
       Dir.chdir(MU.myRoot+"/modules")
 
@@ -2714,7 +2714,7 @@ MESSAGE_END
         rescue Errno::ESRC
         end
       end
-      MU.log "Momma Cat daemon not running", MU::NOTICE
+      MU.log "Momma Cat daemon not running", MU::NOTICE, details: daemonPidFile
       false
     end
     
@@ -2731,7 +2731,7 @@ MESSAGE_END
         rescue Errno::ESRC
           killed = true
         end while killed
-        MU.log "Momma Cat with pid #{pid.to_s} stopped", MU::DEBUG
+        MU.log "Momma Cat with pid #{pid.to_s} stopped", MU::DEBUG, details: daemonPidFile
     
         begin
           File.unlink(daemonPidFile)
