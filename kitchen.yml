@@ -22,25 +22,48 @@ verifier:
   name: inspec
 
 platforms:
-  - name: ubuntu
   - name: centos-7
-  - name: centos-6
-  - name: rhel-7
-  - name: rhel-6
-  - name: amazon
+    vm_tags:
+      osdistro: centos7
+
   - name: amazon2
-  - name: windows
+    vm_tags:
+      osdistro: amazon2
+
+  - name: centos-7-az
+    driver:
+      name: azurerm
+      subscription_id: '3d20ddd8-4652-4074-adda-0d127ef1f0e0'
+      location: 'East US'
+      #image_urn: 'tunnelbiz:centos70-min:centos7-min:0.1.1'
+      machine_size: 'Standard_B2s'
+      vm_name: mu-install
+      vm_tags:
+        osdistro: centos7
 
 suites:
-  - name: mu-install
+  - name: mu-install-aws
     provisioner:
       name:   shell
-      script: "./install/installer"
-      command: 'echo "=== curling metadata ===" && curl http://169.254.169.254/latest/meta-data/iam/ && myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n'
+      script:
+      - "./install/installer"
+      - "./install/mu-master.yaml"
+      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n && sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure'
       root_path: '/tmp/'
     includes:
       - centos-7
       - amazon2
+
+  - name: mu-install-azure
+    provisioner:
+      name:   shell
+      script:
+      - "./install/installer"
+      - "./install/mu-master.yaml"
+      command: 'myip="$(dig +short myip.opendns.com @resolver1.opendns.com)" && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n && sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure'
+      root_path: '/tmp/'
+    includes:
+      - centos-7-az
 
   #- name: mu-node
   #  run_list:
