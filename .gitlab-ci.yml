@@ -167,24 +167,48 @@ Gem Parser Test:
     variables:
     - $IMAGE_BUILD
 
+Mu Install:
+  stage: Smoke Test
+  before_script:
+  - export AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
+  - export AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
+  - export AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
+  script:
+  - echo "client_id = $AZURE_CLIENT_ID"
+  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+  - gem install cloud-mu-*.gem
+  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com"
+  - for cloud in AWS Azure Google; do mu-deploy install/mu-master.yaml -p name=$cloud-MU -p cloud=$cloud; done
+  only:
+  - master
+  - development
+  - mess_with_test_kitchen
+  after_script:
+  - unset AZURE_CLIENT_ID
+  - unset AZURE_CLIENT_SECRET
+  - unset AZURE_TENANT_ID
+
 Test Kitchen:
   stage: Smoke Test
   image: chef/chefdk:latest
   before_script:
-  - AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
-  - AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
-  - AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
+  - export AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
+  - export AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
+  - export AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
   script:
   - apt-get -qq update
   - apt-get -qq -y install python3-pip
   - pip3 install awscli
-  - echo "client_id = $AZURE_CLIENT_ID="
+  - echo "client_id = $AZURE_CLIENT_ID"
   - kitchen test mu-install-aws-amazon2
   only:
   - master
   - development
   - mess_with_test_kitchen
   after_script:
+  - unset AZURE_CLIENT_ID
+  - unset AZURE_CLIENT_SECRET
+  - unset AZURE_TENANT_ID
   - kitchen destroy
 
 Smoke Test:
