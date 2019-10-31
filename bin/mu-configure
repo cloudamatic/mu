@@ -32,15 +32,16 @@ $IN_GEM = false
 pp Gem.paths
 puts File.realpath(File.expand_path(File.dirname(__FILE__)))
 pp $LOAD_PATH
-pp %x{gem which cloud-mu}
+pp %x{gem which mu}
 mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
 if Gem.paths and Gem.paths.home and mypath.match(/^#{Gem.paths.home}/)
   $IN_GEM = true
 elsif !mypath.match(/^\/opt\/mu/)
-  gemwhich = %x{gem which cloud-mu}.chomp
+  gemwhich = %x{gem which mu}.chomp
   if $?.exitstatus == 0 and gemwhich and !gemwhich.empty?
-    Gem.paths.path.each { |path|
-      if mypath.match(/^#{Regexp.quote(path)}/)
+    $LOAD_PATH.each { |path|
+      if path.match(/\/cloud-mu-[^\/]+\/modules/) or
+         path.match(/#{Regexp.quote(gemwhich)}/)
         $IN_GEM = true
       end
     }
