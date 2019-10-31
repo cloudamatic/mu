@@ -277,7 +277,7 @@ module MU
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
     def initialize(message = nil)
-      MU.log message, MU::ERR if !message.nil?
+      MU.log message, MU::ERR, details: caller if !message.nil?
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
@@ -638,7 +638,7 @@ module MU
   @@my_public_ip = nil
   @@mu_public_addr = nil
   @@mu_public_ip = nil
-  if $MU_CFG['aws'] # XXX this should be abstracted to elsewhere
+  if MU::Cloud::AWS.hosted?
     @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
     @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
     @@mu_public_addr = @@my_public_ip
