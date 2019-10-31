@@ -340,7 +340,7 @@ module MU
   # Returns true if we're running without a full systemwide Mu Master install,
   # typically as a gem.
   def self.localOnly
-    ((Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
+    ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
   end
 
   # The main (root) Mu user's data directory.
