@@ -742,7 +742,10 @@ MU.log e.message, MU::WARN, details: e.inspect
       def self.listAZs(region = self.myRegion)
         return [] if !credConfig
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
-        raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
+        if !@@regions.has_key?(region)
+          MU.log "Failed to get GCP region #{region}", MU::ERR, details: @@regions
+          raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
+        end
         @@regions[region]
       end
 
