@@ -188,7 +188,8 @@ end
 # Shorthand for locating the path to mu.yaml
 def cfgPath
   in_gem = false
-  gemwhich = %x{gem which mu}.chomp
+  gemwhich = %x{gem which mu 2>&1}.chomp
+  gemwhich = nil if $?.exitstatus != 0
   mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
   if !mypath.match(/^\/opt\/mu/)
     if Gem.paths and Gem.paths.home and
