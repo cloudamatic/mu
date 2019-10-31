@@ -1096,6 +1096,7 @@ module MU
               "publicIP" => MU.mu_public_ip,
               "mommaCatPort" => MU.mommaCatPort,
               "chefVersion" => MU.chefVersion,
+              "adminBucketName" => MU::Cloud::AWS.adminBucketName(@credentials),
               "windowsAdminName" => @config['windows_admin_username'],
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "resourceName" => @config["name"],
