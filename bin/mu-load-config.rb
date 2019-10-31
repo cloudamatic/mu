@@ -144,8 +144,11 @@ def loadMuConfig(default_cfg_overrides = nil)
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
   if File.readable?("#{home}/.mu.yaml") and cfgPath != "#{home}/.mu.yaml"
-    global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
-    global_cfg["config_files"] << "#{home}/.mu.yaml"
+    localfile = YAML.load(File.read("#{home}/.mu.yaml"))
+    if localfile
+      global_cfg.merge!(localfile)
+      global_cfg["config_files"] << "#{home}/.mu.yaml"
+    end
   end
   if !global_cfg.has_key?("installdir")
     if ENV['MU_INSTALLDIR']
@@ -184,9 +187,26 @@ end
 
 # Shorthand for locating the path to mu.yaml
 def cfgPath
+  in_gem = false
+  gemwhich = %x{gem which mu 2>&1}.chomp
+  gemwhich = nil if $?.exitstatus != 0
+  mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
+  if !mypath.match(/^\/opt\/mu/)
+    if Gem.paths and Gem.paths.home and
+       (mypath.match(/^#{Gem.paths.home}/) or gemwhich.match(/^#{Gem.paths.home}/))
+      in_gem = true
+    elsif $?.exitstatus == 0 and gemwhich and !gemwhich.empty?
+      $LOAD_PATH.each { |path|
+        if path.match(/\/cloud-mu-[^\/]+\/modules/) or
+           path.match(/#{Regexp.quote(gemwhich)}/)
+          in_gem = true
+        end
+      }
+    end
+  end
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
-  if Process.uid == 0
+  if Process.uid == 0 and !in_gem
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
     elsif Dir.exists?("/opt/mu")

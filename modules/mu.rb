@@ -277,7 +277,7 @@ module MU
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
     def initialize(message = nil)
-      MU.log message, MU::ERR if !message.nil?
+      MU.log message, MU::ERR, details: caller[2] if !message.nil?
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
@@ -340,7 +340,7 @@ module MU
   # Returns true if we're running without a full systemwide Mu Master install,
   # typically as a gem.
   def self.localOnly
-    ((Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
+    ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
   end
 
   # The main (root) Mu user's data directory.
@@ -474,8 +474,9 @@ module MU
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir(for_user = MU.mu_user)
-    if (Process.uid == 0 and (for_user.nil? or for_user.empty?)) or
-       for_user == "mu" or for_user == "root"
+    if !localOnly and
+       ((Process.uid == 0 and (for_user.nil? or for_user.empty?)) or
+        for_user == "mu" or for_user == "root")
       return @myDataDir
     else
       for_user ||= MU.mu_user
@@ -637,7 +638,7 @@ module MU
   @@my_public_ip = nil
   @@mu_public_addr = nil
   @@mu_public_ip = nil
-  if $MU_CFG['aws'] # XXX this should be abstracted to elsewhere
+  if MU::Cloud::AWS.hosted?
     @@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
     @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
     @@mu_public_addr = @@my_public_ip

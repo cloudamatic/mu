@@ -29,8 +29,21 @@ require 'erb'
 require 'tmpdir'
 
 $IN_GEM = false
-if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
-  $IN_GEM = true
+gemwhich = %x{gem which mu 2>&1}.chomp
+gemwhich = nil if $?.exitstatus != 0
+mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
+if !mypath.match(/^\/opt\/mu/)
+  if Gem.paths and Gem.paths.home and
+     (mypath.match(/^#{Gem.paths.home}/) or gemwhich.match(/^#{Gem.paths.home}/))
+    $IN_GEM = true
+  elsif $?.exitstatus == 0 and gemwhich and !gemwhich.empty?
+    $LOAD_PATH.each { |path|
+      if path.match(/\/cloud-mu-[^\/]+\/modules/) or
+         path.match(/#{Regexp.quote(gemwhich)}/)
+        $IN_GEM = true
+      end
+    }
+  end
 end
 
 $possible_addresses = []
@@ -68,7 +81,6 @@ $CONFIGURABLES = {
   "public_address" => {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
-    "default" => $possible_addresses.size > 0 ? $possible_addresses.first : nil,
     "required" => true,
     "pattern" => /^(#{$impossible_addresses.map { |a| Regexp.quote(a) }.join("|") })$/,
     "negate_pattern" => true,
@@ -347,16 +359,16 @@ $opts = Optimist::options do
       data["subtree"].each_pair { |subkey, subdata|
         next if !AMROOT and subdata['rootonly']
         subdata['cli-opt'] = (key+"-"+subkey).gsub(/_/, "-")
-        opt (key+"-"+subkey).to_sym, subdata["desc"], :require => false, :type => (subdata["boolean"] ? :boolean : :string)
+        opt subdata['cli-opt'].to_sym, subdata["desc"], :require => false, :type => (subdata["boolean"] ? :boolean : :string)
         required << subdata['cli-opt'] if subdata['required']
       }
     elsif data["array"]
       data['cli-opt'] = key.gsub(/_/, "-")
-      opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :booleans : :strings)
+      opt data['cli-opt'].to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :booleans : :strings)
       required << data['cli-opt'] if data['required']
     else
       data['cli-opt'] = key.gsub(/_/, "-")
-      opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
+      opt data['cli-opt'].to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
       required << data['cli-opt'] if data['required']
     end
   }
@@ -395,7 +407,7 @@ if !AMROOT and !$HAVE_GLOBAL_CONFIG and !$IN_GEM and Dir.exists?("/opt/mu/lib")
   exit 1
 end
 
-if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
+if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:"public-address"] or !$opts[:"mu-admin-email"])
   if $IN_GEM
     importCurrentValues # maybe we're in local-only mode
   end
@@ -599,8 +611,8 @@ def cloneGitRepo(repo)
     elsif $?.exitstatus != 0 and output.match(/permission denied/i)
       puts ""
       puts output.red.on_black
-      if $opts[:ssh_keys_given]
-        $opts[:ssh_keys].each { |keypath|
+      if $opts[:"ssh-keys-given"]
+        $opts[:"ssh-keys"].each { |keypath|
           if trySSHKeyWithGit(fullrepo, keypath)
             Dir.chdir(cwd)
             return fullrepo
@@ -721,19 +733,42 @@ def importCLIValues
   $CONFIGURABLES.each_pair { |key, data|
     next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
+
       if !data['named_subentries']
         data["subtree"].each_pair { |subkey, subdata|
           next if !AMROOT and subdata['rootonly']
-          if $opts[(subdata['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
-            newval = runValueCallback(subdata, $opts[subdata['cli-opt'].gsub(/-/, "_").to_sym])
+          if $opts[(subdata['cli-opt'].+"_given").to_sym]
+            newval = runValueCallback(subdata, $opts[subdata['cli-opt'].to_sym])
             subdata["value"] = newval if !newval.nil?
             $CHANGES.concat(subdata['changes']) if subdata['changes']
           end
         }
+      # Honor CLI adds for named trees (credentials, etc) if there are no
+      # entries in them yet.
+      elsif data["#entries"].nil? or data["#entries"].empty?
+        newvals = false
+        data["subtree"].each_pair { |subkey, subdata|
+          next if !AMROOT and subdata['rootonly']
+          next if !subdata['cli-opt']
+          if $opts[(subdata['cli-opt']+"_given").to_sym]
+            newval = runValueCallback(subdata, $opts[subdata['cli-opt'].to_sym])
+            if !newval.nil?
+              subdata["value"] = newval
+              newvals = true
+            end
+          end
+        }
+        if newvals
+          newtree = data["subtree"].dup
+          newtree['default']['value'] = true if newtree['default']
+          data['subtree']['#entries'] = {
+            "default" => newtree
+          }
+        end
       end
     else
-      if $opts[(data['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
-        newval = runValueCallback(data, $opts[data['cli-opt'].gsub(/-/, "_").to_sym])
+      if $opts[(data['cli-opt']+"_given").to_sym]
+        newval = runValueCallback(data, $opts[data['cli-opt'].to_sym])
         data["value"] = newval if !newval.nil?
         $CHANGES.concat(data['changes']) if data['changes']
       end
@@ -1160,7 +1195,7 @@ rescue LoadError
   system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
   require 'mu'
 end
-
+exit
 if $IN_GEM
   if $INITIALIZE
     $MU_CFG = MU.detectCloudProviders

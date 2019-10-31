@@ -1095,6 +1095,8 @@ module MU
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
               "mommaCatPort" => MU.mommaCatPort,
+              "chefVersion" => MU.chefVersion,
+              "adminBucketName" => MU::Cloud::AWS.adminBucketName(@credentials),
               "windowsAdminName" => @config['windows_admin_username'],
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "resourceName" => @config["name"],
@@ -1150,11 +1152,11 @@ module MU
 
           if !oldlaunch.nil?
             olduserdata = Base64.decode64(oldlaunch.user_data)
-            if userdata != olduserdata or
-                oldlaunch.image_id != @config["basis"]["launch_config"]["ami_id"] or
-                oldlaunch.ebs_optimized != @config["basis"]["launch_config"]["ebs_optimized"] or
-                oldlaunch.instance_type != @config["basis"]["launch_config"]["size"] or
-                oldlaunch.instance_monitoring.enabled != @config["basis"]["launch_config"]["monitoring"]
+            if userdata == olduserdata and
+                oldlaunch.image_id == @config["basis"]["launch_config"]["ami_id"] and
+                oldlaunch.ebs_optimized == @config["basis"]["launch_config"]["ebs_optimized"] and
+                oldlaunch.instance_type == @config["basis"]["launch_config"]["size"] and
+                oldlaunch.instance_monitoring.enabled == @config["basis"]["launch_config"]["monitoring"]
                 # XXX check more things
 #                launch.block_device_mappings != storage
 #                XXX block device comparison isn't this simple
