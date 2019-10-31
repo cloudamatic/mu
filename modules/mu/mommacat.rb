@@ -2657,14 +2657,14 @@ MESSAGE_END
     # Path to the log file used by the Momma Cat daemon
     # @return [String]
     def self.daemonLogFile
-      base = Process.uid == 0 ? "/var" : MU.dataDir
+      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
       "#{base}/log/mu-momma-cat.log"
     end
 
     # Path to the PID file used by the Momma Cat daemon
     # @return [String]
     def self.daemonPidFile
-      base = (Process.uid == 0 or !MU.localOnly) ? "/var" : MU.dataDir
+      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
       "#{base}/run/mommacat.pid"
     end
 
@@ -2686,7 +2686,7 @@ MESSAGE_END
 
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
       cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
-      MU.log cmd, MU::DEBUG
+      MU.log cmd, MU::NOTICE
       %x{#{cmd}}
       Dir.chdir(origdir)
 
@@ -2704,7 +2704,6 @@ MESSAGE_END
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
     def self.status
-
       if File.exists?(daemonPidFile)
         pid = File.read(daemonPidFile).chomp.to_i
         begin

@@ -277,7 +277,7 @@ module MU
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
     def initialize(message = nil)
-      MU.log message, MU::ERR, details: caller if !message.nil?
+      MU.log message, MU::ERR, details: caller[2] if !message.nil?
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
