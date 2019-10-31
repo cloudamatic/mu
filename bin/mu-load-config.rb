@@ -187,9 +187,25 @@ end
 
 # Shorthand for locating the path to mu.yaml
 def cfgPath
+  in_gem = false
+  gemwhich = %x{gem which mu}.chomp
+  mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
+  if !mypath.match(/^\/opt\/mu/)
+    if Gem.paths and Gem.paths.home and
+       (mypath.match(/^#{Gem.paths.home}/) or gemwhich.match(/^#{Gem.paths.home}/))
+      in_gem = true
+    elsif $?.exitstatus == 0 and gemwhich and !gemwhich.empty?
+      $LOAD_PATH.each { |path|
+        if path.match(/\/cloud-mu-[^\/]+\/modules/) or
+           path.match(/#{Regexp.quote(gemwhich)}/)
+          in_gem = true
+        end
+      }
+    end
+  end
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
-  if Process.uid == 0
+  if Process.uid == 0 and !in_gem
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
     elsif Dir.exists?("/opt/mu")
