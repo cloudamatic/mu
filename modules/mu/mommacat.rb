@@ -2696,6 +2696,7 @@ MESSAGE_END
         retries += 1
         if retries >= 10
           MU.log "MommaCat failed to start (command was #{cmd})", MU::WARN, details: output
+          pp caller
           return $?.exitstatus
         end
       end while !status

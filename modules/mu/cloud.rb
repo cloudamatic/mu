@@ -1351,6 +1351,10 @@ module MU
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
+            # If something hash-ified a MU::Config::Ref here, fix it
+            if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(Hash)
+              @config['vpc']["id"] = MU::Config::Ref.new(@config['vpc']["id"])
+            end
             if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(MU::Config::Ref) and !@config['vpc']["id"].kitten.nil?
               @vpc = @config['vpc']["id"].kitten
             elsif !@config['vpc']["name"].nil? and @deploy
