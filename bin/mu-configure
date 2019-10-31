@@ -32,10 +32,12 @@ $IN_GEM = false
 pp Gem.paths
 puts File.realpath(File.expand_path(File.dirname(__FILE__)))
 pp $LOAD_PATH
-pp %x{gem which mu}
-pp Gem.datadir("mu")
+pp %x{gem which clou-mu}
+pp Gem.datadir("cloud-mu")
 if Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)
   $IN_GEM = true
+elsif !Dir.exists?("/opt/mu/lib")
+  
 end
 
 $possible_addresses = []

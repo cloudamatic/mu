@@ -144,8 +144,11 @@ def loadMuConfig(default_cfg_overrides = nil)
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
   if File.readable?("#{home}/.mu.yaml") and cfgPath != "#{home}/.mu.yaml"
-    global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
-    global_cfg["config_files"] << "#{home}/.mu.yaml"
+    localfile = YAML.load(File.read("#{home}/.mu.yaml"))
+    if localfile
+      global_cfg.merge!(localfile)
+      global_cfg["config_files"] << "#{home}/.mu.yaml"
+    end
   end
   if !global_cfg.has_key?("installdir")
     if ENV['MU_INSTALLDIR']

@@ -167,6 +167,13 @@ module MU
         begin
           MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_availability_zones.availability_zones.first.region_name
         rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
+          if hosted? and !credentials
+            # If we're using an instance profile but it's useless,
+            # privilege-wise, let's just make sure that .hosted? doesn't keep
+            # coaching us to use it.
+            @@is_in_aws = false
+            retry if loadCredentials
+          end
           MU.log "Got '#{e.message}' trying to validate region #{r} (hosted: #{hosted?.to_s})", MU::ERR, details: loadCredentials(credentials)
           raise MuError, "Got '#{e.message}' trying to validate region #{r} with credentials #{credentials ? credentials : "<default>"} (hosted: #{hosted?.to_s})"
         end
