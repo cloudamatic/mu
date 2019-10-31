@@ -150,7 +150,7 @@ Gem Build:
 Gem Parser Test:
   stage: Smoke Test
   script:
-    - sudo apt-get install dnsutils
+    - apt-get install dnsutils
     - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
     - gem install cloud-mu-*.gem
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
@@ -175,7 +175,7 @@ Mu Install:
   - export AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
   - export AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
   - export AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
-  - sudo apt-get install dnsutils
+  - apt-get install dnsutils
   script:
   - echo "client_id = $AZURE_CLIENT_ID"
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
@@ -218,7 +218,7 @@ Test Kitchen:
 Smoke Test:
   stage: Smoke Test
   script:
-    - sudo apt-get install dnsutils
+    - apt-get install dnsutils
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-addres=$myip
     - mu-upload-chef-artifacts -sn
@@ -248,7 +248,7 @@ Smoke Test:
 Gen Docs:
   stage: Merge/Tag
   script:
-  - sudo apt-get install dnsutils
+  - apt-get install dnsutils
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
   - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-addres=$myip
