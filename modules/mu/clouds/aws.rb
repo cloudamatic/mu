@@ -167,7 +167,8 @@ module MU
         begin
           MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_availability_zones.availability_zones.first.region_name
         rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
-          raise MuError, "Got #{e.message} trying to validate region #{r} with credentials #{credentials}"
+          MU.log "Got '#{e.message}' trying to validate region #{r} (hosted: #{hosted?.to_s})", MU::ERR, details: loadCredentials(credentials)
+          raise MuError, "Got '#{e.message}' trying to validate region #{r} with credentials #{credentials ? credentials : "<default>"} (hosted: #{hosted?.to_s})"
         end
       end
 
