@@ -32,12 +32,19 @@ $IN_GEM = false
 pp Gem.paths
 puts File.realpath(File.expand_path(File.dirname(__FILE__)))
 pp $LOAD_PATH
-pp %x{gem which clou-mu}
-pp Gem.datadir("cloud-mu")
-if Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)
+pp %x{gem which cloud-mu}
+mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
+if Gem.paths and Gem.paths.home and mypath.match(/^#{Gem.paths.home}/)
   $IN_GEM = true
-elsif !Dir.exists?("/opt/mu/lib")
-  
+elsif !mypath.match(/^\/opt\/mu/)
+  gemwhich = %x{gem which cloud-mu}.chomp
+  if $?.exitstatus == 0 and gemwhich and !gemwhich.empty?
+    Gem.paths.path.each { |path|
+      if mypath.match(/^#{Regexp.quote(path)}/)
+        $IN_GEM = true
+      end
+    }
+  end
 end
 
 $possible_addresses = []
