@@ -2687,11 +2687,17 @@ MESSAGE_END
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
       cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
       MU.log cmd, MU::NOTICE
-      %x{#{cmd}}
+      output = %x{#{cmd}}
       Dir.chdir(origdir)
 
+      retries = 0
       begin
         sleep 1
+        retries += 1
+        if retries >= 10
+          MU.log "MommaCat failed to start (command was #{cmd})", MU::WARN, details: output
+          return $?.exitstatus
+        end
       end while !status
     
       if $?.exitstatus != 0
