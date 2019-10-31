@@ -29,8 +29,11 @@ require 'erb'
 require 'tmpdir'
 
 $IN_GEM = false
-puts Gem.paths.home
+pp Gem.paths
 puts File.realpath(File.expand_path(File.dirname(__FILE__)))
+pp $LOAD_PATH
+pp %x{gem which mu}
+pp Gem.datadir("mu")
 if Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)
   $IN_GEM = true
 end
