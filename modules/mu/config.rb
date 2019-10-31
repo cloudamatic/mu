@@ -1546,7 +1546,7 @@ return
     end
 
     @@allregions = []
-    MU::Cloud.supportedClouds.each { |cloud|
+    MU::Cloud.availableClouds.each { |cloud|
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
       regions = cloudclass.listRegions()
       @@allregions.concat(regions) if regions
@@ -1557,7 +1557,7 @@ return
     def self.region_primitive
       if !@@allregions or @@allregions.empty?
         @@allregions = []
-        MU::Cloud.supportedClouds.each { |cloud|
+        MU::Cloud.availableClouds.each { |cloud|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
           return @allregions if !cloudclass.listRegions()
           @@allregions.concat(cloudclass.listRegions())
