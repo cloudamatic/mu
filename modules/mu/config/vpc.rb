@@ -475,7 +475,7 @@ module MU
 
           # See if we'll be able to create peering connections
           can_peer = false
-          if MU.myCloud == vpc["cloud"]
+          if MU.myCloud == vpc["cloud"] and MU.myVPCObj
             peer_blocks.concat(MU.myVPCObj.routes)
             begin
               can_peer = true
