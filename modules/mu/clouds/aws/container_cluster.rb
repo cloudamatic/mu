@@ -1629,7 +1629,7 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           if cluster["flavor"] == "EKS" and !cluster["vpc"]
-            if !MU::Cloud::AWS.hosted?
+            if !MU::Cloud::AWS.hosted? or !MU::Cloud::AWS.myVPCObj
               MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
               ok = false
             else
