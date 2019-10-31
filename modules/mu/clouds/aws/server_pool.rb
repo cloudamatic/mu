@@ -1095,6 +1095,7 @@ module MU
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
               "mommaCatPort" => MU.mommaCatPort,
+              "chefVersion" => MU.chefVersion,
               "windowsAdminName" => @config['windows_admin_username'],
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "resourceName" => @config["name"],
