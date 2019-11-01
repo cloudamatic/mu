@@ -1630,11 +1630,20 @@ MU.log c.name, MU::NOTICE, details: t
 
           if cluster["flavor"] == "EKS" and !cluster["vpc"]
             if !MU::Cloud::AWS.hosted? or !MU::Cloud::AWS.myVPCObj
-              MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
-              ok = false
+              siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+              if siblings.size == 1
+                MU.log "EKS cluster #{cluster['name']} did not declare a VPC. Inserting into an available sibling VPC.", MU::WARN
+                cluster["vpc"] = {
+                  "name" => siblings[0]['name'],
+                  "subnet_pref" => "all_private"
+                }
+              else
+                MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
+                ok = false
+              end
             else
               cluster["vpc"] = {
-                "vpc_id" => MU.myVPC,
+                "id" => MU.myVPC,
                 "subnet_pref" => "all_private"
               }
             end
