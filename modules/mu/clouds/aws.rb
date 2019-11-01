@@ -628,7 +628,6 @@ module MU
                 cfg['account_number'] = acct_num.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
                 return name_only ? name.to_s : cfg
-                return cfg
               end
             }
           end
@@ -1354,8 +1353,6 @@ module MU
 
           MU.log "Initializing #{api} object with credentials #{credentials}", MU::DEBUG, details: params
           @api = Object.const_get("Aws::#{api}::Client").new(params)
-
-          @api
         end
 
         @instance_cache = {}

@@ -317,7 +317,7 @@ module MU
           end
 
           if @config['min_size'] and @config['max_size'] and
-             (me.node_pools.first.autoscaling.min_node_count != @config['min_size']
+             (me.node_pools.first.autoscaling.min_node_count != @config['min_size'] or
              me.node_pools.first.autoscaling.max_node_count != @config['max_size'])
             updates << {
               :desired_node_pool_autoscaling => MU::Cloud::Google.container(:NodePoolAutoscaling).new(

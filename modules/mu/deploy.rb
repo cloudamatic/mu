@@ -147,7 +147,7 @@ module MU
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
           @main_config[data[:cfg_plural]].each { |resource|
             if force_cloudformation
-              if resource['cloud'] = "AWS"
+              if resource['cloud'] == "AWS"
                 resource['cloud'] = "CloudFormation"
                 if resource.has_key?("vpc") and resource["vpc"].is_a?(Hash)
                   resource["vpc"]['cloud'] = "CloudFormation"

@@ -202,7 +202,6 @@ module MU
             return MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
           end
 
-          raise "Failed to generate a description for #{self}"
         end
 
         # Return the metadata for this user configuration

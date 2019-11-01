@@ -1031,8 +1031,6 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
             return MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
           end
 
-          @route_cache[instance_id] = false
-          return false
         end
 
         # updates the route table cache (@rtb_cache).

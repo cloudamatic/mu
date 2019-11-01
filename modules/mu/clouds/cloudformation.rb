@@ -268,12 +268,6 @@ module MU
             "Properties" => {
             }
           }
-        when "loggroup"
-          desc = {
-            "Type" => "AWS::EC2::LogGroup",
-            "Properties" => {
-            }
-          }
         when "cache_subnets"
           desc = {
             "Type" => "AWS::ElastiCache::SubnetGroup",

@@ -270,7 +270,7 @@ module MU
 
         retries = 0
         try_upgrade = false
-        output = []
+        output_lines = []
         error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
         runstart = nil
         cmd = nil
@@ -294,12 +294,12 @@ module MU
             Timeout::timeout(timeout) {
               retval = ssh.exec!(cmd) { |ch, stream, data|
                 puts data
-                output << data
+                output_lines << data
                 raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
                 if data.match(/#{error_signal}/)
                   error_msg = ""
                   clip = false
-                  output.each { |chunk|
+                  output_lines.each { |chunk|
                     chunk.split(/\n/).each { |line|
                       if !clip and line.match(/^========+/)
                         clip = true
@@ -331,7 +331,7 @@ module MU
             if try_upgrade
               pp winrm.run("Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME")
             end
-            output = []
+            output_lines = []
             cmd = "c:/opscode/chef/bin/chef-client.bat --color"
             if override_runlist
               cmd = cmd + " -o '#{override_runlist}'"
@@ -341,20 +341,20 @@ module MU
               resp = winrm.run(cmd) do |stdout, stderr|
                 if stdout
                   print stdout if output
-                  output << stdout
+                  output_lines << stdout
                 end
                 if stderr
                   MU.log stderr, MU::ERR
-                  output << stderr
+                  output_lines << stderr
                 end
               end
             }
 
-            if resp.exitcode == 1 and output.join("\n").match(/Chef Client finished/)
+            if resp.exitcode == 1 and output_lines.join("\n").match(/Chef Client finished/)
               MU.log "resp.exit code 1"
             elsif resp.exitcode != 0
-              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
-              raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
+              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output_lines.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
+              raise MU::Groomer::RunError, output_lines.slice(output_lines.length-50, output_lines.length).join("")
             end
           end
         rescue MU::Cloud::BootstrapTempFail

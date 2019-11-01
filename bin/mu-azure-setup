@@ -251,7 +251,7 @@ end
 if $opts[:uploadlogs]
   today = Time.new.strftime("%Y%m%d").to_s
   ["master.log", "nodes.log"].each { |log|
-    if File.exists?("/Mu_Logs/#{log}-#{today}")
+    if File.exist?("/Mu_Logs/#{log}-#{today}")
       MU.log "Uploading /Mu_Logs/#{log}-#{today} to bucket #{$bucketname}"
       MU::Cloud::AWS.s3.put_object(
           bucket: $bucketname,

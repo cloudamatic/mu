@@ -235,7 +235,7 @@ module MU
                 }
               ]
             })
-          when 'apigateway'
+#          when 'apigateway'
 # XXX this is actually happening in ::Endpoint... maybe...            
 #            MU.log "Creation of API Gateway integrations not yet implemented, you'll have to do this manually", MU::WARN, details: "(because we'll basically have to implement all of APIG for this)"
           end 

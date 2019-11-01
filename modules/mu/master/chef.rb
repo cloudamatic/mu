@@ -1,4 +1,3 @@
-#!/usr/local/ruby-current/bin/ruby
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");

@@ -389,7 +389,7 @@ def cfgPath
   if Process.uid == 0
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
-    elsif Dir.exists?("/opt/mu")
+    elsif Dir.exist?("/opt/mu")
       "/opt/mu/etc/mu.yaml"
     else
       "#{home}/.mu.yaml"
@@ -402,7 +402,7 @@ end
 $INITIALIZE = (!File.size?(cfgPath) or $opts[:force])
 
 $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and !$HAVE_GLOBAL_CONFIG and !$IN_GEM and Dir.exists?("/opt/mu/lib")
+if !AMROOT and !$HAVE_GLOBAL_CONFIG and !$IN_GEM and Dir.exist?("/opt/mu/lib")
   puts "Global configuration has not been initialized or is missing. Must run as root to correct."
   exit 1
 end
@@ -549,7 +549,7 @@ def trySSHKeyWithGit(repo, keypath = nil)
       response = Readline.readline("Y/N> ".bold, false)
     end while !response and !response.match(/^(y|n)$/i)
     if response == "y" or response == "Y"
-      Dir.mkdir("#{HOMEDIR}/.ssh", 0700) if !Dir.exists?("#{HOMEDIR}/.ssh")
+      Dir.mkdir("#{HOMEDIR}/.ssh", 0700) if !Dir.exist?("#{HOMEDIR}/.ssh")
       keynamestr = repo.gsub(/[^a-z0-9\-]/i, "-") + Process.pid.to_s
       keypath = "#{HOMEDIR}/.ssh/#{keynamestr}"
       puts "Paste a complete SSH private key for #{ssh_user.bold}@#{ssh_host.bold} below, then ^D"
@@ -562,7 +562,7 @@ def trySSHKeyWithGit(repo, keypath = nil)
     end
   end
 
-  if File.exists?("#{HOMEDIR}/.ssh/config")
+  if File.exist?("#{HOMEDIR}/.ssh/config")
     FileUtils.cp("#{HOMEDIR}/.ssh/config", "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}")
     cfgbackup = "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}"
   end
@@ -1245,7 +1245,7 @@ def updateChefRbs
   user = AMROOT ? "mu" : Etc.getpwuid(Process.uid).name
   chefuser = user.gsub(/\./, "")
   templates = { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE }
-  Dir.mkdir(HOMEDIR+"/.chef") if !Dir.exists?(HOMEDIR+"/.chef")
+  Dir.mkdir(HOMEDIR+"/.chef") if !Dir.exist?(HOMEDIR+"/.chef")
   if AMROOT
     templates["/etc/chef/client.rb"] = CLIENT_TEMPLATE
     templates["/etc/opscode/pivotal.rb"] = PIVOTAL_TEMPLATE
@@ -1279,10 +1279,10 @@ if AMROOT
   if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
     File.rename(tmpfile, cfgpath)
     # Opscode can't seem to get things right with their postgres socket
-    Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exists?("/var/run/postgresql")
-    if File.exists?("/tmp/.s.PGSQL.5432") and !File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+    Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exist?("/var/run/postgresql")
+    if File.exist?("/tmp/.s.PGSQL.5432") and !File.exist?("/var/run/postgresql/.s.PGSQL.5432")
       File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
-    elsif !File.exists?("/tmp/.s.PGSQL.5432") and File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+    elsif !File.exist?("/tmp/.s.PGSQL.5432") and File.exist?("/var/run/postgresql/.s.PGSQL.5432")
       File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
     end
     MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
@@ -1338,7 +1338,7 @@ if $MU_CFG['repos'] and $MU_CFG['repos'].size > 0
     repo.match(/\/([^\/]+?)(\.git)?$/)
     shortname = Regexp.last_match(1)
     repodir = MU.dataDir + "/" + shortname
-    if !Dir.exists?(repodir)
+    if !Dir.exist?(repodir)
       MU.log "Cloning #{repo} into #{repodir}", MU::NOTICE
       Dir.chdir(MU.dataDir)
       system("/usr/bin/git clone #{repo}")
@@ -1378,7 +1378,7 @@ if $MU_CFG['ldap']['type'] == "389 Directory Services"
     $CHANGES << "389ds"
   end
   if $INITIALIZE or $CHANGES.include?("389ds")
-    File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exists?("/root/389ds.tmp/389-directory-setup.inf")
+    File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exist?("/root/389ds.tmp/389-directory-setup.inf")
     MU.log "Configuring 389 Directory Services", MU::NOTICE
     set389DSCreds
     system("chef-client -o 'recipe[mu-master::389ds]'")
@@ -1423,7 +1423,7 @@ MU.log "Running chef-client on MU-MASTER", MU::NOTICE
 system("chef-client -o '#{run_list.join(",")}'")
 
 
-if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
+if !File.exist?("#{MU_BASE}/var/users/mu/email") or !File.exist?("#{MU_BASE}/var/users/mu/realname")
   MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
   MU.setLogging(MU::Logger::SILENT)
   MU::Master.manageUser(

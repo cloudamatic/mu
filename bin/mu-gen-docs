@@ -43,7 +43,7 @@ rescue
 end
 
 docdir = Process.uid == 0 ? "/var/www/html/docs" : MU.dataDir+"/docs"
-if !Dir.exists?(docdir)
+if !Dir.exist?(docdir)
   FileUtils.mkdir_p(docdir, mode: 0755)
 end
 

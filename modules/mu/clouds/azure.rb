@@ -932,7 +932,8 @@ module MU
         attr_reader :api
 
         def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
-          @subclass ||= api.sub(/s$/, '')+"Client"
+          subclass ||= api.sub(/s$/, '')+"Client"
+          @subclass = subclass
           @wrapper_semaphore = Mutex.new
           @wrapper_semaphore.synchronize { 
             @wrappers ||= {}

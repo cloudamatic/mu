@@ -12,7 +12,19 @@ Lint/NonLocalExitFromIterator:
   Enabled: false
 Lint/NestedMethodDefinition:
   Enabled: false
+Lint/LiteralAsCondition:
+  Enabled: false
+Lint/EnsureReturn:
+  Enabled: false
+Lint/EmptyEnsure:
+  Enabled: false
+Naming/MethodName:
+  Enabled: false
 Lint/ShadowingOuterLocalVariable:
+  Severity: error
+Lint/AssignmentInCondition:
+  Severity: error
+Lint/ShadowedArgument:
   Severity: error
 AllCops:
   Exclude:

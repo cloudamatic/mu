@@ -50,7 +50,7 @@ class Hash
       newhash.each_pair { |k, v|
         newhash[k] = bok_minimize(v)
       }
-      newhash.reject! { |k, v| v.nil? or v.empty? }
+      newhash.reject! { |_k, v| v.nil? or v.empty? }
       newhash = newhash.values.first if newhash.size == 1
       return newhash
     elsif o.is_a?(Array)
@@ -269,7 +269,7 @@ module MU
       @@mu_global_thread_semaphore.synchronize {
         @@mu_global_threads << newguy
       }
-      newguy
+
     end
   end
 
@@ -503,13 +503,6 @@ module MU
     @@globals[Thread.current.object_id]['color']
   end
 
-  def self.verbosity
-    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['verbosity'].nil?
-      MU.setVar("verbosity", MU::Logger::NORMAL)
-    end
-    @@globals[Thread.current.object_id]['verbosity']
-  end
-
   # Set parameters parameters for calls to {MU#log}
   def self.setLogging(verbosity, webify_logs = false, handle = STDOUT, color = true)
     MU.setVar("verbosity", verbosity)
@@ -530,7 +523,7 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity, color: true)
+  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: MU.verbosity, color: true)
     return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
     return if verbosity == MU::Logger::SILENT
 
@@ -946,20 +939,20 @@ module MU
   # @return [Boolean]
   def self.hashCmp(hash1, hash2, missing_is_default: false)
     return false if hash1.nil?
-    hash2.each_pair { |k, v|
+    hash2.keys.each { |k|
       if hash1[k].nil?
         return false
       end
     }
     if !missing_is_default
-      hash1.each_pair { |k, v|
+      hash1.keys.each { |k|
         if hash2[k].nil?
           return false
         end
       }
     end
 
-    hash1.each_pair { |k, v|
+    hash1.keys.each { |k|
       if hash1[k].is_a?(Array) 
         return false if !missing_is_default and hash2[k].nil?
         if !hash2[k].nil?

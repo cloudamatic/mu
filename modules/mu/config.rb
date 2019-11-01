@@ -245,7 +245,6 @@ module MU
     # be a sibling object in the current deploy, an object in another deploy,
     # or a plain cloud id from outside of Mu.
     class Ref
-      attr_reader :id 
       attr_reader :name 
       attr_reader :type 
       attr_reader :cloud 
@@ -841,7 +840,7 @@ return
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new, updating: nil, default_credentials: nil)
+    def initialize(path, skipinitialupdates = false, params: {}, updating: nil, default_credentials: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -994,7 +993,7 @@ return
 #      XXX but now we're not validating top-level keys, argh
 #pp @config
 #raise "DERP"
-      return @config.freeze
+      @config.freeze
     end
 
     # Output the dependencies of this BoK stack as a directed acyclic graph.
@@ -2352,7 +2351,6 @@ return
         return docstring
       end
 
-      return nil
     end
 
     def self.dependencies_primitive

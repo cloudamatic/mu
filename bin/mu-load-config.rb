@@ -120,7 +120,7 @@ def loadMuConfig(default_cfg_overrides = nil)
     default_cfg.delete("libdir")
     default_cfg.delete("installdir")
   else
-    if File.exists?("/opt/mu/etc/mu.yaml")
+    if File.exist?("/opt/mu/etc/mu.yaml")
       default_cfg.merge!(YAML.load(File.read("/opt/mu/etc/mu.yaml")))
       default_cfg["config_files"] = ["/opt/mu/etc/mu.yaml"]
     end
@@ -128,7 +128,7 @@ def loadMuConfig(default_cfg_overrides = nil)
 
   default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides
 
-  if !File.exists?(cfgPath) and Process.uid == 0
+  if !File.exist?(cfgPath) and Process.uid == 0
     puts "**** Master config #{cfgPath} does not exist, initializing *****"
     File.open(cfgPath, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
       f.puts default_cfg.to_yaml
@@ -136,7 +136,7 @@ def loadMuConfig(default_cfg_overrides = nil)
   end
 
   global_cfg = { "config_files" => [] }
-  if File.exists?(cfgPath)
+  if File.exist?(cfgPath)
     global_cfg = YAML.load(File.read(cfgPath))
     global_cfg["config_files"] = [cfgPath]
   end
@@ -209,7 +209,7 @@ def cfgPath
   if Process.uid == 0 and !in_gem
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
-    elsif Dir.exists?("/opt/mu")
+    elsif Dir.exist?("/opt/mu")
       "/opt/mu/etc/mu.yaml"
     else
       "#{home}/.mu.yaml"
@@ -220,7 +220,7 @@ def cfgPath
 end
 
 def cfgExists?
-  File.exists?(cfgPath)
+  File.exist?(cfgPath)
 end
 
 # Output an in-memory configuration hash to the standard config file location,

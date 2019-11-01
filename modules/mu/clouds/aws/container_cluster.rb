@@ -94,7 +94,6 @@ module MU
                 MU.log e.message, MU::WARN, details: role_arn
                 sleep 5
                 retry
-                puts e.message
               end
             end
 
