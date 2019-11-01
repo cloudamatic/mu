@@ -633,7 +633,11 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @return [String]
       def self.defaultProject(credentials = nil)
         cfg = credConfig(credentials)
-        return myProject if !cfg or !cfg['project']
+        if !cfg or !cfg['project']
+          return myProject if hosted?
+          available = listProjects(credentials)
+          return available[0] if available.size == 1
+        end
         loadCredentials(credentials) if !@@authorizers[credentials]
         cfg['project']
       end
@@ -669,6 +673,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 puts "Google.listRegions: start"
         if !MU::Cloud::Google.defaultProject(credentials)
 puts "Google.listRegions: didn't find default project, bailing"
+pp loadCredentials(credentials)
           return []
         end
         if @@regions.size == 0

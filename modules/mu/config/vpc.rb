@@ -911,6 +911,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             }
           else
             sibling_vpcs.each { |ext_vpc|
+pp ext_vpc
               if (ext_vpc['name'].to_s == vpc_block['name'].to_s or
                  ext_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
                  ext_vpc['subnets']
@@ -943,14 +944,14 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               if !public_subnets.nil? and public_subnets.size > 0
                 vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
               else
-                MU.log "Public subnet requested for #{parent_type} #{parent['name']}, but none found in #{vpc_block}", MU::ERR, details: all_subnets
+                MU.log "Public subnet requested for #{parent_type} #{parent['name']}, but none found among #{all_subnets.join(", ")}", MU::ERR, details: vpc_block.to_h
                 return false
               end
             when "private"
               if !private_subnets.nil? and private_subnets.size > 0
                 vpc_block.merge!(private_subnets[rand(private_subnets.length)])
               else
-                MU.log "Private subnet requested for #{parent_type} #{parent['name']}, but none found in #{vpc_block}", MU::ERR, details: all_subnets
+                MU.log "Private subnet requested for #{parent_type} #{parent['name']}, but none found among #{all_subnets.join(", ")}", MU::ERR, details: vpc_block.to_h
                 return false
               end
               if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
