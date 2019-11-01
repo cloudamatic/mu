@@ -75,7 +75,7 @@ module MU
             FileUtils.touch("#{deploy_dir}/.cleanup") if !@noop
           else
             MU.log "I don't see a deploy named #{deploy_id}.", MU::WARN
-            MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject { |item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
+            MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject { |item| item.match(/^\./) or !File.exist?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
             MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
           end
           @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user, delay_descriptor_load: true)
@@ -267,7 +267,7 @@ module MU
       if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exist?("/opt/mu/lib"))
         begin
           MU::Groomer::Chef.loadChefLib
-          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
             Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           end
           deadnodes = []
@@ -309,18 +309,18 @@ module MU
       sshconf = "#{sshdir}/config"
       ssharchive = "#{sshdir}/archive"
 
-      Dir.mkdir(sshdir, 0700) if !Dir.exists?(sshdir) and !@noop
-      Dir.mkdir(ssharchive, 0700) if !Dir.exists?(ssharchive) and !@noop
+      Dir.mkdir(sshdir, 0700) if !Dir.exist?(sshdir) and !@noop
+      Dir.mkdir(ssharchive, 0700) if !Dir.exist?(ssharchive) and !@noop
 
       keyname = "deploy-#{MU.deploy_id}"
-      if File.exists?("#{sshdir}/#{keyname}")
+      if File.exist?("#{sshdir}/#{keyname}")
         MU.log "Moving #{sshdir}/#{keyname} to #{ssharchive}/#{keyname}"
         if !@noop
           File.rename("#{sshdir}/#{keyname}", "#{ssharchive}/#{keyname}")
         end
       end
 
-      if File.exists?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.deploy_id}$/)
+      if File.exist?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.deploy_id}$/)
         MU.log "Expunging #{MU.deploy_id} from #{sshconf}"
         if !@noop
           FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.deploy_id}")

@@ -1159,7 +1159,7 @@ module MU
       def self.openFirewallForClients
         MU::Cloud.loadCloudType("AWS", :FirewallRule)
         begin
-          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
             ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           end
           ::Chef::Config[:environment] = MU.environment

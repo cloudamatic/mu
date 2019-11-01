@@ -71,7 +71,7 @@ module MU
             require 'chef/knife/bootstrap_windows_winrm'
             require 'chef/knife/bootstrap_windows_ssh'
             ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{user}"
-            if File.exists?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
+            if File.exist?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
               MU.log "Loading Chef configuration from #{Etc.getpwnam(mu_user).dir}/.chef/knife.rb", MU::DEBUG
               ::Chef::Config.from_file("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
             end
@@ -828,7 +828,7 @@ retry
         rescue MuNoSuchSecret
         end
         ["crt", "key", "csr"].each { |ext|
-          if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
+          if File.exist?("#{MU.mySSLDir}/#{node}.#{ext}")
             MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
             File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !noop
           end

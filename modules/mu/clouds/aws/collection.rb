@@ -94,7 +94,7 @@ module MU
               else
                 # json file and template path is same
                 file_dir =File.dirname(ARGV[0])
-                if File.exists? file_dir+"/"+@config["template_file"] then
+                if File.exist? file_dir+"/"+@config["template_file"] then
                   template_body=File.read(file_dir+"/"+@config["template_file"]);
                 end
               end

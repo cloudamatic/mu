@@ -2043,7 +2043,7 @@ module MU
               known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
             end
             known_hosts_files.each { |known_hosts|
-              next if !File.exists?(known_hosts)
+              next if !File.exist?(known_hosts)
               MU.log "Cleaning up #{ips} from #{known_hosts}"
               if !noop
                 File.open(known_hosts, File::CREAT|File::RDWR, 0644) { |f|

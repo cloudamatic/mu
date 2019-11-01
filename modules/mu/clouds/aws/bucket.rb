@@ -148,7 +148,7 @@ module MU
           end
 
           if file and !file.empty?
-            if !File.exists?(file) or !File.readable?(file)
+            if !File.exist?(file) or !File.readable?(file)
               raise MuError, "Unable to read #{file} for upload to #{url}"
             else
               data = File.read(file)

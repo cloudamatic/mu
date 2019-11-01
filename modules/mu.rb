@@ -340,7 +340,7 @@ module MU
   # Returns true if we're running without a full systemwide Mu Master install,
   # typically as a gem.
   def self.localOnly
-    ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
+    ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exist?("/opt/mu"))
   end
 
   # The main (root) Mu user's data directory.
@@ -481,8 +481,8 @@ module MU
     else
       for_user ||= MU.mu_user
       basepath = Etc.getpwnam(for_user).dir+"/.mu"
-      Dir.mkdir(basepath, 0755) if !Dir.exists?(basepath)
-      Dir.mkdir(basepath+"/var", 0755) if !Dir.exists?(basepath+"/var")
+      Dir.mkdir(basepath, 0755) if !Dir.exist?(basepath)
+      Dir.mkdir(basepath+"/var", 0755) if !Dir.exist?(basepath+"/var")
       return basepath+"/var"
     end
   end
@@ -695,7 +695,7 @@ module MU
   def self.userEmail(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
     user = "mu" if user == "root"
-    if Dir.exists?("#{MU.mainDataDir}/users/#{user}") and
+    if Dir.exist?("#{MU.mainDataDir}/users/#{user}") and
        File.readable?("#{MU.mainDataDir}/users/#{user}/email") and
        File.size?("#{MU.mainDataDir}/users/#{user}/email")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
@@ -710,7 +710,7 @@ module MU
   # Fetch the real-world name of a given Mu user
   def self.userName(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
-    if Dir.exists?("#{MU.mainDataDir}/users/#{user}") and
+    if Dir.exist?("#{MU.mainDataDir}/users/#{user}") and
        File.readable?("#{MU.mainDataDir}/users/#{user}/realname") and
        File.size?("#{MU.mainDataDir}/users/#{user}/realname")
       return File.read("#{MU.mainDataDir}/users/#{user}/realname").chomp

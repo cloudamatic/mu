@@ -30,7 +30,7 @@ module MU
       # @param for_user [String]
       def self.bootstrap(for_user: MU.mu_user)
         ssldir = MU.dataDir(for_user)+"/ssl"
-        Dir.mkdir(ssldir, 0755) if !Dir.exists?(ssldir)
+        Dir.mkdir(ssldir, 0755) if !Dir.exist?(ssldir)
 
         alt_names = [MU.mu_public_ip, MU.my_private_ip, MU.mu_public_addr, Socket.gethostbyname(Socket.gethostname).first, "localhost", "127.0.0.1"].uniq
         alt_names.reject! { |s| s.nil? }
@@ -46,10 +46,10 @@ module MU
       # @param name [String]
       # @param for_user [String]
       # @return [OpenSSL::PKey::RSA]
-      def self.getKey(name, for_user: MU.mu_user)
+      def self.getKey(name, for_user: MU.mu_user, keysize: 4096)
         ssldir = MU.dataDir(for_user)+"/ssl"
-        if !File.exists?(ssldir+"/"+name+".key")
-          key = OpenSSL::PKey::RSA.new 4096
+        if !File.exist?(ssldir+"/"+name+".key")
+          key = OpenSSL::PKey::RSA.new keysize
           File.write(ssldir+"/"+name+".key", key)
         end
         File.chmod(0400, ssldir+"/"+name+".key")
@@ -61,7 +61,7 @@ module MU
       def self.incrementCASerial(for_user: MU.mu_user)
         ssldir = MU.dataDir(for_user)+"/ssl"
         cur = 0
-        if File.exists?(ssldir+"/serial")
+        if File.exist?(ssldir+"/serial")
           cur = File.read(ssldir+"/serial").chomp.to_i
         end
         File.open("#{ssldir}/serial", File::CREAT|File::RDWR, 0600) { |f|
@@ -83,7 +83,7 @@ module MU
       def self.sign(csr_path, sans = [], for_user: MU.mu_user)
         certdir = File.dirname(csr_path)
         certname = File.basename(csr_path, ".csr")
-        if File.exists?("#{certdir}/#{certname}.crt")
+        if File.exist?("#{certdir}/#{certname}.crt")
           MU.log "Not re-signing SSL certificate request #{csr_path}, #{certdir}/#{certname}.crt already exists", MU::DEBUG
           return
         end
@@ -149,7 +149,7 @@ module MU
         pfxfile = "#{ssldir}/#{name}.pfx"
         pfx_cert = nil
 
-        if File.exists?(filename)
+        if File.exist?(filename)
           pfx_cert = toPfx(filename, keyfile, pfxfile) if pfx
           cert = OpenSSL::X509::Certificate.new(File.read(filename))
           return [cert, pfx_cert]
