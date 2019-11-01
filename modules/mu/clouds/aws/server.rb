@@ -759,8 +759,8 @@ module MU
             # extra interfaces to accomodate.
             if !@config['vpc']['subnets'].nil? and @config['basis'].nil?
               device_index = 1
-              @vpc.subnets { |subnet|
-                subnet_id = subnet.cloud_id
+              @vpc.subnets { |s|
+                subnet_id = s.cloud_id
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
                 iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
                 MU::Cloud::AWS.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
@@ -996,21 +996,21 @@ module MU
 
           # If we got an instance id, go get it
           if !cloud_id.nil? and !cloud_id.empty?
-            regions.each { |region|
+            regions.each { |r|
               search_threads << Thread.new {
-                MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
+                MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{r}", MU::DEBUG
                 retries = 0
                 begin
-                  MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_instances(
+                  MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_instances(
                       instance_ids: [cloud_id],
                       filters: [
                           {name: "instance-state-name", values: ["running", "pending"]}
                       ]
                   ).reservations.each { |resp|
                     if !resp.nil? and !resp.instances.nil?
-                      resp.instances.each { |instance|
+                      resp.instances.each { |i|
                         search_semaphore.synchronize {
-                          found_instances[instance.instance_id] = instance
+                          found_instances[i.instance_id] = i
                         }
                       }
                     end
@@ -1020,7 +1020,7 @@ module MU
                     retries = retries + 1
                     sleep 5
                   else
-                    raise MuError, "#{e.inspect} in region #{region}"
+                    raise MuError, "#{e.inspect} in region #{r}"
                   end
                 end
               }
@@ -1066,8 +1066,8 @@ module MU
                 ]
             ).reservations.each { |resp|
               if !resp.nil? and resp.instances.size > 0
-                resp.instances.each { |instance|
-                  found_instances[instance.instance_id] = instance
+                resp.instances.each { |i|
+                  found_instances[i.instance_id] = i
                 }
               end
             }

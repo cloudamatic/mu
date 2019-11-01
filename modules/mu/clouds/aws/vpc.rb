@@ -893,7 +893,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
         # @param nat_tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
         # @param nat_ip [String]: An IP address associated with the NAT instance.
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
-          nat = nil
+
           deploy_id = nil
           nat_name = nat_name.to_s if !nat_name.nil? and nat_name.class.to_s == "MU::Config::Tail"
           nat_ip = nat_ip.to_s if !nat_ip.nil? and nat_ip.class.to_s == "MU::Config::Tail"

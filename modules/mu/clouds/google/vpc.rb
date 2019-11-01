@@ -254,8 +254,8 @@ end
             end
 
             if vpcs and vpcs.items
-              vpcs.items.each { |vpc|
-                resp[vpc.name] = vpc
+              vpcs.items.each { |v|
+                resp[vpc.name] = v
               }
             end
           end
@@ -382,7 +382,7 @@ end
         # @param nat_tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
         # @param nat_ip [String]: An IP address associated with the NAT instance.
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
-          nat = nil
+
           deploy_id = nil
           nat_name = nat_name.to_s if !nat_name.nil? and nat_name.class.to_s == "MU::Config::Tail"
           nat_ip = nat_ip.to_s if !nat_ip.nil? and nat_ip.class.to_s == "MU::Config::Tail"
@@ -416,9 +416,8 @@ end
                   (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
                 return nat
               elsif cloud_desc.vpc_id == @cloud_id
-                # XXX Strictly speaking we could have different NATs in different
-                # subnets, so this can be wrong in corner cases. Why you'd
-                # architect something that obnoxiously, I have no idea.
+                # XXX Strictly speaking we could have different NATs in
+                # different subnets, so this can be wrong in corner cases.
                 return nat
               end
             }

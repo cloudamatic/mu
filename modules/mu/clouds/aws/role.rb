@@ -473,7 +473,7 @@ module MU
                   path_prefix: "/"+@deploy.deploy_id+"/",
                   user_name: entityname
                 )
-                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                if !resp or !resp.attached_policies.map { |a_p| a_p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching IAM policy #{p.policy_name} to user #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_user_policy(
                     policy_arn: p.arn,
@@ -485,7 +485,7 @@ module MU
                   path_prefix: "/"+@deploy.deploy_id+"/",
                   group_name: entityname
                 )
-                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                if !resp or !resp.attached_policies.map { |a_p| a_p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to group #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_group_policy(
                     policy_arn: p.arn,
@@ -497,7 +497,7 @@ module MU
                   role_name: entityname
                 )
 
-                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                if !resp or !resp.attached_policies.map { |a_p| a_p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to role #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_role_policy(
                     policy_arn: p.arn,

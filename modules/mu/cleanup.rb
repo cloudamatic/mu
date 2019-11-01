@@ -110,12 +110,12 @@ module MU
         keyname = "deploy-#{MU.deploy_id}"
 
         creds.each_pair { |provider, credsets_outer|
-          cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets|
+          cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets_inner|
             MU.dupGlobals(parent_thread_id)
             Thread.abort_on_exception = false
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
-            credsets.each_pair { |credset, acct_regions|
+            credsets_inner.each_pair { |credset, acct_regions|
               next if credsused and !credsused.include?(credset)
               global_vs_region_semaphore = Mutex.new
               global_done = {}
@@ -239,8 +239,8 @@ module MU
 
         # Knock habitats and folders, which would contain the above resources,
         # once they're all done.
-        creds.each_pair { |provider, credsets|
-          credsets.keys.each { |credset|
+        creds.each_pair { |provider, credsets_inner|
+          credsets_inner.keys.each { |credset|
             next if credsused and !credsused.include?(credset)
             ["Habitat", "Folder"].each { |t|
               flags = {
@@ -255,10 +255,10 @@ module MU
         MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
 
-        creds.each_pair { |provider, credsets|
+        creds.each_pair { |provider, credsets_inner|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
-          credsets.keys.each { |creds|
-            cloudclass.cleanDeploy(MU.deploy_id, credentials: creds, noop: @noop)
+          credsets_inner.keys.each { |c|
+            cloudclass.cleanDeploy(MU.deploy_id, credentials: c, noop: @noop)
           }
         }
       end

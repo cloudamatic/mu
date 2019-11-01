@@ -539,10 +539,10 @@ MESSAGE_END
         if resource["dependencies"] != nil then
           resource["dependencies"].each { |dependency|
             parent_class = nil
-            MU::Cloud.resource_types.each_pair { |name, attrs|
+            MU::Cloud.resource_types.each_pair { |res_class, attrs|
               if attrs[:cfg_name] == dependency['type'] or
                  attrs[:cfg_plural] == dependency['type']
-                parent_class = Object.const_get("MU").const_get("Cloud").const_get(name)
+                parent_class = Object.const_get("MU").const_get("Cloud").const_get(res_class)
                 break
               end
             }

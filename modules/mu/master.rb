@@ -348,8 +348,8 @@ module MU
       ldap_users['mu'] = {}
       ldap_users['mu']['admin'] = true
       ldap_users['mu']['non_ldap'] = true
-      ldap_users.each_pair { |username, data|
-        key = username.to_s
+      ldap_users.each_pair { |uname, data|
+        key = uname.to_s
         all_user_data[key] = {}
         userdir = $MU_CFG['installdir']+"/var/users/#{key}"
         if !Dir.exist?(userdir)
@@ -419,8 +419,8 @@ module MU
           f.path
         else
           path = outputdir+"/k8s-resource-#{count.to_s}-#{name}"
-          File.open(path, "w") { |f|
-            f.puts blob.to_yaml
+          File.open(path, "w") { |fh|
+            fh.puts blob.to_yaml
           }
           path
         end

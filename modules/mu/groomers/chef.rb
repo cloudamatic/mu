@@ -218,7 +218,7 @@ module MU
         loadChefLib
         raise MuError, "No vault specified, nothing to delete" if vault.nil?
         MU.log "Deleting #{vault}:#{item} from vaults"
-        knife_db = nil
+
         knife_cmds = []
         if item.nil?
           knife_cmds << ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
@@ -1017,9 +1017,9 @@ retry
         if multiple.size == 0
           multiple = [rl_entry]
         end
-        multiple.each { |rl_entry|
-          if !rl_entry.match(/^role|recipe\[/)
-            rl_entry = "#{type}[#{rl_entry}]"
+        multiple.each { |entry|
+          if !entry.match(/^role|recipe\[/)
+            entry = "#{type}[#{entry}]"
           end
         }
 
@@ -1027,27 +1027,27 @@ retry
           role_list = nil
           recipe_list = nil
           missing = false
-          multiple.each { |rl_entry|
-            # Rather than argue about whether to expect a bare rl_entry name or
-            # require rl_entry[rolename], let's just accomodate.
-            if rl_entry.match(/^role\[(.+?)\]/)
-              rl_entry_name = Regexp.last_match(1)
+          multiple.each { |entry|
+            # Rather than argue about whether to expect a bare entry name or
+            # require entry[rolename], let's just accomodate.
+            if entry.match(/^role\[(.+?)\]/)
+              entry_name = Regexp.last_match(1)
               if role_list.nil?
                 query=%Q{#{MU::Groomer::Chef.knife} role list};
                 role_list = %x{#{query}}
               end
-              if !role_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
-                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}", MU::WARN
+              if !role_list.match(/(^|\n)#{entry_name}($|\n)/)
+                MU.log "Attempting to add non-existent #{entry} to #{@server.mu_name}", MU::WARN
                 missing = true
               end
-            elsif rl_entry.match(/^recipe\[(.+?)\]/)
-              rl_entry_name = Regexp.last_match(1)
+            elsif entry.match(/^recipe\[(.+?)\]/)
+              entry_name = Regexp.last_match(1)
               if recipe_list.nil?
                 query=%Q{#{MU::Groomer::Chef.knife} recipe list};
                 recipe_list = %x{#{query}}
               end
-              if !recipe_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
-                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}", MU::WARN
+              if !recipe_list.match(/(^|\n)#{entry_name}($|\n)/)
+                MU.log "Attempting to add non-existent #{entry} to #{@server.mu_name}", MU::WARN
                 missing = true
               end
             end

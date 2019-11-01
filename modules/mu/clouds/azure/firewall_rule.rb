@@ -138,7 +138,7 @@ module MU
 
           resolved_lbs = []
           if lbs
-            lbs.each { |lbs|
+            lbs.each { |lb|
 # TODO awaiting LoadBalancer implementation
             }
           end

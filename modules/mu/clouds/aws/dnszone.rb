@@ -388,8 +388,8 @@ module MU
             if !alias_zone.nil?
               target_zone = "/hostedzone/"+alias_zone if !alias_zone.match(/^\/hostedzone\//)
             else
-              MU::Cloud::AWS.listRegions.each { |region|
-                MU::Cloud::AWS.elb(region: region).describe_load_balancers.load_balancer_descriptions.each { |elb|
+              MU::Cloud::AWS.listRegions.each { |r|
+                MU::Cloud::AWS.elb(region: r).describe_load_balancers.load_balancer_descriptions.each { |elb|
                   elb_dns = elb.dns_name.downcase
                   elb_dns.chomp!(".")
                   if target_name == elb_dns

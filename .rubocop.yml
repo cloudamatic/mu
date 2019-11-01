@@ -4,6 +4,16 @@ Layout:
   Enabled: false
 Metrics/LineLength:
   Enabled: false
+Lint/StringConversionInInterpolation:
+  Enabled: false
+Lint/Loop:
+  Enabled: false
+Lint/NonLocalExitFromIterator:
+  Enabled: false
+Lint/NestedMethodDefinition:
+  Enabled: false
+Lint/ShadowingOuterLocalVariable:
+  Severity: error
 AllCops:
   Exclude:
     - modules/mu/kittens.rb

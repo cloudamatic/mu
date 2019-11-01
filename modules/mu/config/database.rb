@@ -435,8 +435,8 @@ module MU
         end
         db['dependencies'].uniq!
 
-        read_replicas.each { |replica|
-          ok = false if !configurator.insertKitten(replica, "databases")
+        read_replicas.each { |new_replica|
+          ok = false if !configurator.insertKitten(new_replica, "databases")
         }
         cluster_nodes.each { |member|
           ok = false if !configurator.insertKitten(member, "databases")

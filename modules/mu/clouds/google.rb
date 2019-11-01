@@ -287,9 +287,9 @@ module MU
         end
 
         if name.nil?
-          $MU_CFG['google'].each_pair { |name, cfg|
+          $MU_CFG['google'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else
@@ -1434,8 +1434,8 @@ MU.log e.message, MU::WARN, details: e.inspect
                 logs = MU::Cloud::Google.logging(credentials: @credentials).list_entry_log_entries(logreq)
                 details = nil
                 if logs.entries
-                  details = logs.entries.map { |e| e.json_payload }
-                  details.reject! { |e| e["error"].nil? or e["error"].size == 0 }
+                  details = logs.entries.map { |err| err.json_payload }
+                  details.reject! { |err| err["error"].nil? or err["error"].size == 0 }
                 end
 
                 raise MuError, "#{method_sym.to_s} of #{retval.target_id} appeared to succeed, but then the resource disappeared! #{details.to_s}"

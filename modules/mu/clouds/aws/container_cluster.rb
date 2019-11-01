@@ -795,8 +795,8 @@ MU.log c.name, MU::NOTICE, details: t
                   cluster: cluster
                 })
                 if instances
-                  instances.container_instance_arns.each { |arn|
-                    uuid = arn.sub(/^.*?:container-instance\//, "")
+                  instances.container_instance_arns.each { |instance_arn|
+                    uuid = instance_arn.sub(/^.*?:container-instance\//, "")
                     MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
                     if !noop
                       resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({

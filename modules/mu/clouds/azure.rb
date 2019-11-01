@@ -435,9 +435,9 @@ module MU
         end
 
         if name.nil?
-          $MU_CFG['azure'].each_pair { |name, cfg|
+          $MU_CFG['azure'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else

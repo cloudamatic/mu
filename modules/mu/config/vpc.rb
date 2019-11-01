@@ -910,13 +910,13 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               end
             }
           else
-            sibling_vpcs.each { |ext_vpc|
-              if (ext_vpc['name'].to_s == vpc_block['name'].to_s or
-                 ext_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
-                 ext_vpc['subnets']
+            sibling_vpcs.each { |sibling_vpc|
+              if (sibling_vpc['name'].to_s == vpc_block['name'].to_s or
+                 sibling_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
+                 sibling_vpc['subnets']
                 subnet_ptr = "subnet_name"
 
-                ext_vpc['subnets'].each { |subnet|
+                sibling_vpc['subnets'].each { |subnet|
                   next if dflt_region and vpc_block["cloud"].to_s == "Google" and subnet['availability_zone'] != dflt_region
                   if subnet['is_public']
                     public_subnets << {"subnet_name" => subnet['name'].to_s}
@@ -988,9 +988,9 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             else
               vpc_block['subnets'] ||= []
 
-              sibling_vpcs.each { |ext_vpc|
-                next if ext_vpc["name"] != vpc_block["name"]
-                ext_vpc["subnets"].each { |subnet|
+              sibling_vpcs.each { |sibling_vpc|
+                next if sibling_vpc["name"] != vpc_block["name"]
+                sibling_vpc["subnets"].each { |subnet|
                   if subnet["route_table"] == vpc_block["subnet_pref"]
                     vpc_block["subnets"] << subnet
                   end

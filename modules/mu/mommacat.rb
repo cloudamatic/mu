@@ -547,8 +547,7 @@ module MU
         raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
       end
 
-      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
-      type = cfg_plural
+      _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
       has_multiples = attrs[:has_multiples]
       object.intoDeploy(self)
 
@@ -635,7 +634,6 @@ module MU
       end
       if @appname.nil? or @environment.nil? or @timestamp.nil? or @seed.nil?
         MU.log "getResourceName: Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}' (appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}, deploy_id: #{@deploy_id}", MU::WARN, details: caller
-raise "NAH"
         return name
       end
       need_unique_string = false if scrub_mu_isms
@@ -890,7 +888,7 @@ raise "NAH"
         return
       end
 
-      if !@deployment['servers'].nil?
+      if !@deployment['servers'].nil? and !sync_wait
         syncLitter(@deployment["servers"].keys, triggering_node: kitten)
       end
       MU::MommaCat.unlock(cloud_id+"-mommagroom")
@@ -966,10 +964,9 @@ raise "NAH"
         # in lock() or unlock(). We can't just wrap our iterator block in a
         # semaphore here, because we're calling another method that uses the
         # same semaphore.
-        lock_copy = nil
         @lock_semaphore.synchronize {
           delete_list = []
-          @locks[Thread.current.object_id].each_pair { |id, fh|
+          @locks[Thread.current.object_id].keys.each { |id|
             MU.log "Releasing lock on #{deploy_dir(MU.deploy_id)}/locks/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
             begin
               @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
@@ -1025,7 +1022,7 @@ raise "NAH"
         else
           @locks[Thread.current.object_id][id].flock(File::LOCK_EX)
         end
-      rescue IOError => e
+      rescue IOError
         raise MU::BootstrapTempFail, "Interrupted waiting for lock on thread #{Thread.current.object_id}, probably just a node rebooting as part of a synchronous install"
       end
       MU.log "Lock on #{lockdir}/#{id}.lock on thread #{Thread.current.object_id} acquired", MU::DEBUG
@@ -1103,7 +1100,6 @@ raise "NAH"
       MU::MommaCat.lock("clean-terminated-instances", false, true)
       MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
       parent_thread_id = Thread.current.object_id
-      cleanup_threads = []
       purged = 0
       MU::MommaCat.listDeploys.each { |deploy_id|
         next if File.exist?(deploy_dir(deploy_id)+"/.cleanup")
@@ -1114,7 +1110,7 @@ raise "NAH"
           deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
           purged_this_deploy = 0
           if deploy.kittens.has_key?("servers")
-            deploy.kittens["servers"].each_pair { |habitat, nodeclasses|
+            deploy.kittens["servers"].values.each { |nodeclasses|
               nodeclasses.each_pair { |nodeclass, servers|
                 deletia = []
                 servers.each_pair { |mu_name, server|
@@ -1202,7 +1198,7 @@ raise "NAH"
       callstack = caller.dup
 
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
-      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+      shortclass, _cfg_name, cfg_plural, classname, _attrs = MU::Cloud.getResourceNames(type)
       if !MU::Cloud.supportedClouds.include?(cloud) or shortclass.nil?
         MU.log "findStray was called with bogus cloud argument '#{cloud}'", MU::WARN, details: callstr
         return nil
@@ -1217,7 +1213,6 @@ raise "NAH"
         mu_name = mu_name.to_s if mu_name.class.to_s == "MU::Config::Tail"
         tag_key = tag_key.to_s if tag_key.class.to_s == "MU::Config::Tail"
         tag_value = tag_value.to_s if tag_value.class.to_s == "MU::Config::Tail"
-        shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
         type = cfg_plural
         resourceclass = MU::Cloud.loadCloudType(cloud, shortclass)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
@@ -1295,11 +1290,11 @@ raise "NAH"
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
           MU.log "findStray: #{mu_descs.size.to_s} deploys had matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
-          mu_descs.each_pair { |deploy_id, matches|
-            MU.log "findStray: #{deploy_id} had #{matches.size.to_s} initial matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+          mu_descs.each_pair { |cur_deploy_id, matches|
+            MU.log "findStray: #{cur_deploy_id} had #{matches.size.to_s} initial matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
             next if matches.nil? or matches.size == 0
 
-            momma = MU::MommaCat.getLitter(deploy_id)
+            momma = MU::MommaCat.getLitter(cur_deploy_id)
 
             straykitten = nil
 
@@ -1642,10 +1637,8 @@ end
                 return data.dup
               end
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
-                obj = data.values.first
-                return obj
+                return data.values.first
               elsif mu_name.nil? and cloud_id.nil?
-                obj = data.values.first
                 MU.log indent+"#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[2]}", MU::WARN, details: data.keys
                 return data.values.first
               end
@@ -1713,8 +1706,7 @@ end
         loadDeploy(true) # make sure we're saving the latest and greatest
       end
 
-      have_deploy = true
-      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+      _shortclass, _cfg_name, cfg_plural, _classname, attrs = MU::Cloud.getResourceNames(type)
       has_multiples = false
 
       # it's not always the case that we're logging data for a legal resource
@@ -1921,8 +1913,7 @@ end
     # @param server [MU::Cloud::Server]: The {MU::Cloud::Server} we'll be setting up.
     # @param sync_wait [Boolean]: Whether to wait for DNS to fully synchronize before returning.
     def self.nameKitten(server, sync_wait: false)
-      node, config, deploydata = server.describe
-      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
+      node, config, _deploydata = server.describe
 
       mu_zone = nil
       # XXX GCP!
@@ -2008,9 +1999,10 @@ end
         MU.log "Called addHostToSSHConfig without a MU::Cloud::Server object", MU::ERR, details: caller
         return nil
       end
-      begin
-        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
-      rescue MU::MuError => e
+
+      _nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = begin
+        server.getSSHConfig
+      rescue MU::MuError
         return
       end
 
@@ -2115,7 +2107,7 @@ end
         response = nil
         begin
           response = open("https://127.0.0.1:#{MU.mommaCatPort.to_s}/rest/hosts_add/#{chef_name}/#{public_ip}").read
-        rescue Errno::ECONNRESET, Errno::ECONNREFUSED => e
+        rescue Errno::ECONNRESET, Errno::ECONNREFUSED
         end
         if response != "ok"
           MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
@@ -2162,7 +2154,7 @@ end
     # @param data [Array]: Supplemental data to add to the message body.
     # @param debug [Boolean]: If set, will include the full deployment structure and original {MU::Config}-parsed configuration.
     # @return [void]
-    def sendAdminMail(subject, msg: msg = "", kitten: nil, data: nil, debug: debug = false)
+    def sendAdminMail(subject, msg: "", kitten: nil, data: nil, debug: false)
       require 'net/smtp'
       if @deployment.nil?
         MU.log "Can't send admin mail without a loaded deployment", MU::ERR
@@ -2290,12 +2282,6 @@ MESSAGE_END
         FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{@nagios_home}/.ssh/id_rsa")
         File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/id_rsa")
         threads = []
-        if !MU::Cloud::AWS.isGovCloud?
-          mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
-        end
-# XXX what if we're in GCP?
-# XXX need a MU::Cloud::DNSZone.lookup for bulk lookups
-# XXX also grab things like mu_windows_name out of deploy data if we can
 
         parent_thread_id = Thread.current.object_id
         MU::MommaCat.listDeploys.sort.each { |deploy_id|
@@ -2868,7 +2854,7 @@ MESSAGE_END
             Dir.mkdir(secretdir, 0700)
           end
           @secrets.each_pair { |type, servers|
-            servers.each_pair { |server, ssvc_ecret|
+            servers.each_pair { |server, svr_secret|
               key = File.new("#{secretdir}/#{type}.#{server}", File::CREAT|File::TRUNC|File::RDWR, 0600)
               key.puts svr_secret
               key.close
