@@ -175,27 +175,19 @@ Gem Parser Test:
 Mu Install:
   stage: Smoke Test
   before_script:
-  - export AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
-  - export AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
-  - export AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
   - export AWS_REGION='us-east-1'
   - apt-get -qq update
   - apt-get -qq install dnsutils
   script:
-  - echo "client_id = $AZURE_CLIENT_ID"
-  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
   - gem install cloud-mu-*.gem
   - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip
+  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
+  - mu-user-manage -n Test User -e egt-labs-dev@eglobaltech.com root
   - for cloud in AWS Azure Google; do mu-deploy install/mu-master.yaml -p name=$cloud-MU -p cloud=$cloud; done
   only:
   - master
   - development
   - gem-mess_with_test_kitchen
-  after_script:
-  - unset AZURE_CLIENT_ID
-  - unset AZURE_CLIENT_SECRET
-  - unset AZURE_TENANT_ID
 
 Test Kitchen:
   stage: Smoke Test
@@ -375,4 +367,32 @@ Base Images Windows:
   - mu-gitlab-runner
   only:
     variables:
-    - $IMAGE_BUILD == "do_windows"
+    -bs Sandbox admin]
+aws_account_id = 616552976502
+role_name = jmpr/admin
+color = ffbd05
+region = us-east-1
+
+[eGT-Labs Production admin]
+aws_account_id = 343074669674
+role_name = jmpr/admin
+color = ffbd05
+region = us-east-1
+
+[FSA TPOC ro]
+aws_account_id = 426276006285
+role_name = jmpr/ro
+color = 80c340
+region = us-east-1
+
+[Jmpr Identity Account jmpr-admin]
+aws_account_id = 718912148654
+role_name = jmpr/jmpr-admin
+color = 424496
+region = us-east-1
+
+[ICRAS admin]
+aws_account_id = 928621562255
+role_name = jmpr/admin
+color = a2152e
+region = us-east-1 $IMAGE_BUILD == "do_windows"
