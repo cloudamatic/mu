@@ -1414,12 +1414,12 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
 
           if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
             if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
-              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(region: vpc['region'])
+              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(region: vpc['region'], credentials: vpc['credentials'])
             else
               # turn into a hash so we can use list parameters easily
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
-MU.log "GENERATING SUBNETS FOR #{vpc['name']}", MU::WARN, details: vpc['availability_zones']
+MU.log "GENERATING SUBNETS FOR #{vpc['name']} in #{vpc['region']}", MU::WARN, details: vpc['availability_zones']
             subnets = configurator.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size, 28)
 
             ok = false if subnets.nil?
