@@ -443,7 +443,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           return @@is_in_gcp
         end
 
-        if getGoogleMetaData("instance/name")
+        if getGoogleMetaData("project/project-id")
           @@is_in_gcp = true
           return true
         end

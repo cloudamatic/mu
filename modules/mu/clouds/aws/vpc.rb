@@ -1419,7 +1419,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
               # turn into a hash so we can use list parameters easily
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
-MU.log "GENERATING SUBNETS FOR #{vpc['name']} in #{vpc['region']}", MU::WARN, details: vpc['availability_zones']
+
             subnets = configurator.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size, 28)
 
             ok = false if subnets.nil?

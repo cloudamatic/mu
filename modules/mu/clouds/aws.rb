@@ -326,19 +326,14 @@ module MU
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
         cfg = credConfig(credentials)
-        if !cfg
-MU.log "AZ: DON'T SEE NO CREDS IN HURR #{region}", MU::WARN, details: @@azs[region]
-          return []
-        end
+        return [] if !cfg
         if !region.nil? and @@azs[region]
-MU.log "RETURNING AZ CACHE FOR #{region}", MU::WARN, details: @@azs[region]
           return @@azs[region]
         end
         if region
           azs = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_availability_zones(
             filters: [name: "region-name", values: [region]]
           )
-pp azs
         end
         @@azs[region] ||= []
         azs.data.availability_zones.each { |az|
