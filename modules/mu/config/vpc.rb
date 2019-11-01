@@ -944,6 +944,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                 vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
               else
                 MU.log "Public subnet requested for #{parent_type} #{parent['name']}, but none found among #{all_subnets.join(", ")}", MU::ERR, details: vpc_block.to_h
+                pp is_sibling
                 return false
               end
             when "private"
@@ -951,6 +952,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                 vpc_block.merge!(private_subnets[rand(private_subnets.length)])
               else
                 MU.log "Private subnet requested for #{parent_type} #{parent['name']}, but none found among #{all_subnets.join(", ")}", MU::ERR, details: vpc_block.to_h
+                pp is_sibling
                 return false
               end
               if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?

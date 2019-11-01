@@ -626,25 +626,40 @@ MU.log e.message, MU::WARN, details: e.inspect
         end
       end
 
+      @@default_project_cache = {}
+
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       # @param credentials [String]
       # @return [String]
       def self.defaultProject(credentials = nil)
+        if @@default_project_cache.has_key?(credentials)
+          puts "cache hit"
+          return @@default_project_cache[credentials]
+        end
         cfg = credConfig(credentials)
         if !cfg or !cfg['project']
-          return myProject if hosted?
-          begin
-            result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
-            result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
-            available = result.projects.map { |p| p.project_id }
-            return available[0] if available.size == 1
-          rescue Exception => e
-            MU.log e.message, MU::WARN
+          if hosted?
+            @@default_project_cache[credentials] = myProject
+            return myProject 
+          end
+          if cfg
+            begin
+              result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+              result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
+              available = result.projects.map { |p| p.project_id }
+              if available.size == 1
+                @@default_project_cache[credentials] = available[0]
+                return available[0]
+              end
+            rescue # fine
+            end
           end
         end
+        return nil if !cfg
         loadCredentials(credentials) if !@@authorizers[credentials]
+        @@default_project_cache[credentials] = cfg['project']
         cfg['project']
       end
 
