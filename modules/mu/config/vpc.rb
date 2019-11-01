@@ -911,7 +911,6 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             }
           else
             sibling_vpcs.each { |ext_vpc|
-pp ext_vpc
               if (ext_vpc['name'].to_s == vpc_block['name'].to_s or
                  ext_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
                  ext_vpc['subnets']

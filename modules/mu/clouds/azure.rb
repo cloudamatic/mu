@@ -940,6 +940,9 @@ module MU
 
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+          if !@cred_hash
+            raise MuError, "Failed to load Azure credentials #{credentials ? credentials : "<default>"}"
+          end
 
           # There seem to be multiple ways to get at clients, and different 
           # profiles available depending which way you do it, so... try that?
