@@ -4,3 +4,6 @@ Layout:
   Enabled: false
 Metrics/LineLength:
   Enabled: false
+AllCops:
+  Exclude:
+    - modules/mu/kittens.rb
