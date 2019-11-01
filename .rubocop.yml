@@ -2,6 +2,8 @@ Style:
   Enabled: false
 Layout:
   Enabled: false
+
+# Yeah, we do these. Wanna fight?
 Metrics/LineLength:
   Enabled: false
 Lint/StringConversionInInterpolation:
@@ -18,14 +20,22 @@ Lint/EnsureReturn:
   Enabled: false
 Lint/EmptyEnsure:
   Enabled: false
+
+# Complaining about these will get you mocked
 Naming/MethodName:
   Enabled: false
+Naming/VariableName:
+  Enabled: false
+
+# These genuinely matter
 Lint/ShadowingOuterLocalVariable:
   Severity: error
 Lint/AssignmentInCondition:
   Severity: error
 Lint/ShadowedArgument:
   Severity: error
+
+# This is a generated file that only exists for YARD
 AllCops:
   Exclude:
     - modules/mu/kittens.rb

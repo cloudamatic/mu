@@ -635,7 +635,6 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @return [String]
       def self.defaultProject(credentials = nil)
         if @@default_project_cache.has_key?(credentials)
-          puts "cache hit"
           return @@default_project_cache[credentials]
         end
         cfg = credConfig(credentials)
