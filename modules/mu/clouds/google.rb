@@ -635,8 +635,14 @@ MU.log e.message, MU::WARN, details: e.inspect
         cfg = credConfig(credentials)
         if !cfg or !cfg['project']
           return myProject if hosted?
-          available = listProjects(credentials)
-          return available[0] if available.size == 1
+          begin
+            result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+            result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
+            available = result.projects.map { |p| p.project_id }
+            return available[0] if available.size == 1
+          rescue Exception => e
+            MU.log e.message, MU::WARN
+          end
         end
         loadCredentials(credentials) if !@@authorizers[credentials]
         cfg['project']
@@ -670,24 +676,18 @@ MU.log e.message, MU::WARN, details: e.inspect
       # List all known Google Cloud Platform regions
       # @param us_only [Boolean]: Restrict results to United States only
       def self.listRegions(us_only = false, credentials: nil)
-puts "Google.listRegions: start"
         if !MU::Cloud::Google.defaultProject(credentials)
-puts "Google.listRegions: didn't find default project, bailing"
-pp loadCredentials(credentials)
           return []
         end
         if @@regions.size == 0
           begin
-puts "Google.listRegions: calling API about it"
             result = MU::Cloud::Google.compute(credentials: credentials).list_regions(MU::Cloud::Google.defaultProject(credentials))
           rescue ::Google::Apis::ClientError => e
-puts "Google.listRegions: "+e.message
             if e.message.match(/forbidden/)
               raise MuError, "Insufficient permissions to list Google Cloud region. The service account #{myServiceAccount} should probably have the project owner role."
             end
             raise e
           end
-puts "Google.listRegions: collating results"
 
           regions = []
           result.items.each { |region|
