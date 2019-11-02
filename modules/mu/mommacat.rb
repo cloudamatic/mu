@@ -2702,7 +2702,7 @@ MESSAGE_END
           Process.getpgid(pid)
           MU.log "Momma Cat running with pid #{pid.to_s}"
           return true
-        rescue Errno::ESRC
+        rescue Errno::ESRCH
         end
       end
       MU.log "Momma Cat daemon not running", MU::NOTICE, details: daemonPidFile
@@ -2719,7 +2719,7 @@ MESSAGE_END
         begin
           Process.getpgid(pid)
           sleep 1
-        rescue Errno::ESRC
+        rescue Errno::ESRCH
           killed = true
         end while killed
         MU.log "Momma Cat with pid #{pid.to_s} stopped", MU::DEBUG, details: daemonPidFile

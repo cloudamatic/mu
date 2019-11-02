@@ -355,6 +355,7 @@ module MU
           MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
             if rg.tags and rg.tags["MU-ID"] == deploy_id
               threads << Thread.new(rg) { |rg_obj|
+                Thread.abort_on_exception = false
                 MU.log "Removing resource group #{rg_obj.name} from #{rg_obj.location}"
                 if !noop
                   MU::Cloud::Azure.resources(credentials: credentials).resource_groups.delete(rg_obj.name)

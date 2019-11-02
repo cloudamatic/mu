@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.0.0alpha'
-  s.date        = '2019-08-28'
+  s.version     = '3.0.0beta'
+  s.date        = '2019-11-01'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -32,7 +32,7 @@ require 'cloud-mu'
 
 
 EOF
-  s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Clara Bridges", "Zach Rowe"]
+  s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Zach Rowe"]
   s.email       = 'eGTLabs@eglobaltech.com'
   s.files       = build_file_list(whereami)
   s.executables = Dir.entries(whereami+"/bin").reject { |f| File.directory?(f) }
