@@ -23,13 +23,9 @@ Gem::Specification.new do |s|
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
   s.description = <<-EOF
-The eGTLabs Mu toolkit for unified cloud deployments. This gem contains a minimal version of Mu with cloud provider APIs, and will generate a sample configuration the first time it is invoked.
+The eGTLabs Mu toolkit for unified cloud deployments. This gem contains the Mu deployment interface to cloud provider APIs. It will generate a sample configuration the first time it is invoked.
 
-It will attempt to autodetect when it's being run in a virtual machine on a known cloud provider and activate the appropriate API with machine-based credentials. Installing this gem on an Amazon Web Service instance, for example, should automatically enable the MU::Cloud::AWS layer and attempt to use the machine's IAM Profile to communicate with the AWS API.
-
-
-require 'cloud-mu'
-
+Mu will attempt to autodetect when it's being run in a virtual machine on a known cloud provider and activate the appropriate API with machine-based credentials. Installing this gem on an Amazon Web Service instance, for example, should automatically enable the MU::Cloud::AWS layer and attempt to use the machine's IAM Profile to communicate with the AWS API.
 
 EOF
   s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Zach Rowe"]

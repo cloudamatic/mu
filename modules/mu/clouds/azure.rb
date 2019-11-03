@@ -1054,8 +1054,8 @@ module MU
                 end
               rescue JSON::ParserError
               end
-              MU.log e.inspect, MU::ERR, details: caller
-              MU.log e.message, MU::ERR, details: @parent.credentials
+#              MU.log e.inspect, MU::ERR, details: caller
+#              MU.log e.message, MU::ERR, details: @parent.credentials
             end
 
             retval
