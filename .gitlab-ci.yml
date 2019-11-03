@@ -367,32 +367,4 @@ Base Images Windows:
   - mu-gitlab-runner
   only:
     variables:
-    -bs Sandbox admin]
-aws_account_id = 616552976502
-role_name = jmpr/admin
-color = ffbd05
-region = us-east-1
-
-[eGT-Labs Production admin]
-aws_account_id = 343074669674
-role_name = jmpr/admin
-color = ffbd05
-region = us-east-1
-
-[FSA TPOC ro]
-aws_account_id = 426276006285
-role_name = jmpr/ro
-color = 80c340
-region = us-east-1
-
-[Jmpr Identity Account jmpr-admin]
-aws_account_id = 718912148654
-role_name = jmpr/jmpr-admin
-color = 424496
-region = us-east-1
-
-[ICRAS admin]
-aws_account_id = 928621562255
-role_name = jmpr/admin
-color = a2152e
-region = us-east-1 $IMAGE_BUILD == "do_windows"
+    - $IMAGE_BUILD == "do_windows"
