@@ -4,6 +4,7 @@
 doc
 .yardoc
 kittens.rb
+mu.yaml.rb
 Mu_CA.pem
 install/headlesscheatsheet
 bin/consul
@@ -14,3 +15,4 @@ cloud-mu-*.gem
 coverage
 spec/mu.yaml
 spec/azure_creds
+mu-gen-docs-index*

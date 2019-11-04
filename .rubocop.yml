@@ -39,3 +39,4 @@ Lint/ShadowedArgument:
 AllCops:
   Exclude:
     - modules/mu/kittens.rb
+    - modules/mu/mu.yaml.rb
