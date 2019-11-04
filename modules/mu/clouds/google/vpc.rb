@@ -429,12 +429,16 @@ end
 
         # Check for a subnet in this VPC matching one or more of the specified
         # criteria, and return it if found.
-        def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
+        def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil, region: nil)
           if !cloud_id.nil? and cloud_id.match(/^https:\/\//)
+            cloud_id.match(/\/regions\/([^\/]+)\/subnetworks\/([^\/]+)$/)
+            region = Regexp.last_match[1]
+            cloud_id = Regexp.last_match[2]
             cloud_id.gsub!(/.*?\//, "")
           end
-          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block})", MU::DEBUG, details: caller[0]
+          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block}, region: #{region})", MU::DEBUG, details: caller[0]
           subnets.each { |subnet|
+            next if region and subnet.az != region
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
             elsif !name.nil? and !subnet.name.nil? and

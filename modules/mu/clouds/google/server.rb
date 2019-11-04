@@ -242,6 +242,8 @@ next if !create
           subnet_cfg = config['vpc']
           if config['vpc']['subnets'] and
              !subnet_cfg['subnet_name'] and !subnet_cfg['subnet_id']
+            # XXX if illegal subnets somehow creep in here, we'll need to be
+            # picky by region or somesuch
             subnet_cfg = config['vpc']['subnets'].sample
 
           end
@@ -249,6 +251,7 @@ next if !create
           if subnet.nil?
             raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
           end
+
           base_iface_obj = {
             :network => vpc.url,
             :subnetwork => subnet.url
@@ -344,7 +347,7 @@ next if !create
 
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
-            MU.log "Creating instance #{@mu_name}", MU::NOTICE, details: instanceobj
+            MU.log "Creating instance #{@mu_name} in #{@project_id} #{@config['availability_zone']}", details: instanceobj
 
             begin
               instance = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance(
@@ -1428,8 +1431,6 @@ next if !create
 
           subnets = nil
           if !server['vpc']
-            server['vpc']['project'] ||= server['project']
-            server['vpc'] = MU::Cloud::Google::VPC.pickVPC(server['vpc'], configurator)
             vpcs = MU::Cloud::Google::VPC.find(credentials: server['credentials'])
             if vpcs["default"]
               server["vpc"] ||= {}
