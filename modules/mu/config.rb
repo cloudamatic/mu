@@ -1345,7 +1345,7 @@ $CONFIGURABLES
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
 
           if siblingvpc and siblingvpc['bastion'] and
-             ["server", "server_pool"].include?(cfg_name) and
+             ["server", "server_pool", "container_cluster"].include?(cfg_name) and
              !descriptor['bastion']
             if descriptor['name'] != siblingvpc['bastion'].to_h['name']
               descriptor["dependencies"] << {
