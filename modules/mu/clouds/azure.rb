@@ -355,6 +355,7 @@ module MU
           MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
             if rg.tags and rg.tags["MU-ID"] == deploy_id
               threads << Thread.new(rg) { |rg_obj|
+                Thread.abort_on_exception = false
                 MU.log "Removing resource group #{rg_obj.name} from #{rg_obj.location}"
                 if !noop
                   MU::Cloud::Azure.resources(credentials: credentials).resource_groups.delete(rg_obj.name)
@@ -435,9 +436,9 @@ module MU
         end
 
         if name.nil?
-          $MU_CFG['azure'].each_pair { |name, cfg|
+          $MU_CFG['azure'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else
@@ -932,7 +933,8 @@ module MU
         attr_reader :api
 
         def initialize(api: "Compute", credentials: nil, profile: "Latest", subclass: nil)
-          @subclass ||= api.sub(/s$/, '')+"Client"
+          subclass ||= api.sub(/s$/, '')+"Client"
+          @subclass = subclass
           @wrapper_semaphore = Mutex.new
           @wrapper_semaphore.synchronize { 
             @wrappers ||= {}
@@ -940,6 +942,9 @@ module MU
 
           @credentials = MU::Cloud::Azure.credConfig(credentials, name_only: true)
           @cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+          if !@cred_hash
+            raise MuError, "Failed to load Azure credentials #{credentials ? credentials : "<default>"}"
+          end
 
           # There seem to be multiple ways to get at clients, and different 
           # profiles available depending which way you do it, so... try that?
@@ -1049,8 +1054,8 @@ module MU
                 end
               rescue JSON::ParserError
               end
-              MU.log e.inspect, MU::ERR, details: caller
-              MU.log e.message, MU::ERR, details: @parent.credentials
+#              MU.log e.inspect, MU::ERR, details: caller
+#              MU.log e.message, MU::ERR, details: @parent.credentials
             end
 
             retval

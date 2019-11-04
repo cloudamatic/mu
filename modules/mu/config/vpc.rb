@@ -801,7 +801,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               nat_ip: vpc_block['nat_host_ip']
             )
             ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
-            if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
+            if !vpc_block['nat_ssh_key'].nil? and !File.exist?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
               MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent['name']}", MU::ERR, details: vpc_block
               return false
             end
@@ -910,13 +910,13 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               end
             }
           else
-            sibling_vpcs.each { |ext_vpc|
-              if (ext_vpc['name'].to_s == vpc_block['name'].to_s or
-                 ext_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
-                 ext_vpc['subnets']
+            sibling_vpcs.each { |sibling_vpc|
+              if (sibling_vpc['name'].to_s == vpc_block['name'].to_s or
+                 sibling_vpc['virtual_name'].to_s == vpc_block['name'].to_s) and
+                 sibling_vpc['subnets']
                 subnet_ptr = "subnet_name"
 
-                ext_vpc['subnets'].each { |subnet|
+                sibling_vpc['subnets'].each { |subnet|
                   next if dflt_region and vpc_block["cloud"].to_s == "Google" and subnet['availability_zone'] != dflt_region
                   if subnet['is_public']
                     public_subnets << {"subnet_name" => subnet['name'].to_s}
@@ -943,14 +943,16 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               if !public_subnets.nil? and public_subnets.size > 0
                 vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
               else
-                MU.log "Public subnet requested for #{parent_type} #{parent['name']}, but none found in #{vpc_block}", MU::ERR, details: all_subnets
+                MU.log "Public subnet requested for #{parent_type} #{parent['name']}, but none found among #{all_subnets.join(", ")}", MU::ERR, details: vpc_block.to_h
+                pp is_sibling
                 return false
               end
             when "private"
               if !private_subnets.nil? and private_subnets.size > 0
                 vpc_block.merge!(private_subnets[rand(private_subnets.length)])
               else
-                MU.log "Private subnet requested for #{parent_type} #{parent['name']}, but none found in #{vpc_block}", MU::ERR, details: all_subnets
+                MU.log "Private subnet requested for #{parent_type} #{parent['name']}, but none found among #{all_subnets.join(", ")}", MU::ERR, details: vpc_block.to_h
+                pp is_sibling
                 return false
               end
               if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
@@ -986,9 +988,9 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             else
               vpc_block['subnets'] ||= []
 
-              sibling_vpcs.each { |ext_vpc|
-                next if ext_vpc["name"] != vpc_block["name"]
-                ext_vpc["subnets"].each { |subnet|
+              sibling_vpcs.each { |sibling_vpc|
+                next if sibling_vpc["name"] != vpc_block["name"]
+                sibling_vpc["subnets"].each { |subnet|
                   if subnet["route_table"] == vpc_block["subnet_pref"]
                     vpc_block["subnets"] << subnet
                   end

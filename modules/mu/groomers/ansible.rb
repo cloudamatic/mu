@@ -45,7 +45,7 @@ module MU
         end
 
         [@ansible_path, @ansible_path+"/roles", @ansible_path+"/vars", @ansible_path+"/group_vars", @ansible_path+"/vaults"].each { |dir|
-          if !Dir.exists?(dir)
+          if !Dir.exist?(dir)
             MU.log "Creating #{dir}", MU::DEBUG
             Dir.mkdir(dir, 0755)
           end
@@ -88,11 +88,11 @@ module MU
         end
         path = dir+"/"+item
 
-        if !Dir.exists?(dir)
+        if !Dir.exist?(dir)
           FileUtils.mkdir_p(dir, mode: 0700)
         end
 
-        if File.exists?(path)
+        if File.exist?(path)
           MU.log "Overwriting existing vault #{vault} item #{item}"
         end
         File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
@@ -122,14 +122,14 @@ module MU
 
         pwfile = vaultPasswordFile
         dir = secret_dir+"/"+vault
-        if !Dir.exists?(dir)
+        if !Dir.exist?(dir)
           raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
         data = nil
         if item
           itempath = dir+"/"+item
-          if !File.exists?(itempath)
+          if !File.exist?(itempath)
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
@@ -170,14 +170,14 @@ module MU
           raise MuError, "Must call deleteSecret with at least a vault name"
         end
         dir = secret_dir+"/"+vault
-        if !Dir.exists?(dir)
+        if !Dir.exist?(dir)
           raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
         data = nil
         if item
           itempath = dir+"/"+item
-          if !File.exists?(itempath)
+          if !File.exist?(itempath)
             raise MuNoSuchSecret, "No such item #{item} in vault #{vault}"
           end
           MU.log "Deleting Ansible vault #{vault} item #{item}", MU::NOTICE
@@ -354,16 +354,16 @@ module MU
 
       def self.ansibleExecDir
         path = nil
-        if File.exists?(BINDIR+"/ansible-playbook")
+        if File.exist?(BINDIR+"/ansible-playbook")
           path = BINDIR
         else
           ENV['PATH'].split(/:/).each { |bindir|
-            if File.exists?(bindir+"/ansible-playbook")
+            if File.exist?(bindir+"/ansible-playbook")
               path = bindir
-              if !File.exists?(bindir+"/ansible-vault")
+              if !File.exist?(bindir+"/ansible-vault")
                 MU.log "Found ansible-playbook executable in #{bindir}, but no ansible-vault. Vault functionality will not work!", MU::WARN
               end
-              if !File.exists?(bindir+"/ansible-galaxy")
+              if !File.exist?(bindir+"/ansible-galaxy")
                 MU.log "Found ansible-playbook executable in #{bindir}, but no ansible-galaxy. Automatic community role fetch will not work!", MU::WARN
               end
               break
@@ -378,7 +378,7 @@ module MU
       def self.vaultPasswordFile(for_user = nil, pwfile: nil)
         pwfile ||= secret_dir(for_user)+"/.vault_pw"
         @@pwfile_semaphore.synchronize {
-          if !File.exists?(pwfile)
+          if !File.exist?(pwfile)
             MU.log "Generating Ansible vault password file at #{pwfile}", MU::DEBUG
             File.open(pwfile, File::CREAT|File::RDWR|File::TRUNC, 0400) { |f|
               f.write Password.random(12..14)
@@ -396,7 +396,7 @@ module MU
       # Figure out where our main stash of secrets is, and make sure it exists
       def self.secret_dir(user = MU.mu_user)
         path = MU.dataDir(user) + "/ansible-secrets"
-        Dir.mkdir(path, 0755) if !Dir.exists?(path)
+        Dir.mkdir(path, 0755) if !Dir.exist?(path)
 
         path
       end
@@ -430,7 +430,7 @@ module MU
 
         # Make sure we search the global ansible_dir, if any is set
         if $MU_CFG and $MU_CFG['ansible_dir'] and !$MU_CFG['ansible_dir'].empty?
-          if !Dir.exists?($MU_CFG['ansible_dir'])
+          if !Dir.exist?($MU_CFG['ansible_dir'])
             MU.log "Config lists an Ansible directory at #{$MU_CFG['ansible_dir']}, but I see no such directory", MU::WARN
           else
             repodirs << $MU_CFG['ansible_dir']
@@ -446,14 +446,14 @@ module MU
 
         repodirs.each { |repodir|
           ["roles", "ansible/roles"].each { |subdir|
-            next if !Dir.exists?(repodir+"/"+subdir)
+            next if !Dir.exist?(repodir+"/"+subdir)
             Dir.foreach(repodir+"/"+subdir) { |role|
               next if [".", ".."].include?(role)
               realpath = repodir+"/"+subdir+"/"+role
               link = roledir+"/"+role
               
               if isAnsibleRole?(realpath)
-                if !File.exists?(link)
+                if !File.exist?(link)
                   File.symlink(realpath, link)
                   canon_links[role] = realpath
                 elsif File.symlink?(link)
@@ -474,14 +474,14 @@ module MU
         # Now layer on everything bundled in the main Mu repo
         Dir.foreach(MU.myRoot+"/ansible/roles") { |role|
           next if [".", ".."].include?(role)
-          next if File.exists?(roledir+"/"+role)
+          next if File.exist?(roledir+"/"+role)
           File.symlink(MU.myRoot+"/ansible/roles/"+role, roledir+"/"+role)
         }
 
         if @server.config['run_list']
           @server.config['run_list'].each { |role|
             found = false
-            if !File.exists?(roledir+"/"+role)
+            if !File.exist?(roledir+"/"+role)
               if role.match(/[^\.]\.[^\.]/) and @server.config['groomer_autofetch']
                 system(%Q{#{@ansible_execs}/ansible-galaxy}, "--roles-path", roledir, "install", role)
                 found = true
@@ -527,7 +527,7 @@ module MU
         def initialize(deploy)
           @deploy = deploy
           @ansible_path = @deploy.deploy_dir+"/ansible"
-          if !Dir.exists?(@ansible_path)
+          if !Dir.exist?(@ansible_path)
             Dir.mkdir(@ansible_path, 0755)
           end
 
@@ -600,7 +600,7 @@ module MU
 
         def read
           @inv = {}
-          if File.exists?(@ansible_path+"/hosts")
+          if File.exist?(@ansible_path+"/hosts")
             section = nil
             File.readlines(@ansible_path+"/hosts").each { |l|
               l.chomp!

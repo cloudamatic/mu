@@ -4,6 +4,7 @@
 doc
 .yardoc
 kittens.rb
+mu.yaml.rb
 Mu_CA.pem
 install/headlesscheatsheet
 bin/consul
@@ -17,3 +18,4 @@ coverage
 spec/mu.yaml
 spec/azure_creds
 .kitchen.local.yml
+mu-gen-docs-index*

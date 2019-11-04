@@ -1,4 +1,3 @@
-#!/usr/local/ruby-current/bin/ruby
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
@@ -112,7 +111,7 @@ module MU
           f.puts "chef_server_url  'https://#{$MU_CFG["public_address"]}/organizations/#{chef_user}'"
           f.puts "validation_client_name '#{chef_user}-validator'"
         }
-        if !File.exists?("#{chefdir}/client.rb") or
+        if !File.exist?("#{chefdir}/client.rb") or
             File.read("#{chefdir}/client.rb") != File.read("#{chefdir}/client.rb.tmp.#{Process.pid}")
           File.rename(chefdir+"/client.rb.tmp.#{Process.pid}", chefdir+"/client.rb")
           FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir+"/.chef")
@@ -143,7 +142,7 @@ module MU
           # f.puts "verify_api_cert    false"
           # f.puts "ssl_verify_mode    :verify_none"
         }
-        if !File.exists?("#{chefdir}/knife.rb") or
+        if !File.exist?("#{chefdir}/knife.rb") or
             File.read("#{chefdir}/knife.rb") != File.read("#{chefdir}/knife.rb.tmp.#{Process.pid}")
           File.rename(chefdir+"/knife.rb.tmp.#{Process.pid}", chefdir+"/knife.rb")
           FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir+"/.chef")

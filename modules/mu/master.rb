@@ -1,4 +1,3 @@
-#!/usr/local/ruby-current/bin/ruby
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
@@ -196,7 +195,7 @@ module MU
         end
         alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
 
-        if !File.exists?(realdevice)
+        if !File.exist?(realdevice)
           MU.log "Creating #{path} volume"
           if MU::Cloud::AWS.hosted?
             dummy_svr = MU::Cloud::AWS::Server.new(
@@ -251,7 +250,7 @@ module MU
           keyfile.close
 
           # we can assume that mu-master::init installed cryptsetup-luks
-          if !File.exists?(alias_device)
+          if !File.exist?(alias_device)
             MU.log "Initializing crypto on #{alias_device}", MU::NOTICE
             %x{/sbin/cryptsetup luksFormat #{realdevice} #{keyfile.path} --batch-mode}
             %x{/sbin/cryptsetup luksOpen #{realdevice} #{alias_device.gsub(/.*?\/([^\/]+)$/, '\1')} --key-file #{keyfile.path}}
@@ -265,7 +264,7 @@ module MU
           %x{/sbin/mkfs.xfs "#{alias_device}"}
           %x{/usr/sbin/xfs_admin -L "#{path.gsub(/[^0-9a-z_\-]/i, "_")}" "#{alias_device}"}
         end
-        Dir.mkdir(path, 0700) if !Dir.exists?(path) # XXX recursive
+        Dir.mkdir(path, 0700) if !Dir.exist?(path) # XXX recursive
         %x{/usr/sbin/xfs_info "#{alias_device}" > /dev/null 2>&1}
         if $?.exitstatus != 0
           MU.log "Mounting #{alias_device} to #{path}"
@@ -348,8 +347,8 @@ module MU
       ldap_users['mu'] = {}
       ldap_users['mu']['admin'] = true
       ldap_users['mu']['non_ldap'] = true
-      ldap_users.each_pair { |username, data|
-        key = username.to_s
+      ldap_users.each_pair { |uname, data|
+        key = uname.to_s
         all_user_data[key] = {}
         userdir = $MU_CFG['installdir']+"/var/users/#{key}"
         if !Dir.exist?(userdir)
@@ -381,7 +380,7 @@ module MU
       best = nil
       best_version = nil
       paths.uniq.each { |path|
-        if File.exists?(path+"/kubectl")
+        if File.exist?(path+"/kubectl")
           version = %x{#{path}/kubectl version --short --client}.chomp.sub(/.*Client version:\s+v/i, '')
           next if !$?.success?
           if !best_version or MU.version_sort(best_version, version) > 0
@@ -419,8 +418,8 @@ module MU
           f.path
         else
           path = outputdir+"/k8s-resource-#{count.to_s}-#{name}"
-          File.open(path, "w") { |f|
-            f.puts blob.to_yaml
+          File.open(path, "w") { |fh|
+            fh.puts blob.to_yaml
           }
           path
         end

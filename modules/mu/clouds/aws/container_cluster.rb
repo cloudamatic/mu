@@ -94,7 +94,6 @@ module MU
                 MU.log e.message, MU::WARN, details: role_arn
                 sleep 5
                 retry
-                puts e.message
               end
             end
 
@@ -795,8 +794,8 @@ MU.log c.name, MU::NOTICE, details: t
                   cluster: cluster
                 })
                 if instances
-                  instances.container_instance_arns.each { |arn|
-                    uuid = arn.sub(/^.*?:container-instance\//, "")
+                  instances.container_instance_arns.each { |instance_arn|
+                    uuid = instance_arn.sub(/^.*?:container-instance\//, "")
                     MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
                     if !noop
                       resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({
@@ -1629,12 +1628,21 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           if cluster["flavor"] == "EKS" and !cluster["vpc"]
-            if !MU::Cloud::AWS.hosted?
-              MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
-              ok = false
+            if !MU::Cloud::AWS.hosted? or !MU::Cloud::AWS.myVPCObj
+              siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+              if siblings.size == 1
+                MU.log "EKS cluster #{cluster['name']} did not declare a VPC. Inserting into an available sibling VPC.", MU::WARN
+                cluster["vpc"] = {
+                  "name" => siblings[0]['name'],
+                  "subnet_pref" => "all_private"
+                }
+              else
+                MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
+                ok = false
+              end
             else
               cluster["vpc"] = {
-                "vpc_id" => MU.myVPC,
+                "id" => MU.myVPC,
                 "subnet_pref" => "all_private"
               }
             end

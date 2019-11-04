@@ -268,12 +268,6 @@ module MU
             "Properties" => {
             }
           }
-        when "loggroup"
-          desc = {
-            "Type" => "AWS::EC2::LogGroup",
-            "Properties" => {
-            }
-          }
         when "cache_subnets"
           desc = {
             "Type" => "AWS::ElastiCache::SubnetGroup",
@@ -658,7 +652,7 @@ module MU
                     child_name = resource['#MUOBJECT'].cloudobj.cfm_name
                     child_params = child_template[child_name]["Properties"]["Parameters"]
                     child_params = Hash.new if child_params.nil?
-                    cfm_template["Parameters"].each { |key, data|
+                    cfm_template["Parameters"].keys.each { |key|
                       child_params[key] = { "Ref" => key }
                     }
                     MU::Cloud::CloudFormation.setCloudFormationProp(child_template[child_name], "Parameters", child_params)

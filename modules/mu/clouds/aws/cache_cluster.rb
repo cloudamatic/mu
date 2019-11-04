@@ -182,8 +182,8 @@ module MU
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for cache replication group #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
                 end
-                waiter.before_wait do |attempts, resp|
-                  throw :success if resp.replication_groups.first.status == "available"
+                waiter.before_wait do |attempts, r|
+                  throw :success if r.replication_groups.first.status == "available"
                   throw :failure if Time.now - wait_start_time > 1800
                 end
               end
@@ -239,8 +239,8 @@ module MU
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for cache cluster #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
                 end
-                waiter.before_wait do |attempts, resp|
-                  throw :success if resp.cache_clusters.first.cache_cluster_status  == "available"
+                waiter.before_wait do |attempts, r|
+                  throw :success if r.cache_clusters.first.cache_cluster_status  == "available"
                   throw :failure if Time.now - wait_start_time > 1800
                 end
               end

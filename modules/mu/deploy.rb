@@ -147,7 +147,7 @@ module MU
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
           @main_config[data[:cfg_plural]].each { |resource|
             if force_cloudformation
-              if resource['cloud'] = "AWS"
+              if resource['cloud'] == "AWS"
                 resource['cloud'] = "CloudFormation"
                 if resource.has_key?("vpc") and resource["vpc"].is_a?(Hash)
                   resource["vpc"]['cloud'] = "CloudFormation"
@@ -211,12 +211,26 @@ module MU
         if !die
           puts "Received SIGINT, hit ctrl-C again within five seconds to kill this deployment."
         else
-          raise "Terminated by user"
+          Thread.list.each do |t|
+            next if !t.status
+            if t.object_id != Thread.current.object_id and
+               t.thread_variable_get("name") != "main_thread" and 
+               t.thread_variable_get("owned_by_mu")
+              t.kill
+            end
+          end
+
+          if @main_thread
+            @main_thread.raise "Terminated by user"
+          else
+            raise "Terminated by user"
+          end
         end
         @last_sigterm = Time.now.to_i
       end
 
       begin
+        @main_thread = Thread.current
         if !@mommacat
           metadata = {
             "appname" => @appname,
@@ -250,7 +264,6 @@ module MU
 
         @deploy_semaphore = Mutex.new
         parent_thread_id = Thread.current.object_id
-        @main_thread = Thread.current
 
         # Run cloud provider-specific deploy meta-artifact creation (ssh keys,
         # resource groups, etc)
@@ -303,7 +316,9 @@ module MU
 
       rescue Exception => e
         @my_threads.each do |t|
-          if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+          if t.object_id != Thread.current.object_id and
+             t.thread_variable_get("name") != "main_thread" and
+             t.object_id != parent_thread_id
             MU::MommaCat.unlockAll
             t.kill
           end
@@ -314,13 +329,15 @@ module MU
         if e.class.to_s != "SystemExit"
           MU.log e.class.name+": "+e.message, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
-            Thread.list.each do |t|
-              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
-                t.kill
-              end
-            end
 
-            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
+            # Wrap this in a thread to protect the Azure SDK from imploding
+            # because it mistakenly thinks there's a deadlock.
+            cleanup_thread = Thread.new {
+              MU.dupGlobals(parent_thread_id)
+              Thread.abort_on_exception = false
+              MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
+            }
+            cleanup_thread.join
             @nocleanup = true # so we don't run this again later
           end
         end
@@ -539,10 +556,10 @@ MESSAGE_END
         if resource["dependencies"] != nil then
           resource["dependencies"].each { |dependency|
             parent_class = nil
-            MU::Cloud.resource_types.each_pair { |name, attrs|
+            MU::Cloud.resource_types.each_pair { |res_class, attrs|
               if attrs[:cfg_name] == dependency['type'] or
                  attrs[:cfg_plural] == dependency['type']
-                parent_class = Object.const_get("MU").const_get("Cloud").const_get(name)
+                parent_class = Object.const_get("MU").const_get("Cloud").const_get(res_class)
                 break
               end
             }

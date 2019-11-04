@@ -123,12 +123,12 @@ module MU
                     version_id: desc.policy.default_version_id
                   )
 
-                  if version.policy_version.document != URI.encode(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
+                  if version.policy_version.document != URI.encode_www_form(JSON.generate(policy.values.first), /[^a-z0-9\-]/i)
                     # Special exception- we don't want to overwrite extra rules
                     # in MuSecrets policies, because our siblings might have 
                     # (will have) injected those and they should stay.
                     if policy.size == 1 and policy["MuSecrets"]
-                      ext = JSON.parse(URI.decode(version.policy_version.document))
+                      ext = JSON.parse(URI.decode_www_form(version.policy_version.document))
                       if (ext["Statement"][0]["Resource"] & policy["MuSecrets"]["Statement"][0]["Resource"]).sort == policy["MuSecrets"]["Statement"][0]["Resource"].sort
                         next
                       end
@@ -473,7 +473,7 @@ module MU
                   path_prefix: "/"+@deploy.deploy_id+"/",
                   user_name: entityname
                 )
-                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                if !resp or !resp.attached_policies.map { |a_p| a_p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching IAM policy #{p.policy_name} to user #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_user_policy(
                     policy_arn: p.arn,
@@ -485,7 +485,7 @@ module MU
                   path_prefix: "/"+@deploy.deploy_id+"/",
                   group_name: entityname
                 )
-                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                if !resp or !resp.attached_policies.map { |a_p| a_p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to group #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_group_policy(
                     policy_arn: p.arn,
@@ -497,7 +497,7 @@ module MU
                   role_name: entityname
                 )
 
-                if !resp or !resp.attached_policies.map { |p| p.policy_name }.include?(p.policy_name)
+                if !resp or !resp.attached_policies.map { |a_p| a_p.policy_name }.include?(p.policy_name)
                   MU.log "Attaching policy #{p.policy_name} to role #{entityname}", MU::NOTICE
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).attach_role_policy(
                     policy_arn: p.arn,

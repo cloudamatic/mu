@@ -71,7 +71,7 @@ module MU
             require 'chef/knife/bootstrap_windows_winrm'
             require 'chef/knife/bootstrap_windows_ssh'
             ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{user}"
-            if File.exists?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
+            if File.exist?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
               MU.log "Loading Chef configuration from #{Etc.getpwnam(mu_user).dir}/.chef/knife.rb", MU::DEBUG
               ::Chef::Config.from_file("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
             end
@@ -218,7 +218,7 @@ module MU
         loadChefLib
         raise MuError, "No vault specified, nothing to delete" if vault.nil?
         MU.log "Deleting #{vault}:#{item} from vaults"
-        knife_db = nil
+
         knife_cmds = []
         if item.nil?
           knife_cmds << ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
@@ -270,7 +270,7 @@ module MU
 
         retries = 0
         try_upgrade = false
-        output = []
+        output_lines = []
         error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
         runstart = nil
         cmd = nil
@@ -294,12 +294,12 @@ module MU
             Timeout::timeout(timeout) {
               retval = ssh.exec!(cmd) { |ch, stream, data|
                 puts data
-                output << data
+                output_lines << data
                 raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
                 if data.match(/#{error_signal}/)
                   error_msg = ""
                   clip = false
-                  output.each { |chunk|
+                  output_lines.each { |chunk|
                     chunk.split(/\n/).each { |line|
                       if !clip and line.match(/^========+/)
                         clip = true
@@ -331,7 +331,7 @@ module MU
             if try_upgrade
               pp winrm.run("Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME")
             end
-            output = []
+            output_lines = []
             cmd = "c:/opscode/chef/bin/chef-client.bat --color"
             if override_runlist
               cmd = cmd + " -o '#{override_runlist}'"
@@ -341,20 +341,20 @@ module MU
               resp = winrm.run(cmd) do |stdout, stderr|
                 if stdout
                   print stdout if output
-                  output << stdout
+                  output_lines << stdout
                 end
                 if stderr
                   MU.log stderr, MU::ERR
-                  output << stderr
+                  output_lines << stderr
                 end
               end
             }
 
-            if resp.exitcode == 1 and output.join("\n").match(/Chef Client finished/)
+            if resp.exitcode == 1 and output_lines.join("\n").match(/Chef Client finished/)
               MU.log "resp.exit code 1"
             elsif resp.exitcode != 0
-              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
-              raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
+              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output_lines.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
+              raise MU::Groomer::RunError, output_lines.slice(output_lines.length-50, output_lines.length).join("")
             end
           end
         rescue MU::Cloud::BootstrapTempFail
@@ -828,7 +828,7 @@ retry
         rescue MuNoSuchSecret
         end
         ["crt", "key", "csr"].each { |ext|
-          if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
+          if File.exist?("#{MU.mySSLDir}/#{node}.#{ext}")
             MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
             File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !noop
           end
@@ -1017,9 +1017,9 @@ retry
         if multiple.size == 0
           multiple = [rl_entry]
         end
-        multiple.each { |rl_entry|
-          if !rl_entry.match(/^role|recipe\[/)
-            rl_entry = "#{type}[#{rl_entry}]"
+        multiple.each { |entry|
+          if !entry.match(/^role|recipe\[/)
+            entry = "#{type}[#{entry}]"
           end
         }
 
@@ -1027,27 +1027,27 @@ retry
           role_list = nil
           recipe_list = nil
           missing = false
-          multiple.each { |rl_entry|
-            # Rather than argue about whether to expect a bare rl_entry name or
-            # require rl_entry[rolename], let's just accomodate.
-            if rl_entry.match(/^role\[(.+?)\]/)
-              rl_entry_name = Regexp.last_match(1)
+          multiple.each { |entry|
+            # Rather than argue about whether to expect a bare entry name or
+            # require entry[rolename], let's just accomodate.
+            if entry.match(/^role\[(.+?)\]/)
+              entry_name = Regexp.last_match(1)
               if role_list.nil?
                 query=%Q{#{MU::Groomer::Chef.knife} role list};
                 role_list = %x{#{query}}
               end
-              if !role_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
-                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}", MU::WARN
+              if !role_list.match(/(^|\n)#{entry_name}($|\n)/)
+                MU.log "Attempting to add non-existent #{entry} to #{@server.mu_name}", MU::WARN
                 missing = true
               end
-            elsif rl_entry.match(/^recipe\[(.+?)\]/)
-              rl_entry_name = Regexp.last_match(1)
+            elsif entry.match(/^recipe\[(.+?)\]/)
+              entry_name = Regexp.last_match(1)
               if recipe_list.nil?
                 query=%Q{#{MU::Groomer::Chef.knife} recipe list};
                 recipe_list = %x{#{query}}
               end
-              if !recipe_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
-                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}", MU::WARN
+              if !recipe_list.match(/(^|\n)#{entry_name}($|\n)/)
+                MU.log "Attempting to add non-existent #{entry} to #{@server.mu_name}", MU::WARN
                 missing = true
               end
             end

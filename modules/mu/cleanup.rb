@@ -75,7 +75,7 @@ module MU
             FileUtils.touch("#{deploy_dir}/.cleanup") if !@noop
           else
             MU.log "I don't see a deploy named #{deploy_id}.", MU::WARN
-            MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject { |item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
+            MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject { |item| item.match(/^\./) or !File.exist?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
             MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
           end
           @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user, delay_descriptor_load: true)
@@ -110,12 +110,12 @@ module MU
         keyname = "deploy-#{MU.deploy_id}"
 
         creds.each_pair { |provider, credsets_outer|
-          cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets|
+          cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets_inner|
             MU.dupGlobals(parent_thread_id)
             Thread.abort_on_exception = false
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
-            credsets.each_pair { |credset, acct_regions|
+            credsets_inner.each_pair { |credset, acct_regions|
               next if credsused and !credsused.include?(credset)
               global_vs_region_semaphore = Mutex.new
               global_done = {}
@@ -239,8 +239,8 @@ module MU
 
         # Knock habitats and folders, which would contain the above resources,
         # once they're all done.
-        creds.each_pair { |provider, credsets|
-          credsets.keys.each { |credset|
+        creds.each_pair { |provider, credsets_inner|
+          credsets_inner.keys.each { |credset|
             next if credsused and !credsused.include?(credset)
             ["Habitat", "Folder"].each { |t|
               flags = {
@@ -255,10 +255,10 @@ module MU
         MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
 
-        creds.each_pair { |provider, credsets|
+        creds.each_pair { |provider, credsets_inner|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
-          credsets.keys.each { |creds|
-            cloudclass.cleanDeploy(MU.deploy_id, credentials: creds, noop: @noop)
+          credsets_inner.keys.each { |c|
+            cloudclass.cleanDeploy(MU.deploy_id, credentials: c, noop: @noop)
           }
         }
       end
@@ -267,7 +267,7 @@ module MU
       if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exist?("/opt/mu/lib"))
         begin
           MU::Groomer::Chef.loadChefLib
-          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
             Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           end
           deadnodes = []
@@ -309,18 +309,18 @@ module MU
       sshconf = "#{sshdir}/config"
       ssharchive = "#{sshdir}/archive"
 
-      Dir.mkdir(sshdir, 0700) if !Dir.exists?(sshdir) and !@noop
-      Dir.mkdir(ssharchive, 0700) if !Dir.exists?(ssharchive) and !@noop
+      Dir.mkdir(sshdir, 0700) if !Dir.exist?(sshdir) and !@noop
+      Dir.mkdir(ssharchive, 0700) if !Dir.exist?(ssharchive) and !@noop
 
       keyname = "deploy-#{MU.deploy_id}"
-      if File.exists?("#{sshdir}/#{keyname}")
+      if File.exist?("#{sshdir}/#{keyname}")
         MU.log "Moving #{sshdir}/#{keyname} to #{ssharchive}/#{keyname}"
         if !@noop
           File.rename("#{sshdir}/#{keyname}", "#{ssharchive}/#{keyname}")
         end
       end
 
-      if File.exists?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.deploy_id}$/)
+      if File.exist?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.deploy_id}$/)
         MU.log "Expunging #{MU.deploy_id} from #{sshconf}"
         if !@noop
           FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.deploy_id}")

@@ -173,8 +173,8 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
           map = {}
           if cloud_id
-            db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
-            map[cloud_id] = db if db
+            resp = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
+            map[cloud_id] = resp if resp
           end
 
           if tag_value
@@ -369,11 +369,11 @@ module MU
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).wait_until(:db_instance_available, db_instance_identifier: @config['identifier']) do |waiter|
               # Does create_db_instance implement wait_until_available ?
               waiter.max_attempts = nil
-              waiter.before_attempt do |attempts|
-                MU.log "Waiting for RDS database #{@config['identifier']} to be ready..", MU::NOTICE if attempts % 10 == 0
+              waiter.before_attempt do |w_attempts|
+                MU.log "Waiting for RDS database #{@config['identifier']} to be ready..", MU::NOTICE if w_attempts % 10 == 0
               end
-              waiter.before_wait do |attempts, resp|
-                throw :success if resp.db_instances.first.db_instance_status == "available"
+              waiter.before_wait do |w_attempts, r|
+                throw :success if r.db_instances.first.db_instance_status == "available"
                 throw :failure if Time.now - wait_start_time > 3600
               end
             end
@@ -438,11 +438,11 @@ module MU
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).wait_until(:db_instance_available, db_instance_identifier: @config['identifier']) do |waiter|
                 # Does create_db_instance implement wait_until_available ?
                 waiter.max_attempts = nil
-                waiter.before_attempt do |attempts|
-                  MU.log "Waiting for RDS database #{@config['identifier'] } to be ready..", MU::NOTICE if attempts % 10 == 0
+                waiter.before_attempt do |w_attempts|
+                  MU.log "Waiting for RDS database #{@config['identifier'] } to be ready..", MU::NOTICE if w_attempts % 10 == 0
                 end
-                waiter.before_wait do |attempts, resp|
-                  throw :success if resp.db_instances.first.db_instance_status == "available"
+                waiter.before_wait do |w_attempts, r|
+                  throw :success if r.db_instances.first.db_instance_status == "available"
                   throw :failure if Time.now - wait_start_time > 2400
                 end
               end

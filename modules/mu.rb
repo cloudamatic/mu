@@ -50,7 +50,7 @@ class Hash
       newhash.each_pair { |k, v|
         newhash[k] = bok_minimize(v)
       }
-      newhash.reject! { |k, v| v.nil? or v.empty? }
+      newhash.reject! { |_k, v| v.nil? or v.empty? }
       newhash = newhash.values.first if newhash.size == 1
       return newhash
     elsif o.is_a?(Array)
@@ -269,7 +269,7 @@ module MU
       @@mu_global_thread_semaphore.synchronize {
         @@mu_global_threads << newguy
       }
-      newguy
+
     end
   end
 
@@ -340,7 +340,7 @@ module MU
   # Returns true if we're running without a full systemwide Mu Master install,
   # typically as a gem.
   def self.localOnly
-    ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exists?("/opt/mu"))
+    ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exist?("/opt/mu"))
   end
 
   # The main (root) Mu user's data directory.
@@ -481,8 +481,8 @@ module MU
     else
       for_user ||= MU.mu_user
       basepath = Etc.getpwnam(for_user).dir+"/.mu"
-      Dir.mkdir(basepath, 0755) if !Dir.exists?(basepath)
-      Dir.mkdir(basepath+"/var", 0755) if !Dir.exists?(basepath+"/var")
+      Dir.mkdir(basepath, 0755) if !Dir.exist?(basepath)
+      Dir.mkdir(basepath+"/var", 0755) if !Dir.exist?(basepath+"/var")
       return basepath+"/var"
     end
   end
@@ -501,13 +501,6 @@ module MU
       MU.setVar("color", true)
     end
     @@globals[Thread.current.object_id]['color']
-  end
-
-  def self.verbosity
-    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['verbosity'].nil?
-      MU.setVar("verbosity", MU::Logger::NORMAL)
-    end
-    @@globals[Thread.current.object_id]['verbosity']
   end
 
   # Set parameters parameters for calls to {MU#log}
@@ -530,7 +523,7 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity, color: true)
+  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: MU.verbosity, color: true)
     return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
     return if verbosity == MU::Logger::SILENT
 
@@ -695,7 +688,7 @@ module MU
   def self.userEmail(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
     user = "mu" if user == "root"
-    if Dir.exists?("#{MU.mainDataDir}/users/#{user}") and
+    if Dir.exist?("#{MU.mainDataDir}/users/#{user}") and
        File.readable?("#{MU.mainDataDir}/users/#{user}/email") and
        File.size?("#{MU.mainDataDir}/users/#{user}/email")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
@@ -710,7 +703,7 @@ module MU
   # Fetch the real-world name of a given Mu user
   def self.userName(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
-    if Dir.exists?("#{MU.mainDataDir}/users/#{user}") and
+    if Dir.exist?("#{MU.mainDataDir}/users/#{user}") and
        File.readable?("#{MU.mainDataDir}/users/#{user}/realname") and
        File.size?("#{MU.mainDataDir}/users/#{user}/realname")
       return File.read("#{MU.mainDataDir}/users/#{user}/realname").chomp
@@ -946,20 +939,20 @@ module MU
   # @return [Boolean]
   def self.hashCmp(hash1, hash2, missing_is_default: false)
     return false if hash1.nil?
-    hash2.each_pair { |k, v|
+    hash2.keys.each { |k|
       if hash1[k].nil?
         return false
       end
     }
     if !missing_is_default
-      hash1.each_pair { |k, v|
+      hash1.keys.each { |k|
         if hash2[k].nil?
           return false
         end
       }
     end
 
-    hash1.each_pair { |k, v|
+    hash1.keys.each { |k|
       if hash1[k].is_a?(Array) 
         return false if !missing_is_default and hash2[k].nil?
         if !hash2[k].nil?

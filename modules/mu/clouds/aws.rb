@@ -325,9 +325,8 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
-        if $MU_CFG and (!$MU_CFG['aws'] or !account_number)
-          return []
-        end
+        cfg = credConfig(credentials)
+        return [] if !cfg
         if !region.nil? and @@azs[region]
           return @@azs[region]
         end
@@ -596,9 +595,9 @@ module MU
         end
 
         if name.nil?
-          $MU_CFG['aws'].each_pair { |name, cfg|
+          $MU_CFG['aws'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else
@@ -628,7 +627,6 @@ module MU
                 cfg['account_number'] = acct_num.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
                 return name_only ? name.to_s : cfg
-                return cfg
               end
             }
           end
@@ -1159,7 +1157,7 @@ module MU
       def self.openFirewallForClients
         MU::Cloud.loadCloudType("AWS", :FirewallRule)
         begin
-          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
             ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           end
           ::Chef::Config[:environment] = MU.environment
@@ -1354,8 +1352,6 @@ module MU
 
           MU.log "Initializing #{api} object with credentials #{credentials}", MU::DEBUG, details: params
           @api = Object.const_get("Aws::#{api}::Client").new(params)
-
-          @api
         end
 
         @instance_cache = {}

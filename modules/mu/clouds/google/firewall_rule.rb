@@ -305,8 +305,8 @@ end
 
           }
 
-          byport.each_pair { |ports, hostlist|
-            hostlist.each_pair { |hostlist, protos|
+          byport.each_pair { |ports, hostlists|
+            hostlists.each_pair { |hostlist, protos|
               protolist = if protos.sort.uniq == PROTOS.sort.uniq
                 ["all"]
               elsif protos.sort.uniq == ["icmp", "tcp", "udp"]

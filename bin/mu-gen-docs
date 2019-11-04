@@ -43,10 +43,11 @@ rescue
 end
 
 docdir = Process.uid == 0 ? "/var/www/html/docs" : MU.dataDir+"/docs"
-if !Dir.exists?(docdir)
+if !Dir.exist?(docdir)
   FileUtils.mkdir_p(docdir, mode: 0755)
 end
 
+MU::Config.emitConfigAsRuby
 MU::Config.emitSchemaAsRuby
 if Process.uid == 0
   MU.log "Generating YARD documentation in #{docdir} (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
@@ -68,6 +69,7 @@ Dir.chdir(MU.myRoot) do
 EOF
 
   impl_counts = {}
+  cloud_is_useful = {}
   cloudlist = MU::Cloud.supportedClouds.sort { |a, b|
     counts = {
       a => 0,
@@ -80,9 +82,11 @@ EOF
           myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
           case myclass.quality
           when MU::Cloud::RELEASE
+            cloud_is_useful[cloud] = true
             counts[cloud] += 4
             impl_counts[type] += 4
           when MU::Cloud::BETA
+            cloud_is_useful[cloud] = true
             counts[cloud] += 2
             impl_counts[type] += 2
           when MU::Cloud::ALPHA
@@ -95,6 +99,8 @@ EOF
     }
     counts[b] <=> counts[a]
   }
+
+  cloudlist.reject! { |c| !cloud_is_useful[c] }
 
   readme += "\n\n<table><tr><th></th>"
   cloudlist.each { |cloud|

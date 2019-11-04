@@ -59,7 +59,8 @@ end
 MU.setLogging(verbosity, $opts[:web])
 
 if (!ARGV[0] or ARGV[0].empty?) and !$opts[:deploy]
-  MU.log("You must specify a deploy id!", MU::ERR, html: $opts[:web])
+  MU.log "Must specify a deploy id. Visible deploys:", MU::WARN
+  puts MU::MommaCat.listDeploys.sort.join("\n")
   exit 1
 else
   $opts[:deploy] = ARGV[0]

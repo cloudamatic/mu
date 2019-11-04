@@ -202,7 +202,6 @@ module MU
             return MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
           end
 
-          raise "Failed to generate a description for #{self}"
         end
 
         # Return the metadata for this user configuration
@@ -227,7 +226,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::BETA
+          MU::Cloud::RELEASE
         end
 
         # Remove all users associated with the currently loaded deployment.

@@ -287,9 +287,9 @@ module MU
         end
 
         if name.nil?
-          $MU_CFG['google'].each_pair { |name, cfg|
+          $MU_CFG['google'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else
@@ -352,8 +352,7 @@ module MU
           )
           f.unlink
         rescue ::Google::Apis::ClientError => e
-# XXX comment for NCBI tests
-#          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
         end
       end
 
@@ -443,7 +442,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           return @@is_in_gcp
         end
 
-        if getGoogleMetaData("instance/name")
+        if getGoogleMetaData("project/project-id")
           @@is_in_gcp = true
           return true
         end
@@ -626,15 +625,39 @@ MU.log e.message, MU::WARN, details: e.inspect
         end
       end
 
+      @@default_project_cache = {}
+
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       # @param credentials [String]
       # @return [String]
       def self.defaultProject(credentials = nil)
+        if @@default_project_cache.has_key?(credentials)
+          return @@default_project_cache[credentials]
+        end
         cfg = credConfig(credentials)
-        return myProject if !cfg or !cfg['project']
+        if !cfg or !cfg['project']
+          if hosted?
+            @@default_project_cache[credentials] = myProject
+            return myProject 
+          end
+          if cfg
+            begin
+              result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+              result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
+              available = result.projects.map { |p| p.project_id }
+              if available.size == 1
+                @@default_project_cache[credentials] = available[0]
+                return available[0]
+              end
+            rescue # fine
+            end
+          end
+        end
+        return nil if !cfg
         loadCredentials(credentials) if !@@authorizers[credentials]
+        @@default_project_cache[credentials] = cfg['project']
         cfg['project']
       end
 
@@ -1409,8 +1432,8 @@ MU.log e.message, MU::WARN, details: e.inspect
                 logs = MU::Cloud::Google.logging(credentials: @credentials).list_entry_log_entries(logreq)
                 details = nil
                 if logs.entries
-                  details = logs.entries.map { |e| e.json_payload }
-                  details.reject! { |e| e["error"].nil? or e["error"].size == 0 }
+                  details = logs.entries.map { |err| err.json_payload }
+                  details.reject! { |err| err["error"].nil? or err["error"].size == 0 }
                 end
 
                 raise MuError, "#{method_sym.to_s} of #{retval.target_id} appeared to succeed, but then the resource disappeared! #{details.to_s}"

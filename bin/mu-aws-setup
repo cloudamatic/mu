@@ -273,7 +273,7 @@ if $opts[:logs]
         body: "#{key}"
       )
     end
-    if File.exists?("#{MU.mySSLDir}/Mu_CA.pem")
+    if File.exist?("#{MU.mySSLDir}/Mu_CA.pem")
       MU.log "Putting the Mu Master's public SSL certificate into #{bucketname}/Mu_CA.pem"
       MU::Cloud::AWS.s3(credentials: credset).put_object(
         bucket: bucketname,
@@ -438,7 +438,7 @@ end
 if $opts[:uploadlogs]
   today = Time.new.strftime("%Y%m%d").to_s
   ["master.log", "nodes.log"].each { |log|
-    if File.exists?("/Mu_Logs/#{log}-#{today}")
+    if File.exist?("/Mu_Logs/#{log}-#{today}")
       MU.log "Uploading /Mu_Logs/#{log}-#{today} to bucket #{$bucketname}"
       MU::Cloud::AWS.s3.put_object(
           bucket: $bucketname,

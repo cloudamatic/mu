@@ -304,7 +304,7 @@ module MU
                     role_name: baserole.role_name,
                     policy_name: name
                 )
-                policies[name] = URI.unescape(resp.policy_document)
+                policies[name] = URI.decode_www_form(resp.policy_document)
               }
             }
           end

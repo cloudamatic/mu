@@ -556,7 +556,7 @@ module MU
       if images.nil?
         [backwards_compat[cloud], cloud].each { |file|
           next if file.nil?
-          if File.exists?("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml")
+          if File.exist?("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml")
             images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml"))
             break
           end
@@ -567,13 +567,13 @@ module MU
       # per-user (~/.mu/etc) variety.
       [backwards_compat[cloud], cloud].each { |file|
         next if file.nil?
-        if File.exists?("#{MU.etcDir}/#{file}.yaml")
+        if File.exist?("#{MU.etcDir}/#{file}.yaml")
           images ||= {}
           images.deep_merge!(YAML.load(File.read("#{MU.etcDir}/#{file}.yaml")))
         end
         if Process.uid != 0
           basepath = Etc.getpwuid(Process.uid).dir+"/.mu/etc"
-          if File.exists?("#{basepath}/#{file}.yaml")
+          if File.exist?("#{basepath}/#{file}.yaml")
             images ||= {}
             images.deep_merge!(YAML.load(File.read("#{basepath}/#{file}.yaml")))
           end

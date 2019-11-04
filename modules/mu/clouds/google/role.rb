@@ -458,7 +458,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::BETA
+          MU::Cloud::RELEASE
         end
 
         # Remove all roles associated with the currently loaded deployment.
@@ -495,8 +495,8 @@ module MU
                 begin
                   resp = MU::Cloud::Google.iam(credentials: credentials).get_project_role(id)
                 rescue ::Google::Apis::ClientError => e
-MU.log e.message, MU::ERR, details: id
-next
+#MU.log e.message, MU::ERR, details: id
+#next
                   next if e.message.match(/notFound/)
                   raise e
                 end
@@ -510,8 +510,8 @@ next
                 begin
                   resp = MU::Cloud::Google.iam(credentials: credentials).get_organization_role(id)
                 rescue ::Google::Apis::ClientError => e
-MU.log e.message, MU::ERR, details: id
-next
+#MU.log e.message, MU::ERR, details: id
+#next
                   next if e.message.match(/notFound/)
                   raise e
                 end
