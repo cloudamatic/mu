@@ -921,7 +921,7 @@ module MU
         MU.log "Creating #{ssh_dir}", MU::DEBUG
         Dir.mkdir(ssh_dir, 0700)
         if Process.uid == 0 and @mu_user != "mu"
-          ssh_dir.chown(Etc.getpwnam(@mu_user).uid, Etc.getpwnam(@mu_user).gid)
+          File.chown(Etc.getpwnam(@mu_user).uid, Etc.getpwnam(@mu_user).gid, ssh_dir)
         end
       end
       if !File.exist?("#{ssh_dir}/#{@ssh_key_name}")
