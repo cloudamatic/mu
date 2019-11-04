@@ -147,11 +147,12 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          rtb = @config['route_tables'].first
+          rtb = @config['route_tables'].first # there's only ever one
 
           rtb['routes'].each { |route|
             # If we had a sibling server being spun up as a NAT, rig up the 
             # route that the hosts behind it will need.
+            pp route
             if route['gateway'] == "#NAT" and !route['nat_host_name'].nil?
               createRoute(route, network: @url)
             end
@@ -786,7 +787,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             vpc['route_tables'].each { |t|
               is_public = false
               t['routes'].each { |r|
-                if !vpc["virtual_name"] and !vpc["create_nat_gateway"] and
+                if !vpc["virtual_name"] and
+                   !vpc["create_nat_gateway"] and
+                   !vpc['bastion'] and
                    r["gateway"] == "#NAT"
                   r["gateway"] = "#DENY"
                 end
@@ -875,7 +878,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             else
               ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"], credentials: vpc['credentials'])
             end
-            if has_nat and !has_deny
+            if has_nat and !has_deny and !vpc['bastion']
               vpc['route_tables'].first["routes"] << {
                 "gateway"=>"#DENY",
                 "destination_network"=>"0.0.0.0/0"
