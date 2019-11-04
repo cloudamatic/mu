@@ -1059,6 +1059,14 @@ module MU
             }
           end
 
+          if cluster['dependencies']
+            cluster['dependencies'].each { |dep|
+              if dep['type'] == "vpc"
+                dep['phase'] = "groom"
+              end
+            }
+          end
+
           if (cluster['pod_ip_block_name'] or cluster['services_ip_block_name']) and
              cluster['custom_subnet']
             MU.log "GKE cluster #{cluster['name']} cannot specify pod_ip_block_name or services_ip_block_name when using a custom subnet", MU::ERR

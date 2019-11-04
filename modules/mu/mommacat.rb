@@ -262,7 +262,6 @@ module MU
             creds.uniq!
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds.each { |credentials|
-            puts credentials
               cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
             }
           }

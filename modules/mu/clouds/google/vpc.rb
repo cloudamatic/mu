@@ -694,6 +694,68 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           [toplevel_required, schema]
         end
 
+        # If the VPC a config block was set to one that's been "split," try to
+        # figure out which of the new VPCs we really want to be in. For use by
+        # resource types that don't go in subnets, but do tie to VPCs.
+        # @param vpc_block [Hash]
+        # @param configurator [MU::Config]
+        # @return [Hash]
+        def self.pickVPC(vpc_block, my_config, my_type, configurator)
+          _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(my_type)
+          return if vpc_block.nil?
+          vpc_block['name'] ||= vpc_block['vpc_name']
+          return if !vpc_block['name']
+
+          vpcs = configurator.haveLitterMate?(
+            nil,
+            "vpcs",
+            has_multiple: true
+          )
+          # drop all virtual vpcs that aren't real anymore
+          vpcs.reject! { |v| v['virtual_name'] == v['name'] }
+          # drop the ones that have nothing to do with us
+          vpcs.reject! { |v| v['virtual_name'] != vpc_block['name'] }
+
+          return vpc_block if vpcs.size == 0
+
+          # see if one of this thing's siblings declared a subnet_pref we can
+          # use to guess which one we should marry ourselves to
+          configurator.kittens.each_pair { |type, siblings|
+            siblings.each { |sibling|
+              next if !sibling['dependencies']
+              sibling['dependencies'].each { |dep|
+                if [cfg_name, cfg_plural].include?(dep['type']) and
+                   dep['name'] == my_config['name']
+                  vpcs.each { |v|
+                    if sibling['vpc']['name'] == v['name']
+                      vpc_block['name'] = v['name']
+                      return vpc_block
+                    end
+                  }
+                  if sibling['vpc']['subnet_pref']
+                    vpcs.each { |v|
+                      gateways = v['route_tables'].map { |rtb|
+                        rtb['routes'].map { |r| r["gateway"] }
+                      }.flatten.uniq
+                      if ["public", "all_public"].include?(sibling['vpc']['subnet_pref']) and
+                         gateways.include?("#INTERNET")
+                        vpc_block['name'] = v['name']
+                        return vpc_block
+                      elsif ["private", "all_private"].include?(sibling['vpc']['subnet_pref']) and
+                         !gateways.include?("#INTERNET")
+                        vpc_block['name'] = v['name']
+                        return vpc_block
+                      end
+                    }
+
+                  end
+                end
+              }
+            }
+          }
+
+          vpc_block
+        end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
         # @param vpc [Hash]: The resource to process and validate

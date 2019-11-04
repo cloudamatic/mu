@@ -1209,7 +1209,7 @@ $CONFIGURABLES
     # an extra pass to make sure we get all intra-stack dependencies correct.
     # @param acl [Hash]: The configuration hash for the FirewallRule to check
     # @return [Hash]
-    def resolveIntraStackFirewallRefs(acl)
+    def resolveIntraStackFirewallRefs(acl, delay_validation = false)
       acl["rules"].each { |acl_include|
         if acl_include['sgs']
           acl_include['sgs'].each { |sg_ref|
@@ -1232,7 +1232,7 @@ $CONFIGURABLES
               siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
               if !siblingfw["#MU_VALIDATED"]
 # XXX raise failure somehow
-                insertKitten(siblingfw, "firewall_rules")
+                insertKitten(siblingfw, "firewall_rules", delay_validation: delay_validation)
               end
             end
           }
@@ -1438,7 +1438,7 @@ $CONFIGURABLES
         }
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
-        acl = resolveIntraStackFirewallRefs(acl)
+        acl = resolveIntraStackFirewallRefs(acl, delay_validation)
         ok = false if !insertKitten(acl, "firewall_rules", delay_validation)
       end
 

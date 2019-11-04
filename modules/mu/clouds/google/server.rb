@@ -1378,6 +1378,7 @@ next if !create
           ok = true
 
           server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
+
           size = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
 
           if size.nil?
@@ -1427,6 +1428,8 @@ next if !create
 
           subnets = nil
           if !server['vpc']
+            server['vpc']['project'] ||= server['project']
+            server['vpc'] = MU::Cloud::Google::VPC.pickVPC(server['vpc'], configurator)
             vpcs = MU::Cloud::Google::VPC.find(credentials: server['credentials'])
             if vpcs["default"]
               server["vpc"] ||= {}
@@ -1456,6 +1459,10 @@ next if !create
               ok = false
               MU.log "Failed to identify a subnet in my region (#{server['region']})", MU::ERR, details: server["vpc"]["vpc_id"]
             end
+          end
+
+          if server['vpc']
+            server['vpc']['project'] ||= server['project']
           end
 
           if server['image_id'].nil?
