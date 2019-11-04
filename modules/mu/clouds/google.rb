@@ -352,8 +352,7 @@ module MU
           )
           f.unlink
         rescue ::Google::Apis::ClientError => e
-# XXX comment for NCBI tests
-#          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
         end
       end
 

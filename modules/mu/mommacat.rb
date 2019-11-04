@@ -238,9 +238,9 @@ module MU
         end
         credsets = {}
 
-        MU::Cloud.resource_types.values { |data|
-          if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
-            @original_config[data[:cfg_plural]].each { |resource|
+        MU::Cloud.resource_types.values.each { |attrs|
+          if !@original_config[attrs[:cfg_plural]].nil? and @original_config[attrs[:cfg_plural]].size > 0
+            @original_config[attrs[:cfg_plural]].each { |resource|
 
               credsets[resource['cloud']] ||= []
               credsets[resource['cloud']] << resource['credentials']
@@ -257,12 +257,12 @@ module MU
         end
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
-
         if !@original_config['scrub_mu_isms']
           credsets.each_pair { |cloud, creds|
             creds.uniq!
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds.each { |credentials|
+            puts credentials
               cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
             }
           }

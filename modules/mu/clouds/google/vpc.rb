@@ -255,7 +255,7 @@ end
 
             if vpcs and vpcs.items
               vpcs.items.each { |v|
-                resp[vpc.name] = v
+                resp[v.name] = v
               }
             end
           end
