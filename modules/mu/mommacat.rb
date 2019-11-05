@@ -327,7 +327,7 @@ module MU
                 next
               end
 
-              if orig_cfg['vpc']
+              if orig_cfg['vpc'] and orig_cfg['vpc'].is_a?(Hash)
                 ref = if orig_cfg['vpc']['id'] and orig_cfg['vpc']['id'].is_a?(Hash)
                   orig_cfg['vpc']['id']['mommacat'] = self
                   MU::Config::Ref.get(orig_cfg['vpc']['id'])
@@ -335,7 +335,8 @@ module MU
                   orig_cfg['vpc']['mommacat'] = self
                   MU::Config::Ref.get(orig_cfg['vpc'])
                 end
-                orig_cfg['vpc'] = ref if ref.kitten #this leads to infinite recursion
+                orig_cfg['vpc'].delete('mommacat')
+                orig_cfg['vpc'] = ref if ref.kitten
               end
 
               begin

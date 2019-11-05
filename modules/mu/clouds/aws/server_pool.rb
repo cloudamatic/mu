@@ -1361,9 +1361,15 @@ module MU
           if @config["vpc_zone_identifier"]
             asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
           elsif @config["vpc"]
+            if !@vpc and @config['vpc'].is_a?(MU::Config::Ref)
+              @vpc = @config['vpc'].kitten
+            end
 
             subnet_ids = []
 
+            if !@vpc
+              raise MuError, "Failed to load vpc for Autoscale Group #{@mu_name}"
+            end
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               @config["vpc"]["subnets"].each { |subnet|
                 subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
