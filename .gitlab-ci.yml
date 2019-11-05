@@ -180,9 +180,8 @@ Mu Install:
   - apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 93C4A3FD7BB9C367
   - apt-get -qq update
   - apt-get -qq install dnsutils ansible libsodium-dev
-  - eval `ssh-agent -s`
-  - mkdir ~/.ssh
-  - ssh-add
+  - gem list net-ssh
+  - ssh -V
   script:
   - gem install cloud-mu-*.gem
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
