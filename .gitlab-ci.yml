@@ -18,7 +18,7 @@ Rubocop:
     - rubocop bin/
   allow_failure: true
   except:
-  variables:
+    variables:
     - $IMAGE_BUILD
 
 Cookstyle:
