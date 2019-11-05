@@ -804,7 +804,7 @@ return
 
       begin
         config = JSON.parse(raw_json)
-        if param_pass
+        if param_pass and config.is_a?(Hash)
           config.keys.each { |key|
             if key != "parameters"
               if key == "appname" and @@parameters["myAppName"].nil?
@@ -815,7 +815,7 @@ return
               config.delete(key)
             end
           }
-        else
+        elsif config.is_a?(Hash)
           config.delete("parameters")
         end
       rescue JSON::ParserError => e
@@ -1938,7 +1938,7 @@ $CONFIGURABLES
 
     # Namespace magic to pass to ERB's result method.
     def get_binding(keyset)
-      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
+#      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
       MU::Config.global_bindings[keyset] = binding
       MU::Config.global_bindings[keyset]
     end
