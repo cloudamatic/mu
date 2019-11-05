@@ -18,6 +18,7 @@ Rubocop:
     - rubocop bin/
   allow_failure: true
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
@@ -29,6 +30,7 @@ Cookstyle:
     - cookstyle cookbooks/
   allow_failure: true
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
@@ -39,6 +41,7 @@ Foodcritic:
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
@@ -49,6 +52,7 @@ Foodcritic Deprecations:
   script:
     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
@@ -60,6 +64,7 @@ ChefSpec:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
@@ -101,6 +106,7 @@ New_Berks:
     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "cookbooks/$d" && berks verify); done
     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "cookbooks/$d" && berks outdated); done
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
@@ -116,6 +122,7 @@ Berks:
     - berks verify
     - berks outdated
   except:
+    refs:
     - ssh-config
     variables:
     - $IMAGE_BUILD
