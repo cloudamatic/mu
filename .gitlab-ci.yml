@@ -18,7 +18,7 @@ Rubocop:
     - rubocop bin/
   allow_failure: true
   except:
-    variables:
+  variables:
     - $IMAGE_BUILD
 
 Cookstyle:
@@ -179,7 +179,7 @@ Mu Install:
   - echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list
   - apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 93C4A3FD7BB9C367
   - apt-get -qq update
-  - apt-get -qq install dnsutils ansible
+  - apt-get -qq install dnsutils ansible libsodium-dev
   - eval `ssh-agent -s`
   - ssh-add
   script:
