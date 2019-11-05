@@ -206,7 +206,6 @@ Mu Install:
   - master
   - development
   - gem-mess_with_test_kitchen
-  - ssh-config
 
 SSH Config:
   stage: Smoke Test
@@ -214,7 +213,7 @@ SSH Config:
   - cat /etc/ssh/ssh_config
   - ssh -Q cipher
   script:
-  - ssh -T git@gitlab.com
+  - ssh -vv -T git@gitlab.com
   only:
   - ssh-config
 
