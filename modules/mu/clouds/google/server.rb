@@ -271,11 +271,19 @@ next if !create
         def create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
-          sa = MU::Config::Ref.get(@config['service_account'])
+          sa = nil
+          retries = 0
+          begin
+            sa = MU::Config::Ref.get(@config['service_account'])
+            if !sa or !sa.kitten or !sa.kitten.cloud_desc
+              sleep 10
+            end
+          end while !sa or !sa.kitten or !sa.kitten.cloud_desc and retries < 5
 
           if !sa or !sa.kitten or !sa.kitten.cloud_desc
             raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
+          
 
           @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
             email: sa.kitten.cloud_desc.email,

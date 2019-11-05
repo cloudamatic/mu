@@ -213,7 +213,7 @@ module MU
               )
             end
 
-            MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+            MU.log %Q{How to interact with your EKS cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
           elsif @config['flavor'] != "Fargate"
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
               cluster: @mu_name

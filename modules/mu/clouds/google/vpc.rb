@@ -152,7 +152,6 @@ module MU
           rtb['routes'].each { |route|
             # If we had a sibling server being spun up as a NAT, rig up the 
             # route that the hosts behind it will need.
-            pp route
             if route['gateway'] == "#NAT" and !route['nat_host_name'].nil?
               createRoute(route, network: @url)
             end
@@ -412,9 +411,10 @@ end
             found.each { |nat|
               # Try some cloud-specific criteria
               cloud_desc = nat.cloud_desc
-              if !nat_host_ip.nil? and
+              pp cloud_desc
+              if !nat_ip.nil? and
 # XXX this is AWS code, is wrong here
-                  (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
+                  (cloud_desc.private_ip_address == nat_ip or cloud_desc.public_ip_address == nat_ip)
                 return nat
               elsif cloud_desc.vpc_id == @cloud_id
                 # XXX Strictly speaking we could have different NATs in

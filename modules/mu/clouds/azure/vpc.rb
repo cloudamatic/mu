@@ -494,18 +494,23 @@ module MU
             MU.log "Creating VPC #{@mu_name} (#{@config['ip_block']}) in #{@config['region']}", details: vpc_obj
             need_apply = true
           elsif ext_vpc.location != vpc_obj.location or
-                ext_vpc.tags != vpc_obj.tags or
+#                ext_vpc.tags != vpc_obj.tags or
+#                XXX updating tags is a different API call
                 ext_vpc.address_space.address_prefixes != vpc_obj.address_space.address_prefixes
             MU.log "Updating VPC #{@mu_name} (#{@config['ip_block']}) in #{@config['region']}", MU::NOTICE, details: vpc_obj
             need_apply = true
           end
 
           if need_apply
+            begin
             resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
               @resource_group,
               @mu_name,
               vpc_obj
             )
+            rescue ::MU::Cloud::Azure::APIError => e
+puts e.class.name
+            end
             @cloud_id = Id.new(resp.id)
           end
 
