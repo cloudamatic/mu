@@ -24,13 +24,16 @@ for d in r s t u ;do
   fi
 done
 
+for f in /etc/rc.local /etc/rc.d/rc.local;do
+  if [ -f $f ];then
+    chmod 755 $f
+  fi
+done
+
 if ping -c 5 8.8.8.8 > /dev/null; then
   if [ -f /etc/debian_version ];then
     if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
       echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
-    fi
-    if [ -f /etc/rc.d/rc.local ];then
-      chmod 755 /etc/rc.d/rc.local
     fi
     apt-get update -y
     if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
@@ -75,12 +78,12 @@ if ping -c 5 8.8.8.8 > /dev/null; then
       cat /etc/rc.d/rc.local | grep -v '^/bin/sh /var/lib/cloud/instances/' >> /tmp/rc.local.$$
       echo "/bin/sh $userdata_dir/user-data.txt" >> /tmp/rc.local.$$
       mv /tmp/rc.local.$$ /etc/rc.d/rc.local
+      chmod 755 /etc/rc.d/rc.local
     fi
 
     sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
 
     if [ "$version" == "7" ];then
-      chmod 755 /etc/rc.d/rc.local
       systemctl reset-failed sshd.service
     fi
     if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
