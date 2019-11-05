@@ -207,15 +207,19 @@ module MU
         MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
       end
 
+      @@myVPCObj = nil
+
       # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
       # @return [MU::Cloud::VPC]
       def self.myVPCObj
+        return @@myVPCObj if @@myVPCObj
         return nil if !hosted?
         instance = MU.myCloudDescriptor
         return nil if !instance or !instance.vpc_id
-        vpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: instance.vpc_id, dummy_ok: true)
+        vpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: instance.vpc_id, dummy_ok: true, no_deploy_search: true)
         return nil if vpc.nil? or vpc.size == 0
-        vpc.first
+        @@myVPCObj = vpc.first
+        @@myVPCObj
       end
 
       # If we've configured AWS as a provider, or are simply hosted in AWS, 

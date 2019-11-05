@@ -236,7 +236,7 @@ end
           resp = {}
           if args[:cloud_id] and args[:project]
             begin
-            vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
+              vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
               args[:project],
               args[:cloud_id].to_s.sub(/^.*?\/([^\/]+)$/, '\1')
             )

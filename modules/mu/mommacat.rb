@@ -328,8 +328,14 @@ module MU
               end
 
               if orig_cfg['vpc']
-                ref = MU::Config::Ref.get(orig_cfg['vpc'])
-                orig_cfg['vpc']['id'] = ref if ref.kitten
+                ref = if orig_cfg['vpc']['id'] and orig_cfg['vpc']['id'].is_a?(Hash)
+                  orig_cfg['vpc']['id']['mommacat'] = self
+                  MU::Config::Ref.get(orig_cfg['vpc']['id'])
+                else
+                  orig_cfg['vpc']['mommacat'] = self
+                  MU::Config::Ref.get(orig_cfg['vpc'])
+                end
+                orig_cfg['vpc'] = ref if ref.kitten #this leads to infinite recursion
               end
 
               begin
@@ -1190,7 +1196,8 @@ module MU
         flags: {},
         habitats: [],
         dummy_ok: false,
-        debug: false
+        debug: false,
+        no_deploy_search: false
     ) 
       start = Time.now
       callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, dummy_ok: #{dummy_ok.to_s}, flags: #{flags.to_s}) from #{caller[0]}"
@@ -1252,7 +1259,7 @@ module MU
 
         kittens = {}
         # Search our other deploys for matching resources
-        if (deploy_id or name or mu_name or cloud_id)
+        if !no_deploy_search and (deploy_id or name or mu_name or cloud_id)
           MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
           # Check our in-memory cache of live deploys before resorting to

@@ -336,7 +336,7 @@ module MU
         end
 
         if @deploy_id and !@mommacat
-          @mommacat = MU::MommaCat.new(@deploy_id, set_context_to_me: false, create: false)
+          @mommacat = MU::MommaCat.getLitter(@deploy_id, set_context_to_me: false)
         elsif @mommacat and !@deploy_id
           @deploy_id = @mommacat.deploy_id
         end
@@ -571,6 +571,7 @@ return
 
       def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil, index: 0)
         @name = name
+        @bindings = {}
         @value = value
         @valid_values = valid_values
         @pseudo = pseudo
@@ -766,7 +767,7 @@ return
 
       # Make sure our parameter values are all available in the local namespace
       # that ERB will be using, minus any that conflict with existing variables
-      erb_binding = get_binding
+      erb_binding = get_binding(@@tails.keys.sort)
       @@tails.each_pair { |key, tail|
         next if !tail.is_a?(MU::Config::Tail) or tail.is_list_element
         # XXX figure out what to do with lists
@@ -1924,12 +1925,22 @@ $CONFIGURABLES
 
     # (see #include)
     def include(file)
-      MU::Config.include(file, get_binding, param_pass = @param_pass)
+      MU::Config.include(file, get_binding(@@tails.keys.sort), param_pass = @param_pass)
+    end
+
+    @@bindings = {}
+    # Keep a cache of bindings we've created as sandbox contexts for ERB
+    # processing, so we don't keep reloading the entire Mu library inside new
+    # ones.
+    def self.global_bindings
+      @@bindings
     end
 
     # Namespace magic to pass to ERB's result method.
-    def get_binding
-      binding
+    def get_binding(keyset)
+      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
+      MU::Config.global_bindings[keyset] = binding
+      MU::Config.global_bindings[keyset]
     end
 
     def applySchemaDefaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
