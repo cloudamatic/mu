@@ -794,7 +794,6 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  bcrypt_pbkdf (~> 1.0)
   berkshelf (~> 7.0)
   chef-dk (~> 3.2.30)
   chef-sugar
@@ -805,8 +804,6 @@ DEPENDENCIES
   knife-windows!
   mysql2
   rack
-  rbnacl (>= 3.2, < 5.0)
-  rbnacl-libsodium
   ruby-wmi
   thin
   winrm (~> 2.3, >= 2.3.2)

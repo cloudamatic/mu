@@ -1962,6 +1962,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                     :keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
                     :verify_host_key => false,
                     #           :verbose => :info,
+                    :host_key => "ssh-rsa",
                     :port => 22,
                     :auth_methods => ['publickey']
                 )
