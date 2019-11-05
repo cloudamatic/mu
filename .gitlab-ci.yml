@@ -181,7 +181,7 @@ Mu Install:
   - apt-get -qq update
   - apt-get -qq install dnsutils ansible libsodium-dev
   - eval `ssh-agent -s`
-  - ls -la ~/.ssh
+  - mkdir ~/.ssh
   - ssh-add
   script:
   - gem install cloud-mu-*.gem
