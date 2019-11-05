@@ -894,9 +894,11 @@ module MU
 
   @@myCloudDescriptor = nil
   if MU.myCloud
-    found = MU::MommaCat.findStray(MU.myCloud, "server", cloud_id: @@myInstanceId, dummy_ok: true, region: MU.myRegion)
+    svrclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud).const_get("Server")
+    found = svrclass.find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
+#    found = MU::MommaCat.findStray(MU.myCloud, "server", cloud_id: @@myInstanceId, dummy_ok: true, region: MU.myRegion)
     if !found.nil? and found.size == 1
-      @@myCloudDescriptor = found.first.cloud_desc
+      @@myCloudDescriptor = found.values.first
     end
   end
 

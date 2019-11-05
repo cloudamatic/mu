@@ -2527,10 +2527,14 @@ MESSAGE_END
       update_servers.each { |node|
         # Not clear where this pollution comes from, but let's stick a temp
         # fix in here.
-        if node.deploydata['nodename'] != node.mu_name
+        if node.deploydata['nodename'] != node.mu_name and
+           !node.deploydata['nodename'].nil? and !node.deploydata['nodename'].emty?
           MU.log "Node #{node.mu_name} had wrong or missing nodename (#{node.deploydata['nodename']}), correcting", MU::WARN
           node.deploydata['nodename'] = node.mu_name
-          @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
+          if @deployment[svrs] and @deployment[svrs][node.config['name']] and
+             @deployment[svrs][node.config['name']][node.mu_name]
+            @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
+          end
           save!
         end
       }
