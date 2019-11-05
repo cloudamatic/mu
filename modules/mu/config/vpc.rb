@@ -449,7 +449,7 @@ module MU
             next if v['name'] == vpc['name']
             peer_blocks << v['ip_block'] if v['ip_block']
           }
-          if peer_blocks.size > 0 and using_default_cidr
+          if peer_blocks.size > 0 and using_default_cidr and !configurator.updating
             begin
               have_overlaps = false
               peer_blocks.each { |cidr|
@@ -501,7 +501,7 @@ module MU
               vpc['peers'] << {
                 "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
               }
-            else
+            elsif !configurator.updating
               MU.log "#{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
             end
           end
