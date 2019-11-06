@@ -405,26 +405,33 @@ end
             dummy_ok: true,
             calling_deploy: @deploy
           )
-# XXX wat
+
           return nil if found.nil? || found.empty?
-          if found.size > 1
-            found.each { |nat|
-              # Try some cloud-specific criteria
-              cloud_desc = nat.cloud_desc
-              pp cloud_desc
-              if !nat_ip.nil? and
-# XXX this is AWS code, is wrong here
-                  (cloud_desc.private_ip_address == nat_ip or cloud_desc.public_ip_address == nat_ip)
-                return nat
-              elsif cloud_desc.vpc_id == @cloud_id
-                # XXX Strictly speaking we could have different NATs in
-                # different subnets, so this can be wrong in corner cases.
-                return nat
-              end
-            }
-          elsif found.size == 1
+
+          if found.size == 1
             return found.first
+          elsif found.size > 1
+            found.each { |nat|
+              next if !nat.cloud_desc
+              # Try some cloud-specific criteria
+              nat.cloud_desc.network_interfaces.each { |iface|
+                if !nat_ip.nil?
+                  return nat if iface.network_ip == nat_ip
+                  if iface.access_configs
+                    iface.access_configs.each { |public_iface|
+                      return if public_iface.nat_ip == nat_ip
+                    }
+                  end
+                end
+                if iface.network == @url
+                  # XXX Strictly speaking we could have different NATs in
+                  # different subnets, so this can be wrong in corner cases.
+                  return nat
+                end
+              }
+            }
           end
+
           return nil
         end
 

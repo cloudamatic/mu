@@ -554,7 +554,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                   },
                   {
                     name: "accepter-vpc-info.vpc-id",
-                    values: [peer_id]
+                    values: [peer_id.to_s]
                   }
                 ]
               )

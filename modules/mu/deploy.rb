@@ -632,6 +632,17 @@ MESSAGE_END
                 end
                 myservice['#MUOBJECT'] ||= myservice["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
               end
+            rescue RuntimeError => e
+              # cloud implementations can iterate over these same hashes,
+              # which can throw this if we catch them at the wrong moment.
+              # here's your hacky workaround.
+              if e.message.match(/can't add a new key into hash during iteration/)
+                MU.log e.message+" in main deploy thread, probably transient", MU::DEBUG
+                sleep 1
+                retry
+              else
+                raise e
+              end
             rescue Exception => e
               MU::MommaCat.unlockAll
               @main_thread.raise MuError, "Error instantiating object from #{myservice["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
