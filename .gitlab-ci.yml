@@ -210,7 +210,7 @@ Mu Install:
 SSH Config:
   stage: Smoke Test
   before_script:
-  - "sed -i '1s/^/HostKeyAlgorithms: ssh-rsa,rsa-sha2-512,rsa-sha2-256\n.' /etc/ssh/ssh_config"
+  - "sed -i '1iHostKeyAlgorithms: ssh-rsa,rsa-sha2-512,rsa-sha2-256' /etc/ssh/ssh_config"
   - cat /etc/ssh/ssh_config
   script:
   - ssh -vv -T git@gitlab.com
