@@ -836,6 +836,7 @@ return
 
     attr_reader :kittens
     attr_reader :updating
+    attr_reader :existing_deploy
     attr_reader :kittencfg_semaphore
 
     # Load, resolve, and validate a configuration file ("Basket of Kittens").
@@ -861,6 +862,9 @@ return
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
       @updating = updating
+      if @updating
+        @existing_deploy = MU::MommaCat.new(@updating)
+      end
       @default_credentials = default_credentials
 
       ok = true
@@ -1128,7 +1132,6 @@ $CONFIGURABLES
       subnet_bits = cidr.netmask.prefix_len
       begin
         subnet_bits += 1
-
         if subnet_bits > max_mask
           MU.log "Can't subdivide #{cidr.to_s} into #{subnets_desired.to_s}", MU::ERR
           raise MuError, "Subnets smaller than /#{max_mask} not permitted"
@@ -1251,6 +1254,7 @@ $CONFIGURABLES
       append = false
       start = Time.now
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      MU.log "insertKitten on #{cfg_name} #{descriptor['name']}", MU::DEBUG, details: { "delay_validation" => delay_validation }
 
       if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
 #        raise DuplicateNameError, "A #{shortclass} named #{descriptor['name']} has already been inserted into this configuration"

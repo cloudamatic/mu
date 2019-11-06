@@ -417,8 +417,22 @@ module MU
 
         using_default_cidr = false
         if !vpc['ip_block']
-          using_default_cidr = true
-          vpc['ip_block'] = "10.0.0.0/16"
+          if configurator.updating and configurator.existing_deploy and
+             configurator.existing_deploy.original_config['vpcs']
+            pieces = []
+            configurator.existing_deploy.original_config['vpcs'].each { |v|
+              if v['name'] == vpc['name']
+                vpc['ip_block'] = v['ip_block']
+                break
+              elsif v['virtual_name'] == vpc['name']
+                vpc['ip_block'] = v['parent_block']
+                break
+              end
+            }
+          else
+            using_default_cidr = true
+            vpc['ip_block'] = "10.0.0.0/16"
+          end
         end
 
         # Look for a common YAML screwup in route table land
@@ -439,33 +453,34 @@ module MU
           rtb['routes'].uniq!
         }
 
-        # if we're peering with other on-the-fly VPCs who might be using
-        # the default range, make sure our ip_blocks don't overlap
         peer_blocks = []
-        my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'].to_s)
-        if vpc["peers"]
-          siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+        siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+        if siblings
           siblings.each { |v|
             next if v['name'] == vpc['name']
             peer_blocks << v['ip_block'] if v['ip_block']
           }
-          if peer_blocks.size > 0 and using_default_cidr and !configurator.updating
-            begin
-              have_overlaps = false
-              peer_blocks.each { |cidr|
-                sibling_cidr = NetAddr::IPv4Net.parse(cidr)
-                have_overlaps = true if my_cidr.rel(sibling_cidr) != nil
-              }
-              if have_overlaps
-                my_cidr = my_cidr.next_sib
-                my_cidr = nil if my_cidr.to_s.match(/^10\.255\./)
-              end
-            end while have_overlaps
-            if !my_cidr.nil? and vpc['ip_block'] != my_cidr.to_s
-              vpc['ip_block'] = my_cidr.to_s
-            else
-              my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
+        end
+
+        # if we're peering with other on-the-fly VPCs who might be using
+        # the default range, make sure our ip_blocks don't overlap
+        my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'].to_s)
+        if peer_blocks.size > 0 and using_default_cidr and !configurator.updating
+          begin
+            have_overlaps = false
+            peer_blocks.each { |cidr|
+              sibling_cidr = NetAddr::IPv4Net.parse(cidr.to_s)
+              have_overlaps = true if my_cidr.rel(sibling_cidr) != nil
+            }
+            if have_overlaps
+              my_cidr = my_cidr.next_sib
+              my_cidr = nil if my_cidr.to_s.match(/^10\.255\./)
             end
+          end while have_overlaps
+          if !my_cidr.nil? and vpc['ip_block'] != my_cidr.to_s
+            vpc['ip_block'] = my_cidr.to_s
+          else
+            my_cidr = NetAddr::IPv4Net.parse(vpc['ip_block'])
           end
         end
 
