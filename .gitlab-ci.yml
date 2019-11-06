@@ -210,8 +210,8 @@ Mu Install:
 SSH Config:
   stage: Smoke Test
   before_script:
+  - echo "HostKeyAlgorithms: ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-dss" >> /etc/ssh/ssh_config
   - cat /etc/ssh/ssh_config
-  - ssh -Q cipher
   script:
   - ssh -vv -T git@gitlab.com
   only:
