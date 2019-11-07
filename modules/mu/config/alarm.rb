@@ -248,6 +248,7 @@ module MU
           #  ok = false
           #end
         end
+        alarm["notification_endpoint"] ||= MU.muCfg['mu_admin_email']
         
         if alarm["dimensions"]
           alarm["dimensions"].each{ |dimension|

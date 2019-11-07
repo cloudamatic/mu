@@ -505,7 +505,6 @@ module MU
 
   # Set parameters parameters for calls to {MU#log}
   def self.setLogging(verbosity, webify_logs = false, handle = STDOUT, color = true)
-    puts verbosity.to_s+" "+caller[0]
     @@logger ||= MU::Logger.new(verbosity, webify_logs, handle, color)
     @@logger.html = webify_logs
     @@logger.verbosity = verbosity
@@ -530,25 +529,17 @@ module MU
         level == MU::WARN or
         level == MU::DEBUG or
         (verbosity and verbosity >= MU::Logger::LOUD) or
-        (level == MU::NOTICE and !details.nil?)
-    )
-      # TODO add more stuff to details here (e.g. call stack)
-      extra = nil
-      if Thread.current.thread_variable_get("name") and (level > MU::NOTICE or verbosity >= MU::Logger::LOUD)
-        extra = Hash.new
-        extra = {
-          :thread => Thread.current.object_id,
-          :name => Thread.current.thread_variable_get("name")
-        }
-      end
-      if !details.nil?
-        extra = Hash.new if extra.nil?
-        extra[:details] = details
-      end
-      @@logger.log(msg, level, details: extra, verbosity: verbosity, html: html, color: color)
-    else
-      @@logger.log(msg, level, html: html, verbosity: verbosity, color: color)
+        (level == MU::NOTICE and !details.nil?)) and
+        Thread.current.thread_variable_get("name")
+      newdetails = {
+        :thread => Thread.current.object_id,
+        :name => Thread.current.thread_variable_get("name")
+      }
+      newdetails[:details] = details.dup if details
+      details = newdetails
     end
+
+    @@logger.log(msg, level, details: details, html: html, verbosity: verbosity, color: color)
   end
 
   # For log entries that should only be logged when we're in verbose mode

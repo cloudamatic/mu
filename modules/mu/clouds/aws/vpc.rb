@@ -296,7 +296,7 @@ module MU
                   nat_gateway_id = resp.nat_gateway_id
                   attempts = 0
                   MU::MommaCat.unlock("nat-gateway-eipalloc")
-                  while resp.state == "pending"
+                  while resp.class == Aws::EmptyStructure or resp.state == "pending"
                     MU.log "Waiting for nat gateway #{nat_gateway_id} () to become available (EIP allocation: #{allocation_id})" if attempts % 5 == 0
                     sleep 30
                     begin

@@ -159,7 +159,7 @@ module MU
             else
               handle.puts "#{time} - #{caller_name} - #{msg}"
             end
-            if verbosity >= MU::Logger::LOUD
+            if verbosity >= MU::Logger::QUIET
               if @html
                 html_out "#{caller_name} - #{msg}"
               elsif color

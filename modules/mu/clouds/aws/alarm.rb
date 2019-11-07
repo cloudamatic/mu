@@ -260,13 +260,13 @@ module MU
           alarm["dimensions"] ||= []
 
           if alarm["#TARGETCLASS"] == "cache_cluster"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "CacheClusterId" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "CacheClusterId" }
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
           elsif alarm["#TARGETCLASS"] == "server"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "InstanceId" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
           elsif alarm["#TARGETCLASS"] == "database"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "DBInstanceIdentifier" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
           end
 
