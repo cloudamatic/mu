@@ -32,6 +32,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
+pp params
           resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
@@ -562,12 +563,23 @@ module MU
               }
             end
 
+            # XXX this will break on regroom, revisit and make deterministic
+            # or remembered
+            if subnet_ids.size > 3
+              subnet_ids = subnet_ids.sample(3)
+            end
+
             if ext.nil? or
                ext.vpc_options.subnet_ids != subnet_ids or
                ext.vpc_options.security_group_ids != sgs
               params[:vpc_options] = {}
               params[:vpc_options][:subnet_ids] = subnet_ids
               params[:vpc_options][:security_group_ids] = sgs
+            end
+            if @config['zone_aware']
+              params[:elasticsearch_cluster_config][:zone_awareness_config] = {
+                :availability_zone_count => subnet_ids.size
+              }
             end
           end
 

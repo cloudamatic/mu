@@ -208,7 +208,7 @@ module MU
                 begin
                   if resp.state != "available"
                     begin
-                      MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
+                      MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE if retries > 0 and (retries % 3) == 0
                       sleep 5
                       resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
                     rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
