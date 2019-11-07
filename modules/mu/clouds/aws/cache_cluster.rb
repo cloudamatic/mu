@@ -868,7 +868,7 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
-        def self.terminate_replication_group(repl_group, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_replication_group(repl_group, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
           raise MuError, "terminate_replication_group requires a non-nil cache replication group descriptor" if repl_group.nil? || repl_group.empty?
 
           repl_group_id = repl_group.replication_group_id
@@ -908,9 +908,9 @@ module MU
                 )
               end
 
-              def self.createSnap(repl_group_id, region)
+              def self.createSnap(repl_group_id, region, credentials)
                 MU.log "Terminating #{repl_group_id}. Final snapshot name: #{repl_group_id}-mufinal"
-                MU::Cloud::AWS.elasticache(region: region).delete_replication_group(
+                MU::Cloud::AWS.elasticache(region: region, credentials: credentials).delete_replication_group(
                   replication_group_id: repl_group_id,
                   retain_primary_cluster: false,
                   final_snapshot_identifier: "#{repl_group_id}-mufinal"

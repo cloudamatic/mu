@@ -1494,7 +1494,8 @@ $CONFIGURABLES
       if descriptor["alarms"] && !descriptor["alarms"].empty?
         descriptor["alarms"].each { |alarm|
           alarm["name"] = "#{cfg_name}-#{descriptor["name"]}-#{alarm["name"]}"
-          alarm['dimensions'] = [] if !alarm['dimensions']
+          alarm['dimensions'] ||= []
+          alarm["namespace"] ||= descriptor['name']
           alarm["credentials"] = descriptor["credentials"]
           alarm["#TARGETCLASS"] = cfg_name
           alarm["#TARGETNAME"] = descriptor['name']
