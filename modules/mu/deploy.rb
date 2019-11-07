@@ -137,11 +137,7 @@ module MU
         MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
       end
 
-      # Instance variables that are effectively class variables
-      @my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
-      @my_az = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
-
-      @fromName ='chef-server';
+      @fromName = MU.muCfg['mu_admin_email']
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0

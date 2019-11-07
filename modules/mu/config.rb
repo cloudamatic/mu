@@ -1254,7 +1254,7 @@ $CONFIGURABLES
       append = false
       start = Time.now
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
-      MU.log "insertKitten on #{cfg_name} #{descriptor['name']}", MU::DEBUG, details: { "delay_validation" => delay_validation }
+      MU.log "insertKitten on #{cfg_name} #{descriptor['name']} (delay_validation: #{delay_validation.to_s})", MU::DEBUG, details: caller[0]
 
       if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
 #        raise DuplicateNameError, "A #{shortclass} named #{descriptor['name']} has already been inserted into this configuration"

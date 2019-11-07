@@ -33,6 +33,7 @@ module MU
     # Show DEBUG log entries and extra call stack and threading info
     LOUD = 2.freeze
 
+    attr_accessor :verbosity
     @verbosity = MU::Logger::NORMAL
     @quiet = false
     @html = false
@@ -52,7 +53,6 @@ module MU
     end
 
     attr_reader :summary
-    attr_accessor :verbosity
     attr_accessor :color
     attr_accessor :quiet
     attr_accessor :html
@@ -71,7 +71,7 @@ module MU
             handle: @handle,
             color: @color
     )
-      verbosity = MU::Logger::NORMAL if verbosity.nil?
+      verbosity ||= @verbosity
       return if verbosity == MU::Logger::SILENT
 
       # By which we mean, "get the filename (with the .rb stripped off) which

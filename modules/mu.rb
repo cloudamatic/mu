@@ -404,41 +404,49 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.mommacat;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['mommacat']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.deploy_id;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['deploy_id']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.appname;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['appname']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.environment;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['environment']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.timestamp;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['timestamp']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.seed;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['seed']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.handle;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['handle']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.chef_user;
+    @@globals[Thread.current.object_id] ||= {}
     if @@globals.has_key?(Thread.current.object_id) and @@globals[Thread.current.object_id].has_key?('chef_user')
       @@globals[Thread.current.object_id]['chef_user']
     elsif Etc.getpwuid(Process.uid).name == "root"
@@ -450,6 +458,7 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.mu_user
+    @@globals[Thread.current.object_id] ||= {}
     if @@globals.has_key?(Thread.current.object_id) and @@globals[Thread.current.object_id].has_key?('mu_user')
       return @@globals[Thread.current.object_id]['mu_user']
     elsif Etc.getpwuid(Process.uid).name == "root"
@@ -461,11 +470,13 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.curRegion
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['curRegion'] ||= myRegion || ENV['EC2_REGION']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.syncLitterThread;
+    @@globals[Thread.current.object_id] ||= {}
     @@globals[Thread.current.object_id]['syncLitterThread']
   end
 
@@ -487,26 +498,14 @@ module MU
     end
   end
 
-  # The verbose logging flag merits a default value.
+  # Return the verbosity setting of the default @@logger object
   def self.verbosity
-    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['verbosity'].nil?
-      MU.setVar("verbosity", MU::Logger::NORMAL)
-    end
-    @@globals[Thread.current.object_id]['verbosity']
-  end
-  
-  # The color logging flag merits a default value.
-  def self.color
-    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['color'].nil?
-      MU.setVar("color", true)
-    end
-    @@globals[Thread.current.object_id]['color']
+    @@logger ? @@logger.verbosity : MU::Logger::NORMAL
   end
 
   # Set parameters parameters for calls to {MU#log}
   def self.setLogging(verbosity, webify_logs = false, handle = STDOUT, color = true)
-    MU.setVar("verbosity", verbosity)
-    MU.setVar("color", color)
+    puts verbosity.to_s+" "+caller[0]
     @@logger ||= MU::Logger.new(verbosity, webify_logs, handle, color)
     @@logger.html = webify_logs
     @@logger.verbosity = verbosity
@@ -523,14 +522,14 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: MU.verbosity, color: true)
-    return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
-    return if verbosity == MU::Logger::SILENT
+  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: nil, color: true)
+    return if (level == MU::DEBUG and verbosity and verbosity <= MU::Logger::LOUD)
+    return if verbosity and verbosity == MU::Logger::SILENT
 
     if (level == MU::ERR or
         level == MU::WARN or
         level == MU::DEBUG or
-        verbosity >= MU::Logger::LOUD or
+        (verbosity and verbosity >= MU::Logger::LOUD) or
         (level == MU::NOTICE and !details.nil?)
     )
       # TODO add more stuff to details here (e.g. call stack)
@@ -546,7 +545,7 @@ module MU
         extra = Hash.new if extra.nil?
         extra[:details] = details
       end
-      @@logger.log(msg, level, details: extra, verbosity: MU::Logger::LOUD, html: html, color: color)
+      @@logger.log(msg, level, details: extra, verbosity: verbosity, html: html, color: color)
     else
       @@logger.log(msg, level, html: html, verbosity: verbosity, color: color)
     end
