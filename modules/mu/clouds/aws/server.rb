@@ -1278,7 +1278,12 @@ module MU
           retries = 0
           if !@cloud_id.nil?
             begin
-              return MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id])
+              if resp and resp.reservations and resp.reservations.first and
+                 resp.reservations.first.instances and
+                 resp.reservations.first.instances.first
+                return resp.reservations.first.instances.first
+              end
             rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
               return nil
             rescue NoMethodError => e
