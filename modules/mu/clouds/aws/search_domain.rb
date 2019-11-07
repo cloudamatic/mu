@@ -32,7 +32,6 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          pp params
           resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
@@ -305,11 +304,20 @@ module MU
 
           if dom["dedicated_masters"] > 0 and dom["master_instance_type"].nil?
             dom["master_instance_type"] = dom["instance_type"]
+            if dom["dedicated_masters"] != 3 and dom["dedicated_masters"] != 5
+              MU.log "SearchDomain #{dom['name']}: You must choose either three or five dedicated master nodes", MU::ERR
+              ok = false
+            end
           end
 
           if dom["instance_count"] < 1
             MU.log "Must have at least one search node in SearchDomain '#{dom['name']}'", MU::ERR
             ok = false
+          end
+
+          if dom["ebs_iops"]
+            MU.log "SearchDomain #{dom['name']} declared ebs_iops, setting volume type to io1", MU::NOTICE
+            dom["ebs_type"] = "io1"
           end
 
           if dom["zone_aware"] and (dom["instance_count"] % 2) != 0

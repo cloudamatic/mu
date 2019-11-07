@@ -11,14 +11,17 @@ auto_minor_version_upgrade: false
 backup_retention_period: 10
 cluster_node_count: 2
 create_cluster: true
+vpc:
+  vpc_name: <%= vpc_name %>
 create_read_replica: true
 master_user: Bob
 multi_az_on_create: true
-region: us-west-2
 
 <% else %> # IF NOT COMPLEX THEN ASSUME SIMPLE
 
 name: database-simple
+vpc:
+  vpc_name: <%= vpc_name %>
 size: <%= db_size %>
 engine: mariadb
 storage: 5

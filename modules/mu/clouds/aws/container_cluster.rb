@@ -1528,6 +1528,32 @@ MU.log c.name, MU::NOTICE, details: t
             ok = false
           end
 
+          if cluster["flavor"] == "EKS" and !cluster["vpc"]
+            siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+            if siblings.size == 1
+              MU.log "ContainerCluster #{cluster['name']} did not declare a VPC. Inserting into sibling VPC #{siblings[0]['name']}.", MU::WARN
+              cluster["vpc"] = {
+                "name" => siblings[0]['name'],
+                "subnet_pref" => "all_private"
+              }
+            elsif MU::Cloud::AWS.hosted? and MU::Cloud::AWS.myVPCObj
+              cluster["vpc"] = {
+                "id" => MU.myVPC,
+                "subnet_pref" => "all_private"
+              }
+            else
+              MU.log "ContainerCluster #{cluster['name']} must declare a VPC", MU::ERR
+              ok = false
+            end
+
+            # Re-insert ourselves with this modification so that our child
+            # resources get this VPC we just shoved in
+            if ok and cluster['vpc']
+              cluster.delete("#MU_VALIDATED")
+              return configurator.insertKitten(cluster, "container_clusters", overwrite: true)
+            end
+          end
+
           if cluster["volumes"]
             cluster["volumes"].each { |v|
               if v["type"] == "docker"
@@ -1627,26 +1653,6 @@ MU.log c.name, MU::NOTICE, details: t
             ok = false
           end
 
-          if cluster["flavor"] == "EKS" and !cluster["vpc"]
-            if !MU::Cloud::AWS.hosted? or !MU::Cloud::AWS.myVPCObj
-              siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
-              if siblings.size == 1
-                MU.log "EKS cluster #{cluster['name']} did not declare a VPC. Inserting into an available sibling VPC.", MU::WARN
-                cluster["vpc"] = {
-                  "name" => siblings[0]['name'],
-                  "subnet_pref" => "all_private"
-                }
-              else
-                MU.log "EKS cluster #{cluster['name']} must declare a VPC", MU::ERR
-                ok = false
-              end
-            else
-              cluster["vpc"] = {
-                "id" => MU.myVPC,
-                "subnet_pref" => "all_private"
-              }
-            end
-          end
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
             std_ami = getStandardImage(cluster["flavor"], cluster['region'], version: cluster['kubernetes']['version'], gpu: cluster['gpu'])

@@ -169,16 +169,25 @@ pp params
             resp.table_names.each { |table|
               desc = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).describe_table(table_name: table).table
               next if desc.table_status == "DELETING"
-              tags = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).list_tags_of_resource(resource_arn: desc.table_arn)
-              if tags and tags.tags
-                tags.tags.each { |tag|
-                  if tag.key == "MU-ID" and tag.value == MU.deploy_id
-                    MU.log "Deleting DynamoDB table #{desc.table_name}"
-                    if !noop
-                      MU::Cloud::AWS.dynamo(credentials: credentials, region: region).delete_table(table_name: desc.table_name)
+              if desc.table_status == "CREATING"
+                begin
+                  desc = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).describe_table(table_name: table).table
+                  sleep 1
+                end while desc.table_status == "CREATING"
+              end
+              begin
+                tags = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).list_tags_of_resource(resource_arn: desc.table_arn)
+                if tags and tags.tags
+                  tags.tags.each { |tag|
+                    if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                      MU.log "Deleting DynamoDB table #{desc.table_name}"
+                      if !noop
+                        MU::Cloud::AWS.dynamo(credentials: credentials, region: region).delete_table(table_name: desc.table_name)
+                      end
                     end
-                  end
-                }
+                  }
+                end
+              rescue Aws::DynamoDB::Errors::ResourceNotFoundException => e
               end
 
             }
@@ -204,11 +213,14 @@ pp params
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        def self.find(**args)
           found = {}
-          if cloud_id
-            resp = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).describe_table(table_name: cloud_id)
-            found[cloud_id] = resp.table if resp and resp.table
+          if args[:cloud_id]
+            begin
+              resp = MU::Cloud::AWS.dynamo(credentials: args[:credentials], region: args[:region]).describe_table(table_name: args[:cloud_id])
+            rescue ::Aws::DynamoDB::Errors::ResourceNotFoundException
+            end
+            found[args[:cloud_id]] = resp.table if resp and resp.table
           end
           found
         end

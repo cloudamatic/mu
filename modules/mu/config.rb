@@ -1250,11 +1250,15 @@ $CONFIGURABLES
     # @param type [String]: The type of resource being added
     # @param delay_validation [Boolean]: Whether to hold off on calling the resource's validateConfig method
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
-    def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false)
+    def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false, overwrite: false)
       append = false
       start = Time.now
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       MU.log "insertKitten on #{cfg_name} #{descriptor['name']} (delay_validation: #{delay_validation.to_s})", MU::DEBUG, details: caller[0]
+
+      if overwrite
+        removeKitten(descriptor['name'], type)
+      end
 
       if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
 #        raise DuplicateNameError, "A #{shortclass} named #{descriptor['name']} has already been inserted into this configuration"
@@ -1364,7 +1368,7 @@ $CONFIGURABLES
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
             if !siblingvpc["#MU_VALIDATED"]
-              ok = false if !insertKitten(siblingvpc, "vpcs")
+              ok = false if !insertKitten(siblingvpc, "vpcs", overwrite: overwrite)
             end
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
@@ -1415,9 +1419,8 @@ $CONFIGURABLES
       # Does it have generic ingress rules?
       fwname = cfg_name+descriptor['name']
 
-      if !haveLitterMate?(fwname, "firewall_rules") and
-         (descriptor['ingress_rules'] or
-         ["server", "server_pool", "database"].include?(cfg_name))
+      if (descriptor['ingress_rules'] or
+         ["server", "server_pool", "database", "cache_cluster"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
         fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
@@ -1443,8 +1446,9 @@ $CONFIGURABLES
         }
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
+
         acl = resolveIntraStackFirewallRefs(acl, delay_validation)
-        ok = false if !insertKitten(acl, "firewall_rules", delay_validation)
+        ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: overwrite)
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -1481,7 +1485,7 @@ $CONFIGURABLES
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
             if !siblingfw["#MU_VALIDATED"]
-              ok = false if !insertKitten(siblingfw, "firewall_rules", delay_validation)
+              ok = false if !insertKitten(siblingfw, "firewall_rules", delay_validation, overwrite: overwrite)
             end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
@@ -1501,7 +1505,7 @@ $CONFIGURABLES
           alarm["#TARGETNAME"] = descriptor['name']
           alarm['cloud'] = descriptor['cloud']
 
-          ok = false if !insertKitten(alarm, "alarms", true)
+          ok = false if !insertKitten(alarm, "alarms", true, overwrite: overwrite)
         }
         descriptor.delete("alarms")
       end

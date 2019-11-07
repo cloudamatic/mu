@@ -222,14 +222,25 @@ module MU
             @cloud_id = resp.replication_group_id
           else
             config_struct[:cache_cluster_id] = @config['identifier']
-            config_struct[:az_mode] = @config["az_mode"]
+            config_struct[:az_mode] = @config["multi_az"] ? "cross-az" : "single-az"
             config_struct[:num_cache_nodes] = @config["node_count"]
             # config_struct[:replication_group_id] = @config["replication_group_id"] if @config["replication_group_id"]
             # config_struct[:preferred_availability_zone] = @config["preferred_availability_zone"] if @config["preferred_availability_zone"] && @config["az_mode"] == "single-az"
             # config_struct[:preferred_availability_zones] = @config["preferred_availability_zones"] if @config["preferred_availability_zones"] && @config["az_mode"] == "cross-az"
 
             MU.log "Creating cache cluster #{@config['identifier']}"
-            resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_cluster(config_struct).cache_cluster
+            begin
+              resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_cluster(config_struct).cache_cluster
+            rescue ::Aws::ElastiCache::Errors::InvalidParameterValue => e
+              if e.message.match(/security group (sg-[^\s]+)/)
+                bad_sg = Regexp.last_match[1]
+                MU.log "Removing invalid security group #{bad_sg} from Cache Cluster #{@mu_name}", MU::WARN, details: e.message
+                config_struct[:security_group_ids].delete(bad_sg)
+                retry
+              else
+                raise e
+              end
+            end
 
             wait_start_time = Time.now
             retries = 0
@@ -260,7 +271,6 @@ module MU
         # Create a subnet group for a Cache Cluster with the given config.
         def createSubnetGroup
           subnet_ids = []
-
           if @config["vpc"] && !@config["vpc"].empty?
             raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
 
@@ -306,8 +316,8 @@ module MU
               }
 
               @config['vpc'] = {
-                  "vpc_id" => vpc_id,
-                  "subnets" => mu_subnets
+                "vpc_id" => vpc_id,
+                "subnets" => mu_subnets
               }
               using_default_vpc = true
               MU.log "Using default VPC for cache cluster #{@config['identifier']}"
@@ -346,8 +356,8 @@ module MU
 
             if @dependencies.has_key?('firewall_rule')
               @config["security_group_ids"] = []
-                @dependencies['firewall_rule'].values.each { |sg|
-                  @config["security_group_ids"] << sg.cloud_id
+              @dependencies['firewall_rule'].values.each { |sg|
+                @config["security_group_ids"] << sg.cloud_id
               }
             end
           end
@@ -691,6 +701,10 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "create_replication_group" => {
+              "type" => "boolean",
+              "description" => "Create a replication group; will be set automatically if +engine+ is +redis+ and +node_count+ is greated than one."
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -722,6 +736,32 @@ module MU
         def self.validateConfig(cache, configurator)
           ok = true
 
+          if !cache['vpc']
+            siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
+            if siblings.size == 1
+              MU.log "CacheCluster #{cache['name']} did not declare a VPC. Inserting into sibling VPC #{siblings[0]['name']}.", MU::WARN
+              cache["vpc"] = {
+                "name" => siblings[0]['name'],
+                "subnet_pref" => "all_private"
+              }
+            elsif MU::Cloud::AWS.hosted? and MU::Cloud::AWS.myVPCObj
+              cache["vpc"] = {
+                "id" => MU.myVPC,
+                "subnet_pref" => "all_private"
+              }
+            else
+              MU.log "CacheCluster #{cache['name']} must declare a VPC", MU::ERR
+              ok = false
+            end
+
+            # Re-insert ourselves with this modification so that our child
+            # resources get this VPC we just shoved in
+            if ok and cache['vpc']
+              cache.delete("#MU_VALIDATED")
+              return configurator.insertKitten(cache, "cache_clusters", overwrite: true)
+            end
+          end
+
           if cache.has_key?("parameter_group_parameters") && cache["parameter_group_family"].nil?
             MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
             ok = false
@@ -743,7 +783,6 @@ module MU
             end
           elsif cache["engine"] == "memcached"
             cache["create_replication_group"] = false
-            cache["az_mode"] = cache["multi_az"] ? "cross-az" : "single-az"
 
             if cache["node_count"] > 20
               MU.log "#{cache['engine']} supports up to 20 nodes per cache cluster", MU::ERR
