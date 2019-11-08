@@ -73,6 +73,8 @@ module MU
     )
       verbosity ||= @verbosity
       return if verbosity == MU::Logger::SILENT
+      return if verbosity < MU::Logger::LOUD and level == DEBUG
+      return if verbosity < MU::Logger::NORMAL and level == INFO
 
       # By which we mean, "get the filename (with the .rb stripped off) which
       # originated the call to this method. Which, for our purposes, is the

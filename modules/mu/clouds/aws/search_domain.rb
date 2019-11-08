@@ -85,6 +85,11 @@ module MU
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
+          elsif deploy_struct['endpoints']
+            deploy_struct['kibana'] = {}
+            deploy_struct['endpoints'].each_pair { |k, v|
+              deploy_struct['kibana'][k] = v+"/_plugin/kibana/"
+            }
           end
           deploy_struct['domain_name'] ||= @config['domain_name'] if @config['domain_name']
           deploy_struct
@@ -669,7 +674,11 @@ module MU
 
           begin
             resp = cloud_desc
-            if (resp.endpoint.nil? or resp.endpoint.empty?) and !resp.deleted
+
+            if (resp.endpoint.nil? or resp.endpoint.empty?) and
+               (resp.endpoints.nil? or resp.endpoints.empty?) and
+               !resp.deleted
+# XXX why so infinite
               loglevel = (retries > 0 and retries % 3 == 0) ? MU::NOTICE : MU::DEBUG
               MU.log "Waiting for Elasticsearch domain #{@mu_name} (#{@config['domain_name']}) to finish creating", loglevel
               sleep interval

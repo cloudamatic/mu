@@ -542,7 +542,8 @@ module MU
 
           if !mu_zone.nil? and !MU.myVPC.nil?
             subdomain = cloudclass.cfg_name
-            dns_name = name.downcase+"."+subdomain+"."+MU.myInstanceId
+            dns_name = name.downcase+"."+subdomain
+            dns_name += "."+MU.myInstanceId if MU.myInstanceId
             record_type = "CNAME"
             record_type = "A" if target.match(/^\d+\.\d+\.\d+\.\d+/)
             ip = nil

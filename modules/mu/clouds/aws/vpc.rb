@@ -717,11 +717,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
         end
 
         # Locate an existing VPC or VPCs and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(**args)
           cloud_id = args[:cloud_id]
           region = args[:region] || MU.curRegion

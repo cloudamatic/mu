@@ -267,10 +267,7 @@ puts path
         end
 
         # Locate an existing bucket.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
           found = {}
           if args[:cloud_id]

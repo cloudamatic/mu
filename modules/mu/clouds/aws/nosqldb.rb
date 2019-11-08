@@ -98,7 +98,7 @@ module MU
               end
             }
           end
-pp params
+
           MU.log "Creating DynamoDB table #{@mu_name}", details: params
 
           resp = MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).create_table(params)
@@ -209,10 +209,7 @@ pp params
         end
 
         # Locate an existing DynamoDB table
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
           found = {}
           if args[:cloud_id]
