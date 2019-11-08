@@ -181,7 +181,7 @@ Mu Install:
   - apt-get -qq update
   - apt-get -qq install dnsutils ansible
   - "echo '    HostKeyAlgorithms ssh-rsa,rsa-sha2-512,rsa-sha2-256' >> /etc/ssh/ssh_config"
-  - alias ssh='ssh -v'
+  - alias ssh='ssh -v >> /tmp/ssh_debug'
   script:
   - gem install cloud-mu-*.gem
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
@@ -192,6 +192,9 @@ Mu Install:
   - master
   - development
   - gem-mess_with_test_kitchen
+  artifacts:
+    paths:
+    - /tmp/ssh_debug
 
 Test Kitchen:
   stage: Smoke Test
