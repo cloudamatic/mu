@@ -297,13 +297,13 @@ module MU
         end
 
         # placeholder
-        def self.find(cloud_id: nil, region: MU.myRegion, credentials: nil)
+        def self.find(**args)
           found = nil
-          resp = MU::Cloud::AWS.cloudformation(region: region, credentials: credentials).describe_stacks(
-            stack_name: cloud_id
+          resp = MU::Cloud::AWS.cloudformation(region: args[:region], credentials: args[:credentials]).describe_stacks(
+            stack_name: args[:cloud_id]
           )
           if resp and resp.stacks
-            found[cloud_id] = resp.stacks.first
+            found[args[:cloud_id]] = resp.stacks.first
           end
 
           found

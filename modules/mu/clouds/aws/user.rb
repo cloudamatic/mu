@@ -280,19 +280,16 @@ module MU
           cloud_desc.arn
         end
 
-        # Locate an existing user group.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # Locate an existing IAM user
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching user group.
+        def self.find(**args)
           found = nil
 
           begin
-            resp = MU::Cloud::AWS.iam.get_user(user_name: cloud_id)
+            resp = MU::Cloud::AWS.iam.get_user(user_name: args[:cloud_id])
             if resp and resp.user
               found ||= {}
-              found[cloud_id] = resp.user
+              found[args[:cloud_id]] = resp.user
             end
           rescue ::Aws::IAM::Errors::NoSuchEntity
           end

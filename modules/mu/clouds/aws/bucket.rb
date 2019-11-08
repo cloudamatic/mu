@@ -39,10 +39,10 @@ module MU
           )
 
           @cloud_id = bucket_name
-          is_live = self.find(cloud_id: cloud_id, region: @config['region'], credentials: @credentials).values.first
+          is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
           begin
-            is_live = self.find(cloud_id: cloud_id, region: @config['region'], credentials: @credentials).values.first
-            sleep 1
+            is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+            sleep 3
           end while !is_live
 
           @@region_cache_semaphore.synchronize {

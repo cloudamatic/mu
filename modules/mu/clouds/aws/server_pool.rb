@@ -435,18 +435,13 @@ module MU
         end
 
         # Locate an existing ServerPool or ServerPools and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
+        def self.find(**args)
           found = []
-          if cloud_id
-            resp = MU::Cloud::AWS.autoscale(region: region, credentials: credentials).describe_auto_scaling_groups({
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS.autoscale(region: args[:region], credentials: args[:credentials]).describe_auto_scaling_groups({
               auto_scaling_group_names: [
-                cloud_id
+                args[:cloud_id]
               ], 
             })
             return resp.auto_scaling_groups

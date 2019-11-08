@@ -159,18 +159,15 @@ module MU
         end
 
         # Locate an existing group group.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching group group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching group group.
+        def self.find(**args)
           found = nil
           begin
-            resp = MU::Cloud::AWS.iam(credentials: credentials).get_group(
-              group_name: cloud_id
+            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_group(
+              group_name: args[:cloud_id]
             )
             found ||= {}
-            found[cloud_id] = resp
+            found[args[:cloud_id]] = resp
           rescue Aws::IAM::Errors::NoSuchEntity
           end
           found

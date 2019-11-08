@@ -391,8 +391,13 @@ module MU
 #				end
 
           retries = 0
-          begin
+          instance = begin
             response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+            if response and response.instances and response.instances.size > 0
+              instance = response.instances.first
+            else
+              MU.log "halp", MU::ERR, details: response
+            end
           rescue Aws::EC2::Errors::InvalidRequest => e
             MU.log e.message, MU::ERR, details: instance_descriptor
             raise e
@@ -409,11 +414,9 @@ module MU
             end
           end
 
-          instance = response.instances.first
           MU.log "#{node} (#{instance.instance_id}) coming online"
 
-          return instance
-
+          instance
         end
 
         # Ask the Amazon API to restart this node
@@ -967,13 +970,7 @@ module MU
         # postBoot
 
         # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
 

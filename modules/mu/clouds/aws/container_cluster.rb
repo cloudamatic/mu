@@ -905,15 +905,10 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         # Locate an existing container_clusters.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching container_clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
-          MU.log cloud_id, MU::WARN, details: flags
-          MU.log region, MU::WARN
-          resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_clusters
-          resp = MU::Cloud::AWS.eks(region: region, credentials: credentials).list_clusters
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching container_clusters.
+        def self.find(**args)
+          resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).list_clusters
+          resp = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).list_clusters
 # XXX uh, this ain't complete
         end
 

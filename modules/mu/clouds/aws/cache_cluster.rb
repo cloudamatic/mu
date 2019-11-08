@@ -39,27 +39,22 @@ module MU
         end
 
         # Locate an existing Cache Cluster or Cache Clusters and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Cache Clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching Cache Clusters.
+        def self.find(**args)
           map = {}
-          if cloud_id
-            cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cloud_id, region: region)
-            map[cloud_id] = cache_cluster if cache_cluster
+          if args[:cloud_id]
+            cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+            map[args[:cloud_id]] = cache_cluster if cache_cluster
           end
 
-          if tag_value
-            MU::Cloud::AWS.elasticache(region: region, credentials: credentials).describe_cache_clusters.cache_clusters.each { |cc|
-              resp = MU::Cloud::AWS.elasticache(region: region, credentials: credentials).list_tags_for_resource(
-                  resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: region, credentials: credentials)
+          if args[:tag_value]
+            MU::Cloud::AWS.elasticache(region: args[:region], credentials: args[:credentials]).describe_cache_clusters.cache_clusters.each { |cc|
+              resp = MU::Cloud::AWS.elasticache(region: args[:region], credentials: args[:credentials]).list_tags_for_resource(
+                  resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: args[:region], credentials: args[:credentials])
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
                 resp.tag_list.each { |tag|
-                    map[cc.cache_cluster_id] = cc if tag.key == tag_key and tag.value == tag_value
+                    map[cc.cache_cluster_id] = cc if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                 }
               end
             }

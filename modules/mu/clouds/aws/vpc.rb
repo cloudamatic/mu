@@ -296,7 +296,7 @@ module MU
                   nat_gateway_id = resp.nat_gateway_id
                   attempts = 0
                   MU::MommaCat.unlock("nat-gateway-eipalloc")
-                  while resp.class == Aws::EmptyStructure or resp.state == "pending"
+                  while resp.class.name != "Aws::EC2::Types::NatGateway" or resp.state == "pending"
                     MU.log "Waiting for nat gateway #{nat_gateway_id} () to become available (EIP allocation: #{allocation_id})" if attempts % 5 == 0
                     sleep 30
                     begin
@@ -722,7 +722,6 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
         def self.find(**args)
           cloud_id = args[:cloud_id]
           region = args[:region] || MU.curRegion
@@ -1870,25 +1869,32 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
 
           retries = 0
           subnets.each { |subnet|
+            MU.log "Deleting Subnet #{subnet.subnet_id}"
             begin
               if subnet.state != "available"
                 MU.log "Waiting for #{subnet.subnet_id} to be in a removable state...", MU::NOTICE
                 sleep 30
               else
-                MU.log "Deleting Subnet #{subnet.subnet_id}"
                 MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_subnet(subnet_id: subnet.subnet_id) if !noop
               end
             rescue Aws::EC2::Errors::DependencyViolation => e
-              if retries < 7
-                MU.log "#{e.inspect}, retrying in 10s", MU::WARN
-                sleep 10
+              # We're often stuck waiting for an RDS database or something else
+              # that takes 5-ever to delete.
+              if retries < 19
+                loglevel = (retries > 0 and (retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
+                MU.log "#{e.message} (retry #{retries.to_s}/20)", loglevel
+                sleep 30
+                retries = retries + 1
+                retry
+              elsif retries < 20
+                MU.log "#{e.message} (final attempt)", MU::WARN
+                sleep 60
                 retries = retries + 1
                 retry
               else
                 raise e
               end
             rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
-              MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
               next
             end while subnet.state != "available"
           }

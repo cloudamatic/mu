@@ -104,40 +104,35 @@ module MU
         end
 
         # Locate an existing storage pool and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching storage pool
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching storage pool
+        def self.find(**args)
           map = {}
-          if cloud_id
-            storge_pool = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems(
-              file_system_id: cloud_id
+          if args[:cloud_id]
+            storge_pool = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems(
+              file_system_id: args[:cloud_id]
             ).file_systems.first
             
             map[cloud_id] = storge_pool if storge_pool
           end
 
           if tag_value
-            storage_pools = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems.file_systems
+            storage_pools = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems.file_systems
           
             if !storage_pools.empty?
               storage_pools.each{ |pool|
-                tags = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_tags(
+                tags = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_tags(
                   file_system_id: pool.file_system_id
                 ).tags
 
                 value = nil
                 tags.each{ |tag|
-                  if tag.key == tag_key
+                  if tag.key == args[:tag_key]
                     value = tag.value
                     break
                   end
                 }
                 
-                if value == tag_value
+                if value == args[:tag_value]
                   map[pool.file_system_id] = pool
                   break
                 end

@@ -2681,7 +2681,7 @@ MESSAGE_END
       Dir.chdir(MU.myRoot+"/modules")
 
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
-      cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
       MU.log cmd, MU::NOTICE
       output = %x{#{cmd}}
       Dir.chdir(origdir)

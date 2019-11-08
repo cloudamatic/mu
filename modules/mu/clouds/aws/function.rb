@@ -292,17 +292,14 @@ module MU
         end
 
         # Locate an existing function.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching function.
+        def self.find(**args)
           matches = {}
 
-          if !cloud_id.nil?
-            all_functions = MU::Cloud::AWS.lambda(region: region, credentials: credentials).list_functions
+          if !args[:cloud_id].nil?
+            all_functions = MU::Cloud::AWS.lambda(region: args[:region], credentials: args[:credentials]).list_functions
             all_functions.functions.each do |x|
-              if x.function_name == cloud_id
+              if x.function_name == args[:cloud_id]
                 matches[x.function_name] = x
                 break
               end
