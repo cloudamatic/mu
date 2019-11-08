@@ -495,12 +495,28 @@ module MU
               if @config['vpc']
                 subnet_ids = []
                 all_public = true
-                subnet_names = @config['vpc']['subnets'].map { |s| s.values.first }
-                @vpc.subnets.each { |subnet_obj|
-                  next if !subnet_names.include?(subnet_obj.config['name'])
+
+                subnets =
+                  if @config["vpc"]["subnets"].empty?
+                    @vpc.subnets
+                  else
+                    subnet_objects= []
+                    @config["vpc"]["subnets"].each { |subnet|
+                      sobj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                      if sobj.nil?
+                        MU.log "Got nil result from @vpc.getSubnet(cloud_id: #{subnet["subnet_id"]}, name: #{subnet["subnet_name"]})", MU::WARN
+                      else
+                        subnet_objects << sobj
+                      end
+                    }
+                    subnet_objects
+                  end
+
+                subnets.each { |subnet_obj|
                   subnet_ids << subnet_obj.cloud_id
                   all_public = false if subnet_obj.private?
                 }
+
                 service_params[:network_configuration] = {
                   :awsvpc_configuration => {
                     :subnets => subnet_ids,
@@ -1523,7 +1539,7 @@ MU.log c.name, MU::NOTICE, details: t
             ok = false
           end
 
-          if cluster["flavor"] == "EKS" and !cluster["vpc"]
+          if ["Fargate", "EKS"].include?(cluster["flavor"]) and !cluster["vpc"]
             siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)
             if siblings.size == 1
               MU.log "ContainerCluster #{cluster['name']} did not declare a VPC. Inserting into sibling VPC #{siblings[0]['name']}.", MU::WARN
