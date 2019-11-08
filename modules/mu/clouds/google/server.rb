@@ -1350,7 +1350,10 @@ next if !create
             MU::Cloud.availableClouds.each { |cloud|
               next if cloud == "Google"
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              foreign_types = (cloudbase.listInstanceTypes).values.first
+              if foreign_types.size == 1
+                foreign_types = foreign_types.values.first
+              end
               if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
                 vcpu = foreign_types[size]["vcpu"]
                 mem = foreign_types[size]["memory"]

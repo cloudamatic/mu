@@ -469,7 +469,10 @@ module MU
             MU::Cloud.availableClouds.each { |cloud|
               next if cloud == "Azure"
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              foreign_types = (cloudbase.listInstanceTypes).values.first
+              if foreign_types.size == 1
+                foreign_types = foreign_types.values.first
+              end
               if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
                 vcpu = foreign_types[size]["vcpu"]
                 mem = foreign_types[size]["memory"]
@@ -491,6 +494,7 @@ module MU
 
             if !foundmatch
               MU.log "Invalid size '#{size}' for Azure Compute instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+exit
               return nil
             end
           end
@@ -509,6 +513,8 @@ module MU
           server['ssh_user'] ||= "muadmin"
 
           server['size'] = validateInstanceType(server["size"], server["region"])
+          ok = false if server['size'].nil?
+
           if server['image_id'].nil?
             img_id = MU::Cloud.getStockImage("Azure", platform: server['platform'])
             if img_id
@@ -797,8 +803,15 @@ module MU
 if !@cloud_id
 # XXX actually guard this correctly
           MU.log "Creating VM #{@mu_name}", details: vm_obj
+          begin
           vm = MU::Cloud::Azure.compute(credentials: @credentials).virtual_machines.create_or_update(@resource_group, @mu_name, vm_obj)
           @cloud_id = Id.new(vm.id)
+          rescue ::MU::Cloud::Azure::APIError => e
+            if e.message.match(/InvalidParameter: /)
+              MU.log e.message, MU::ERR, details: vm_obj
+            end
+            raise e
+          end
 end
 
         end
