@@ -1110,10 +1110,10 @@ module MU
       MU::MommaCat.listDeploys.each { |deploy_id|
         next if File.exist?(deploy_dir(deploy_id)+"/.cleanup")
         MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
+        need_reload = false
         @cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
-          # We can't use cached litter information because we will then try to delete the same node over and over again until we restart the service
-          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
+          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
           purged_this_deploy = 0
           if deploy.kittens.has_key?("servers")
             deploy.kittens["servers"].values.each { |nodeclasses|
@@ -1126,6 +1126,7 @@ module MU
                   elsif !server.active?
                     next if File.exist?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
                     deletia << mu_name
+                    need_reload = true
                     MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
                     begin
                       server.destroy
@@ -1146,6 +1147,9 @@ module MU
                 end
               }
             }
+          end
+          if need_reload
+            MU::MommaCat.getLitter(deploy_id, use_cache: false)
           end
           MU.purgeGlobals
         }
@@ -1576,7 +1580,7 @@ end
       rescue Exception => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
-      MU.log "findStray: returning #{matches.size.to_s} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+      MU.log "findStray: returning #{matches ? matches.size.to_s : "0"} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
       matches
     end
@@ -2022,7 +2026,7 @@ end
         return
       end
       if ssh_key_name.nil? or ssh_key_name.empty?
-        MU.log "Failed to extract canonical_ip for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
+        MU.log "Failed to extract ssh_key_name for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
         return
       end
 
