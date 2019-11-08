@@ -89,11 +89,20 @@ module MU
             desc.instances.each { |member|
               begin
                 groomthreads << Thread.new {
-                  Thread.abort_on_exception = false
                   MU.dupGlobals(parent_thread_id)
                   MU.log "Initializing #{member.instance_id} in ServerPool #{@mu_name}"
                   MU::MommaCat.lock(member.instance_id+"-mommagroom")
-                  kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+                  begin
+                    kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+                  rescue RuntimeError => e
+                    if e.message.match(/can't add a new key into hash during iteration/)
+                      MU.log e.message+", retrying", MU::WARN
+                      sleep 3
+                      retry
+                    else
+                      raise e
+                    end
+                  end
                   MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   if !kitten.postBoot(member.instance_id)

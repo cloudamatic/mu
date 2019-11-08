@@ -678,13 +678,12 @@ module MU
             if (resp.endpoint.nil? or resp.endpoint.empty?) and
                (resp.endpoints.nil? or resp.endpoints.empty?) and
                !resp.deleted
-# XXX why so infinite
               loglevel = (retries > 0 and retries % 3 == 0) ? MU::NOTICE : MU::DEBUG
               MU.log "Waiting for Elasticsearch domain #{@mu_name} (#{@config['domain_name']}) to finish creating", loglevel
               sleep interval
             end
             retries += 1
-          end while (resp.endpoint.nil? or resp.endpoint.empty?) and !resp.deleted
+          end while (resp.endpoint.nil? or resp.endpoint.empty?) and (resp.endpoints.nil? or resp.endpoints.empty?) and !resp.deleted
         end
 
       end
