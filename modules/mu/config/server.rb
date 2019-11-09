@@ -146,9 +146,13 @@ module MU
             "default" => true
           },
           "groom" => {
-              "type" => "boolean",
-              "default" => true,
-              "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
+            "type" => "boolean",
+            "default" => true,
+            "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
+          },
+          "groomer_variables" => {
+            "type" => "object",
+            "description" => "Metadata variables to expose to Groomer clients, under a top-level key named +mu+. Same thing as +application_attributes+, but with a name that makes a modicum of sense."
           },
           "groomer_timeout" => {
               "type" => "integer",

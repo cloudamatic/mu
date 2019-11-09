@@ -301,6 +301,9 @@ module MU
         if !@config['application_attributes'].nil?
           groupvars["application_attributes"] = @config['application_attributes']
         end
+        if !@config['groomer_variables'].nil?
+          groupvars["mu"] = @config['groomer_variables']
+        end
 
         File.open(@ansible_path+"/group_vars/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
           f.flock(File::LOCK_EX)
