@@ -281,7 +281,7 @@ module MU
       loadDeploy(set_context_to_me: set_context_to_me)
       if !deploy_secret.nil?
         if !authKey(deploy_secret)
-          raise DeployInitializeError, "Invalid or incorrect deploy key."
+          raise DeployInitializeError, "Client request did not include a valid deploy authorization secret. Verify that userdata runs correctly?"
         end
       end
 
@@ -1141,6 +1141,9 @@ module MU
                     purged_this_deploy = purged_this_deploy + 1
                   end
                 }
+                deletia.each { |mu_name|
+                  servers.delete(mu_name)
+                }
                 if purged_this_deploy > 0
                   # XXX some kind of filter (obey sync_siblings on nodes' configs)
                   deploy.syncLitter(servers.keys)
@@ -1149,6 +1152,7 @@ module MU
             }
           end
           if need_reload
+            deploy.save!
             MU::MommaCat.getLitter(deploy_id, use_cache: false)
           end
           MU.purgeGlobals
@@ -2309,6 +2313,7 @@ MESSAGE_END
               deploy.kittens["servers"].values.each { |nodeclasses|
                 nodeclasses.values.each { |nodes|
                   nodes.values.each { |server|
+                    next if !server.cloud_desc
                     MU.dupGlobals(parent_thread_id)
                     threads << Thread.new {
                       MU::MommaCat.setThreadContext(deploy)
