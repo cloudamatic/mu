@@ -528,8 +528,9 @@ module MU
           if !can_peer and have_public and vpc["create_bastion"]
             serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
             bastion = serverclass.genericNAT.dup
-            bastion["groomer"] = "Ansible"
-            bastion["run_list"] = ["mu-nat"]
+            bastion["groomer_variables"] = {
+              "nat_ip_block" => vpc["ip_block"].to_s
+            }
             bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples somehow
             bastion['credentials'] = vpc['credentials']
             bastion['ingress_rules'] ||= []
@@ -538,9 +539,6 @@ module MU
                 "hosts" => [vpc["ip_block"].to_s],
                 "proto" => proto
               }
-            }
-            bastion["groomer_variables"] = {
-              "nat_ip_block" => vpc["ip_block"].to_s
             }
             bastion["vpc"] = {
               "name" => vpc["name"],

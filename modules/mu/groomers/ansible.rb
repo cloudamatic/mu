@@ -268,7 +268,7 @@ module MU
         @server.describe(update_cache: true) # Make sure we're fresh
 
         allvars = {
-          "mu_deployment" => MU.structToHash(@server.deploy.deployment),
+          "mu_deployment" => MU::Config.stripConfig(@server.deploy.deployment),
           "mu_service_name" => @config["name"],
           "mu_canonical_ip" => @server.canonicalIP,
           "mu_admin_email" => $MU_CFG['mu_admin_email'],

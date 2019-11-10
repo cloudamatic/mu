@@ -420,8 +420,10 @@ next if !create
           return {
             "cloud" => "Google",
             "size" => "g1-small",
-            "run_list" => [ "mu-utility::nat" ],
+            "run_list" => [ "mu-nat" ],
+            "groomer" => "Ansible",
             "platform" => "centos7",
+            "src_dst_check" => false,
             "ssh_user" => "centos",
             "associate_public_ip" => true,
             "static_ip" => { "assign_ip" => true },

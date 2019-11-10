@@ -2302,7 +2302,7 @@ MESSAGE_END
         MU::MommaCat.listDeploys.sort.each { |deploy_id|
           begin
             # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
-            deploy = MU::MommaCat.getLitter(deploy_id, use_cache: false)
+            deploy = MU::MommaCat.getLitter(deploy_id)
             if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
               MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
               next

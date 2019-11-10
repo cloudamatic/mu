@@ -405,7 +405,7 @@ module MU
 MU.log e.message, MU::WARN, details: e.inspect
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
-          elsif e.message.match(/notFound: /)
+          elsif e.message.match(/notFound: |Unknown user:/)
             if retries < 5
               sleep 5
               retries += 1

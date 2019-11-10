@@ -465,7 +465,7 @@ module MU
 
           retries = 0
           begin
-            ssh = @server.getSSHSession(15)
+            ssh = @server.getSSHSession(25)
             Timeout::timeout(60) {
               if leave_ours
                 MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE

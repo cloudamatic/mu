@@ -1424,7 +1424,10 @@ $CONFIGURABLES
         descriptor['ingress_rules'] ||= []
         fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
-        acl = {
+        acl = haveLitterMate?(fwname, "firewall_rules")
+        already_exists = !acl.nil?
+
+        acl ||= {
           "name" => fwname,
           "rules" => descriptor['ingress_rules'],
           "region" => descriptor['region'],
@@ -1444,11 +1447,11 @@ $CONFIGURABLES
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
-        descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
+        descriptor["add_firewall_rules"] ||= []
         descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
 
         acl = resolveIntraStackFirewallRefs(acl, delay_validation)
-        ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: overwrite)
+        ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: already_exists)
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -1483,10 +1486,6 @@ $CONFIGURABLES
               "type" => "firewall_rule",
               "name" => acl_include["rule_name"]
             }
-            siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            if !siblingfw["#MU_VALIDATED"]
-              ok = false if !insertKitten(siblingfw, "firewall_rules", delay_validation, overwrite: overwrite)
-            end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false

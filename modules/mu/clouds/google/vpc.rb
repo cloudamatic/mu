@@ -857,6 +857,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 next if ["name", "route_tables", "subnets", "ip_block"].include?(key)
                 newvpc[key] = val
               }
+              if vpc["bastion"] and
+                 !tbl["routes"].map { |r| r["gateway"] }.include?("#INTERNET")
+                newvpc["bastion"] = vpc["bastion"]
+                vpc.delete("bastion")
+              end
               newvpc['peers'] ||= []
 # Add the peer connections we're generating, in addition 
               peernames.each { |peer|

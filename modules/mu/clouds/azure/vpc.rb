@@ -498,20 +498,25 @@ module MU
 #                XXX updating tags is a different API call
                 ext_vpc.address_space.address_prefixes != vpc_obj.address_space.address_prefixes
             MU.log "Updating VPC #{@mu_name} (#{@config['ip_block']}) in #{@config['region']}", MU::NOTICE, details: vpc_obj
+MU.structToHash(ext_vpc).diff(MU.structToHash(vpc_obj))
             need_apply = true
           end
 
           if need_apply
             begin
-            resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
-              @resource_group,
-              @mu_name,
-              vpc_obj
-            )
+              resp = MU::Cloud::Azure.network(credentials: @config['credentials']).virtual_networks.create_or_update(
+                @resource_group,
+                @mu_name,
+                vpc_obj
+              )
+              @cloud_id = Id.new(resp.id)
             rescue ::MU::Cloud::Azure::APIError => e
-puts e.class.name
+              if e.message.match(/InUseSubnetCannotBeDeleted: /)
+                MU.log "Cannot delete an in-use Azure subnet", MU::WARN
+              else
+                raise e
+              end
             end
-            @cloud_id = Id.new(resp.id)
           end
 
           # this is slow, so maybe thread it
@@ -681,17 +686,26 @@ puts e.class.name
                       ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? or
                       (!ext_subnet.network_security_group.nil? and !subnet_obj.network_security_group.nil? and ext_subnet.network_security_group.id != subnet_obj.network_security_group.id)
                   MU.log "Updating Subnet #{subnet_name} in VPC #{@mu_name}", MU::NOTICE, details: subnet_obj
+MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
                   need_apply = true
 
                 end
 
                 if need_apply
-                  MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.create_or_update(
-                    @resource_group,
-                    @cloud_id.to_s,
-                    subnet_name,
-                    subnet_obj
-                  )
+                  begin
+                    MU::Cloud::Azure.network(credentials: @config['credentials']).subnets.create_or_update(
+                      @resource_group,
+                      @cloud_id.to_s,
+                      subnet_name,
+                      subnet_obj
+                    )
+                  rescue ::MU::Cloud::Azure::APIError => e
+                    if e.message.match(/InUseSubnetCannotBeUpdated: /)
+                      MU.log "Cannot alter an in-use Azure subnet", MU::WARN
+                    else
+                      raise e
+                    end
+                  end
                 end
               }
             }
