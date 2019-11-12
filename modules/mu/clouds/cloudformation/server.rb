@@ -45,6 +45,7 @@ module MU
               "muID" => MU.deploy_id,
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
+              "mommaCatPort" => MU.mommaCatPort,
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "windowsAdminName" => @config['windows_admin_username'],
               "resourceName" => @config["name"],
@@ -303,7 +304,7 @@ module MU
                     role_name: baserole.role_name,
                     policy_name: name
                 )
-                policies[name] = URI.unescape(resp.policy_document)
+                policies[name] = URI.decode(resp.policy_document)
               }
             }
           end
@@ -338,6 +339,14 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+
+        # Return the date/time a machine image was created.
+        # @param ami_id [String]: AMI identifier of an Amazon Machine Image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(ami_id, credentials: nil, region: nil)
+          MU::Cloud::AWS.imageTimeStamp(ami_id, credentials: credentials, region: region)
         end
 
         # Cloud-specific configuration properties.

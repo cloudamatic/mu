@@ -17,22 +17,14 @@ module MU
     class AWS
       # Support for AWS S3
       class Bucket < MU::Cloud::Bucket
-        @deploy = nil
-        @config = nil
 
         @@region_cache = {}
         @@region_cache_semaphore = Mutex.new
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::logs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -41,11 +33,17 @@ module MU
           bucket_name = @deploy.getResourceName(@config["name"], max_length: 63).downcase
 
           MU.log "Creating S3 bucket #{bucket_name}"
-          MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
+          resp = MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
             acl: @config['acl'],
             bucket: bucket_name
           )
+
           @cloud_id = bucket_name
+          is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+          begin
+            is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+            sleep 3
+          end while !is_live
 
           @@region_cache_semaphore.synchronize {
             @@region_cache[@cloud_id] ||= @config['region']
@@ -145,6 +143,51 @@ module MU
           end
         end
 
+        # Upload a file to a bucket.
+        # @param url [String]: Target URL, of the form s3://bucket/folder/file
+        # @param acl [String]: Canned ACL permission to assign to the object we upload
+        # @param file [String]: Path to a local file to write to our target location. One of +file+ or +data+ must be specified.
+        # @param data [String]: Data to write to our target location. One of +file+ or +data+ must be specified.
+        def self.upload(url, acl: "private", file: nil, data: nil, credentials: nil, region: nil)
+          if (!file or file.empty?) and !data
+            raise MuError, "Must specify a file or some data to upload to bucket #{s3_url}"
+          end
+
+          if file and !file.empty?
+            if !File.exist?(file) or !File.readable?(file)
+              raise MuError, "Unable to read #{file} for upload to #{url}"
+            else
+              data = File.read(file)
+            end
+          end
+
+          url.match(/^(?:s3:\/\/)([^\/:]+?)[\/:]\/?(.+)?/)
+          bucket = Regexp.last_match[1]
+          path = Regexp.last_match[2]
+          if !path 
+            if !file
+              raise MuError, "Unable to determine upload path from url #{url}"
+            end
+          end
+
+          begin
+puts data
+puts acl
+puts bucket
+puts path
+            MU.log "Writing #{path} to S3 bucket #{bucket}"
+            MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
+              acl: acl,
+              bucket: bucket,
+              key: path,
+              body: data
+            )
+          rescue Aws::S3::Errors => e
+            raise MuError, "Got #{e.inspect} trying to write #{path} to #{bucket} (region: #{region}, credentials: #{credentials})"
+          end
+
+        end
+
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
@@ -172,13 +215,18 @@ module MU
                 if @@region_cache[bucket.name]
                   next if @@region_cache[bucket.name] != region
                 else
-                  location = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_location(bucket: bucket.name).location_constraint
-
-                  if location.nil? or location.empty?
-                    @@region_cache[bucket.name] = region
-                  else
-                    @@region_cache[bucket.name] = location
+                  begin
+                    location = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_location(bucket: bucket.name).location_constraint
+                    if location.nil? or location.empty?
+                      @@region_cache[bucket.name] = region
+                    else
+                      @@region_cache[bucket.name] = location
+                    end
+                  rescue Aws::S3::Errors::NoSuchBucket, Aws::S3::Errors::AccessDenied
+                    # this is routine- we saw a bucket that's not our business
+                    next
                   end
+
                 end
               }
 
@@ -219,14 +267,14 @@ module MU
         end
 
         # Locate an existing bucket.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching bucket.
+        def self.find(**args)
           found = {}
-          if cloud_id
-            found[cloud_id] = describe_bucket(cloud_id, minimal: true, credentials: credentials, region: region)
+          if args[:cloud_id]
+            begin
+              found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: true, credentials: args[:credentials], region: args[:region])
+            rescue ::Aws::S3::Errors::NoSuchBucket
+            end
           end
           found
         end

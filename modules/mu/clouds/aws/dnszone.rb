@@ -19,22 +19,11 @@ module MU
       # A DNS Zone as configured in {MU::Config::BasketofKittens::dnszones}
       class DNSZone < MU::Cloud::DNSZone
 
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          unless @mu_name
-            @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config["name"])
 
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
         end
@@ -399,8 +388,8 @@ module MU
             if !alias_zone.nil?
               target_zone = "/hostedzone/"+alias_zone if !alias_zone.match(/^\/hostedzone\//)
             else
-              MU::Cloud::AWS.listRegions.each { |region|
-                MU::Cloud::AWS.elb(region: region).describe_load_balancers.load_balancer_descriptions.each { |elb|
+              MU::Cloud::AWS.listRegions.each { |r|
+                MU::Cloud::AWS.elb(region: r).describe_load_balancers.load_balancer_descriptions.each { |elb|
                   elb_dns = elb.dns_name.downcase
                   elb_dns.chomp!(".")
                   if target_name == elb_dns
@@ -553,7 +542,8 @@ module MU
 
           if !mu_zone.nil? and !MU.myVPC.nil?
             subdomain = cloudclass.cfg_name
-            dns_name = name.downcase+"."+subdomain+"."+MU.myInstanceId
+            dns_name = name.downcase+"."+subdomain
+            dns_name += "."+MU.myInstanceId if MU.myInstanceId
             record_type = "CNAME"
             record_type = "A" if target.match(/^\d+\.\d+\.\d+\.\d+/)
             ip = nil
@@ -880,36 +870,33 @@ module MU
         end
 
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
-        # @param region [String]: The cloud provider region
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
-        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching DNSZones
+        def self.find(**args)
           matches = {}
 
-          resp = MU::Cloud::AWS.route53(credentials: credentials).list_hosted_zones(
+          resp = MU::Cloud::AWS.route53(credentials: args[:credentials]).list_hosted_zones(
               max_items: 100
           )
 
           resp.hosted_zones.each { |zone|
-            if !cloud_id.nil? and !cloud_id.empty?
-              if zone.id == cloud_id
+            if !args[:cloud_id].nil? and !args[:cloud_id].empty?
+              if zone.id == args[:cloud_id]
                 begin 
-                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
+                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: args[:credentials]).get_hosted_zone(id: zone.id).hosted_zone
                 rescue Aws::Route53::Errors::NoSuchHostedZone
                   MU.log "Hosted zone #{zone.id} doesn't exist"
                 end
-              elsif zone.name == cloud_id or zone.name == cloud_id+"."
+              elsif zone.name == args[:cloud_id] or zone.name == args[:cloud_id]+"."
                 begin 
-                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
+                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: args[:credentials]).get_hosted_zone(id: zone.id).hosted_zone
                 rescue Aws::Route53::Errors::NoSuchHostedZone
                   MU.log "Hosted zone #{zone.id} doesn't exist"
                 end
               end
             end
-            if !deploy_id.nil? and !deploy_id.empty? and zone.config.comment == deploy_id
+            if !args[:deploy_id].nil? and !args[:deploy_id].empty? and zone.config.comment == args[:deploy_id]
               begin 
-                matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
+                matches[zone.id] = MU::Cloud::AWS.route53(credentials: args[:credentials]).get_hosted_zone(id: zone.id).hosted_zone
               rescue Aws::Route53::Errors::NoSuchHostedZone
                 MU.log "Hosted zone #{zone.id} doesn't exist"
               end

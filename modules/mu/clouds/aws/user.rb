@@ -17,18 +17,11 @@ module MU
     class AWS
       # A user as configured in {MU::Config::BasketofKittens::users}
       class User < MU::Cloud::User
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::users}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= if @config['unique_name']
             @deploy.getResourceName(@config["name"])
           else
@@ -157,30 +150,63 @@ module MU
             resp.policies.each { |policy|
               MU.log "Deleting policy /#{MU.deploy_id}/#{policy.policy_name}"
               if !noop
-                attachments = MU::Cloud::AWS.iam(credentials: credentials).list_entities_for_policy(
-                  policy_arn: policy.arn
-                )
-                attachments.policy_users.each { |u|
-                  MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
-                    user_name: u.user_name,
+                attachments = begin
+                  MU::Cloud::AWS.iam(credentials: credentials).list_entities_for_policy(
                     policy_arn: policy.arn
                   )
-                }
-                attachments.policy_groups.each { |g|
-                  MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
-                    group_name: g.group_name,
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
+                if attachments
+                  begin
+                    attachments.policy_users.each { |u|
+                      MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(
+                        user_name: u.user_name,
+                        policy_arn: policy.arn
+                      )
+                    }
+                  rescue ::Aws::IAM::Errors::NoSuchEntity
+                  end
+                  begin
+                    attachments.policy_groups.each { |g|
+                      MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                        group_name: g.group_name,
+                        policy_arn: policy.arn
+                      )
+                    }
+                  rescue ::Aws::IAM::Errors::NoSuchEntity
+                  end
+                  begin
+                    attachments.policy_roles.each { |r|
+                      MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                        role_name: r.role_name,
+                        policy_arn: policy.arn
+                      )
+                    }
+                  rescue ::Aws::IAM::Errors::NoSuchEntity
+                  end
+                end
+
+                begin
+                  MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
                     policy_arn: policy.arn
                   )
-                }
-                attachments.policy_roles.each { |r|
-                  MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
-                    role_name: r.role_name,
-                    policy_arn: policy.arn
-                  )
-                }
-                MU::Cloud::AWS.iam(credentials: credentials).delete_policy(
-                  policy_arn: policy.arn
-                )
+                rescue ::Aws::IAM::Errors::DeleteConflict
+                  versions = MU::Cloud::AWS.iam(credentials: credentials).list_policy_versions(
+                    policy_arn: policy.arn,
+                  ).versions
+                  versions.each { |v|
+                    next if v.is_default_version
+                    begin
+                      MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
+                        policy_arn: policy.arn,
+                        version_id: v.version_id
+                      )
+                    rescue ::Aws::IAM::Errors::NoSuchEntity
+                    end
+                  }
+                  retry
+                rescue ::Aws::IAM::Errors::NoSuchEntity
+                end
               end
             }
           end
@@ -254,19 +280,16 @@ module MU
           cloud_desc.arn
         end
 
-        # Locate an existing user group.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching user group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # Locate an existing IAM user
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching user group.
+        def self.find(**args)
           found = nil
 
           begin
-            resp = MU::Cloud::AWS.iam.get_user(user_name: cloud_id)
+            resp = MU::Cloud::AWS.iam.get_user(user_name: args[:cloud_id])
             if resp and resp.user
               found ||= {}
-              found[cloud_id] = resp.user
+              found[args[:cloud_id]] = resp.user
             end
           rescue ::Aws::IAM::Errors::NoSuchEntity
           end
@@ -282,7 +305,7 @@ module MU
           schema = {
             "name" => {
               "type" => "string",
-              "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user."
+              "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user. AWS IAM does not distinguish between human user accounts and machine accounts."
             },
             "path" => {
               "type" => "string",

@@ -29,11 +29,51 @@ require 'erb'
 require 'tmpdir'
 
 $IN_GEM = false
-if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
-  $IN_GEM = true
+gemwhich = %x{gem which mu 2>&1}.chomp
+gemwhich = nil if $?.exitstatus != 0
+mypath = File.realpath(File.expand_path(File.dirname(__FILE__)))
+if !mypath.match(/^\/opt\/mu/)
+  if Gem.paths and Gem.paths.home and
+     (mypath.match(/^#{Gem.paths.home}/) or gemwhich.match(/^#{Gem.paths.home}/))
+    $IN_GEM = true
+  elsif $?.exitstatus == 0 and gemwhich and !gemwhich.empty?
+    $LOAD_PATH.each { |path|
+      if path.match(/\/cloud-mu-[^\/]+\/modules/) or
+         path.match(/#{Regexp.quote(gemwhich)}/)
+        $IN_GEM = true
+      end
+    }
+  end
 end
 
+$possible_addresses = []
+$impossible_addresses = ['127.0.0.1', 'localhost']
+begin
+  sys_name = Socket.gethostname
+  official, aliases = Socket.gethostbyname(sys_name)
+  $possible_addresses << sys_name
+  $possible_addresses << official
+  $possible_addresses.concat(aliases)
+rescue SocketError
+  # don't let them use the default hostname if it doesn't resolve
+  $impossible_addresses << sys_name
+end
+Socket.getifaddrs.each { |iface|
+  if iface.addr and iface.addr.ipv4?
+    $possible_addresses << iface.addr.ip_address
+    begin
+      addrinfo = Socket.gethostbyaddr(iface.addr.ip_address)
+      $possible_addresses << addrinfo.first if !addrinfo.first.nil?
+    rescue SocketError
+      # usually no name to look up; that's ok
+    end
+  end
+}
+$possible_addresses.uniq!
+$possible_addresses.reject! { |i| i.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/)}
+
 GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
+
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
@@ -42,8 +82,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
-    "rootonly" => true,
-    "pattern" => /^(localhost|127\.0\.0\.1|#{Socket.gethostname})$/,
+    "pattern" => /^(#{$impossible_addresses.map { |a| Regexp.quote(a) }.join("|") })$/,
     "negate_pattern" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
@@ -52,14 +91,12 @@ $CONFIGURABLES = {
     "desc" => "Administative contact email",
     "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
     "required" => true,
-    "rootonly" => true,
     "changes" => ["mu-user", "chefrun"]
   },
   "mu_admin_name" => {
     "title" => "Admin Name",
     "desc" => "Administative contact's full name",
     "default" => "Mu Administrator",
-    "rootonly" => true,
     "changes" => ["mu-user", "chefrun"]
   },
   "hostname" => {
@@ -70,10 +107,17 @@ $CONFIGURABLES = {
     "desc" => "The local system's value for HOSTNAME",
     "changes" => ["chefrun", "hostname"]
   },
+  "mommacat_port" => {
+    "title" => "Momma Cat Listen Port",
+    "pattern" => /^[0-9]+$/i,
+    "default" => 2260,
+    "required" => $IN_GEM,
+    "desc" => "Listen port for the Momma Cat grooming daemon",
+    "changes" => ["chefrun"]
+  },
   "banner" => {
     "title" => "Banner",
     "desc" => "Login banner, displayed in various locations",
-    "rootonly" => true,
     "changes" => ["chefrun"]
   },
   "mu_repository" => {
@@ -104,6 +148,11 @@ $CONFIGURABLES = {
     "title" => "Invade Foreign VPCs?",
     "desc" => "If set to true, Mu will be allowed to modify routing and peering behavior of VPCs which it did not create, but for which it has permissions.",
     "boolean" => true
+  },
+  "ansible_dir" => {
+    "title" => "Ansible directory",
+    "desc" => "Intended for use with minimal installs which use Ansible as a groomer and which do not store Ansible artifacts in a dedicated git repository. This allows simply pointing to a local directory.",
+    "required" => false
   },
   "aws" => {
     "title" => "Amazon Web Services",
@@ -166,6 +215,10 @@ $CONFIGURABLES = {
         "title" => "Credentials File",
         "desc" => "JSON-formatted Service Account credentials for our GCP account, stored in plain text in a file. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON and point this argument to the file. This is less secure than using 'credentials' to store in a vault."
       },
+      "credentials_encoded" => {
+        "title" => "Base64-Encoded Credentials",
+        "desc" => "JSON-formatted Service Account credentials for our GCP account, b64-encoded and dropped directly into mu.yaml. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON and point this argument to the file. This is less secure than using 'credentials' to store in a vault."
+      },
       "region" => {
         "title" => "Default Region",
         "desc" => "Default Google Cloud Platform region in which we operate and deploy",
@@ -182,6 +235,11 @@ $CONFIGURABLES = {
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. GCP service accounts cannot view or manage GSuite resources (groups, users, etc) directly, but must instead masquerade as a GSuite user which has delegated authority to the service account. See also: https://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
       },
+      "customer_id" => {
+        "title" => "GSuite Customer ID",
+        "required" => false,
+        "desc" => "For Google Cloud projects which are attached to a GSuite domain. Some API calls (groups, users, etc) require this identifier. From admin.google.com, choose Security, the Single Sign On, and look for the Entity ID field. The value after idpid= in the URL there should be the customer ID."
+      },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,
@@ -194,28 +252,40 @@ $CONFIGURABLES = {
     "title" => "Microsoft Azure Cloud Computing Platform & Services",
     "named_subentries" => true,
     "subtree" => {
+      "directory_id" => {
+        "title" => "Directory ID",
+        "desc" => "AKA Tenant ID; the default Microsoft Azure Directory project in which we operate and deploy, from https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview"
+      },
+      "client_id" => {
+        "title" => "Client ID",
+        "desc" => "App client id used to authenticate to our subscription. From https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview"
+      },
+      "client_secret" => {
+        "title" => "Client Secret",
+        "desc" => "App client secret used to authenticate to our subscription. From https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredAppsPreview under the 'Certificates & secrets' tab, 'Client secrets.' This can only be retrieved upon initial secret creation."
+      },
       "subscription" => {
         "title" => "Default Subscription",
-        "desc" => "Default Microsoft Azure Directory project in which we operate and deploy."
+        "desc" => "Default Microsoft Azure Subscription we will use to deploy, from https://portal.azure.com/#blade/Microsoft_Azure_Billing/SubscriptionsBlade"
       },
-      "credentials" => {
-        "title" => "Credentials Vault:Item",
-        "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
-      },
+      # "credentials" => {
+      #   "title" => "Credentials Vault:Item",
+      #   "desc" => "A secure Chef vault and item from which to retrieve the JSON-formatted Service Account credentials for our Azure account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      # },
       "credentials_file" => {
         "title" => "Credentials File",
-        "desc" => "JSON-formatted Service Account credentials for our Azure account, stored in plain text in a file."
+        "desc" => "JSON file which contains a hash of directory_id, client_id, client_secret, and subscription values. If found, these will be override values entered directly in mu-configure."
       },
       "region" => {
         "title" => "Default Region",
         "desc" => "Default Microsoft Azure region in which we operate and deploy",
         "default" => "eastus"
       },
-      "log_bucket_name" => {
-        "title" => "Log and Secret Bucket Name",
-        "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
-        "changes" => ["chefrun"]
-      },
+      # "log_bucket_name" => {
+      #   "title" => "Log and Secret Bucket Name",
+      #   "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in Azure, collected system logs",
+      #   "changes" => ["chefrun"]
+      # },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,
@@ -225,120 +295,6 @@ $CONFIGURABLES = {
     }
   }
 }
-
-AMROOT = Process.uid == 0
-HOMEDIR = Etc.getpwuid(Process.uid).dir
-
-$opts = Optimist::options do
-  banner <<-EOS
-  EOS
-  required = []
-  opt :noninteractive, "Skip menu-based configuration prompts. If there is no existing configuration, the following flags are required: #{required.map{|x|"--"+x}.join(", ")}", :require => false, :default => false, :type => :boolean
-  $CONFIGURABLES.each_pair { |key, data|
-    next if !AMROOT and data['rootonly']
-    if data.has_key?("subtree")
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
-        subdata['cli-opt'] = (key+"-"+subkey).gsub(/_/, "-")
-        opt (key+"-"+subkey).to_sym, subdata["desc"], :require => false, :type => (subdata["boolean"] ? :boolean : :string)
-        required << subdata['cli-opt'] if subdata['required']
-      }
-    elsif data["array"]
-      data['cli-opt'] = key.gsub(/_/, "-")
-      opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :booleans : :strings)
-      required << data['cli-opt'] if data['required']
-    else
-      data['cli-opt'] = key.gsub(/_/, "-")
-      opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
-      required << data['cli-opt'] if data['required']
-    end
-  }
-
-  opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean if AMROOT
-  opt :ssh_keys, "One or more paths to SSH private keys, which we can try to use for SSH-based Git clone operations", :require => false, :type => :strings
-end
-
-if ENV.has_key?("MU_INSTALLDIR")
-  MU_BASE = ENV["MU_INSTALLDIR"]
-else
-  MU_BASE = "/opt/mu"
-end
-
-$INITIALIZE = (!File.size?("#{MU_BASE}/etc/mu.yaml") or $opts[:force])
-$HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG) and !$IN_GEM
-  puts "Global configuration has not been initialized or is missing. Must run as root to correct."
-  exit 1
-end
-
-if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
-  puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
-  exit 1
-end
-
-$IN_AWS = false
-begin
-  Timeout.timeout(2) do
-    instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
-    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
-  end
-rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
-end
-$IN_GOOGLE = false
-begin
-  Timeout.timeout(2) do
-    instance_id = open(
-      "http://metadata.google.internal/computeMetadata/v1/instance/name",
-      "Metadata-Flavor" => "Google"
-    ).read
-    $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
-  end
-rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
-end
-$IN_AZURE = false
-begin
-  Timeout.timeout(2) do
-    instance_id = open("http://169.254.169.254/metadata/instance/compute").read
-    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
-  end
-rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
-end
-
-
-KNIFE_TEMPLATE = "log_level                :info
-log_location             STDOUT
-node_name                '<%= chefuser %>'
-client_key               '<%= MU_BASE %>/var/users/<%= user %>/<%= chefuser %>.user.key'
-validation_client_name   'mu-validator'
-validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
-chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
-chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
-syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
-cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
-<% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
-ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
-ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
-<% end %>
-knife[:vault_mode] = 'client'
-knife[:vault_admins] = ['<%= chefuser %>']"
-
-CLIENT_TEMPLATE = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-validation_client_name 'mu-validator'
-log_location   STDOUT
-node_name 'MU-MASTER'
-verify_api_cert false
-ssl_verify_mode :verify_none
-"
-
-PIVOTAL_TEMPLATE = "node_name 'pivotal'
-chef_server_url 'https://<%= MU.mu_public_addr %>:7443'
-chef_server_root 'https://<%= MU.mu_public_addr %>:7443'
-no_proxy '<%= MU.mu_public_addr %>'
-client_key '/etc/opscode/pivotal.pem'
-ssl_verify_mode :verify_none
-"
-
-$CHANGES = []
 
 def cloneHash(hash)
   new = {}
@@ -350,279 +306,6 @@ def cloneHash(hash)
     end
   }
   new
-end
-
-$MENU_MAP = {}
-def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
-  count = 1
-  tree.each_pair { |key, data|
-    next if !data.is_a?(Hash)
-    next if !AMROOT and data['rootonly']
-    if data.has_key?("subtree")
-      letters = ("a".."z").to_a
-      lettercount = 0
-      if data['named_subentries']
-        # Generate a stub entry for adding a new item
-        map[count.to_s] = cloneHash(data["subtree"])
-        map[count.to_s].each_pair { |k, v| v.delete("value") } # use defaults
-        map[count.to_s]["name"] = {
-          "title" => "Name",
-          "desc" => "A name/alias for this account.",
-          "required" => true
-        }
-        map[count.to_s]["#addnew"] = true
-        map[count.to_s]["#title"] = data['title']
-        map[count.to_s]["#key"] = key
-
-        # Now the menu entries for the existing ones
-        if data['subtree']['#entries']
-          data['subtree']['#entries'].each_pair { |nameentry, subdata|
-            next if data['readonly']
-            next if !subdata.is_a?(Hash)
-            subdata["#menu"] = count.to_s+letters[lettercount]
-            subdata["#title"] = nameentry
-            subdata["#key"] = key
-            subdata["#entries"] = cloneHash(data["subtree"]["#entries"])
-            subdata["is_submenu"] = true
-            map[count.to_s+letters[lettercount]] = tree[key]["subtree"]['#entries'][nameentry]
-            map[count.to_s+letters[lettercount]]['#entries'] ||= cloneHash(data["subtree"]["#entries"])
-            lettercount = lettercount + 1
-          }
-        end
-      else
-        data["subtree"].each_pair { |subkey, subdata|
-          next if !AMROOT and subdata['rootonly']
-          tree[key]["subtree"][subkey]["#menu"] = count.to_s+letters[lettercount]
-          tree[key]["subtree"][subkey]["#key"] = subkey
-          map[count.to_s+letters[lettercount]] = tree[key]["subtree"][subkey]
-          lettercount = lettercount + 1
-        }
-      end
-    end
-    tree[key]["#menu"] = count.to_s
-    tree[key]["#key"] = key
-    map[count.to_s] ||= tree[key]
-    count = count + 1
-  }
-  map#.freeze
-end
-
-def trySSHKeyWithGit(repo, keypath = nil)
-  cfgbackup = nil
-  deletekey = false
-  repo.match(/^([^@]+?)@([^:]+?):/)
-  ssh_user = Regexp.last_match(1)
-  ssh_host = Regexp.last_match(2)
-  if keypath.nil?
-    response = nil
-    puts "Would you like to provide a private ssh key for #{repo} and try again?"
-    begin
-      response = Readline.readline("Y/N> ".bold, false)
-    end while !response and !response.match(/^(y|n)$/i)
-    if response == "y" or response == "Y"
-      Dir.mkdir("#{HOMEDIR}/.ssh", 0700) if !Dir.exists?("#{HOMEDIR}/.ssh")
-      keynamestr = repo.gsub(/[^a-z0-9\-]/i, "-") + Process.pid.to_s
-      keypath = "#{HOMEDIR}/.ssh/#{keynamestr}"
-      puts "Paste a complete SSH private key for #{ssh_user.bold}@#{ssh_host.bold} below, then ^D"
-      system("cat > #{keypath}")
-      File.chmod(0600, keypath)
-      puts "Key saved to "+keypath.bold
-      deletekey = true
-    else
-      return false
-    end
-  end
-
-  if File.exists?("#{HOMEDIR}/.ssh/config")
-    FileUtils.cp("#{HOMEDIR}/.ssh/config", "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}")
-    cfgbackup = "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}"
-  end
-  File.open("#{HOMEDIR}/.ssh/config", "a", 0600){ |f|
-    f.puts "Host "+ssh_host
-    f.puts "  User "+ssh_user
-    f.puts "  IdentityFile "+keypath
-    f.puts "  StrictHostKeyChecking no"
-  }
-
-  puts "/usr/bin/git clone #{repo}"
-  output = %x{/usr/bin/git clone #{repo} 2>&1}
-  if $?.exitstatus == 0
-    puts "Successfully cloned #{repo}".green.on_black
-    return true
-  else
-    puts output.red.on_black
-    if cfgbackup
-      puts "Restoring #{HOMEDIR}/.ssh/config"
-      File.rename(cfgbackup, "#{HOMEDIR}/.ssh/config")
-    end
-    if deletekey
-      puts "Removing #{keypath}"
-      File.unlink(keypath)
-    end
-  end
-  return false
-end
-
-def cloneGitRepo(repo)
-  puts "Testing ability to check out Git repository #{repo.bold}"
-  fullrepo = repo
-  if !repo.match(/@|:\/\//) # we try ssh first
-    fullrepo = "git@github.com:"+repo
-    puts "Doesn't look like a full URL, trying SSH to #{fullrepo}"
-  end
-  cwd = Dir.pwd
-  Dir.mktmpdir("mu-git-test-") { |dir|
-    Dir.chdir(dir)
-    puts "/usr/bin/git clone #{fullrepo}"
-    output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
-    if $?.exitstatus == 0
-      puts "Successfully cloned #{fullrepo}".green.on_black
-      Dir.chdir(cwd)
-      return fullrepo
-    elsif $?.exitstatus != 0 and output.match(/permission denied/i)
-      puts ""
-      puts output.red.on_black
-      if $opts[:ssh_keys_given]
-        $opts[:ssh_keys].each { |keypath|
-          if trySSHKeyWithGit(fullrepo, keypath)
-            Dir.chdir(cwd)
-            return fullrepo
-          end
-        }
-      end
-      if !$opts[:noninteractive]
-        if trySSHKeyWithGit(fullrepo)
-          Dir.chdir(cwd)
-          return fullrepo
-        end
-      end
-    end
-    if !repo.match(/@|:\/\//)
-      fullrepo = "git://github.com/"+repo
-      puts ""
-      puts "No luck there, trying #{fullrepo}".bold
-      puts "/usr/bin/git clone #{fullrepo}"
-      output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
-      if $?.exitstatus == 0
-        puts "Successfully cloned #{fullrepo}".green.on_black
-        Dir.chdir(cwd)
-        return fullrepo
-      else
-        puts output.red.on_black
-        fullrepo = "https://github.com/"+repo
-        puts "Final attempt, trying #{fullrepo}"
-        puts "/usr/bin/git clone #{fullrepo}"
-        output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
-        if $?.exitstatus == 0
-          puts "Successfully cloned #{fullrepo}".green.on_black
-          Dir.chdir(cwd)
-          return fullrepo
-        else
-          puts output.red.on_black
-        end
-      end
-    else
-      puts "No other methods I can think to try, giving up on #{repo.bold}".red.on_black
-    end
-  }
-  Dir.chdir(cwd)
-  nil
-end
-
-# Rustle up some sensible default values, if this is our first time
-def setDefaults
-  ips = []
-  if $IN_AWS
-    ["public-ipv4", "local-ipv4"].each { |addr|
-      begin
-      Timeout.timeout(2) do
-        ip = open("http://169.254.169.254/latest/meta-data/#{addr}").read
-        ips << ip if !ip.nil? and ip.size > 0
-      end
-      rescue OpenURI::HTTPError, Timeout::Error, SocketError
-        # these are ok to ignore
-      end
-    }
-  elsif $IN_GOOGLE
-    base_url = "http://metadata.google.internal/computeMetadata/v1"
-    begin
-      Timeout.timeout(2) do
-# TODO iterate across multiple interfaces/access-configs
-        ip = open("#{base_url}/instance/network-interfaces/0/ip", "Metadata-Flavor" => "Google").read
-        ips << ip if !ip.nil? and ip.size > 0
-        ip = open("#{base_url}/instance/network-interfaces/0/access-configs/0/external-ip", "Metadata-Flavor" => "Google").read
-        ips << ip if !ip.nil? and ip.size > 0
-      end
-    rescue OpenURI::HTTPError, Timeout::Error, SocketError => e
-      # This is fairly normal, just handle it gracefully
-    end
-  end
-
-  ips.concat(Socket.ip_address_list.delete_if { |i| !i.ipv4? or i.ip_address.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/) }.map { |a| a.ip_address })
-
-  $CONFIGURABLES["allow_invade_foreign_vpcs"]["default"] = false
-  $CONFIGURABLES["public_address"]["default"] = ips.first
-  $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
-  $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
-  if $IN_AWS
-# XXX move this crap to a callback hook for puttering around in the AWS submenu
-    aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
-    iam = nil
-    begin
-      iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
-    rescue OpenURI::HTTPError, SocketError
-    end
-#    $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
-    $CONFIGURABLES["aws"]["subtree"]["region"]["default"] = aws["region"]
-    if iam and iam.size > 0
-      # XXX can we think of a good way to test our permission set?
-      $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
-      $CONFIGURABLES["aws"]["subtree"]["access_secret"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
-    end
-  end
-  $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
-  $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
-end
-
-
-def runValueCallback(desc, val)
-  if desc['array']
-    if desc["callback"]
-      newval = []
-      val.each { |v|
-        v = send(desc["callback"].to_sym, v)
-        newval << v if !v.nil?
-      }
-      val = newval
-    end
-  elsif desc["callback"]
-    val = send(desc["callback"].to_sym, val)
-  end
-  val
-end
-
-def importCLIValues
-  $CONFIGURABLES.each_pair { |key, data|
-    next if !AMROOT and data['rootonly']
-    if data.has_key?("subtree")
-      if !data['named_subentries']
-        data["subtree"].each_pair { |subkey, subdata|
-          next if !AMROOT and subdata['rootonly']
-          if $opts[(subdata['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
-            newval = runValueCallback(subdata, $opts[subdata['cli-opt'].gsub(/-/, "_").to_sym])
-            subdata["value"] = newval if !newval.nil?
-            $CHANGES.concat(subdata['changes']) if subdata['changes']
-          end
-        }
-      end
-    else
-      if $opts[(data['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
-        newval = runValueCallback(data, $opts[data['cli-opt'].gsub(/-/, "_").to_sym])
-        data["value"] = newval if !newval.nil?
-        $CHANGES.concat(data['changes']) if data['changes']
-      end
-    end
-  }
 end
 
 # Load values from our existing configuration into the $CONFIGURABLES hash
@@ -662,676 +345,1121 @@ def importCurrentValues
   }
 end
 
-def printVal(data)
-  valid = true
-  valid = validate(data["value"], data, false) if data["value"]
+if !$NOOP
+  AMROOT = Process.uid == 0
+  HOMEDIR = Etc.getpwuid(Process.uid).dir
 
-  value = if data["value"] and data["value"] != ""
-    data["value"]
-  elsif data["default"] and data["default"] != ""
-    data["default"]
-  end
-  if data['readonly'] and value
-    print " - "+value.to_s.cyan.on_black
-  elsif !valid
-    print " "+data["value"].to_s.red.on_black
-    print " (consider default of #{data["default"].to_s.bold})" if data["default"]
-  elsif !data["value"].nil?
-    print " - "+data["value"].to_s.green.on_black
-  elsif data["required"]
-    print " - "+"REQUIRED".red.on_black
-  elsif !data["default"].nil?
-    print " - "+data["default"].to_s.yellow.on_black+" (DEFAULT)"
-  end
-end
-
-# Converts the current $CONFIGURABLES object to a Hash suitable for merging
-# with $MU_CFG.
-def setConfigTree(tree = $CONFIGURABLES)
-  cfg = {}
-  tree.each_pair { |key, data|
-    next if !AMROOT and data['rootonly']
-    if data.has_key?("subtree")
-      if data["named_subentries"]
-        if data["subtree"]["#entries"]
-          data["subtree"]["#entries"].each_pair { |name, block|
-
-            next if !block.is_a?(Hash)
-            block.each_pair { |subkey, subdata|
-              next if subkey.match(/^#/) or !subdata.is_a?(Hash)
-              cfg[key] ||= {}
-              cfg[key][name] ||= {}
-              cfg[key][name][subkey] = subdata['value'] if subdata['value']
-            }
-          }
-        end
-      else
-        data["subtree"].each_pair { |subkey, subdata|
-          if !subdata["value"].nil?
-            cfg[key] ||= {}
-            cfg[key][subkey] = subdata["value"]
-          elsif !subdata["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
-            cfg[key] ||= {}
-            cfg[key][subkey] = subdata["default"]
-          end
-        }
-      end
-    elsif !data["value"].nil?
-      cfg[key] = data["value"]
-    elsif !data["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and !$MU_CFG[key])
-      cfg[key] = data["default"]
-    end
-  }
-  cfg
-end
-
-def displayCurrentOpts(tree = $CONFIGURABLES)
-  count = 1
-  optlist = []
-  tree.each_pair { |key, data|
-    next if !data.is_a?(Hash)
-    next if !AMROOT and data['rootonly']
-    if data["title"].nil? or data["#menu"].nil?
-      next
-    end
-    print data["#menu"].bold+") "+data["title"]
-    if data.has_key?("subtree")
-      puts ""
-      if data["named_subentries"]
-        if data['subtree']['#entries']
-          data['subtree']['#entries'].each_pair { |nameentry, subdata|
-            next if nameentry.match(/^#/)
-            puts "  "+subdata["#menu"].bold+". "+nameentry.green.on_black
-          }
-        end
-      else
+  $opts = Optimist::options do
+    banner <<-EOS
+    EOS
+    required = []
+    opt :noninteractive, "Skip menu-based configuration prompts. If there is no existing configuration, the following flags are required: #{required.map{|x|"--"+x}.join(", ")}", :require => false, :default => false, :type => :boolean
+    $CONFIGURABLES.each_pair { |key, data|
+      next if !AMROOT and data['rootonly']
+      if data.has_key?("subtree")
         data["subtree"].each_pair { |subkey, subdata|
           next if !AMROOT and subdata['rootonly']
-          print "  "+subdata["#menu"].bold+". "+subdata["title"]
-          printVal(subdata)
-          puts ""
+          subdata['cli-opt'] = (key+"-"+subkey).gsub(/_/, "-")
+          opt subdata['cli-opt'].to_sym, subdata["desc"], :require => false, :type => (subdata["boolean"] ? :boolean : :string)
+          required << subdata['cli-opt'] if subdata['required']
         }
+      elsif data["array"]
+        data['cli-opt'] = key.gsub(/_/, "-")
+        opt data['cli-opt'].to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :booleans : :strings)
+        required << data['cli-opt'] if data['required']
+      else
+        data['cli-opt'] = key.gsub(/_/, "-")
+        opt data['cli-opt'].to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
+        required << data['cli-opt'] if data['required']
+      end
+    }
+
+    opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean if AMROOT
+    opt :ssh_keys, "One or more paths to SSH private keys, which we can try to use for SSH-based Git clone operations", :require => false, :type => :strings
+  end
+
+  if ENV.has_key?("MU_INSTALLDIR")
+    MU_BASE = ENV["MU_INSTALLDIR"]
+  else
+    MU_BASE = "/opt/mu"
+  end
+
+  def cfgPath
+    home = Etc.getpwuid(Process.uid).dir
+    username = Etc.getpwuid(Process.uid).name
+    if Process.uid == 0
+      if ENV.include?('MU_INSTALLDIR')
+        ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
+      elsif Dir.exist?("/opt/mu")
+        "/opt/mu/etc/mu.yaml"
+      else
+        "#{home}/.mu.yaml"
       end
     else
-      printVal(data)
-      puts ""
+      "#{home}/.mu.yaml"
     end
-    count = count + 1
-  }
-  optlist
-end
-
-###############################################################################
-
-trap("INT"){ puts "" ; exit }
-importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG or $IN_GEM
-importCLIValues
-setDefaults
-assignMenuEntries # populates $MENU_MAP
-
-def ask(desc)
-  puts ""
-  puts (desc['required'] ? "REQUIRED".red.on_black : "OPTIONAL".yellow.on_black)+" - "+desc["desc"]
-  puts "Enter one or more values, separated by commas".yellow.on_black if desc['array']
-  puts "Enter 0 or false, 1 or true".yellow.on_black if desc['boolean']
-  prompt = desc["title"].bold + "> "
-  current = desc['value'] || desc['default']
-  if current
-    current = current.join(", ") if desc['array'] and current.is_a?(Array)
-    Readline.pre_input_hook = -> do
-      Readline.insert_text current.to_s
-      Readline.redisplay
-      Readline.pre_input_hook = nil
-    end
-    end
-  val = Readline.readline(prompt, false)
-  if desc['array'] and !val.nil?
-    val = val.strip.split(/\s*,\s*/)
   end
-  if desc['boolean']
-    val = false if ["0", "false", "FALSE"].include?(val)
-    val = true if ["1", "true", "TRUE"].include?(val)
-  end
-  val = runValueCallback(desc, val)
-  val = current if val.nil? and desc['value']
-  val
-end
 
-def validate(newval, reqs, addnewline = true, in_use: [])
-  ok = true
-  def validate_individual_value(newval, reqs, addnewline, in_use: [])
+  $INITIALIZE = (!File.size?(cfgPath) or $opts[:force])
+
+  $HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
+  if !AMROOT and !$HAVE_GLOBAL_CONFIG and !$IN_GEM and Dir.exist?("/opt/mu/lib")
+    puts "Global configuration has not been initialized or is missing. Must run as root to correct."
+    exit 1
+  end
+
+  if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:"public-address"] or !$opts[:"mu-admin-email"])
+    if $IN_GEM
+      importCurrentValues # maybe we're in local-only mode
+    end
+    if !$MU_CFG or !$MU_CFG['mu_admin_email'] or !$MU_CFG['mu_admin_name']
+      puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
+      exit 1
+    end
+  end
+
+  $IN_AWS = false
+  begin
+    Timeout.timeout(2) do
+      instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
+      $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
+    end
+  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+  end
+  $IN_GOOGLE = false
+  begin
+    Timeout.timeout(2) do
+      instance_id = open(
+        "http://metadata.google.internal/computeMetadata/v1/instance/name",
+        "Metadata-Flavor" => "Google"
+      ).read
+      $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
+    end
+  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
+  end
+  $IN_AZURE = false
+  begin
+    Timeout.timeout(2) do
+      instance = open("http://169.254.169.254/metadata/instance/compute?api-version=2017-08-01","Metadata"=>"true").read
+      $IN_AZURE = true if !instance.nil? and instance.size > 0
+    end
+  rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
+  end
+
+  KNIFE_TEMPLATE = "log_level                :info
+  log_location             STDOUT
+  node_name                '<%= chefuser %>'
+  client_key               '<%= MU_BASE %>/var/users/<%= user %>/<%= chefuser %>.user.key'
+  validation_client_name   'mu-validator'
+  validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
+  chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
+  chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
+  syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
+  cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
+  <% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
+  ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
+  ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
+  <% end %>
+  knife[:vault_mode] = 'client'
+  knife[:vault_admins] = ['<%= chefuser %>']"
+
+  CLIENT_TEMPLATE = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+  validation_client_name 'mu-validator'
+  log_location   STDOUT
+  node_name 'MU-MASTER'
+  verify_api_cert false
+  ssl_verify_mode :verify_none
+  "
+
+  PIVOTAL_TEMPLATE = "node_name 'pivotal'
+  chef_server_url 'https://<%= MU.mu_public_addr %>:7443'
+  chef_server_root 'https://<%= MU.mu_public_addr %>:7443'
+  no_proxy '<%= MU.mu_public_addr %>'
+  client_key '/etc/opscode/pivotal.pem'
+  ssl_verify_mode :verify_none
+  "
+
+  $CHANGES = []
+
+
+  $MENU_MAP = {}
+  def assignMenuEntries(tree = $CONFIGURABLES, map = $MENU_MAP)
+    count = 1
+    tree.each_pair { |key, data|
+      next if !data.is_a?(Hash)
+      next if !AMROOT and data['rootonly']
+      if data.has_key?("subtree")
+        letters = ("a".."z").to_a
+        lettercount = 0
+        if data['named_subentries']
+          # Generate a stub entry for adding a new item
+          map[count.to_s] = cloneHash(data["subtree"])
+          map[count.to_s].each_pair { |k, v| v.delete("value") } # use defaults
+          map[count.to_s]["name"] = {
+            "title" => "Name",
+            "desc" => "A name/alias for this account.",
+            "required" => true
+          }
+          map[count.to_s]["#addnew"] = true
+          map[count.to_s]["#title"] = data['title']
+          map[count.to_s]["#key"] = key
+
+          # Now the menu entries for the existing ones
+          if data['subtree']['#entries']
+            data['subtree']['#entries'].each_pair { |nameentry, subdata|
+              next if data['readonly']
+              next if !subdata.is_a?(Hash)
+              subdata["#menu"] = count.to_s+letters[lettercount]
+              subdata["#title"] = nameentry
+              subdata["#key"] = key
+              subdata["#entries"] = cloneHash(data["subtree"]["#entries"])
+              subdata["is_submenu"] = true
+              map[count.to_s+letters[lettercount]] = tree[key]["subtree"]['#entries'][nameentry]
+              map[count.to_s+letters[lettercount]]['#entries'] ||= cloneHash(data["subtree"]["#entries"])
+              lettercount = lettercount + 1
+            }
+          end
+        else
+          data["subtree"].each_pair { |subkey, subdata|
+            next if !AMROOT and subdata['rootonly']
+            tree[key]["subtree"][subkey]["#menu"] = count.to_s+letters[lettercount]
+            tree[key]["subtree"][subkey]["#key"] = subkey
+            map[count.to_s+letters[lettercount]] = tree[key]["subtree"][subkey]
+            lettercount = lettercount + 1
+          }
+        end
+      end
+      tree[key]["#menu"] = count.to_s
+      tree[key]["#key"] = key
+      map[count.to_s] ||= tree[key]
+      count = count + 1
+    }
+    map#.freeze
+  end
+
+  def trySSHKeyWithGit(repo, keypath = nil)
+    cfgbackup = nil
+    deletekey = false
+    repo.match(/^([^@]+?)@([^:]+?):/)
+    ssh_user = Regexp.last_match(1)
+    ssh_host = Regexp.last_match(2)
+    if keypath.nil?
+      response = nil
+      puts "Would you like to provide a private ssh key for #{repo} and try again?"
+      begin
+        response = Readline.readline("Y/N> ".bold, false)
+      end while !response and !response.match(/^(y|n)$/i)
+      if response == "y" or response == "Y"
+        Dir.mkdir("#{HOMEDIR}/.ssh", 0700) if !Dir.exist?("#{HOMEDIR}/.ssh")
+        keynamestr = repo.gsub(/[^a-z0-9\-]/i, "-") + Process.pid.to_s
+        keypath = "#{HOMEDIR}/.ssh/#{keynamestr}"
+        puts "Paste a complete SSH private key for #{ssh_user.bold}@#{ssh_host.bold} below, then ^D"
+        system("cat > #{keypath}")
+        File.chmod(0600, keypath)
+        puts "Key saved to "+keypath.bold
+        deletekey = true
+      else
+        return false
+      end
+    end
+
+    if File.exist?("#{HOMEDIR}/.ssh/config")
+      FileUtils.cp("#{HOMEDIR}/.ssh/config", "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}")
+      cfgbackup = "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}"
+    end
+    File.open("#{HOMEDIR}/.ssh/config", "a", 0600){ |f|
+      f.puts "Host "+ssh_host
+      f.puts "  User "+ssh_user
+      f.puts "  IdentityFile "+keypath
+      f.puts "  StrictHostKeyChecking no"
+    }
+
+    puts "/usr/bin/git clone #{repo}"
+    output = %x{/usr/bin/git clone #{repo} 2>&1}
+    if $?.exitstatus == 0
+      puts "Successfully cloned #{repo}".green.on_black
+      return true
+    else
+      puts output.red.on_black
+      if cfgbackup
+        puts "Restoring #{HOMEDIR}/.ssh/config"
+        File.rename(cfgbackup, "#{HOMEDIR}/.ssh/config")
+      end
+      if deletekey
+        puts "Removing #{keypath}"
+        File.unlink(keypath)
+      end
+    end
+    return false
+  end
+
+  def cloneGitRepo(repo)
+    puts "Testing ability to check out Git repository #{repo.bold}"
+    fullrepo = repo
+    if !repo.match(/@|:\/\//) # we try ssh first
+      fullrepo = "git@github.com:"+repo
+      puts "Doesn't look like a full URL, trying SSH to #{fullrepo}"
+    end
+    cwd = Dir.pwd
+    Dir.mktmpdir("mu-git-test-") { |dir|
+      Dir.chdir(dir)
+      puts "/usr/bin/git clone #{fullrepo}"
+      output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
+      if $?.exitstatus == 0
+        puts "Successfully cloned #{fullrepo}".green.on_black
+        Dir.chdir(cwd)
+        return fullrepo
+      elsif $?.exitstatus != 0 and output.match(/permission denied/i)
+        puts ""
+        puts output.red.on_black
+        if $opts[:"ssh-keys-given"]
+          $opts[:"ssh-keys"].each { |keypath|
+            if trySSHKeyWithGit(fullrepo, keypath)
+              Dir.chdir(cwd)
+              return fullrepo
+            end
+          }
+        end
+        if !$opts[:noninteractive]
+          if trySSHKeyWithGit(fullrepo)
+            Dir.chdir(cwd)
+            return fullrepo
+          end
+        end
+      end
+      if !repo.match(/@|:\/\//)
+        fullrepo = "git://github.com/"+repo
+        puts ""
+        puts "No luck there, trying #{fullrepo}".bold
+        puts "/usr/bin/git clone #{fullrepo}"
+        output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
+        if $?.exitstatus == 0
+          puts "Successfully cloned #{fullrepo}".green.on_black
+          Dir.chdir(cwd)
+          return fullrepo
+        else
+          puts output.red.on_black
+          fullrepo = "https://github.com/"+repo
+          puts "Final attempt, trying #{fullrepo}"
+          puts "/usr/bin/git clone #{fullrepo}"
+          output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
+          if $?.exitstatus == 0
+            puts "Successfully cloned #{fullrepo}".green.on_black
+            Dir.chdir(cwd)
+            return fullrepo
+          else
+            puts output.red.on_black
+          end
+        end
+      else
+        puts "No other methods I can think to try, giving up on #{repo.bold}".red.on_black
+      end
+    }
+    Dir.chdir(cwd)
+    nil
+  end
+
+  # Rustle up some sensible default values, if this is our first time
+  def setDefaults
+    ips = []
+    if $IN_AWS
+      ["public-ipv4", "local-ipv4"].each { |addr|
+        begin
+        Timeout.timeout(2) do
+          ip = open("http://169.254.169.254/latest/meta-data/#{addr}").read
+          ips << ip if !ip.nil? and ip.size > 0
+        end
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError
+          # these are ok to ignore
+        end
+      }
+    elsif $IN_GOOGLE
+      base_url = "http://metadata.google.internal/computeMetadata/v1"
+      begin
+        Timeout.timeout(2) do
+  # TODO iterate across multiple interfaces/access-configs
+          ip = open("#{base_url}/instance/network-interfaces/0/ip", "Metadata-Flavor" => "Google").read
+          ips << ip if !ip.nil? and ip.size > 0
+          ip = open("#{base_url}/instance/network-interfaces/0/access-configs/0/external-ip", "Metadata-Flavor" => "Google").read
+          ips << ip if !ip.nil? and ip.size > 0
+        end
+      rescue OpenURI::HTTPError, Timeout::Error, SocketError => e
+        # This is fairly normal, just handle it gracefully
+      end
+    end
+
+
+    $CONFIGURABLES["allow_invade_foreign_vpcs"]["default"] = false
+    $CONFIGURABLES["public_address"]["default"] = $possible_addresses.first
+    $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
+    $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
+    if $IN_AWS
+  # XXX move this crap to a callback hook for puttering around in the AWS submenu
+      aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
+      iam = nil
+      begin
+        iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
+      rescue OpenURI::HTTPError, SocketError
+      end
+  #    $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
+      $CONFIGURABLES["aws"]["subtree"]["region"]["default"] = aws["region"]
+      if iam and iam.size > 0
+        # XXX can we think of a good way to test our permission set?
+        $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
+        $CONFIGURABLES["aws"]["subtree"]["access_secret"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
+      end
+    end
+    $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
+    $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
+  end
+
+
+  def runValueCallback(desc, val)
+    if desc['array']
+      if desc["callback"]
+        newval = []
+        val.each { |v|
+          v = send(desc["callback"].to_sym, v)
+          newval << v if !v.nil?
+        }
+        val = newval
+      end
+    elsif desc["callback"]
+      val = send(desc["callback"].to_sym, val)
+    end
+    val
+  end
+
+  def importCLIValues
+    $CONFIGURABLES.each_pair { |key, data|
+      next if !AMROOT and data['rootonly']
+      if data.has_key?("subtree")
+
+        if !data['named_subentries']
+          data["subtree"].each_pair { |subkey, subdata|
+            next if !AMROOT and subdata['rootonly']
+            if $opts[(subdata['cli-opt'].+"_given").to_sym]
+              newval = runValueCallback(subdata, $opts[subdata['cli-opt'].to_sym])
+              subdata["value"] = newval if !newval.nil?
+              $CHANGES.concat(subdata['changes']) if subdata['changes']
+            end
+          }
+        # Honor CLI adds for named trees (credentials, etc) if there are no
+        # entries in them yet.
+        elsif data["#entries"].nil? or data["#entries"].empty?
+          newvals = false
+          data["subtree"].each_pair { |subkey, subdata|
+            next if !AMROOT and subdata['rootonly']
+            next if !subdata['cli-opt']
+            if $opts[(subdata['cli-opt']+"_given").to_sym]
+              newval = runValueCallback(subdata, $opts[subdata['cli-opt'].to_sym])
+              if !newval.nil?
+                subdata["value"] = newval
+                newvals = true
+              end
+            end
+          }
+          if newvals
+            newtree = data["subtree"].dup
+            newtree['default']['value'] = true if newtree['default']
+            data['subtree']['#entries'] = {
+              "default" => newtree
+            }
+          end
+        end
+      else
+        if $opts[(data['cli-opt']+"_given").to_sym]
+          newval = runValueCallback(data, $opts[data['cli-opt'].to_sym])
+          data["value"] = newval if !newval.nil?
+          $CHANGES.concat(data['changes']) if data['changes']
+        end
+      end
+    }
+  end
+
+
+  def printVal(data)
+    valid = true
+    valid = validate(data["value"], data, false) if data["value"]
+
+    value = if data["value"] and data["value"] != ""
+      data["value"]
+    elsif data["default"] and data["default"] != ""
+      data["default"]
+    end
+    if data['readonly'] and value
+      print " - "+value.to_s.cyan.on_black
+    elsif !valid
+      print " "+data["value"].to_s.red.on_black
+      print " (consider default of #{data["default"].to_s.bold})" if data["default"]
+    elsif !data["value"].nil?
+      print " - "+data["value"].to_s.green.on_black
+    elsif data["required"]
+      print " - "+"REQUIRED".red.on_black
+    elsif !data["default"].nil?
+      print " - "+data["default"].to_s.yellow.on_black+" (DEFAULT)"
+    end
+  end
+
+  # Converts the current $CONFIGURABLES object to a Hash suitable for merging
+  # with $MU_CFG.
+  def setConfigTree(tree = $CONFIGURABLES)
+    cfg = {}
+    tree.each_pair { |key, data|
+      next if !AMROOT and data['rootonly']
+      if data.has_key?("subtree")
+        if data["named_subentries"]
+          if data["subtree"]["#entries"]
+            data["subtree"]["#entries"].each_pair { |name, block|
+
+              next if !block.is_a?(Hash)
+              block.each_pair { |subkey, subdata|
+                next if subkey.match(/^#/) or !subdata.is_a?(Hash)
+                cfg[key] ||= {}
+                cfg[key][name] ||= {}
+                cfg[key][name][subkey] = subdata['value'] if subdata['value']
+              }
+            }
+          end
+        else
+          data["subtree"].each_pair { |subkey, subdata|
+            if !subdata["value"].nil?
+              cfg[key] ||= {}
+              cfg[key][subkey] = subdata["value"]
+            elsif !subdata["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
+              cfg[key] ||= {}
+              cfg[key][subkey] = subdata["default"]
+            end
+          }
+        end
+      elsif !data["value"].nil?
+        cfg[key] = data["value"]
+      elsif !data["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and !$MU_CFG[key])
+        cfg[key] = data["default"]
+      end
+    }
+    cfg
+  end
+
+  def displayCurrentOpts(tree = $CONFIGURABLES)
+    count = 1
+    optlist = []
+    tree.each_pair { |key, data|
+      next if !data.is_a?(Hash)
+      next if !AMROOT and data['rootonly']
+      if data["title"].nil? or data["#menu"].nil?
+        next
+      end
+      print data["#menu"].bold+") "+data["title"]
+      if data.has_key?("subtree")
+        puts ""
+        if data["named_subentries"]
+          if data['subtree']['#entries']
+            data['subtree']['#entries'].each_pair { |nameentry, subdata|
+              next if nameentry.match(/^#/)
+              puts "  "+subdata["#menu"].bold+". "+nameentry.green.on_black
+            }
+          end
+        else
+          data["subtree"].each_pair { |subkey, subdata|
+            next if !AMROOT and subdata['rootonly']
+            print "  "+subdata["#menu"].bold+". "+subdata["title"]
+            printVal(subdata)
+            puts ""
+          }
+        end
+      else
+        printVal(data)
+        puts ""
+      end
+      count = count + 1
+    }
+    optlist
+  end
+
+  ###############################################################################
+
+  trap("INT"){ puts "" ; exit }
+  importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG or $IN_GEM
+  importCLIValues
+  setDefaults
+  assignMenuEntries # populates $MENU_MAP
+
+  def ask(desc)
+    puts ""
+    puts (desc['required'] ? "REQUIRED".red.on_black : "OPTIONAL".yellow.on_black)+" - "+desc["desc"]
+    puts "Enter one or more values, separated by commas".yellow.on_black if desc['array']
+    puts "Enter 0 or false, 1 or true".yellow.on_black if desc['boolean']
+    prompt = desc["title"].bold + "> "
+    current = desc['value'] || desc['default']
+    if current
+      current = current.join(", ") if desc['array'] and current.is_a?(Array)
+      Readline.pre_input_hook = -> do
+        Readline.insert_text current.to_s
+        Readline.redisplay
+        Readline.pre_input_hook = nil
+      end
+      end
+    val = Readline.readline(prompt, false)
+    if desc['array'] and !val.nil?
+      val = val.strip.split(/\s*,\s*/)
+    end
+    if desc['boolean']
+      val = false if ["0", "false", "FALSE"].include?(val)
+      val = true if ["1", "true", "TRUE"].include?(val)
+    end
+    val = runValueCallback(desc, val)
+    val = current if val.nil? and desc['value']
+    val
+  end
+
+  def validate(newval, reqs, addnewline = true, in_use: [])
     ok = true
-    if reqs['boolean'] and newval != true and newval != false and newval != nil
-      puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must be true or false)".light_red.on_black
-      puts "\n\n" if addnewline
-      ok = false
-    elsif in_use and in_use.size > 0 and in_use.include?(newval)
-      puts "\n##{reqs['title'].bold} #{newval} not available".light_red.on_black
-      puts "\n\n" if addnewline
-      ok = false
-    elsif reqs['pattern']
-      if newval.nil?
-        puts "\nSupplied value for #{reqs['title'].bold} did not pass validation".light_red.on_black
+    def validate_individual_value(newval, reqs, addnewline, in_use: [])
+      ok = true
+      if reqs['boolean'] and newval != true and newval != false and newval != nil
+        puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must be true or false)".light_red.on_black
         puts "\n\n" if addnewline
         ok = false
-      elsif reqs['negate_pattern']
-        if newval.to_s.match(reqs['pattern'])
-          puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must NOT match #{reqs['pattern']})".light_red.on_black
+      elsif in_use and in_use.size > 0 and in_use.include?(newval)
+        puts "\n##{reqs['title'].bold} #{newval} not available".light_red.on_black
+        puts "\n\n" if addnewline
+        ok = false
+      elsif reqs['pattern']
+        if newval.nil?
+          puts "\nSupplied value for #{reqs['title'].bold} did not pass validation".light_red.on_black
+          puts "\n\n" if addnewline
+          ok = false
+        elsif reqs['negate_pattern']
+          if newval.to_s.match(reqs['pattern'])
+            puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must NOT match #{reqs['pattern']})".light_red.on_black
+            puts "\n\n" if addnewline
+            ok = false
+          end
+        elsif !newval.to_s.match(reqs['pattern'])
+          puts "\nInvalid value '#{newval.bold}' #{reqs['title'].bold} (must match #{reqs['pattern']})".light_red.on_black
           puts "\n\n" if addnewline
           ok = false
         end
-      elsif !newval.to_s.match(reqs['pattern'])
-        puts "\nInvalid value '#{newval.bold}' #{reqs['title'].bold} (must match #{reqs['pattern']})".light_red.on_black
+      end
+      ok
+    end
+
+    if reqs['array']
+      if !newval.is_a?(Array)
+        puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (should be an array)".light_red.on_black
         puts "\n\n" if addnewline
         ok = false
+      else
+        newval.each { |v|
+          ok = false if !validate_individual_value(v, reqs, addnewline, in_use: in_use)
+        }
       end
+    else
+      ok = false if !validate_individual_value(newval, reqs, addnewline, in_use: in_use)
     end
     ok
   end
 
-  if reqs['array']
-    if !newval.is_a?(Array)
-      puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (should be an array)".light_red.on_black
-      puts "\n\n" if addnewline
-      ok = false
-    else
-      newval.each { |v|
-        ok = false if !validate_individual_value(v, reqs, addnewline, in_use: in_use)
-      }
-    end
-  else
-    ok = false if !validate_individual_value(newval, reqs, addnewline, in_use: in_use)
-  end
-  ok
-end
+  answer = nil
+  changed = false
 
-answer = nil
-changed = false
-
-def entireConfigValid?
-  ok = true
-  $CONFIGURABLES.each_pair { |key, data|
-    next if !AMROOT and data['rootonly']
-    if data.has_key?("subtree")
-      data["subtree"].each_pair { |subkey, subdata|
-        next if !AMROOT and subdata['rootonly']
+  def entireConfigValid?
+    ok = true
+    $CONFIGURABLES.each_pair { |key, data|
+      next if !AMROOT and data['rootonly']
+      if data.has_key?("subtree")
+        data["subtree"].each_pair { |subkey, subdata|
+          next if !AMROOT and subdata['rootonly']
+          next if !data["value"]
+          ok = false if !validate(data["value"], data, false)
+        }
+      else
         next if !data["value"]
         ok = false if !validate(data["value"], data, false)
-      }
-    else
-      next if !data["value"]
-      ok = false if !validate(data["value"], data, false)
-    end
-  }
-  ok
-end
-
-def generateMiniMenu(srctree)
-  map = {}
-  tree = cloneHash(srctree)
-  return [tree, map]
-end
-
-def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_names = [])
-  begin
-    optlist = displayCurrentOpts(tree)
-    begin
-      if submenu_name
-        print "Enter an option to change, "+"O".bold+" to save #{submenu_name.bold}, or "+"q".bold+" to return.\n> "
-      else
-        print "Enter an option to change, "+"O".bold+" to save this config, or "+"^D".bold+" to quit.\n> "
       end
-      answer = gets
-      if answer.nil?
+    }
+    ok
+  end
+
+  def generateMiniMenu(srctree)
+    map = {}
+    tree = cloneHash(srctree)
+    return [tree, map]
+  end
+
+  def menu(tree = $CONFIGURABLES, map = $MENU_MAP, submenu_name = nil, in_use_names = [])
+    begin
+      optlist = displayCurrentOpts(tree)
+      begin
+        if submenu_name
+          print "Enter an option to change, "+"O".bold+" to save #{submenu_name.bold}, or "+"q".bold+" to return.\n> "
+        else
+          print "Enter an option to change, "+"O".bold+" to save this config, or "+"^D".bold+" to quit.\n> "
+        end
+        answer = gets
+        if answer.nil?
+          puts ""
+          exit 0
+        end
+        answer.strip!
+      rescue EOFError
         puts ""
         exit 0
       end
-      answer.strip!
-    rescue EOFError
-      puts ""
-      exit 0
-    end
 
-    if map.has_key?(answer) and map[answer]["#addnew"]
-      minimap = {}
-      assignMenuEntries(map[answer], minimap)
-      newtree, newmap = menu(
-        map[answer],
-        minimap,
-        map[answer]['#title']+" (NEW)",
-        if map[answer]['#entries']
-          map[answer]['#entries'].keys.reject { |k| k.match(/^#/) }
+      if map.has_key?(answer) and map[answer]["#addnew"]
+        minimap = {}
+        assignMenuEntries(map[answer], minimap)
+        newtree, newmap = menu(
+          map[answer],
+          minimap,
+          map[answer]['#title']+" (NEW)",
+          if map[answer]['#entries']
+            map[answer]['#entries'].keys.reject { |k| k.match(/^#/) }
+          end
+        )
+        if newtree
+          newname = newtree["name"]["value"]
+          newtree.delete("#addnew")
+          parentname = map[answer]['#key']
+
+          tree[parentname]['subtree'] ||= {}
+          tree[parentname]['subtree']['#entries'] ||= {}
+          # if we're in cloud land and just added a 2nd entry, set the original
+          # one to 'default'
+          if tree[parentname]['subtree']['#entries'].size == 1
+          end
+          tree[parentname]['subtree']['#entries'][newname] = cloneHash(newtree)
+
+          map = {} # rebuild the menu map to include new entries
+          assignMenuEntries(tree, map)
         end
-      )
-      if newtree
-        newname = newtree["name"]["value"]
-        newtree.delete("#addnew")
+  #      exit
+  #      map[answer] = newtree if newtree
+      elsif map.has_key?(answer) and map[answer]["is_submenu"]
+        minimap = {}
         parentname = map[answer]['#key']
-
-        tree[parentname]['subtree'] ||= {}
-        tree[parentname]['subtree']['#entries'] ||= {}
-        # if we're in cloud land and just added a 2nd entry, set the original
-        # one to 'default'
-        if tree[parentname]['subtree']['#entries'].size == 1
+        entryname = map[answer]['#title']
+        puts PP.pp(map[answer], '').yellow
+        puts PP.pp(tree[parentname]['subtree']['#entries'][entryname], '').red
+        assignMenuEntries(tree[parentname]['subtree']['#entries'][entryname], minimap)
+        newtree, newmap = menu(
+          map[answer],
+          minimap,
+          map[answer]["#title"],
+          (map[answer]['#entries'].keys - [map[answer]['#title']])
+        )
+        map[answer] = newtree if newtree
+      elsif map.has_key?(answer) and !map[answer].has_key?("subtree")
+        newval = ask(map[answer])
+        if !validate(newval, map[answer], in_use: in_use_names)
+          sleep 1
+          next
         end
-        tree[parentname]['subtree']['#entries'][newname] = cloneHash(newtree)
-
-        map = {} # rebuild the menu map to include new entries
-        assignMenuEntries(tree, map)
-      end
-#      exit
-#      map[answer] = newtree if newtree
-    elsif map.has_key?(answer) and map[answer]["is_submenu"]
-      minimap = {}
-      parentname = map[answer]['#key']
-      entryname = map[answer]['#title']
-      puts PP.pp(map[answer], '').yellow
-      puts PP.pp(tree[parentname]['subtree']['#entries'][entryname], '').red
-      assignMenuEntries(tree[parentname]['subtree']['#entries'][entryname], minimap)
-      newtree, newmap = menu(
-        map[answer],
-        minimap,
-        map[answer]["#title"],
-        (map[answer]['#entries'].keys - [map[answer]['#title']])
-      )
-      map[answer] = newtree if newtree
-    elsif map.has_key?(answer) and !map[answer].has_key?("subtree")
-      newval = ask(map[answer])
-      if !validate(newval, map[answer], in_use: in_use_names)
+        map[answer]['value'] = newval == "" ? nil : newval
+        tree[map[answer]['#key']]['value'] = newval
+        $CHANGES.concat(map[answer]['changes']) if map[answer].include?("changes")
+        if map[answer]['title'] == "Local Hostname"
+  #        $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
+  #        $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = newval
+        elsif map[answer]['title'] == "Public Address"
+          $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
+        end
+        changed = true
+        puts ""
+      elsif ["q", "Q"].include?(answer)
+        return nil
+      elsif !["", "0", "O", "o"].include?(answer)
+        puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
         sleep 1
-        next
-      end
-      map[answer]['value'] = newval == "" ? nil : newval
-      tree[map[answer]['#key']]['value'] = newval
-      $CHANGES.concat(map[answer]['changes']) if map[answer].include?("changes")
-      if map[answer]['title'] == "Local Hostname"
-#        $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
-#        $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = newval
-      elsif map[answer]['title'] == "Public Address"
-        $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
-      end
-      changed = true
-      puts ""
-    elsif ["q", "Q"].include?(answer)
-      return nil
-    elsif !["", "0", "O", "o"].include?(answer)
-      puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
-      sleep 1
-    else
-      answer = nil if !entireConfigValid?
-    end
-  end while answer != "0" and answer != "O" and answer != "o"
-
-  return [tree, map]
-end
-
-if !$opts[:noninteractive]
-  $CONFIGURABLES, $MENU_MAP = menu
-  $MU_CFG = setConfigTree
-else
-  if !entireConfigValid?
-    puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
-    exit 1
-  end
-end
-
-if AMROOT
-  newcfg = cloneHash($MU_CFG)
-  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
-  newcfg['multiuser'] = true
-  saveMuConfig(newcfg)
-  $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
-end
-
-def set389DSCreds
-  require 'mu'
-  credlist = {
-    "bind_creds" => {
-      "user" => "CN=mu_bind_creds,#{$MU_CFG["ldap"]['user_ou']}"
-    },
-    "join_creds" => {
-      "user" => "CN=mu_join_creds,#{$MU_CFG["ldap"]['user_ou']}"
-    },
-    "cfg_directory_adm" => {
-      "user" => "admin"
-    },
-    "root_dn_user" => {
-      "user" => "CN=root_dn_user"
-    }
-  }
-  credlist.each_pair { |creds, cfg|
-    begin
-      data = nil
-      if $MU_CFG["ldap"].has_key?(creds)
-        data = MU::Groomer::Chef.getSecret(
-          vault: $MU_CFG["ldap"][creds]["vault"],
-          item: $MU_CFG["ldap"][creds]["item"]
-        )
-        MU::Groomer::Chef.grantSecretAccess("MU-MASTER", $MU_CFG["ldap"][creds]["vault"], $MU_CFG["ldap"][creds]["item"])
       else
-        data = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: creds)
-        MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "mu_ldap", creds)
+        answer = nil if !entireConfigValid?
       end
-    rescue MU::Groomer::Chef::MuNoSuchSecret
-      user = cfg["user"]
-      pw = Password.pronounceable(14..16)
-      if $MU_CFG["ldap"].has_key?(creds)
-        data = {
-          $MU_CFG["ldap"][creds]["username_field"] => user,
-          $MU_CFG["ldap"][creds]["password_field"] => pw
-        }
-        MU::Groomer::Chef.saveSecret(
-          vault: $MU_CFG["ldap"][creds]["vault"],
-          item: $MU_CFG["ldap"][creds]["item"],
-          data: data,
-          permissions: "name:MU-MASTER"
-        )
-      else
-        MU::Groomer::Chef.saveSecret(
-          vault: "mu_ldap",
-          item: creds,
-          data: { "username" => user, "password" => pw },
-          permissions: "name:MU-MASTER"
-        )
-      end
-    end
-  }
-end
+    end while answer != "0" and answer != "O" and answer != "o"
 
-if AMROOT
-  cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
-  pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
-  if (cur_chef_version != pref_chef_version and cur_chef_version.sub(/\-\d+$/, "") != pref_chef_version) or cur_chef_version.match(/is not installed/)
-    puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}' from '#{cur_chef_version}'"
-    chef_installer = open("https://omnitruck.chef.io/install.sh").read
-    File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-      f.puts chef_installer
-    }
-    system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
-    # This will go fix gems, permissions, etc
-    system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
+    return [tree, map]
   end
-end
 
-if $INITIALIZE
-  if AMROOT
-    %x{/sbin/service iptables stop} # Chef run will set up correct rules later
-  end
-  $MU_SET_DEFAULTS = setConfigTree
-  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
-else
-  if AMROOT
-    $NEW_CFG = $MU_CFG.merge(setConfigTree)
+  if !$opts[:noninteractive]
+    $CONFIGURABLES, $MENU_MAP = menu
+    $MU_CFG = setConfigTree
   else
-    $NEW_CFG = setConfigTree
+    $MU_CFG = setConfigTree
+    if !entireConfigValid?
+      puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
+      exit 1
+    end
   end
-  saveMuConfig($NEW_CFG)
-  $MU_CFG = $MU_CFG.merge(setConfigTree)
-  require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
-end
-begin
-  require 'mu'
-rescue MU::MuError => e
-  puts "Correct the above error before proceeding. To retry, run:\n\n#{$0.bold} #{ARGV.join(" ").bold}"
-  exit 1
-rescue LoadError
-  system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
-  require 'mu'
-end
 
-if $IN_GEM
-  puts $MU_CFG.to_yaml
-  saveMuConfig($MU_CFG)
-  exit
-end
-
-if AMROOT and ($INITIALIZE or $CHANGES.include?("hostname"))
-  system("/bin/hostname #{$MU_CFG['hostname']}")
-end
-
-# Do some more basic-but-Chef-dependent configuration *before* we meddle with
-# the Chef Server configuration, which depends on some of this (SSL certs and
-# local firewall ports).
-if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
-  MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
-  %x{/sbin/service iptables stop} if $INITIALIZE
-  output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
-  if $?.exitstatus != 0
-    puts output
-    MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
-    %x{/sbin/service iptables start} if !$INITIALIZE
-    exit 1
-  end
-  %x{/sbin/service iptables start} if !$INITIALIZE
-end
-
-if $INITIALIZE and AMROOT
-  MU.log "Force open key firewall holes", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::firewall-holes]'")
-end
-
-if AMROOT
-  MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-  if !system("chef-client -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
-    MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
-    exit 1
-  end
-end
-
-def updateChefRbs
-  user = AMROOT ? "mu" : Etc.getpwuid(Process.uid).name
-  chefuser = user.gsub(/\./, "")
-  templates = { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE }
-  Dir.mkdir(HOMEDIR+"/.chef") if !Dir.exists?(HOMEDIR+"/.chef")
   if AMROOT
-    templates["/etc/chef/client.rb"] = CLIENT_TEMPLATE
-    templates["/etc/opscode/pivotal.rb"] = PIVOTAL_TEMPLATE
+    newcfg = cloneHash($MU_CFG)
+    require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+    newcfg['multiuser'] = true
+    saveMuConfig(newcfg)
+    $MU_CFG = loadMuConfig($MU_SET_DEFAULTS)
   end
-  templates.each_pair { |file, template|
-    erb = ERB.new(template)
-    processed = erb.result(binding)
-    tmpfile = file+".tmp."+Process.pid.to_s
-    File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-      f.puts processed
+
+  def set389DSCreds
+    require 'mu'
+    credlist = {
+      "bind_creds" => {
+        "user" => "CN=mu_bind_creds,#{$MU_CFG["ldap"]['user_ou']}"
+      },
+      "join_creds" => {
+        "user" => "CN=mu_join_creds,#{$MU_CFG["ldap"]['user_ou']}"
+      },
+      "cfg_directory_adm" => {
+        "user" => "admin"
+      },
+      "root_dn_user" => {
+        "user" => "CN=root_dn_user"
+      }
     }
-    if !File.size?(file) or File.read(tmpfile) != File.read(file)
-      File.rename(tmpfile, file)
-      MU.log "Updated #{file}", MU::NOTICE
+    credlist.each_pair { |creds, cfg|
+      begin
+        data = nil
+        if $MU_CFG["ldap"].has_key?(creds)
+          data = MU::Groomer::Chef.getSecret(
+            vault: $MU_CFG["ldap"][creds]["vault"],
+            item: $MU_CFG["ldap"][creds]["item"]
+          )
+          MU::Groomer::Chef.grantSecretAccess("MU-MASTER", $MU_CFG["ldap"][creds]["vault"], $MU_CFG["ldap"][creds]["item"])
+        else
+          data = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: creds)
+          MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "mu_ldap", creds)
+        end
+      rescue MU::Groomer::MuNoSuchSecret
+        user = cfg["user"]
+        pw = Password.pronounceable(14..16)
+        if $MU_CFG["ldap"].has_key?(creds)
+          data = {
+            $MU_CFG["ldap"][creds]["username_field"] => user,
+            $MU_CFG["ldap"][creds]["password_field"] => pw
+          }
+          MU::Groomer::Chef.saveSecret(
+            vault: $MU_CFG["ldap"][creds]["vault"],
+            item: $MU_CFG["ldap"][creds]["item"],
+            data: data,
+            permissions: "name:MU-MASTER"
+          )
+        else
+          MU::Groomer::Chef.saveSecret(
+            vault: "mu_ldap",
+            item: creds,
+            data: { "username" => user, "password" => pw },
+            permissions: "name:MU-MASTER"
+          )
+        end
+      end
+    }
+  end
+
+  if AMROOT and !$IN_GEM
+    cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
+    pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
+    if (cur_chef_version != pref_chef_version and cur_chef_version.sub(/\-\d+$/, "") != pref_chef_version) or cur_chef_version.match(/is not installed/)
+      puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}' from '#{cur_chef_version}'"
+      chef_installer = open("https://omnitruck.chef.io/install.sh").read
+      File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+        f.puts chef_installer
+      }
+      system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
+      # This will go fix gems, permissions, etc
+      system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
+    end
+  end
+
+  if $INITIALIZE
+    if AMROOT and !$IN_GEM
+      %x{/sbin/service iptables stop} # Chef run will set up correct rules later
+    end
+    $MU_SET_DEFAULTS = setConfigTree
+    require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+    saveMuConfig($MU_SET_DEFAULTS)
+  else
+    if AMROOT
+      $NEW_CFG = $MU_CFG.merge(setConfigTree)
+    else
+      $NEW_CFG = setConfigTree
+    end
+    saveMuConfig($NEW_CFG)
+    $MU_CFG = $MU_CFG.merge(setConfigTree)
+    require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+  end
+  begin
+    require 'mu'
+  rescue MU::MuError => e
+    puts "Correct the above error before proceeding. To retry, run:\n\n#{$0.bold} #{ARGV.join(" ").bold}"
+    exit 1
+  rescue LoadError
+    system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
+    require 'mu'
+  end
+
+  if $IN_GEM
+    if $INITIALIZE
+      $MU_CFG = MU.detectCloudProviders
+    end
+    require 'mu/master/ssl'
+    MU::Master::SSL.bootstrap
+    puts $MU_CFG.to_yaml
+    saveMuConfig($MU_CFG)
+    MU::MommaCat.restart
+    exit
+  end
+
+  if AMROOT and ($INITIALIZE or $CHANGES.include?("hostname"))
+    system("/bin/hostname #{$MU_CFG['hostname']}")
+  end
+
+  # Do some more basic-but-Chef-dependent configuration *before* we meddle with
+  # the Chef Server configuration, which depends on some of this (SSL certs and
+  # local firewall ports).
+  if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
+    MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
+    %x{/sbin/service iptables stop} if $INITIALIZE
+    output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
+    if $?.exitstatus != 0
+      puts output
+      MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
+      %x{/sbin/service iptables start} if !$INITIALIZE
+      exit 1
+    end
+    %x{/sbin/service iptables start} if !$INITIALIZE
+  end
+
+  if $INITIALIZE and AMROOT
+    MU.log "Force open key firewall holes", MU::NOTICE
+    system("chef-client -o 'recipe[mu-master::firewall-holes]'")
+  end
+
+  if AMROOT
+    MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
+    if !system("chef-client -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
+      MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
+      exit 1
+    end
+  end
+
+  def updateChefRbs
+    user = AMROOT ? "mu" : Etc.getpwuid(Process.uid).name
+    chefuser = user.gsub(/\./, "")
+    templates = { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE }
+    Dir.mkdir(HOMEDIR+"/.chef") if !Dir.exist?(HOMEDIR+"/.chef")
+    if AMROOT
+      templates["/etc/chef/client.rb"] = CLIENT_TEMPLATE
+      templates["/etc/opscode/pivotal.rb"] = PIVOTAL_TEMPLATE
+    end
+    templates.each_pair { |file, template|
+      erb = ERB.new(template)
+      processed = erb.result(binding)
+      tmpfile = file+".tmp."+Process.pid.to_s
+      File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+        f.puts processed
+      }
+      if !File.size?(file) or File.read(tmpfile) != File.read(file)
+        File.rename(tmpfile, file)
+        MU.log "Updated #{file}", MU::NOTICE
+        $CHANGES << "chefcerts"
+      else
+        File.unlink(tmpfile)
+      end
+    }
+  end
+
+
+  if AMROOT
+    erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
+    updated_server_cfg = erb.result(binding)
+    cfgpath = "/etc/opscode/chef-server.rb"
+    tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
+    File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+      f.puts updated_server_cfg
+    }
+    if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
+      File.rename(tmpfile, cfgpath)
+      # Opscode can't seem to get things right with their postgres socket
+      Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exist?("/var/run/postgresql")
+      if File.exist?("/tmp/.s.PGSQL.5432") and !File.exist?("/var/run/postgresql/.s.PGSQL.5432")
+        File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
+      elsif !File.exist?("/tmp/.s.PGSQL.5432") and File.exist?("/var/run/postgresql/.s.PGSQL.5432")
+        File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
+      end
+      MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+      # XXX Some undocumented port Chef needs only on startup is being blocked by
+      # iptables. Something rabbitmq-related. Dopey workaround.
+      %x{/sbin/service iptables stop}
+      system("/opt/opscode/bin/chef-server-ctl reconfigure")
+      system("/opt/opscode/bin/chef-server-ctl restart")
+      %x{/sbin/service iptables start} if !$INITIALIZE
+      updateChefRbs
       $CHANGES << "chefcerts"
     else
       File.unlink(tmpfile)
+      updateChefRbs
     end
-  }
-end
-
-
-if AMROOT
-  erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
-  updated_server_cfg = erb.result(binding)
-  cfgpath = "/etc/opscode/chef-server.rb"
-  tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
-  File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-    f.puts updated_server_cfg
-  }
-  if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
-    File.rename(tmpfile, cfgpath)
-    # Opscode can't seem to get things right with their postgres socket
-    Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exists?("/var/run/postgresql")
-    if File.exists?("/tmp/.s.PGSQL.5432") and !File.exists?("/var/run/postgresql/.s.PGSQL.5432")
-      File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
-    elsif !File.exists?("/tmp/.s.PGSQL.5432") and File.exists?("/var/run/postgresql/.s.PGSQL.5432")
-      File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
-    end
-    MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
-    # XXX Some undocumented port Chef needs only on startup is being blocked by
-    # iptables. Something rabbitmq-related. Dopey workaround.
-    %x{/sbin/service iptables stop}
-    system("/opt/opscode/bin/chef-server-ctl reconfigure")
-    system("/opt/opscode/bin/chef-server-ctl restart")
-    %x{/sbin/service iptables start} if !$INITIALIZE
-    updateChefRbs
-    $CHANGES << "chefcerts"
   else
-    File.unlink(tmpfile)
     updateChefRbs
   end
-else
-  updateChefRbs
-end
 
-if $IN_AWS and AMROOT
-  system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
-# XXX --ip? Do we really care?
-end
-if $IN_GOOGLE and AMROOT
-  system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
-end
-
-if $INITIALIZE or $CHANGES.include?("chefcerts")
-  system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
-  if AMROOT
-    system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+  if $IN_AWS and AMROOT
+    system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
+  # XXX --ip? Do we really care?
   end
-end
-
-# knife ssl fetch isn't bright enough to nab our intermediate certs, which
-# ironically becomes a problem when we use one from the real world. Jam it
-# into knife and chef-client's faces thusly:
-if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['chain'])
-  cert = File.basename($MU_CFG['ssl']['chain'])
-  FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
-  File.chmod(0600, HOMEDIR+"/.chef/trusted_certs/#{cert}")
-  if AMROOT
-    File.chmod(0644, $MU_CFG['ssl']['chain'])
-    FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
+  if $IN_GOOGLE and AMROOT
+    system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
   end
-end
+  if $IN_AZURE and AMROOT
+    system("#{MU_BASE}/lib/bin/mu-azure-setup --sg")
+  end
 
-if $MU_CFG['repos'] and $MU_CFG['repos'].size > 0
-  $MU_CFG['repos'].each { |repo|
-    repo.match(/\/([^\/]+?)(\.git)?$/)
-    shortname = Regexp.last_match(1)
-    repodir = MU.dataDir + "/" + shortname
-    if !Dir.exists?(repodir)
-      MU.log "Cloning #{repo} into #{repodir}", MU::NOTICE
-      Dir.chdir(MU.dataDir)
-      system("/usr/bin/git clone #{repo}")
-      $CHANGES << "chefartifacts"
+  if $INITIALIZE or $CHANGES.include?("chefcerts")
+    system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
+    if AMROOT
+      system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
     end
-  }
-end
+  end
 
-if !AMROOT
-  exit
-end
+  # knife ssl fetch isn't bright enough to nab our intermediate certs, which
+  # ironically becomes a problem when we use one from the real world. Jam it
+  # into knife and chef-client's faces thusly:
+  if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['chain'])
+    cert = File.basename($MU_CFG['ssl']['chain'])
+    FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
+    File.chmod(0600, HOMEDIR+"/.chef/trusted_certs/#{cert}")
+    if AMROOT
+      File.chmod(0644, $MU_CFG['ssl']['chain'])
+      FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
+    end
+  end
 
-begin
-  MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
-rescue MU::Groomer::Chef::MuNoSuchSecret
-  data = {
-    "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
-    "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
-    "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
-  }
-  MU::Groomer::Chef.saveSecret(
-    vault: "secrets",
-    item: "consul",
-    data: data,
-    permissions: "name:MU-MASTER"
-  )
-end
-if $INITIALIZE or $CHANGES.include?("vault")
-  MU.log "Setting up Hashicorp Vault", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::vault]'")
-end
+  if $MU_CFG['repos'] and $MU_CFG['repos'].size > 0
+    $MU_CFG['repos'].each { |repo|
+      repo.match(/\/([^\/]+?)(\.git)?$/)
+      shortname = Regexp.last_match(1)
+      repodir = MU.dataDir + "/" + shortname
+      if !Dir.exist?(repodir)
+        MU.log "Cloning #{repo} into #{repodir}", MU::NOTICE
+        Dir.chdir(MU.dataDir)
+        system("/usr/bin/git clone #{repo}")
+        $CHANGES << "chefartifacts"
+      end
+    }
+  end
 
-if $MU_CFG['ldap']['type'] == "389 Directory Services"
+  if !AMROOT
+    exit
+  end
+
   begin
-    MU::Master::LDAP.listUsers
-  rescue Exception => e # XXX lazy exception handling is lazy
-    $CHANGES << "389ds"
+    MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
+  rescue MU::Groomer::MuNoSuchSecret
+    data = {
+      "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
+      "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
+      "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
+    }
+    MU::Groomer::Chef.saveSecret(
+      vault: "secrets",
+      item: "consul",
+      data: data,
+      permissions: "name:MU-MASTER"
+    )
   end
-  if $INITIALIZE or $CHANGES.include?("389ds")
-    File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exists?("/root/389ds.tmp/389-directory-setup.inf")
-    MU.log "Configuring 389 Directory Services", MU::NOTICE
-    set389DSCreds
-    system("chef-client -o 'recipe[mu-master::389ds]'")
-    exit 1 if $? != 0
-    MU::Master::LDAP.initLocalLDAP
-    system("chef-client -o 'recipe[mu-master::sssd]'")
-    exit 1 if $? != 0
+  if $INITIALIZE or $CHANGES.include?("vault")
+    MU.log "Setting up Hashicorp Vault", MU::NOTICE
+    system("chef-client -o 'recipe[mu-master::vault]'")
   end
-end
 
-# Figure out if our run list is dumb
-MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
-MU::Groomer::Chef.loadChefLib
-chef_node = ::Chef::Node.load("MU-MASTER")
-run_list = ["role[mu-master]"]
-run_list.concat($MU_CFG['master_runlist_extras']) if $MU_CFG['master_runlist_extras'].is_a?(Array)
-set_runlist = false
-run_list.each { |rl|
-  set_runlist = true if !chef_node.run_list?(rl)
-}
-if set_runlist
-  MU.log "Updating MU-MASTER run_list", MU::NOTICE, details: run_list
-  chef_node.run_list(run_list)
-  chef_node.save
-  $CHANGES << "chefrun"
-else
-  MU.log "Chef run list looks correct", MU::NOTICE, details: run_list
-end
+  if $MU_CFG['ldap']['type'] == "389 Directory Services"
+    begin
+      MU::Master::LDAP.listUsers
+    rescue Exception => e # XXX lazy exception handling is lazy
+      $CHANGES << "389ds"
+    end
+    if $INITIALIZE or $CHANGES.include?("389ds")
+      File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exist?("/root/389ds.tmp/389-directory-setup.inf")
+      MU.log "Configuring 389 Directory Services", MU::NOTICE
+      set389DSCreds
+      system("chef-client -o 'recipe[mu-master::389ds]'")
+      exit 1 if $? != 0
+      MU::Master::LDAP.initLocalLDAP
+      system("chef-client -o 'recipe[mu-master::sssd]'")
+      exit 1 if $? != 0
+    end
+  end
 
-# TODO here are some things we don't do yet but should
-# accommodate running as a non-root user
+  # Figure out if our run list is dumb
+  MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
+  MU::Groomer::Chef.loadChefLib
+  chef_node = ::Chef::Node.load("MU-MASTER")
+  run_list = ["role[mu-master]"]
+  run_list.concat($MU_CFG['master_runlist_extras']) if $MU_CFG['master_runlist_extras'].is_a?(Array)
+  set_runlist = false
+  run_list.each { |rl|
+    set_runlist = true if !chef_node.run_list?(rl)
+  }
+  if set_runlist
+    MU.log "Updating MU-MASTER run_list", MU::NOTICE, details: run_list
+    chef_node.run_list(run_list)
+    chef_node.save
+    $CHANGES << "chefrun"
+  else
+    MU.log "Chef run list looks correct", MU::NOTICE, details: run_list
+  end
 
-if $INITIALIZE
-  MU::Config.emitSchemaAsRuby
-  MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
-  File.umask(0022)
-  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
-end
+  # TODO here are some things we don't do yet but should
+  # accommodate running as a non-root user
+
+  if $INITIALIZE
+    MU::Config.emitSchemaAsRuby
+    MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
+    File.umask(0022)
+    system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
+  end
 
 
-MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-system("chef-client -o '#{run_list.join(",")}'")
+  MU.log "Running chef-client on MU-MASTER", MU::NOTICE
+  system("chef-client -o '#{run_list.join(",")}'")
 
 
-if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
-  MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
-  MU.setLogging(MU::Logger::SILENT)
-  MU::Master.manageUser(
-    "mu",
-    name: $MU_CFG['mu_admin_name'],
-    email: $MU_CFG['mu_admin_email'],
-    admin: true,
-    password: MU.generateWindowsPassword # we'll just overwrite this and do it with mu-user-manage below, which can do smart things with Scratchpad
-  )
-  MU.setLogging(MU::Logger::NORMAL)
-  sleep 3 # avoid LDAP lag for mu-user-manage
-end
+  if !File.exist?("#{MU_BASE}/var/users/mu/email") or !File.exist?("#{MU_BASE}/var/users/mu/realname")
+    MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
+    MU.setLogging(MU::Logger::SILENT)
+    MU::Master.manageUser(
+      "mu",
+      name: $MU_CFG['mu_admin_name'],
+      email: $MU_CFG['mu_admin_email'],
+      admin: true,
+      password: MU.generateWindowsPassword # we'll just overwrite this and do it with mu-user-manage below, which can do smart things with Scratchpad
+    )
+    MU.setLogging(MU::Logger::NORMAL)
+    sleep 3 # avoid LDAP lag for mu-user-manage
+  end
 
-output = %x{/opt/chef/bin/knife vault show scratchpad 2>&1}
-if $?.exitstatus != 0 or output.match(/is not a chef-vault/)
-  MU::Groomer::Chef.saveSecret(
-    vault: "scratchpad",
-    item: "placeholder",
-    data: { "secret" => "DO NOT DELETE", "timestamp" => "9999999999" },
-    permissions: "name:MU-MASTER"
-  )
-end
+  output = %x{/opt/chef/bin/knife vault show scratchpad 2>&1}
+  if $?.exitstatus != 0 or output.match(/is not a chef-vault/)
+    MU::Groomer::Chef.saveSecret(
+      vault: "scratchpad",
+      item: "placeholder",
+      data: { "secret" => "DO NOT DELETE", "timestamp" => "9999999999" },
+      permissions: "name:MU-MASTER"
+    )
+  end
 
-MU.log "Regenerating documentation in /var/www/html/docs"
-%x{#{MU_BASE}/lib/bin/mu-gen-docs}
+  MU.log "Regenerating documentation in /var/www/html/docs"
+  %x{#{MU_BASE}/lib/bin/mu-gen-docs}
 
-if $INITIALIZE
-  MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
-  puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu -n "#{$MU_CFG['mu_admin_name']}"}
-  MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
-  puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
-end
+  if $INITIALIZE
+    MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
+    puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu -n "#{$MU_CFG['mu_admin_name']}"}
+    MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
+    puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
+  end
 
-if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
-  MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
-  puts "source #{HOMEDIR}/.bashrc".bold
+  if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
+    MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
+    puts "source #{HOMEDIR}/.bashrc".bold
+  end
 end

@@ -20,21 +20,11 @@ module MU
       # An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::collections}
       class Collection < MU::Cloud::Collection
 
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          if !mu_name.nil?
-            @mu_name = mu_name
-          else
-            @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: true)
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
         end
 
@@ -104,7 +94,7 @@ module MU
               else
                 # json file and template path is same
                 file_dir =File.dirname(ARGV[0])
-                if File.exists? file_dir+"/"+@config["template_file"] then
+                if File.exist? file_dir+"/"+@config["template_file"] then
                   template_body=File.read(file_dir+"/"+@config["template_file"]);
                 end
               end
@@ -158,7 +148,7 @@ module MU
 
               case resource.resource_type
                 when "AWS::EC2::Instance"
-                  MU::MommaCat.createStandardTags(resource.physical_resource_id)
+                  MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   instance_name = MU.deploy_id+"-"+@config['name']+"-"+resource.logical_resource_id
                   MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
 
@@ -186,14 +176,14 @@ module MU
                   end
 
                 when "AWS::EC2::SecurityGroup"
-                  MU::MommaCat.createStandardTags(resource.physical_resource_id)
+                  MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   MU::Cloud::AWS::FirewallRule.notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
                 when "AWS::EC2::Subnet"
-                  MU::MommaCat.createStandardTags(resource.physical_resource_id)
+                  MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   data = {
                       "collection" => @config["name"],
@@ -201,7 +191,7 @@ module MU
                   }
                   @deploy.notify("subnets", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::VPC"
-                  MU::MommaCat.createStandardTags(resource.physical_resource_id)
+                  MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   data = {
                       "collection" => @config["name"],
@@ -209,10 +199,10 @@ module MU
                   }
                   @deploy.notify("vpcs", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::InternetGateway"
-                  MU::MommaCat.createStandardTags(resource.physical_resource_id)
+                  MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                 when "AWS::EC2::RouteTable"
-                  MU::MommaCat.createStandardTags(resource.physical_resource_id)
+                  MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
 
                 # The rest of these aren't anything we act on
@@ -307,13 +297,13 @@ module MU
         end
 
         # placeholder
-        def self.find(cloud_id: nil, region: MU.myRegion, credentials: nil)
+        def self.find(**args)
           found = nil
-          resp = MU::Cloud::AWS.cloudformation(region: region, credentials: credentials).describe_stacks(
-            stack_name: cloud_id
+          resp = MU::Cloud::AWS.cloudformation(region: args[:region], credentials: args[:credentials]).describe_stacks(
+            stack_name: args[:cloud_id]
           )
           if resp and resp.stacks
-            found[cloud_id] = resp.stacks.first
+            found[args[:cloud_id]] = resp.stacks.first
           end
 
           found

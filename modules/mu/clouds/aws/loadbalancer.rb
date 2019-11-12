@@ -18,30 +18,15 @@ module MU
       # A load balancer as configured in {MU::Config::BasketofKittens::loadbalancers}
       class LoadBalancer < MU::Cloud::LoadBalancer
 
-        @deploy = nil
         @lb = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
         attr_reader :targetgroups
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
-            @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
+          @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -208,8 +193,12 @@ module MU
                   :name => tg_name,
                   :protocol => tg['proto'],
                   :vpc_id => @vpc.cloud_id,
-                  :port => tg['port']
+                  :port => tg['port'],
+                  :target_type  => 'instance'
                 }
+                if tg['target_type'] && tg['target_type'] != 'instance'
+                  tg_descriptor[:target_type] = tg['target_type']
+                end
                 if tg['httpcode']
                   tg_descriptor[:matcher] = {
                     :http_code => tg['httpcode']
@@ -644,7 +633,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          raise MuError, "Can't touch ELBs without MU-ID" if MU.deploy_id.nil? or MU.deploy_id.empty?
+          if (MU.deploy_id.nil? or MU.deploy_id.empty?) and (!flags or !flags["vpc_id"])
+            raise MuError, "Can't touch ELBs without MU-ID or vpc_id flag"
+          end
 
           # Check for tags matching the current deploy identifier on an elb or 
           # elb2 resource.
@@ -692,19 +683,36 @@ module MU
             begin
               tags = []
               matched = false
-              if classic
-                matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic)
+              if flags and flags['vpc_id']
+                matched = true if lb.vpc_id == flags['vpc_id']
               else
-                matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic)
+                if classic
+                  matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic)
+                else
+                  matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic)
+                end
               end
               if matched
                 if !MU::Cloud::AWS.isGovCloud?
                   MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
                 end
-                MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
                 if classic
-                  MU::Cloud::AWS.elb(credentials: credentials, region: region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
+                  MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
+                  if !noop
+                    MU::Cloud::AWS.elb(credentials: credentials, region: region).delete_load_balancer(load_balancer_name: lb.load_balancer_name)
+                    stillhere = true
+                    begin
+                      ext_check = MU::Cloud::AWS.elb(credentials: credentials, region: region).describe_load_balancers(load_balancer_names: [lb.load_balancer_name])
+                      if !ext_check or
+                         !ext_check.load_balancer_descriptions or
+                         !ext_check.load_balancer_descriptions[0]
+                        sleep 3
+                      else stillhere = false
+                      end
+                    end while stillhere
+                  end
                 else
+                  MU.log "Removing Application Load Balancer #{lb.load_balancer_name}"
                   MU::Cloud::AWS.elb2(credentials: credentials, region: region).describe_listeners(
                     load_balancer_arn: lb.load_balancer_arn
                   ).listeners.each { |l|
@@ -765,6 +773,10 @@ module MU
                   "proto" => {
                     "type" => "string",
                     "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                  },
+                  "target_type " => {
+                    "type" => "string",
+                    "enum" => ["instance", "ip", "lambda"],
                   }
                 }
               }
@@ -840,43 +852,39 @@ module MU
         end
 
         # Locate an existing LoadBalancer or LoadBalancers and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
-          classic = flags['classic'] ? true : false
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching LoadBalancers
+        def self.find(**args)
+          args[:flags] ||= {}
+          classic = args[:flags]['classic'] ? true : false
 
           matches = {}
           list = {}
           arn2name = {}
           resp = nil
           if classic
-            resp = MU::Cloud::AWS.elb(region: region, credentials: credentials).describe_load_balancers().load_balancer_descriptions
+            resp = MU::Cloud::AWS.elb(region: args[:region], credentials: args[:credentials]).describe_load_balancers().load_balancer_descriptions
           else
-            resp = MU::Cloud::AWS.elb2(region: region, credentials: credentials).describe_load_balancers().load_balancers
+            resp = MU::Cloud::AWS.elb2(region: args[:region], credentials: args[:credentials]).describe_load_balancers().load_balancers
           end
 
           resp.each { |lb|
             list[lb.load_balancer_name] = lb
             arn2name[lb.load_balancer_arn] = lb.load_balancer_name if !classic
-            if !cloud_id.nil? and lb.load_balancer_name == cloud_id
-              matches[cloud_id] = lb
+            if !args[:cloud_id].nil? and lb.load_balancer_name == args[:cloud_id]
+              matches[args[:cloud_id]] = lb
             end
           }
 
           return matches if matches.size > 0
 
-          if !tag_key.nil? and !tag_value.nil? and !tag_key.empty? and list.size > 0
+          if !args[:tag_key].nil? and !args[:tag_value].nil? and !args[:tag_key].empty? and list.size > 0
             tag_descriptions = nil
             if classic
-              tag_descriptions = MU::Cloud::AWS.elb(region: region, credentials: credentials).describe_tags(
+              tag_descriptions = MU::Cloud::AWS.elb(region: args[:region], credentials: args[:credentials]).describe_tags(
                 load_balancer_names: list.keys
               ).tag_descriptions
             else
-              tag_descriptions = MU::Cloud::AWS.elb2(region: region, credentials: credentials).describe_tags(
+              tag_descriptions = MU::Cloud::AWS.elb2(region: args[:region], credentials: args[:credentials]).describe_tags(
                 resource_arns: list.values.map { |l| l.load_balancer_arn }
               ).tag_descriptions
             end
@@ -884,7 +892,7 @@ module MU
               tag_descriptions.each { |lb|
                 lb_name = classic ? lb.load_balancer_name : arn2name[lb.resource_arn]
                 lb.tags.each { |tag|
-                  if tag.key == tag_key and tag.value == tag_value
+                  if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                     matches[lb_name] = list[lb_name]
                   end
                 }

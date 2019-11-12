@@ -1,0 +1,265 @@
+#!/usr/local/ruby-current/bin/ruby
+#
+# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Perform initial Mu setup tasks:
+# 1. Set up an appropriate Security Group
+# 2. Associate a specific Elastic IP address to this MU server, if required.
+# 3. Create an S3 bucket for Mu logs.
+
+require 'etc'
+require 'securerandom'
+
+require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
+
+require 'rubygems'
+require 'bundler/setup'
+require 'json'
+require 'erb'
+require 'optimist'
+require 'json-schema'
+require 'mu'
+require 'mu/master/ssl'
+Dir.chdir(MU.installDir)
+
+$opts = Optimist::options do
+  banner <<-EOS
+Usage:
+#{$0} [-i] [-s] [-l] [-u] [-d]
+  EOS
+#  opt :ip, "Attempt to configure the IP requested in the CHEF_PUBLIC_IP environment variable, or if none is set, to associate an arbitrary Elastic IP.", :require => false, :default => false, :type => :boolean
+  opt :sg, "Attempt to configure a Security Group with appropriate permissions.", :require => false, :default => false, :type => :boolean
+  opt :logs, "Ensure the presence of an Cloud Storage bucket prefixed with 'Mu_Logs' for use with CloudTrails, syslog, etc.", :require => false, :default => false, :type => :boolean
+#  opt :dns, "Ensure the presence of a private DNS Zone called for internal amongst Mu resources.", :require => false, :default => false, :type => :boolean
+  opt :uploadlogs, "Push today's log files to the Cloud Storage bucket created by the -l option.", :require => false, :default => false, :type => :boolean
+end
+
+if MU::Cloud::Azure.hosted? and !$MU_CFG['google']
+  new_cfg = $MU_CFG.dup
+  cfg_blob = MU::Cloud::Azure.hosted_config
+  if cfg_blob
+    cfg_blob['log_bucket_name'] ||= $MU_CFG['hostname']
+    new_cfg["google"] = { "default" => cfg_blob }
+    MU.log "Adding auto-detected Azure stanza to #{cfgPath}", MU::NOTICE
+    if new_cfg != $MU_CFG or !cfgExists?
+      MU.log "Generating #{cfgPath}"
+      saveMuConfig(new_cfg)
+      $MU_CFG = new_cfg
+    end
+  end
+end
+
+sgs_to_ifaces = {}
+ifaces_to_sgs = {}
+sgs = []
+if MU::Cloud::Azure.hosted?
+  instance = MU.myCloudDescriptor
+  # Azure VMs can have exactly one security group per network interface, so if
+  # there's already one, we use it.
+  iface_num = 0
+  instance.network_profile.network_interfaces.each { |iface|
+    iface_id = MU::Cloud::Azure::Id.new(iface.id)
+    ifaces_to_sgs[iface_id] = false
+    iface_desc = MU::Cloud::Azure.network.network_interfaces.get(MU.myInstanceId.resource_group, iface_id.to_s)
+    if iface_desc.network_security_group
+      sg_id = MU::Cloud::Azure::Id.new(iface_desc.network_security_group.id)
+      sgs << sg_id
+      sgs_to_ifaces[sg_id] = iface_id
+      ifaces_to_sgs[iface_id] = sg_id
+    else
+      ifaces_to_sgs[iface_id] = "mu-master-"+MU.myInstanceId.name
+      ifaces_to_sgs[iface_id] += "-"+iface_num.to_s if iface_num > 0
+    end
+    if iface_desc.ip_configurations
+      iface_desc.ip_configurations.each { |ipcfg|
+        ipcfg.subnet.id.match(/resourceGroups\/([^\/]+)\/providers\/Microsoft.Network\/virtualNetworks\/([^\/]+)\/subnets\/(.*)/)
+        rg = Regexp.last_match[1]
+        vpc_id = Regexp.last_match[2]
+        subnet_id = Regexp.last_match[3]
+        subnet = MU::Cloud::Azure.network.subnets.get(
+          rg,
+          vpc_id,
+          subnet_id
+        )
+        if subnet.network_security_group
+          sg_id = MU::Cloud::Azure::Id.new(subnet.network_security_group.id)
+          sgs << sg_id
+        end
+      }
+    end
+    iface_num += 1
+  }
+  sgs.uniq!
+
+#  if !instance.tags.items or !instance.tags.items.include?(admin_sg_name)
+#    newitems = instance.tags.items ? instance.tags.items.dup : []
+#    newitems << admin_sg_name
+#    MU.log "Setting my instance tags", MU::NOTICE, details: newitems
+#    newtags = MU::Cloud::Azure.compute(:Tags).new(
+#      fingerprint: instance.tags.fingerprint,
+#      items: newitems
+#    )
+#    MU::Cloud::Azure.compute.set_instance_tags(
+#      MU::Cloud::Azure.myProject,
+#      MU.myAZ,
+#      MU.myInstanceId,
+#      newtags
+#    )
+#    instance = MU.myCloudDescriptor
+#  end
+  preferred_ip = MU.mu_public_ip
+end
+
+# Create a security group, or manipulate an existing one, so that we have all
+# of the appropriate network holes.
+if $opts[:sg]
+  open_ports = [80, 443, MU.mommaCatPort, 7443, 8443, 9443, 8200]
+
+  sgs.each { |sg_id|
+    admin_sg_name = sg_id.is_a?(String) ? sg_id : sg_id.name
+
+    found = MU::MommaCat.findStray("Azure", "firewall_rule", dummy_ok: true, cloud_id: admin_sg_name, region: instance.location)
+    admin_sg = found.first if !found.nil? and found.size > 0
+
+    rules = []
+    open_ports.each { |port|
+      rules << {
+        "proto" => "tcp",
+        "port" => port.to_s
+      }
+    }
+
+    rules << {
+      "proto" => "tcp",
+      "port" => 22
+#      "hosts" => ["#{preferred_ip}/32"]
+    }
+    cfg = {
+      "name" => admin_sg_name,
+      "scrub_mu_isms" => true,
+      "cloud" => "Azure",
+      "rules" => rules,
+      "region" => instance.location,
+      "target_tags" => [admin_sg_name],
+      "vpc" => {
+        "vpc_id" => MU::Cloud::Azure::Id.new(instance.network_profile.network_interfaces.first.id)
+      }
+    }
+
+    if !admin_sg
+      admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: admin_sg_name)
+      admin_sg.create
+      admin_sg.groom
+    else
+      rules.each { |rule|
+        admin_sg.addRule(rule["hosts"], proto: rule["proto"], port: rule["port"].to_i)
+      }
+    end
+  }
+end
+
+$bucketname = MU::Cloud::Azure.adminBucketName
+
+if $opts[:logs]
+  MU::Cloud::Azure.listCredentials.each { |credset|
+    bucketname = MU::Cloud::Azure.adminBucketName(credset)
+    exists = false
+
+    MU.log "Configuring log and secret Azure Cloud Storage bucket '#{bucketname}'"
+
+    bucket = nil
+    begin
+      bucket = MU::Cloud::Azure.storage(credentials: credset).get_bucket(bucketname)
+    rescue ::Azure::Apis::ClientError => e
+      if e.message.match(/notFound:/)
+        MU.log "Creating #{bucketname} bucket"
+        bucketobj = MU::Cloud::Azure.storage(:Bucket).new(
+          name: bucketname,
+          location: "US", # XXX why is this needed?
+          versioning: MU::Cloud::Azure.storage(:Bucket)::Versioning.new(
+            enabled: true
+          ),
+          lifecycle: MU::Cloud::Azure.storage(:Bucket)::Lifecycle.new(
+            rule: [ MU::Cloud::Azure.storage(:Bucket)::Lifecycle::Rule.new(
+              action: MU::Cloud::Azure.storage(:Bucket)::Lifecycle::Rule::Action.new(
+                type: "SetStorageClass",
+                storage_class: "DURABLE_REDUCED_AVAILABILITY"
+              ),
+              condition: MU::Cloud::Azure.storage(:Bucket)::Lifecycle::Rule::Condition.new(
+                age: 180
+              )
+            )]
+          )
+        )
+        bucket = MU::Cloud::Azure.storage(credentials: credset).insert_bucket(
+          MU::Cloud::Azure.defaultProject(credset),
+          bucketobj
+        )
+      else
+        pp e.backtrace
+        raise MU::MuError, e.inspect
+      end
+    end
+
+    ebs_key = nil
+
+    begin
+      ebs_key = MU::Cloud::Azure.storage(credentials: credset).get_object(bucketname, "log_vol_ebs_key")
+    rescue ::Azure::Apis::ClientError => e
+      if e.message.match(/notFound:/)
+        # XXX this may not be useful outside of AWS
+        MU.log "Creating new key for encrypted log volume"
+        key = SecureRandom.random_bytes(32)
+        f = Tempfile.new("logvolkey") # XXX this is insecure and stupid
+        f.write key
+        f.close
+        objectobj = MU::Cloud::Azure.storage(:Object).new(
+          bucket: bucketname,
+          name: "log_vol_ebs_key"
+        )
+        ebs_key = MU::Cloud::Azure.storage(credentials: credset).insert_object(
+          bucketname,
+          objectobj,
+          upload_source: f.path
+        )
+        f.unlink
+      else
+        raise MuError, e.inspect
+      end
+    end
+# XXX stop doing this per-bucket, chowderhead
+    MU::Master.disk("/dev/xvdl", "/Mu_Logs", 50, "log_vol_ebs_key", "ram7")
+  }
+
+end
+
+if $opts[:dns]
+end
+
+if $opts[:uploadlogs]
+  today = Time.new.strftime("%Y%m%d").to_s
+  ["master.log", "nodes.log"].each { |log|
+    if File.exist?("/Mu_Logs/#{log}-#{today}")
+      MU.log "Uploading /Mu_Logs/#{log}-#{today} to bucket #{$bucketname}"
+      MU::Cloud::AWS.s3.put_object(
+          bucket: $bucketname,
+          key: "#{log}/#{today}",
+          body: File.read("/Mu_Logs/#{log}-#{today}")
+      )
+    else
+      MU.log "No log /Mu_Logs/#{log}-#{today} was found", MU::WARN
+    end
+  }
+end

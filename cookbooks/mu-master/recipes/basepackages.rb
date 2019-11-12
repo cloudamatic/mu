@@ -27,24 +27,42 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-if platform_family?("rhel") 
-  basepackages = ["vim-enhanced", "zip", "unzip", "java-1.8.0-openjdk", "libxml2-devel", "libxslt-devel", "cryptsetup-luks", "python-pip", "lsof", "mlocate", "strace", "nmap", "openssl-devel", "readline-devel", "python-devel", "diffutils", "patch", "bind-utils", "httpd-tools", "mailx", "openssl", "libyaml", "graphviz", "ImageMagick-devel", "graphviz-devel", "jq", "vim", "libffi-devel"]
+rhelbase = ["vim-enhanced", "zip", "unzip", "java-1.8.0-openjdk", "libxml2-devel", "libxslt-devel", "cryptsetup-luks", "python-pip", "lsof", "mlocate", "strace", "nmap", "openssl-devel", "readline-devel", "python-devel", "diffutils", "patch", "bind-utils", "httpd-tools", "mailx", "openssl", "libyaml", "graphviz", "ImageMagick-devel", "graphviz-devel", "jq", "vim", "libffi-devel"]
+debianbase = [] # Bill is hopeful about the future...
 
-  if node['platform_version'].to_i < 6 or node['platform_version'].to_i >= 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7"
+case node['platform_family']
+when 'rhel'
+  basepackages = rhelbase
 
-  # RHEL6, CentOS6, Amazon Linux
-  elsif node['platform_version'].to_i < 7
+  case node['platform_version'].split('.')[0].to_i
+  when 6
     basepackages.concat(["java-1.5.0-gcj", "mysql-server", "autoconf"])
-    basepackages << "gecode-devel" if node['platform'] == "amazon"
 
-  # RHEL7, CentOS7
-  elsif node['platform_version'].to_i < 8
+  when 7
     basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
+
+  when 8
+    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+  else
+    raise "Mu does not support RHEL #{node['platform_version']}"
+  end
+
+when 'amazon'
+  basepackages = rhelbase
+
+  case node['platform_version'].split('.')[0].to_i
+  when 1, 6
+    basepackages.concat(['java-1.5.0-gcj', 'mysql-server', 'autoconf', 'gecode-devel'])
+
+  when 2
+    basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
+
+  else
+    raise "Mu does not support Amazon #{node['platform_version']}"
   end
 
 else
-  raise "Mu Masters are currently only supported on RHEL-family hosts."
+  raise "Mu Masters are currently only supported on RHEL and Amazon family hosts."
 end
 
 package basepackages
@@ -56,3 +74,5 @@ rpms.each_pair { |pkg, src|
 package removepackages do
   action :remove
 end
+
+basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]

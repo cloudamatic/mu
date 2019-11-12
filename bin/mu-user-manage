@@ -275,5 +275,8 @@ if $password
     MU.log "Generated password for #{$username}: #{$password}", MU::NOTICE
   end
 end
+if File.exist?("/sbin/sss_cache")
+  %x{/sbin/sss_cache -E}
+end
 
 MU::Master.printUsersToTerminal

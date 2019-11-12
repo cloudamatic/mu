@@ -17,9 +17,44 @@
 # limitations under the License.
 
 # XXX this is nonsense if we're not in AWS
-response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
-instance_id = response.body
-search_domains = ["ec2.internal", "sclearerver.#{instance_id}.platform-mu", "platform-mu"]
+instance_id = node.name
+search_domains = ["platform-mu"]
+if node['ec2']
+  response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
+  instance_id = response.body
+  search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
+elsif node['gce']
+  instance_id = node['gce']['instance']['name']
+  domains = node['gce']['instance']['hostname'].split(/\./)
+  domains.shift
+  search_domains = []
+  begin
+    search_domains << domains.join(".")+"."
+    domains.shift
+  end while domains.size > 1
+  search_domains << "google.internal."
+end
+
+if ::File.exist?("/etc/sudoers.d/waagent")
+  sshgroup = if node['platform'] == "centos"
+    "centos"
+  elsif node['platform'] == "ubuntu"
+    "ubuntu"
+  elsif node['platform'] == "windows"
+    "windows"
+  else
+    "root"
+  end
+  
+  File.readlines("/etc/sudoers.d/waagent").each { |l|
+    l.chomp!
+    user = l.sub(/ .*/, '')
+    group sshgroup do
+      members user
+      append true
+    end
+  }
+end
 
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
@@ -27,7 +62,7 @@ include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 include_recipe 'mu-tools::gcloud'
-#include_recipe 'mu-master::eks-kubectl'
+#include_recipe 'mu-master::kubectl'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -128,7 +163,15 @@ end
 include_recipe "mu-master::update_nagios_only"
 
 if !node['update_nagios_only']
-  package "nagios-plugins-all"
+
+  package %w(nagios-plugins-breeze nagios-plugins-by_ssh nagios-plugins-cluster nagios-plugins-dhcp nagios-plugins-dig nagios-plugins-disk nagios-plugins-disk_smb nagios-plugins-dns nagios-plugins-dummy nagios-plugins-file_age nagios-plugins-flexlm nagios-plugins-fping nagios-plugins-game nagios-plugins-hpjd nagios-plugins-http nagios-plugins-icmp nagios-plugins-ide_smart nagios-plugins-ircd nagios-plugins-ldap nagios-plugins-load nagios-plugins-log nagios-plugins-mailq nagios-plugins-mrtg nagios-plugins-mrtgtraf nagios-plugins-nagios nagios-plugins-nt nagios-plugins-ntp nagios-plugins-ntp-perl nagios-plugins-nwstat nagios-plugins-oracle nagios-plugins-overcr nagios-plugins-pgsql nagios-plugins-ping nagios-plugins-procs nagios-plugins-real nagios-plugins-rpc nagios-plugins-sensors nagios-plugins-smtp nagios-plugins-snmp nagios-plugins-ssh nagios-plugins-swap nagios-plugins-tcp nagios-plugins-time nagios-plugins-ups nagios-plugins-users nagios-plugins-wave) do
+    action :install
+  end
+
+  package %w(nagios-plugins-mysql) do
+      action :install
+      not_if { node['platform'] == 'amazon' }
+  end
 
   directory "/home/nagios" do
     owner "nagios"
@@ -179,14 +222,23 @@ if !node['update_nagios_only']
   include_recipe "apache2::mod_proxy"
   include_recipe "apache2::mod_proxy_http"
   include_recipe "apache2::mod_rewrite"
-  include_recipe "apache2::mod_ldap"
-  include_recipe "apache2::mod_authnz_ldap"
+
+  if node['platform_family'] == "rhel" and node['platform_version'].split('.')[0].to_i == 6
+    package "httpd24-mod_ldap"
+    apache_module 'ldap' do
+      conf true
+    end
+  else
+    include_recipe "apache2::mod_authnz_ldap"
+  end
+
   apache_site "default" do
     enable false
   end
   execute "Allow net connect to local for apache" do
     command "/usr/sbin/setsebool -P httpd_can_network_connect on"
     not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
+    not_if "/sbin/getenforce | grep -cim1  disabled"
     notifies :reload, "service[apache2]", :delayed
   end
 
@@ -250,9 +302,6 @@ if !node['update_nagios_only']
 
   <p>
    <a href='https://#{MU.mu_public_addr}/nagios/'>Nagios monitoring GUI</a>
-  </p>
-  <p>
-   <a href='https://#{MU.mu_public_addr}/jenkins/'>Jenkins interface GUI</a>
   </p>
   <p>
    <a href='#{(mubranch.nil? or mubranch == "master" or mubranch.match(/detached from/)) ? "https://cloudamatic.gitlab.io/mu/" : "http://"+MU.mu_public_addr+"/docs"}'>Mu API documentation</a>

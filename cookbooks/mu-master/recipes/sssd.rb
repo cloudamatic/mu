@@ -58,7 +58,8 @@ service "oddjobd" do
   start_command "sh -x /etc/init.d/oddjobd start" if %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 6  # seems to actually work
   action [:enable, :start]
 end
-execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
+package "authconfig"
+execute "LC_ALL=C /usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
   notifies :restart, "service[oddjobd]", :immediately
   notifies :reload, "service[sshd]", :delayed
   not_if "grep pam_sss.so /etc/pam.d/password-auth"

@@ -75,31 +75,26 @@ module MU
           @ephemeral_mappings
         end
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :deploy
-        attr_reader :cloud_id
-        attr_reader :cloud_desc
-        attr_reader :groomer
-        attr_accessor :mu_windows_name
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id = cloud_id
-
-          if @deploy
-            @userdata = MU::Cloud.fetchUserdata(
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @userdata = if @config['userdata_script']
+            @config['userdata_script']
+          elsif @deploy and !@config['scrub_mu_isms']
+            MU::Cloud.fetchUserdata(
               platform: @config["platform"],
-              cloud: "aws",
+              cloud: "AWS",
+              credentials: @config['credentials'],
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                 "deploySSHKey" => @deploy.ssh_public_key,
                 "muID" => MU.deploy_id,
                 "muUser" => MU.mu_user,
                 "publicIP" => MU.mu_public_ip,
+                "mommaCatPort" => MU.mommaCatPort,
+                "adminBucketName" => MU::Cloud::AWS.adminBucketName(@credentials),
+                "chefVersion" => MU.chefVersion,
                 "skipApplyUpdates" => @config['skipinitialupdates'],
                 "windowsAdminName" => @config['windows_admin_username'],
                 "resourceName" => @config["name"],
@@ -113,10 +108,8 @@ module MU
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
 
-          if !mu_name.nil?
-            @mu_name = mu_name
+          if !@mu_name.nil?
             @config['mu_name'] = @mu_name
-            # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
@@ -126,9 +119,8 @@ module MU
             end
             @config['mu_name'] = @mu_name
 
-            @config['instance_secret'] = Password.random(50)
           end
-          @groomer = MU::Groomer.new(self)
+          @config['instance_secret'] ||= Password.random(50)
 
         end
 
@@ -246,7 +238,7 @@ module MU
               end
               MU::MommaCat.unlock(instance.instance_id+"-create")
             else
-              MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
               MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             end
             done = true
@@ -288,8 +280,9 @@ module MU
           if @config['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
             s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
             }
+            MU.log "Adding S3 read permissions to #{@mu_name}'s IAM profile", MU::NOTICE, details: s3_objs
             role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
 
             @config['iam_role'] = role.mu_name
@@ -382,6 +375,15 @@ module MU
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
 
+          if @tags and @tags.size > 0
+            instance_descriptor[:tag_specifications] = [{
+              :resource_type => "instance",
+              :tags => @tags.keys.map { |k|
+                { :key => k, :value => @tags[k] }
+              }
+            }]
+          end
+
           MU.log "Creating EC2 instance #{node}"
           MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
 #				if instance_descriptor[:block_device_mappings].empty?
@@ -389,8 +391,16 @@ module MU
 #				end
 
           retries = 0
-          begin
+          instance = begin
             response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+            if response and response.instances and response.instances.size > 0
+              instance = response.instances.first
+            else
+              MU.log "halp", MU::ERR, details: response
+            end
+          rescue Aws::EC2::Errors::InvalidRequest => e
+            MU.log e.message, MU::ERR, details: instance_descriptor
+            raise e
           rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
             if retries < 10
               if retries > 7
@@ -404,11 +414,9 @@ module MU
             end
           end
 
-          instance = response.instances.first
           MU.log "#{node} (#{instance.instance_id}) coming online"
 
-          return instance
-
+          instance
         end
 
         # Ask the Amazon API to restart this node
@@ -424,7 +432,10 @@ module MU
               groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
               MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
               MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).suspend_processes(
-                auto_scaling_group_name: groupname
+                auto_scaling_group_name: groupname,
+                scaling_processes: [
+                  "Terminate",
+                ], 
               )
             end
             begin
@@ -445,7 +456,10 @@ module MU
               if !groupname.nil?
                 MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
                 MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).resume_processes(
-                  auto_scaling_group_name: groupname
+                  auto_scaling_group_name: groupname,
+                  scaling_processes: [
+                    "Terminate",
+                  ],
                 )
               end
             end
@@ -515,7 +529,7 @@ module MU
           return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 
-          MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
           MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
@@ -748,11 +762,11 @@ module MU
             # extra interfaces to accomodate.
             if !@config['vpc']['subnets'].nil? and @config['basis'].nil?
               device_index = 1
-              @vpc.subnets { |subnet|
-                subnet_id = subnet.cloud_id
+              @vpc.subnets { |s|
+                subnet_id = s.cloud_id
                 MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
                 iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
-                MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'], credentials: @config['credentials'])
 
                 if @config['optional_tags']
@@ -956,15 +970,16 @@ module MU
         # postBoot
 
         # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
-# XXX put that 'ip' value into opts
-          ip ||= flags['ip']
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
+        def self.find(**args)
+          ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
+
+          cloud_id = args[:cloud_id]
+          region = args[:region]
+          credentials = args[:credentials]
+          tag_key = args[:tag_key]
+          tag_value = args[:tag_value]
+
           instance = nil
           if !region.nil?
             regions = [region]
@@ -978,21 +993,21 @@ module MU
 
           # If we got an instance id, go get it
           if !cloud_id.nil? and !cloud_id.empty?
-            regions.each { |region|
+            regions.each { |r|
               search_threads << Thread.new {
-                MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
+                MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{r}", MU::DEBUG
                 retries = 0
                 begin
-                  MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_instances(
+                  MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_instances(
                       instance_ids: [cloud_id],
                       filters: [
                           {name: "instance-state-name", values: ["running", "pending"]}
                       ]
                   ).reservations.each { |resp|
                     if !resp.nil? and !resp.instances.nil?
-                      resp.instances.each { |instance|
+                      resp.instances.each { |i|
                         search_semaphore.synchronize {
-                          found_instances[instance.instance_id] = instance
+                          found_instances[i.instance_id] = i
                         }
                       }
                     end
@@ -1002,7 +1017,7 @@ module MU
                     retries = retries + 1
                     sleep 5
                   else
-                    raise MuError, "#{e.inspect} in region #{region}"
+                    raise MuError, "#{e.inspect} in region #{r}"
                   end
                 end
               }
@@ -1048,8 +1063,8 @@ module MU
                 ]
             ).reservations.each { |resp|
               if !resp.nil? and resp.instances.size > 0
-                resp.instances.each { |instance|
-                  found_instances[instance.instance_id] = instance
+                resp.instances.each { |i|
+                  found_instances[i.instance_id] = i
                 }
               end
             }
@@ -1218,12 +1233,12 @@ module MU
                 purgecmd = "rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates /cygdrive/c/mu_installed_chef"
                 # session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
               else
-                purgecmd = "#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
+                purgecmd = "#{sudo} rm -rf /var/lib/cloud/instances/i-* /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
               end
             end
             session.exec!(purgecmd)
             session.close
-            ami_id = MU::Cloud::AWS::Server.createImage(
+            ami_ids = MU::Cloud::AWS::Server.createImage(
                 name: @mu_name,
                 instance_id: @cloud_id,
                 storage: @config['storage'],
@@ -1234,11 +1249,11 @@ module MU
                 tags: @config['tags'],
                 credentials: @config['credentials']
             )
-            @deploy.notify("images", @config['name'], {"image_id" => ami_id})
+            @deploy.notify("images", @config['name'], ami_ids)
             @config['image_created'] = true
             if img_cfg['image_then_destroy']
-              MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'], credentials: @config['credentials'])
-              MU.log "AMI #{ami_id} ready, removing source node #{node}"
+              MU::Cloud::AWS::Server.waitForAMI(ami_ids[@config['region']], region: @config['region'], credentials: @config['credentials'])
+              MU.log "AMI #{ami_ids[@config['region']]} ready, removing source node #{node}"
               MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
               destroy
             end
@@ -1253,12 +1268,19 @@ module MU
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":instance/"+@cloud_id
         end
 
+        # Return the cloud provider's description for this instance
+        # @return [Openstruct]
         def cloud_desc
           max_retries = 5
           retries = 0
           if !@cloud_id.nil?
             begin
-              return MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id])
+              if resp and resp.reservations and resp.reservations.first and
+                 resp.reservations.first.instances and
+                 resp.reservations.first.instances.first
+                return resp.reservations.first.instances.first
+              end
             rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
               return nil
             rescue NoMethodError => e
@@ -1325,10 +1347,11 @@ module MU
         # @return [String]: The cloud provider identifier of the new machine image.
         def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, make_public: false, region: MU.curRegion, copy_to_regions: [], tags: [], credentials: nil)
           ami_descriptor = {
-              :instance_id => instance_id,
-              :name => name,
-              :description => "Image automatically generated by Mu from #{name}"
+            :instance_id => instance_id,
+            :name => name,
+            :description => "Image automatically generated by Mu from #{name}"
           }
+          ami_ids = {}
 
           storage_list = Array.new
           if exclude_storage
@@ -1361,8 +1384,11 @@ module MU
             MU.log "AMI #{name} already exists, skipping", MU::WARN
             return nil
           end
+
           ami = resp.image_id
-          MU::MommaCat.createStandardTags(ami, region: region, credentials: credentials)
+
+          ami_ids[region] = ami
+          MU::Cloud::AWS.createStandardTags(ami, region: region, credentials: credentials)
           MU::MommaCat.createTag(ami, "Name", name, region: region, credentials: credentials)
           MU.log "AMI of #{name} in region #{region}: #{ami}"
           if make_public
@@ -1388,8 +1414,9 @@ module MU
                     description: "Image automatically generated by Mu from #{name}"
                 )
                 MU.log "Initiated copy of #{ami} from #{region} to #{r}: #{copy.image_id}"
+                ami_ids[r] = copy.image_id
 
-                MU::MommaCat.createStandardTags(copy.image_id, region: r, credentials: credentials)
+                MU::Cloud::AWS.createStandardTags(copy.image_id, region: r, credentials: credentials)
                 MU::MommaCat.createTag(copy.image_id, "Name", name, region: r, credentials: credentials)
                 if !tags.nil?
                   tags.each { |tag|
@@ -1413,7 +1440,7 @@ module MU
             t.join
           }
 
-          return resp.image_id
+          return ami_ids
         end
 
         # Given a cloud platform identifier for a machine image, wait until it's
@@ -1608,7 +1635,8 @@ module MU
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        def addVolume(dev, size, type: "gp2")
+        # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
+        def addVolume(dev, size, type: "gp2", delete_on_termination: false)
           if @cloud_id.nil? or @cloud_id.empty?
             MU.log "#{self} didn't have a cloud id, couldn't determine 'active?' status", MU::ERR
             return true
@@ -1619,10 +1647,26 @@ module MU
           ).reservations.each { |resp|
             if !resp.nil? and !resp.instances.nil?
               resp.instances.each { |instance|
-              az = instance.placement.availability_zone
-                instance.block_device_mappings.each { |vol|
-                  if vol.device_name == dev
+                az = instance.placement.availability_zone
+                d_o_t_changed = true
+                mappings = MU.structToHash(instance.block_device_mappings)
+                mappings.each { |vol|
+                  if vol[:ebs]
+                    vol[:ebs].delete(:attach_time)
+                    vol[:ebs].delete(:status)
+                  end
+                }
+                mappings.each { |vol|
+                  if vol[:device_name] == dev
                     MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
+                    if vol[:ebs][:delete_on_termination] != delete_on_termination
+                      vol[:ebs][:delete_on_termination] = delete_on_termination
+                      MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
+                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+                        instance_id: @cloud_id,
+                        block_device_mappings: mappings
+                      )
+                    end
                     return
                   end
                 }
@@ -1663,6 +1707,32 @@ module MU
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
           end while attachment.state != "attached"
+
+          # Set delete_on_termination, which for some reason is an instance
+          # attribute and not on the attachment
+          mappings = MU.structToHash(cloud_desc.block_device_mappings)
+          changed = false
+
+          mappings.each { |mapping|
+            if mapping[:ebs]
+              mapping[:ebs].delete(:attach_time)
+              mapping[:ebs].delete(:status)
+            end
+            if mapping[:device_name] == dev and 
+               mapping[:ebs][:delete_on_termination] != delete_on_termination
+              changed = true
+              mapping[:ebs][:delete_on_termination] = delete_on_termination
+            end
+          }
+
+          if changed
+            MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+              instance_id: @cloud_id,
+              block_device_mappings: mappings
+            )
+          end
+
         end
 
         # Determine whether the node in question exists at the Cloud provider
@@ -1934,7 +2004,7 @@ module MU
             end
             if !onlycloud and !mu_name.nil?
               # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
-              if !zone_rrsets.empty?
+              if !zone_rrsets.nil? and !zone_rrsets.empty?
                 zone_rrsets.each { |rrset|
                   if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                     rrset.resource_records.each { |record|
@@ -1944,16 +2014,6 @@ module MU
                   end
                 }
               end
-
-              # Expunge traces left in Chef, Puppet or what have you
-              MU::Groomer.supportedGroomers.each { |groomer|
-                groomclass = MU::Groomer.loadGroomer(groomer)
-                if !server_obj.nil? and !server_obj.config.nil? and !server_obj.config['vault_access'].nil?
-                  groomclass.cleanup(mu_name, server_obj.config['vault_access'], noop)
-                else
-                  groomclass.cleanup(mu_name, [], noop)
-                end
-              }
 
 							if !noop
                 if !server_obj.nil? and !server_obj.config.nil?
@@ -1985,7 +2045,7 @@ module MU
               known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
             end
             known_hosts_files.each { |known_hosts|
-              next if !File.exists?(known_hosts)
+              next if !File.exist?(known_hosts)
               MU.log "Cleaning up #{ips} from #{known_hosts}"
               if !noop
                 File.open(known_hosts, File::CREAT|File::RDWR, 0644) { |f|
@@ -2060,6 +2120,23 @@ module MU
           end
         end
 
+        # Return a BoK-style config hash describing a NAT instance. We use this
+        # to approximate NAT gateway functionality with a plain instance.
+        # @return [Hash]
+        def self.genericNAT
+          return {
+            "cloud" => "AWS",
+            "bastion" => true,
+            "size" => "t2.small",
+            "run_list" => [ "mu-nat" ],
+            "groomer" => "Ansible",
+            "platform" => "centos7",
+            "ssh_user" => "centos",
+            "associate_public_ip" => true,
+            "static_ip" => { "assign_ip" => true },
+          }
+        end
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -2068,11 +2145,7 @@ module MU
           schema = {
             "ami_id" => {
               "type" => "string",
-              "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
-            },
-            "image_id" => {
-              "type" => "string",
-              "description" => "Synonymous with ami_id"
+              "description" => "Alias for +image_id+"
             },
             "generate_iam_role" => {
               "type" => "boolean",
@@ -2127,32 +2200,46 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
-          begin
-            types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
-          rescue Aws::Pricing::Errors::UnrecognizedClientException
+          size = size.dup.to_s
+          types = begin
+            (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          rescue Aws::Pricing::Errors::Unrecognitypes.has_key?(size)
             MU.log "Saw authentication error communicating with Pricing API, going to assume our instance type is correct", MU::WARN
             return size
           end
+
+          return size if types.has_key?(size)
+
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
-            gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
             foundmatch = false
-            if gtypes and gtypes.size > 0 and gtypes.has_key?(size)
-              vcpu = gtypes[size]["vcpu"]
-              mem = gtypes[size]["memory"]
-              ecu = gtypes[size]["ecu"]
-              types.keys.sort.reverse.each { |type|
-                features = types[type]
-                next if ecu == "Variable" and ecu != features["ecu"]
-                next if features["vcpu"] != vcpu
-                if (features["memory"] - mem.to_f).abs < 0.10*mem
-                  foundmatch = true
-                  MU.log "You specified a Google Compute instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
-                  size = type
-                  break
-                end
-              }
-            end
+
+            MU::Cloud.availableClouds.each { |cloud|
+              next if cloud == "AWS"
+              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              foreign_types = (cloudbase.listInstanceTypes).values.first
+              if foreign_types.size == 1
+                foreign_types = foreign_types.values.first
+              end
+              if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
+                vcpu = foreign_types[size]["vcpu"]
+                mem = foreign_types[size]["memory"]
+                ecu = foreign_types[size]["ecu"]
+                types.keys.sort.reverse.each { |type|
+                  features = types[type]
+                  next if ecu == "Variable" and ecu != features["ecu"]
+                  next if features["vcpu"] != vcpu
+                  if (features["memory"] - mem.to_f).abs < 0.10*mem
+                    foundmatch = true
+                    MU.log "You specified #{cloud} instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
+                    size = type
+                    break
+                  end
+                }
+              end
+              break if foundmatch
+            }
+
             if !foundmatch
               MU.log "Invalid size '#{size}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
               return nil
@@ -2205,8 +2292,8 @@ module MU
             if server['iam_policies']
               role['iam_policies'] = server['iam_policies'].dup
             end
-            if server['canned_policies']
-              role['import'] = server['canned_policies'].dup
+            if server['canned_iam_policies']
+              role['import'] = server['canned_iam_policies'].dup
             end
             if server['iam_role']
 # XXX maybe break this down into policies and add those?
@@ -2232,9 +2319,9 @@ module MU
           server['ami_id'] ||= server['image_id']
 
           if server['ami_id'].nil?
-            if MU::Config.amazon_images.has_key?(server['platform']) and
-                MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+            img_id = MU::Cloud.getStockImage("AWS", platform: server['platform'], region: server['region'])
+            if img_id
+              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: img_id, prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
             else
               MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
               ok = false
@@ -2260,6 +2347,21 @@ module MU
           end
 
           ok
+        end
+
+        # Return the date/time a machine image was created.
+        # @param ami_id [String]: AMI identifier of an Amazon Machine Image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(ami_id, credentials: nil, region: nil)
+          begin
+            img = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_images(image_ids: [ami_id]).images.first
+            return DateTime.new if img.nil?
+            return DateTime.parse(img.creation_date)
+          rescue Aws::EC2::Errors::InvalidAMIIDNotFound => e
+          end
+
+          return DateTime.new
         end
 
         private

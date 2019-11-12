@@ -18,12 +18,16 @@ module MU
   class Groomer
 
     # An exception denoting a Groomer run that has failed
-    class RunError < MuError;
+    class RunError < StandardError
+    end
+
+    # An exception denoting nonexistent secret
+    class MuNoSuchSecret < StandardError
     end
 
     # List of known/supported grooming agents (configuration management tools)
     def self.supportedGroomers
-      ["Chef"]
+      ["Chef", "Ansible"]
     end
 
     # Instance methods that any Groomer plugin must implement
@@ -36,17 +40,25 @@ module MU
       [:getSecret, :cleanup, :saveSecret, :deleteSecret]
     end
 
+    class Ansible;
+    end
 
     class Chef;
     end
+
     # @param groomer [String]: The grooming agent to load.
     # @return [Class]: The class object implementing this groomer agent
     def self.loadGroomer(groomer)
+      return nil if !groomer
       if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
         raise MuError, "Requested to use unsupported grooming agent #{groomer}"
       end
+      begin
       require "mu/groomers/#{groomer.downcase}"
-      myclass = Object.const_get("MU").const_get("Groomer").const_get(groomer)
+        myclass = Object.const_get("MU").const_get("Groomer").const_get(groomer)
+      rescue NameError
+        raise MuError, "No groomer available named '#{groomer}' - valid values (case-sensitive) are: #{MU.supportedGroomers.join(", ")})"
+      end
       MU::Groomer.requiredMethods.each { |method|
         if !myclass.public_instance_methods.include?(method)
           raise MuError, "MU::Groom::#{groomer} has not implemented required instance method #{method}"

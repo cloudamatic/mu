@@ -28,49 +28,31 @@ if platform_family?("rhel") or platform_family?("amazon")
     end
     package "google-cloud-sdk"
   elsif node['platform_version'].to_i == 6
-    rpm_package "IUS" do
-      source "https://#{node['platform']}#{node['platform_version'].to_i}.iuscommunity.org/ius-release.rpm"
-    end
-    package ["python27", "python27-libs"]
+    version = "267.0.0"
     remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.sh" do
       source "https://sdk.cloud.google.com"
       action :nothing
     end
     remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz" do
-      source "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-167.0.0-linux-x86_64.tar.gz"
+      source "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-#{version}-linux-x86_64.tar.gz"
       action :nothing
     end
     bash "install gcloud-cli" do
       cwd "/opt"
       code <<-EOH
-        # This broken-arsed package set install themselves in the wrong prefix
-        # for some reason, but if you do it manually they land in the right
-        # place. Whatever, just symlink it.
-        filelist=`rpm -qa | grep ^python27- | xargs rpm -ql`
-        for d in $filelist;do
-          if [ -d "$d" ];then
-            rightpath=`echo $d | sed 's/^\\/opt\\/rh\\/python27\\/root//'`
-            if [ "$rightpath" != "$d" -a ! -e "$rightpath" ];then
-              echo $rightpath | grep -v /
-              mkdir -p "$rightpath"
-            fi
-          fi
-        done
-        for f in $filelist;do
-          if [ -f "$f" ];then
-            rightpath=`echo $f | sed 's/^\\/opt\\/rh\\/python27\\/root//'`
-            if [ "$rightpath" != "$f" -a ! -e "$rightpath" ];then
-              ln -s "$f" "$rightpath"
-            fi
-          fi
-        done
         tar -xzf #{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz
-        CLOUDSDK_PYTHON=/usr/bin/python2.7 ./google-cloud-sdk/install.sh -q
-#        CLOUDSDK_PYTHON=/usr/bin/python2.7 sh #{Chef::Config[:file_cache_path]}/gcloud-cli.sh --install-dir=/opt --disable-prompts
+        if [ -f /opt/rh/python27/root/usr/bin/python ];then
+          if [ ! -f /etc/ld.so.conf.d/python27.conf ];then
+            echo "/opt/rh/python27/root/usr/lib64" > /etc/ld.so.conf.d/python27.conf
+            echo "/opt/rh/python27/root/usr/lib" >> /etc/ld.so.conf.d/python27.conf
+            /sbin/ldconfig
+          fi
+        fi
+        CLOUDSDK_PYTHON="`/bin/rpm -ql muthon python27-python | grep '/bin/python$'`" ./google-cloud-sdk/install.sh -q
       EOH
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.sh]", :before
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz]", :before
-      not_if { ::File.exist?("/opt/google-cloud-sdk/bin/gcloud") }
+      not_if "/opt/google-cloud-sdk/bin/gcloud version | grep 'Google Cloud SDK #{version}'"
     end
     link "/etc/bash_completion.d/gcloud" do
       to "/opt/google-cloud-sdk/completion.bash.inc"
@@ -79,7 +61,7 @@ if platform_family?("rhel") or platform_family?("amazon")
       to "/opt/google-cloud-sdk/path.bash.inc"
     end
     file "/etc/profile.d/gcloud_python.sh" do
-      content "export CLOUDSDK_PYTHON=/usr/bin/python2.7\n"
+      content "export CLOUDSDK_PYTHON=\"`/bin/rpm -ql muthon | grep '/bin/python$'`\"\n"
       mode 0644
     end
   end

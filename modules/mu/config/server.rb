@@ -120,6 +120,10 @@ module MU
       def self.common_properties
         {
           "name" => {"type" => "string"},
+          "ansible_vars" => {
+            "type" => "object",
+            "description" => "When using Ansible as a groomer, this will insert a +vars+ tree into the playbook for this node."
+          },
           "scrub_mu_isms" => {
               "type" => "boolean",
               "default" => false,
@@ -132,14 +136,23 @@ module MU
               "description" => "Bootstrap asynchronously via the Momma Cat daemon instead of during the main deployment process"
           },
           "groomer" => {
-              "type" => "string",
-              "default" => MU::Config.defaultGroomer,
-              "enum" => MU.supportedGroomers
+            "type" => "string",
+            "default" => MU::Config.defaultGroomer,
+            "enum" => MU.supportedGroomers
+          },
+          "groomer_autofetch" => {
+            "type" => "boolean",
+            "description" => "For groomer implementations which support automatically fetching roles/recipes/manifests from a public library, such as Ansible Galaxy, this will toggle this behavior on or off.",
+            "default" => true
           },
           "groom" => {
-              "type" => "boolean",
-              "default" => true,
-              "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
+            "type" => "boolean",
+            "default" => true,
+            "description" => "Whether to run a host configuration agent, e.g. Chef, when bootstrapping"
+          },
+          "groomer_variables" => {
+            "type" => "object",
+            "description" => "Metadata variables to expose to Groomer clients, under a top-level key named +mu+. Same thing as +application_attributes+, but with a name that makes a modicum of sense."
           },
           "groomer_timeout" => {
               "type" => "integer",
@@ -407,15 +420,14 @@ module MU
           "platform" => {
               "type" => "string",
               "default" => "linux",
-              "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "win2k16", "centos7", "rhel7", "rhel71", "amazon"],
-# XXX change to reflect available keys in mu/defaults/amazon_images.yaml and mu/defaults/google_images.yaml
-              "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
+              "enum" => MU::Cloud.listPlatforms,
+              "description" => "Helps select default machine images, and enables correct grooming behavior based on operating system type.",
           },
           "run_list" => {
               "type" => "array",
               "items" => {
                   "type" => "string",
-                  "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
+                  "description" => "A list of +groomer+ recipes/roles/scripts to run, using naming conventions specific to the appropriate grooming layer. In +Chef+, this corresponds to a node's +run_list+ attribute, and entries should be of the form <tt>role[rolename]</tt> or <tt>recipe[recipename]</tt>. In +Ansible+, it should be a list of roles (+rolename+), which Mu will use to generate a custom Playbook for the deployment."
               }
           },
           "ingress_rules" => {
@@ -495,11 +507,19 @@ module MU
           "description" => "Create individual server instances.",
           "properties" => {
               "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "A", need_zone: true),
+              "bastion" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Allow this server to be automatically used as a bastion host"
+              },
+              "image_id" => {
+                "type" => "string",
+                "description" => "The cloud provider image on which to base this instance. Will use the default appropriate for the +platform+, if not specified."
+              },
               "create_image" => {
                   "type" => "object",
                   "title" => "create_image",
                   "required" => ["image_then_destroy", "image_exclude_storage", "public"],
-                  "additionalProperties" => false,
                   "description" => "Create a reusable image of this server once it is complete.",
                   "properties" => {
                       "public" => {
@@ -565,7 +585,7 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
 
-        if !server['scrub_mu_isms']
+        if server["cloud"] != "Azure"
           server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
         end
 
@@ -588,6 +608,16 @@ module MU
               "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],
               "phase" => "groom"
             }
+          elsif !server["vpc"]["name"].nil?
+            siblingvpc = configurator.haveLitterMate?(server["vpc"]["name"], "vpcs")
+            if siblingvpc and siblingvpc['bastion'] and
+               server['name'] != siblingvpc['bastion'].to_h['name']
+              server["dependencies"] << {
+                "type" => "server",
+                "name" => siblingvpc['bastion'].to_h['name'],
+                "phase" => "groom"
+              }
+            end
           end
         end
 

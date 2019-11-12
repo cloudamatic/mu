@@ -50,6 +50,9 @@ module MU
     # We just pass this flag to MommaCat, telling it not to save any metadata.
     attr_reader :no_artifacts
 
+    # The deployment object we create for our stack
+    attr_reader :mommacat
+
     # Indicates whether we are updating an existing deployment, as opposed to
     # creating a new one.
     attr_reader :updating
@@ -66,6 +69,7 @@ module MU
     # @param deploy_id [String]: Reload and re-process an existing deploy
     def initialize(environment,
                    verbosity: MU::Logger::NORMAL,
+                   color: true,
                    webify_logs: false,
                    nocleanup: false,
                    cloudformation_path: nil,
@@ -76,12 +80,14 @@ module MU
                    deploy_id: nil,
                    deploy_obj: nil)
       MU.setVar("verbosity", verbosity)
+      MU.setVar("color", color)
       @webify_logs = webify_logs
       @verbosity = verbosity
+      @color = color
       @nocleanup = nocleanup
       @no_artifacts = no_artifacts
       @reraise_thread = reraise_thread
-      MU.setLogging(verbosity, webify_logs)
+      MU.setLogging(verbosity, webify_logs, STDOUT, color)
 
       MU::Cloud::CloudFormation.emitCloudFormation(set: force_cloudformation)
       @cloudformation_output = cloudformation_path
@@ -96,7 +102,7 @@ module MU
       @dependency_semaphore = Mutex.new
 
       @main_config = stack_conf
-      @original_config = Marshal.load(Marshal.dump(stack_conf))
+      @original_config = Marshal.load(Marshal.dump(MU.structToHash(stack_conf.dup)))
       @original_config.freeze
       @admins = stack_conf["admins"]
       @mommacat = deploy_obj
@@ -109,7 +115,7 @@ module MU
         @updating = false
         time=Time.new
         @appname = stack_conf["appname"]
-        @timestamp = time.strftime("%Y%m%d%H").to_s;
+        @timestamp = time.strftime("%Y%m%d%H").to_s
         @timestamp.freeze
         @timestart = time.to_s;
         @timestart.freeze
@@ -131,17 +137,13 @@ module MU
         MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
       end
 
-      # Instance variables that are effectively class variables
-      @my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
-      @my_az = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
-
-      @fromName ='chef-server';
+      @fromName = MU.muCfg['mu_admin_email']
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
           @main_config[data[:cfg_plural]].each { |resource|
             if force_cloudformation
-              if resource['cloud'] = "AWS"
+              if resource['cloud'] == "AWS"
                 resource['cloud'] = "CloudFormation"
                 if resource.has_key?("vpc") and resource["vpc"].is_a?(Hash)
                   resource["vpc"]['cloud'] = "CloudFormation"
@@ -205,12 +207,26 @@ module MU
         if !die
           puts "Received SIGINT, hit ctrl-C again within five seconds to kill this deployment."
         else
-          raise "Terminated by user"
+          Thread.list.each do |t|
+            next if !t.status
+            if t.object_id != Thread.current.object_id and
+               t.thread_variable_get("name") != "main_thread" and 
+               t.thread_variable_get("owned_by_mu")
+              t.kill
+            end
+          end
+
+          if @main_thread
+            @main_thread.raise "Terminated by user"
+          else
+            raise "Terminated by user"
+          end
         end
         @last_sigterm = Time.now.to_i
       end
 
       begin
+        @main_thread = Thread.current
         if !@mommacat
           metadata = {
             "appname" => @appname,
@@ -238,16 +254,25 @@ module MU
         @admins.each { |admin|
           @mommacat.notify("admins", admin['name'], admin)
         }
+        if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
+          MU::MommaCat.start
+        end
 
         @deploy_semaphore = Mutex.new
         parent_thread_id = Thread.current.object_id
-        @main_thread = Thread.current
+
+        # Run cloud provider-specific deploy meta-artifact creation (ssh keys,
+        # resource groups, etc)
+        @mommacat.cloudsUsed.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          cloudclass.initDeploy(@mommacat)
+        }
 
         # Kick off threads to create each of our new servers.
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_create_container")
-          Thread.abort_on_exception = true
+#          Thread.abort_on_exception = false
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
@@ -261,7 +286,7 @@ module MU
         @my_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_groom_container")
-          Thread.abort_on_exception = true
+#          Thread.abort_on_exception = false
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
@@ -283,9 +308,13 @@ module MU
           t.join
         end
 
+        @mommacat.save!
+
       rescue Exception => e
         @my_threads.each do |t|
-          if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+          if t.object_id != Thread.current.object_id and
+             t.thread_variable_get("name") != "main_thread" and
+             t.object_id != parent_thread_id
             MU::MommaCat.unlockAll
             t.kill
           end
@@ -294,14 +323,17 @@ module MU
         # If it was a regular old exit, we assume something deeper in already
         # handled logging and cleanup for us, and just quietly go away.
         if e.class.to_s != "SystemExit"
-          MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
+          MU.log e.class.name+": "+e.message, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
-            Thread.list.each do |t|
-              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
-                t.kill
-              end
-            end
-            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
+
+            # Wrap this in a thread to protect the Azure SDK from imploding
+            # because it mistakenly thinks there's a deadlock.
+            cleanup_thread = Thread.new {
+              MU.dupGlobals(parent_thread_id)
+              Thread.abort_on_exception = false
+              MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
+            }
+            cleanup_thread.join
             @nocleanup = true # so we don't run this again later
           end
         end
@@ -333,7 +365,7 @@ module MU
         if MU.myCloud == "AWS" 
           MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
-        MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
+#        MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
         if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
 #          MU::MommaCat.syncMonitoringConfig # TODO only invoke if Server or ServerPool actually changed something when @updating
         end
@@ -401,19 +433,7 @@ module MU
         }
       end
 
-      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
-         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
-        require 'slack-notifier'
-        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
-
-        slack.ping "Mu deployment #{MU.appname} *\"#{MU.handle}\"* (`#{MU.deploy_id}`) successfully completed on *#{$MU_CFG['hostname']}* (#{$MU_CFG['public_address']})", channel: $MU_CFG['slack']['channel']
-        if MU.summary.size > 0
-          MU.summary.each { |msg|
-            slack.ping msg, channel: $MU_CFG['slack']['channel']
-          }
-        end
-      end
-
+      @mommacat.sendAdminSlack("Deploy completed succesfully", msg: MU.summary.join("\n"))
     end
 
     private
@@ -431,6 +451,7 @@ module MU
       $str += JSON.pretty_generate(@mommacat.deployment)
 
       admin_addrs = @admins.map { |admin|
+        admin['name'] ||= ""
         admin['name']+" <"+admin['email']+">"
       }
 
@@ -516,7 +537,7 @@ MESSAGE_END
 
       services.each { |resource|
         if !resource["#MU_CLOUDCLASS"]
-          pp resource
+#          pp resource
         end
         res_type = resource["#MU_CLOUDCLASS"].cfg_name
         name = res_type+"_"+resource["name"]
@@ -531,9 +552,10 @@ MESSAGE_END
         if resource["dependencies"] != nil then
           resource["dependencies"].each { |dependency|
             parent_class = nil
-            MU::Cloud.resource_types.each_pair { |name, attrs|
-              if attrs[:cfg_name] == dependency['type']
-                parent_class = Object.const_get("MU").const_get("Cloud").const_get(name)
+            MU::Cloud.resource_types.each_pair { |res_class, attrs|
+              if attrs[:cfg_name] == dependency['type'] or
+                 attrs[:cfg_plural] == dependency['type']
+                parent_class = Object.const_get("MU").const_get("Cloud").const_get(res_class)
                 break
               end
             }
@@ -576,109 +598,137 @@ MESSAGE_END
       parent_thread = Thread.current
       services.uniq!
       services.each do |service|
-        @my_threads << Thread.new(service) { |myservice|
-          MU.dupGlobals(parent_thread_id)
-          threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
-          Thread.current.thread_variable_set("name", threadname)
-          Thread.abort_on_exception = true
-          waitOnThreadDependencies(threadname)
+        begin
+          @my_threads << Thread.new(service) { |myservice|
+            MU.dupGlobals(parent_thread_id)
+            threadname = myservice["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
+            Thread.current.thread_variable_set("name", threadname)
+            Thread.current.thread_variable_set("owned_by_mu", true)
+#            Thread.abort_on_exception = false
+            waitOnThreadDependencies(threadname)
 
-          if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !service['dependencies'].nil? and !service['dependencies'].size == 0
-            if mode == "create"
-              MU::MommaCat.lock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
-            elsif mode == "groom"
-              MU::MommaCat.unlock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
-            end
-          end
-
-          MU.log "Launching thread #{threadname}", MU::DEBUG
-          begin
-            if service['#MUOBJECT'].nil?
-              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
-            end
-          rescue Exception => e
-            MU::MommaCat.unlockAll
-            @main_thread.raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
-            raise e
-          end
-          begin
-            run_this_method = service['#MUOBJECT'].method(mode)
-          rescue Exception => e
-            MU::MommaCat.unlockAll
-            @main_thread.raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
-            raise e
-          end
-          begin
-            MU.log "Checking whether to run #{service['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG
-            if !@updating or mode != "create"
-              myservice = run_this_method.call
-            else
-
-              # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
-              opts = {}
-              if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
-                opts['classic'] = service['classic'] ? true : false
+            if myservice["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !myservice['dependencies'].nil? and !myservice['dependencies'].size == 0
+              if mode == "create"
+                MU::MommaCat.lock(myservice["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
+              elsif mode == "groom"
+                MU::MommaCat.unlock(myservice["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
               end
+            end
 
-              found = MU::MommaCat.findStray(service['cloud'],
-                                 service["#MU_CLOUDCLASS"].cfg_name,
-                                 name: service['name'],
-                                 region: service['region'],
-                                 deploy_id: @mommacat.deploy_id,
-#                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
-                                 tag_key: "MU-ID",
-                                 tag_value: @mommacat.deploy_id,
-                                 flags: opts,
-                                 dummy_ok: false
-                                )
-
-              found = found.delete_if { |x|
-                x.cloud_id.nil? and x.cloudobj.cloud_id.nil?
-              }
-
-              if found.size == 0
-                if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
-# XXX only know LBs to be safe, atm
-                  MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
-                  myservice = run_this_method.call
+            MU.log "Launching thread #{threadname}", MU::DEBUG
+            begin
+              if myservice['#MUOBJECT'].nil?
+                if @mommacat
+                  ext_obj = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_plural, name: myservice['name'], credentials: myservice['credentials'], created_only: true, return_all: false)
+                  if @updating
+                    raise MuError, "Failed to findLitterMate(type: #{myservice["#MU_CLOUDCLASS"].cfg_plural}, name: #{myservice['name']}, credentials: #{myservice['credentials']}, created_only: true, return_all: false) in deploy #{@mommacat.deploy_id}" if !ext_obj
+                    ext_obj.config!(myservice)
+                  end
+                  myservice['#MUOBJECT'] = ext_obj
                 end
+                myservice['#MUOBJECT'] ||= myservice["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
+              end
+            rescue RuntimeError => e
+              # cloud implementations can iterate over these same hashes,
+              # which can throw this if we catch them at the wrong moment.
+              # here's your hacky workaround.
+              if e.message.match(/can't add a new key into hash during iteration/)
+                MU.log e.message+" in main deploy thread, probably transient", MU::DEBUG
+                sleep 1
+                retry
               else
-                real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
+                raise e
+              end
+            rescue Exception => e
+              MU::MommaCat.unlockAll
+              @main_thread.raise MuError, "Error instantiating object from #{myservice["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
+              raise e
+            end
+            begin
+              run_this_method = myservice['#MUOBJECT'].method(mode)
+            rescue Exception => e
+              MU::MommaCat.unlockAll
+              @main_thread.raise MuError, "Error invoking #{myservice["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+              raise e
+            end
+            begin
+              MU.log "Checking whether to run #{myservice['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG
+              if !@updating or mode != "create"
+                myservice = run_this_method.call
+              else
 
-                if !real_descriptor and (
-                    service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
-                    service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
-                    service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
-                    service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
-                   )
-                  MU.log "Invoking #{run_this_method.to_s} #{service['name']} #{service['name']}", MU::NOTICE
-                  myservice = run_this_method.call
+                # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
+                opts = {}
+                if myservice["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
+                  opts['classic'] = myservice['classic'] ? true : false
                 end
-#MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']}", MU::NOTICE
-              end
 
-            end
-          rescue Exception => e
-            MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
-            MU::MommaCat.unlockAll
-            Thread.list.each do |t|
-              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
-                t.kill
+                found = MU::MommaCat.findStray(myservice['cloud'],
+                                   myservice["#MU_CLOUDCLASS"].cfg_name,
+                                   name: myservice['name'],
+                                   credentials: myservice['credentials'],
+                                   region: myservice['region'],
+                                   deploy_id: @mommacat.deploy_id,
+#                                 allow_multi: myservice["#MU_CLOUDCLASS"].has_multiple,
+                                   tag_key: "MU-ID",
+                                   tag_value: @mommacat.deploy_id,
+                                   flags: opts,
+                                   dummy_ok: false
+                                  )
+
+                found = found.delete_if { |x|
+                  x.cloud_id.nil? and x.cloudobj.cloud_id.nil?
+                }
+
+                if found.size == 0
+                  MU.log "#{myservice["#MU_CLOUDCLASS"].name} #{myservice['name']} not found, creating", MU::NOTICE
+                  myservice = run_this_method.call
+                else
+                  real_descriptor = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_name, name: myservice['name'], created_only: true)
+
+                  if !real_descriptor
+                    MU.log "Invoking #{run_this_method.to_s} #{myservice['name']} #{myservice['name']}", MU::NOTICE
+                    myservice = run_this_method.call
+                  end
+#MU.log "#{myservice["#MU_CLOUDCLASS"].cfg_name} #{myservice['name']}", MU::NOTICE
+                end
+
               end
+            rescue ThreadError => e
+              MU.log "Waiting for threads to complete (#{e.message})", MU::NOTICE
+              @my_threads.each do |thr|
+                next if thr.object_id == Thread.current.object_id
+                thr.join(0.1)
+              end
+              @my_threads.reject! { |thr| !thr.alive? }
+              sleep 10+Random.rand(20)
+              retry
+            rescue Exception => e
+              MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
+              MU::MommaCat.unlockAll
+              Thread.list.each do |t|
+                if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id and t.thread_variable_get("owned_by_mu")
+                  t.kill
+                end
+              end
+              if !@nocleanup
+                MU::Cleanup.run(MU.deploy_id, verbosity: @verbosity, skipsnapshots: true)
+                @nocleanup = true # so we don't run this again later
+              end
+              @main_thread.raise MuError, e.message, e.backtrace
             end
-            if !@nocleanup
-              MU::Cleanup.run(MU.deploy_id, verbosity: @verbosity, skipsnapshots: true)
-              @nocleanup = true # so we don't run this again later
-            end
-            @main_thread.raise MuError, e.message, e.backtrace
+            MU.purgeGlobals
+          }
+        rescue ThreadError => e
+          MU.log "Waiting for threads to complete (#{e.message})", MU::NOTICE
+          @my_threads.each do |thr|
+            next if thr.object_id == Thread.current.object_id
+            thr.join(0.1)
           end
-          MU.purgeGlobals
-        }
+          @my_threads.reject! { |thr| !thr.alive? }
+          sleep 10+Random.rand(20)
+          retry
+        end
       end
     end
 

@@ -19,38 +19,22 @@ module MU
     class AWS
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-        attr_reader :groomer    
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
-          if !mu_name.nil?
-            @mu_name = mu_name
-          else
-            @mu_name ||=
-              if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
-                @deploy.getResourceName(@config["name"], max_length: 15)
-              else
-                @deploy.getResourceName(@config["name"], max_length: 63)
-              end
+          @mu_name ||=
+            if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
+              @deploy.getResourceName(@config["name"], max_length: 15)
+            else
+              @deploy.getResourceName(@config["name"], max_length: 63)
+            end
 
-            @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
-          end
+          @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -180,27 +164,22 @@ module MU
 
 
         # Locate an existing Database or Databases and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching Databases
+        def self.find(**args)
           map = {}
-          if cloud_id
-            db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
-            map[cloud_id] = db if db
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS::Database.getDatabaseById(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+            map[args[:cloud_id]] = resp if resp
           end
 
-          if tag_value
-            MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_instances.db_instances.each { |db|
-              resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(
-                  resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: region, credentials: credentials)
+          if args[:tag_value]
+            MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
+              resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
+                  resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: args[:region], credentials: args[:credentials])
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
                 resp.tag_list.each { |tag|
-                  map[db.db_instance_identifier] = db if tag.key == tag_key and tag.value == tag_value
+                  map[db.db_instance_identifier] = db if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                 }
               end
             }
@@ -312,6 +291,7 @@ module MU
           
           if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
             config[:db_snapshot_identifier] = @config["snapshot_id"]
+            config[:db_cluster_identifier] = @config["cluster_identifier"] if @config["add_cluster_node"]
           end
 
           if @config["creation_style"] == "point_in_time"
@@ -384,11 +364,11 @@ module MU
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).wait_until(:db_instance_available, db_instance_identifier: @config['identifier']) do |waiter|
               # Does create_db_instance implement wait_until_available ?
               waiter.max_attempts = nil
-              waiter.before_attempt do |attempts|
-                MU.log "Waiting for RDS database #{@config['identifier']} to be ready..", MU::NOTICE if attempts % 10 == 0
+              waiter.before_attempt do |w_attempts|
+                MU.log "Waiting for RDS database #{@config['identifier']} to be ready...", MU::NOTICE if w_attempts % 10 == 0
               end
-              waiter.before_wait do |attempts, resp|
-                throw :success if resp.db_instances.first.db_instance_status == "available"
+              waiter.before_wait do |w_attempts, r|
+                throw :success if r.db_instances.first.db_instance_status == "available"
                 throw :failure if Time.now - wait_start_time > 3600
               end
             end
@@ -453,11 +433,11 @@ module MU
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).wait_until(:db_instance_available, db_instance_identifier: @config['identifier']) do |waiter|
                 # Does create_db_instance implement wait_until_available ?
                 waiter.max_attempts = nil
-                waiter.before_attempt do |attempts|
-                  MU.log "Waiting for RDS database #{@config['identifier'] } to be ready..", MU::NOTICE if attempts % 10 == 0
+                waiter.before_attempt do |w_attempts|
+                  MU.log "Waiting for RDS database #{@config['identifier'] } to be ready..", MU::NOTICE if w_attempts % 10 == 0
                 end
-                waiter.before_wait do |attempts, resp|
-                  throw :success if resp.db_instances.first.db_instance_status == "available"
+                waiter.before_wait do |w_attempts, r|
+                  throw :success if r.db_instances.first.db_instance_status == "available"
                   throw :failure if Time.now - wait_start_time > 2400
                 end
               end
@@ -472,6 +452,14 @@ module MU
           # Maybe wait for DB instance to be in available state. DB should still be writeable at this state
           if @config['allow_major_version_upgrade'] && @config["creation_style"] == "new"
             MU.log "Setting major database version upgrade on #{@config['identifier']}'"
+            database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
+            begin
+              if database.db_instance_status != "available"
+                sleep 5
+                database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
+              end
+            end while database.db_instance_status != "available"
+
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
               db_instance_identifier: @config['identifier'],
               apply_immediately: true,
@@ -530,6 +518,10 @@ module MU
             cluster_config_struct[:source_db_cluster_identifier] = @config["source_identifier"]
             cluster_config_struct[:restore_to_time] = @config["restore_time"] unless @config["restore_time"] == "latest"
             cluster_config_struct[:use_latest_restorable_time] = true if @config["restore_time"] == "latest"
+          end
+
+          if @config['cloudwatch_logs']
+            cluster_config_struct[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
           end
 
           attempts = 0
@@ -622,11 +614,8 @@ module MU
 
             subnets.each{ |subnet|
               next if subnet.nil?
-              if @config["publicly_accessible"]
-                subnet_ids << subnet.cloud_id if !subnet.private?
-              elsif !@config["publicly_accessible"]
-                subnet_ids << subnet.cloud_id if subnet.private?
-              end
+              next if @config["publicly_accessible"] and subnet.private?
+              subnet_ids << subnet.cloud_id
             }
           else
             # If we didn't specify a VPC try to figure out if the account has a default VPC
@@ -655,8 +644,8 @@ module MU
               }
 
               @config['vpc'] = {
-                  "vpc_id" => vpc_id,
-                  "subnets" => mu_subnets
+                "vpc_id" => vpc_id,
+                "subnets" => mu_subnets
               }
               # Default VPC has only public subnets by default so setting publicly_accessible = true
               @config["publicly_accessible"] = true
@@ -798,7 +787,15 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          unless @config["create_cluster"]
+          if @config["create_cluster"]
+            @config['cluster_node_count'] ||= 1
+            if @config['cluster_mode'] == "serverless"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_current_db_cluster_capacity(
+                db_cluster_identifier: @cloud_id,
+                capacity: @config['cluster_node_count']
+              )
+            end
+          else
             database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
 
             # Run SQL on deploy
@@ -1428,18 +1425,31 @@ module MU
             }
           }
 
+
           schema = {
             "db_parameter_group_parameters" => rds_parameters_primitive,
             "cluster_parameter_group_parameters" => rds_parameters_primitive,
+            "parameter_group_family" => {
+              "type" => "String",
+              "description" => "An RDS parameter group family. See also https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithParamGroups.html"
+            },
             "cluster_mode" => {
               "type" => "string",
               "description" => "The DB engine mode of the DB cluster",
               "enum" => ["provisioned", "serverless", "parallelquery", "global"],
               "default" => "provisioned"
             },
+            "cloudwatch_logs" => {
+              "type" => "array",
+              "default" => ["error"],
+              "items" => {
+                "type" => "string",
+                "enum" => ["error", "general", "audit", "slow_query"],
+              }
+            },
             "serverless_scaling" => {
               "type" => "object",
-              "descriptions" => "Scaling configuration for a +serverless+ Aurora cluster",
+              "description" => "Scaling configuration for a +serverless+ Aurora cluster",
               "default" => {
                 "auto_pause" => false,
                 "min_capacity" => 2,
@@ -1505,10 +1515,45 @@ module MU
         def self.validateConfig(db, configurator)
           ok = true
 
+          if db['creation_style'] == "existing_snapshot" and
+             !db['create_cluster'] and
+             db['identifier'] and db['identifier'].match(/:cluster-snapshot:/)
+            MU.log "Database #{db['name']}: Existing snapshot #{db['identifier']} looks like a cluster snapshot, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
+            ok = false
+          end
+
+          pgroup_families = []
+          engines = {}
+
+          marker = nil
+          begin
+            resp = MU::Cloud::AWS.rds(credentials: db['credentials'], region: db['region']).describe_db_engine_versions(marker: marker)
+            marker = resp.marker
+
+            if resp and resp.db_engine_versions
+              resp.db_engine_versions.each { |version|
+                engines[version.engine] ||= {
+                  "versions" => [],
+                  "families" => []
+                }
+                engines[version.engine]['versions'] << version.engine_version
+                engines[version.engine]['families'] << version.db_parameter_group_family
+
+              }
+              engines.keys.each { |engine|
+                engines[engine]["versions"].uniq!
+                engines[engine]["families"].uniq!
+              }
+
+            else
+              MU.log "Failed to get list of valid RDS engine versions in #{db['region']}, proceeding without proper validation", MU::WARN
+            end
+          end while !marker.nil?
+
           if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
-              if db["engine_version"] == "5.6" or db["cluster_mode"] == "serverless"
+              if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
                 db["engine"] = "aurora"
               else
                 db["engine"] = "aurora-mysql"
@@ -1517,8 +1562,42 @@ module MU
               db["engine"] = "aurora-postgresql"
             else
               ok = false
-              MU.log "Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
+              MU.log "Database #{db['name']}: Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
             end
+          end
+
+          if db['engine'] == "aurora-postgresql"
+            db.delete('cloudwatch_logs')
+          end
+
+          if db['engine'].match(/^aurora/) and !db['create_cluster'] and !db['add_cluster_node']
+            MU.log "Database #{db['name']}: #{db['engine']} looks like a cluster engine, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
+            ok = false
+          end
+
+          if engines.size > 0 
+            if !engines[db['engine']]
+              MU.log "RDS engine #{db['engine']} is not supported in #{db['region']}", MU::ERR, details: engines.keys.sort
+              ok = false
+            else
+              if db["engine_version"] and
+                 engines[db['engine']]['versions'].size > 0 and
+                 !engines[db['engine']]['versions'].include?(db['engine_version']) and
+                 !engines[db['engine']]['versions'].grep(/^#{Regexp.quote(db["engine_version"])}.+/)
+                MU.log "RDS engine '#{db['engine']}' version '#{db['engine_version']}' is not supported in #{db['region']}", MU::ERR, details: { "Known-good versions:" => engines[db['engine']]['versions'].uniq.sort }
+                ok = false
+              end
+              if db["parameter_group_family"] and
+                 engines[db['engine']]['families'].size > 0 and
+                 !engines[db['engine']]['families'].include?(db['parameter_group_family'])
+                MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported in #{db['region']}", MU::ERR, details: { "Valid parameter families:" => engines[db['engine']]['families'].uniq.sort }
+                ok = false
+              end
+            end
+          end
+
+          if db['parameter_group_family'] and pgroup_families.size > 0 and
+             !pgroup_families.include?(db['parameter_group_family'])
           end
 
           db["license_model"] ||=
@@ -1605,7 +1684,7 @@ module MU
           end
 
           if db["vpc"]
-            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible'] and (db["vpc"]['subnets'].nil? or db["vpc"]['subnets'].empty?)
               MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']

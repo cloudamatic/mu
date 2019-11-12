@@ -23,8 +23,7 @@ module MU
         base = {
           "type" => "object",
           "description" => "Create a cluster of container hosts.",
-          "required" => ["name", "cloud", "instance_type", "instance_count"],
-          "additionalProperties" => false,
+          "required" => ["name", "cloud", "instance_type"],
           "properties" => {
             "name" => { "type" => "string" },
             "region" => MU::Config.region_primitive,
@@ -35,18 +34,26 @@ module MU
               "type" => "integer",
               "default" => 2
             },
+            "min_size" => {
+              "type" => "integer",
+              "description" => "Enable worker cluster scaling and set the minimum number of workers to this value. This value is ignored for platforms which abstract scaling activity, such as AWS Fargate."
+            },
+            "max_size" => {
+              "type" => "integer",
+              "description" => "Enable worker cluster scaling and set the maximum number of workers to this value. This value is ignored for platforms which abstract scaling activity, such as AWS Fargate."
+            },
             "kubernetes" => {
               "type" => "object",
-              "description" => "Options for Kubernetes, specific to EKS or GKE",
+              "description" => "Kubernetes-specific options",
               "properties" => {
                 "version" => {
                   "type" => "string",
-                  "default" => "1.10",
+                  "default" => "1.13",
                   "description" => "Version of Kubernetes control plane to deploy",
                 },
                 "max_pods" => {
                   "type" => "integer",
-                  "default" => 5,
+                  "default" => 30,
                   "description" => "Maximum number of pods that can be deployed on any given worker node",
                 }
               }
@@ -57,10 +64,6 @@ module MU
                 "type" => "object",
                 "description" => "Optional Kubernetes-specific resource descriptors to run with kubectl create|replace when grooming this cluster. See https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/#understanding-kubernetes-objects"
               }
-            },
-            "flavor" => {
-              "type" => "string",
-              "description" => "Container clusters in Amazon can be ECS, EKS, or Fargate; Google supports GKE only"
             },
             "platform" => {
               "type" => "string",
@@ -95,6 +98,12 @@ module MU
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(cluster, configurator)
         ok = true
+
+        if cluster["max_size"] or cluster["min_size"]
+          cluster["max_size"] ||= [cluster["instance_count"], cluster["min_size"]].reject { |c| c.nil? }.max
+          cluster["min_size"] ||= [cluster["instance_count"], cluster["min_size"]].reject { |c| c.nil? }.min
+        end
+
         ok
       end
 

@@ -18,25 +18,11 @@ module MU
       # A server pool as configured in {MU::Config::BasketofKittens::server_pools}
       class ServerPool < MU::Cloud::ServerPool
 
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -103,11 +89,20 @@ module MU
             desc.instances.each { |member|
               begin
                 groomthreads << Thread.new {
-                  Thread.abort_on_exception = false
                   MU.dupGlobals(parent_thread_id)
                   MU.log "Initializing #{member.instance_id} in ServerPool #{@mu_name}"
                   MU::MommaCat.lock(member.instance_id+"-mommagroom")
-                  kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+                  begin
+                    kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+                  rescue RuntimeError => e
+                    if e.message.match(/can't add a new key into hash during iteration/)
+                      MU.log e.message+", retrying", MU::WARN
+                      sleep 3
+                      retry
+                    else
+                      raise e
+                    end
+                  end
                   MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   if !kitten.postBoot(member.instance_id)
@@ -147,8 +142,6 @@ module MU
             need_instances = @config['scale_in_protection'].match(/^\d+$/) ? @config['scale_in_protection'].to_i : @config['min_size']
             setScaleInProtection(need_instances)
           end
-
-          MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
 
           return asg
         end
@@ -368,18 +361,7 @@ module MU
                 policy_params[:scaling_adjustment] = policy['adjustment']
                 policy_params[:adjustment_type] = policy['type']
               elsif policy["policy_type"] == "TargetTrackingScaling"
-                def strToSym(hash)
-                  newhash = {}
-                  hash.each_pair { |k, v|
-                    if v.is_a?(Hash)
-                      newhash[k.to_sym] = strToSym(v)
-                    else
-                      newhash[k.to_sym] = v
-                    end
-                  }
-                  newhash
-                end
-                policy_params[:target_tracking_configuration] = strToSym(policy['target_tracking_configuration'])
+                policy_params[:target_tracking_configuration] = MU.strToSym(policy['target_tracking_configuration'])
                 policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
@@ -462,18 +444,13 @@ module MU
         end
 
         # Locate an existing ServerPool or ServerPools and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
+        def self.find(**args)
           found = []
-          if cloud_id
-            resp = MU::Cloud::AWS.autoscale(region: region, credentials: credentials).describe_auto_scaling_groups({
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS.autoscale(region: args[:region], credentials: args[:credentials]).describe_auto_scaling_groups({
               auto_scaling_group_names: [
-                cloud_id
+                args[:cloud_id]
               ], 
             })
             return resp.auto_scaling_groups
@@ -487,8 +464,15 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+
+          term_policies = MU::Cloud::AWS.credConfig ? MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types : ["AllocationStrategy", "ClosestToNextInstanceHour", "Default", "NewestInstance", "OldestInstance", "OldestLaunchConfiguration", "OldestLaunchTemplate"]
           
           schema = {
+            "role_strip_path" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Normally we namespace IAM roles with a +path+ set to match our +deploy_id+; this disables that behavior. Temporary workaround for a bug in EKS/IAM integration."
+            },
             "notifications" => {
               "type" => "object",
               "description" => "Send notifications to an SNS topic for basic AutoScaling events",
@@ -592,7 +576,7 @@ module MU
               "items" => {
                 "type" => "String",
                 "default" => "Default",
-                "enum" => MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types
+                "enum" => term_policies
               }
             },
             "scaling_policies" => {
@@ -845,8 +829,12 @@ module MU
                 ok = false
               end
             else
+              s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(pool['credentials'])+'/Mu_CA.pem']
+
               role = {
                 "name" => pool["name"],
+                "cloud" => "AWS",
+                "strip_path" => pool["role_strip_path"],
                 "can_assume" => [
                   {
                     "entity_id" => "ec2.amazonaws.com",
@@ -857,19 +845,15 @@ module MU
                   {
                     "name" => "MuSecrets",
                     "permissions" => ["s3:GetObject"],
-                    "targets" => [
-                      {
-                        "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/Mu_CA.pem'
-                      }
-                    ]
+                    "targets" => s3_objs.map { |f| { "identifier" => f } }
                   }
                 ]
               }
               if launch['iam_policies']
                 role['iam_policies'] = launch['iam_policies'].dup
               end
-              if pool['canned_policies']
-                role['import'] = pool['canned_policies'].dup
+              if pool['canned_iam_policies']
+                role['import'] = pool['canned_iam_policies'].dup
               end
               if pool['iam_role']
 # XXX maybe break this down into policies and add those?
@@ -885,9 +869,9 @@ module MU
             end
             launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
-              if MU::Config.amazon_images.has_key?(pool['platform']) and
-                  MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-                launch['ami_id'] = configurator.getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+              img_id = MU::Cloud.getStockImage("AWS", platform: pool['platform'], region: pool['region'])
+              if img_id
+                launch['ami_id'] = configurator.getTail("pool"+pool['name']+"AMI", value: img_id, prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
   
               else
                 ok = false
@@ -968,6 +952,7 @@ module MU
               if policy["alarms"] && !policy["alarms"].empty?
                 policy["alarms"].each { |alarm|
                   alarm["name"] = "scaling-policy-#{pool["name"]}-#{alarm["name"]}"
+                  alarm["cloud"] = "AWS",
                   alarm['dimensions'] = [] if !alarm['dimensions']
                   alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                   alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
@@ -1093,8 +1078,9 @@ module MU
             @config['basis']['launch_config']["ami_id"] = MU::Cloud::AWS::Server.createImage(
               name: @mu_name,
               instance_id: @config['basis']['launch_config']["instance_id"],
-              credentials: @config['credentials']
-            )
+              credentials: @config['credentials'],
+              region: @config['region']
+            )[@config['region']]
           end
           MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
 
@@ -1104,13 +1090,17 @@ module MU
 
           userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
-            cloud: "aws",
+            cloud: "AWS",
+            credentials: @config['credentials'],
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,
               "muID" => @deploy.deploy_id,
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
+              "mommaCatPort" => MU.mommaCatPort,
+              "chefVersion" => MU.chefVersion,
+              "adminBucketName" => MU::Cloud::AWS.adminBucketName(@credentials),
               "windowsAdminName" => @config['windows_admin_username'],
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "resourceName" => @config["name"],
@@ -1154,13 +1144,23 @@ module MU
 
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
 
+          if @config['basis']['launch_config']['generate_iam_role']
+            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+            if role
+              s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
+                'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
+              }
+              role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+            end
+          end
+
           if !oldlaunch.nil?
             olduserdata = Base64.decode64(oldlaunch.user_data)
-            if userdata != olduserdata or
-                oldlaunch.image_id != @config["basis"]["launch_config"]["ami_id"] or
-                oldlaunch.ebs_optimized != @config["basis"]["launch_config"]["ebs_optimized"] or
-                oldlaunch.instance_type != @config["basis"]["launch_config"]["size"] or
-                oldlaunch.instance_monitoring.enabled != @config["basis"]["launch_config"]["monitoring"]
+            if userdata == olduserdata and
+                oldlaunch.image_id == @config["basis"]["launch_config"]["ami_id"] and
+                oldlaunch.ebs_optimized == @config["basis"]["launch_config"]["ebs_optimized"] and
+                oldlaunch.instance_type == @config["basis"]["launch_config"]["size"] and
+                oldlaunch.instance_monitoring.enabled == @config["basis"]["launch_config"]["monitoring"]
                 # XXX check more things
 #                launch.block_device_mappings != storage
 #                XXX block device comparison isn't this simple
@@ -1237,11 +1237,6 @@ module MU
 
           if @config['basis']['launch_config']['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
-# XXX are these the right patterns for a pool, or did we need wildcards?
-            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU.adminBucketName+'/'+file
-            }
-            role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
 
             @config['iam_role'] = role.mu_name
 
@@ -1370,9 +1365,15 @@ module MU
           if @config["vpc_zone_identifier"]
             asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
           elsif @config["vpc"]
+            if !@vpc and @config['vpc'].is_a?(MU::Config::Ref)
+              @vpc = @config['vpc'].kitten
+            end
 
             subnet_ids = []
 
+            if !@vpc
+              raise MuError, "Failed to load vpc for Autoscale Group #{@mu_name}"
+            end
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               @config["vpc"]["subnets"].each { |subnet|
                 subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])

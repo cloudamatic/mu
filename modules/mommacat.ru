@@ -32,7 +32,12 @@ $LOAD_PATH << "#{$MUDIR}/modules"
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
-MU::Groomer::Chef.loadChefLib # pre-cache this so we don't take a hit on a user-interactive need
+begin
+  MU::Groomer::Chef.loadChefLib # pre-cache this so we don't take a hit on a user-interactive need
+  $ENABLE_SCRATCHPAD = true
+rescue LoadError
+  MU.log "Chef libraries not available, disabling Scratchpad", MU::WARN
+end
 #MU.setLogging($opts[:verbose], $opts[:web])
 if MU.myCloud == "AWS"
   MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
@@ -41,7 +46,7 @@ end
 Signal.trap("URG") do
   puts "------------------------------"
   puts "Open flock() locks:"
-  pp MU::MommaCat.locks
+  pp MU::MommaCat.trapSafeLocks
   puts "------------------------------"
 end
 
@@ -57,7 +62,7 @@ Thread.new {
   MU.dupGlobals(parent_thread_id)
   begin
     MU::MommaCat.cleanTerminatedInstances
-    MU::Master.cleanExpiredScratchpads
+    MU::Master.cleanExpiredScratchpads if $ENABLE_SCRATCHPAD
     sleep 60
   rescue Exception => e
     MU.log "Error in cleanTerminatedInstances thread: #{e.inspect}", MU::ERR, details: e.backtrace
@@ -199,6 +204,17 @@ app = proc do |env|
   ]
   begin
     if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/scratchpad/)
+      if !$ENABLE_SCRATCHPAD
+        msg = "Scratchpad disabled in non-Chef Mu installations"
+        return [
+          504,
+          {
+            'Content-Type' => 'text/html',
+            'Content-Length' => msg.length.to_s
+          },
+          [msg]
+        ]
+      end
       itemname = env['REQUEST_PATH'].sub(/^\/scratchpad\//, "")
       begin
         if itemname.sub!(/\/secret$/, "")
@@ -257,7 +273,7 @@ app = proc do |env|
             [page]
           ]
         end
-      rescue MU::Groomer::Chef::MuNoSuchSecret
+      rescue MU::Groomer::MuNoSuchSecret
         page = nil
         if $MU_CFG.has_key?('scratchpad') and
            $MU_CFG['scratchpad'].has_key?("template_path") and
@@ -287,6 +303,7 @@ app = proc do |env|
         ]
       end
     elsif !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
+
       action, filter, path = env['REQUEST_PATH'].sub(/^\/rest\/?/, "").split(/\//, 3)
       # Don't give away the store. This can't be public until we can
       # authenticate and access-control properly.
@@ -295,7 +312,23 @@ app = proc do |env|
         next
       end
 
-      if action == "deploy"
+      if action == "hosts_add"
+        if Process.uid != 0
+          returnval = throw500 "Service not available"
+        elsif !filter or !path
+          returnval = throw404 env['REQUEST_PATH']
+        else
+          MU::MommaCat.addInstanceToEtcHosts(path, filter)
+          returnval = [
+            200,
+            {
+              'Content-Type' => 'text/plain',
+              'Content-Length' => 2
+            },
+            ["ok"]
+          ]
+        end
+      elsif action == "deploy"
         returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading deploy data for #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
@@ -313,9 +346,9 @@ app = proc do |env|
           200,
           {
             'Content-Type' => 'text/plain',
-            'Content-Length' => MU.adminBucketName.length.to_s
+            'Content-Length' => MU.adminBucketName(filter, credentials: path).length.to_s
           },
-          [MU.adminBucketName]
+          [MU.adminBucketName(filter, credentials: path)]
         ]
       else
         returnval = throw404 env['REQUEST_PATH']
@@ -389,7 +422,8 @@ app = proc do |env|
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))
-          instance.addVolume(params["dev"], params["size"])
+MU.log "ADDVOLUME REQUEST", MU::WARN, details: params
+          instance.addVolume(params["dev"], params["size"], delete_on_termination: params["delete_on_termination"])
         else
           returnval = throw500 "I don't know how to add a volume for #{instance}"
           ok = false

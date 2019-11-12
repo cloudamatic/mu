@@ -17,21 +17,11 @@ module MU
     class AWS
       # A alarm as configured in {MU::Config::BasketofKittens::alarms}
       class Alarm < MU::Cloud::Alarm
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::alarms}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -157,12 +147,9 @@ module MU
         end
 
         # Locate an existing alarm.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
-          MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region, credentials: credentials)
+        def self.find(**args)
+          MU::Cloud::AWS::Alarm.getAlarmByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
         end
 
         # Create an alarm.
@@ -270,13 +257,13 @@ module MU
           alarm["dimensions"] ||= []
 
           if alarm["#TARGETCLASS"] == "cache_cluster"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "CacheClusterId" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "CacheClusterId" }
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
           elsif alarm["#TARGETCLASS"] == "server"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "InstanceId" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
           elsif alarm["#TARGETCLASS"] == "database"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "DBInstanceIdentifier" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
           end
 

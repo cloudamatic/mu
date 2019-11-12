@@ -36,7 +36,7 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.17.15-1"
-CHEF_CLIENT_VERSION="14.11.21"
+CHEF_CLIENT_VERSION="14.13.11"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
@@ -171,42 +171,59 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
-if platform_family?("rhel")
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
-#        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
+elversion = node['platform_version'].split('.')[0]
 
-  rpms = {
-    "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
-    "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
-  }
+rhelbase = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
 
+case node['platform_family']
+when 'rhel'
 
-  if elversion < 6 or elversion >= 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion})"
+  basepackages = rhelbase
 
-  # RHEL6, CentOS6, Amazon Linux
-  elsif elversion < 7
-    basepackages.concat(["mysql-devel"])
-    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el6.x86_64.rpm"
-    
+  case node['platform_version'].split('.')[0].to_i
+  when 6
+    basepackages.concat(["cryptsetup-luks", "mysql-devel", "centos-release-scl"])
     removepackages = ["nagios"]
 
-  # RHEL7, CentOS7
-  elsif elversion < 8
-    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel", "cryptsetup"])
-    rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el7.x86_64.rpm"
-    removepackages = ["nagios", "firewalld"]
-  end
-  # Amazon Linux
-  if node['platform_version'].to_i > 2000
-    basepackages.concat(["compat-libffi5"])
-    rpms.delete("epel-release")
+  when 7
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
+    removepackages = ['nagios', 'firewalld']
+
+  when 8
+    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+  else
+    raise "Mu does not support RHEL #{node['platform_version']} (matched on #{node['platform_version'].split('.')[0]})"
   end
 
+when 'amazon'
+  basepackages = rhelbase
+  rpms.delete('epel-release')
+  
+  case node['platform_version'].split('.')[0]
+  when '1', '6' #REALLY THIS IS AMAZON LINUX 1, BUT IT IS BASED OFF OF RHEL 6
+    basepackages.concat(['mysql-devel', 'libffi-devel'])
+    basepackages.delete('tk')
+    removepackages = ["nagios"]
+
+  when '2'
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'ncurses-devel', 'ncurses-compat-libs', 'iptables-services'])
+    removepackages = ['nagios', 'firewalld']
+    elversion = '7' #HACK TO FORCE AMAZON LINUX 2 TO BE TREATED LIKE RHEL 7
+
+  else
+    raise "Mu Masters on Amazon-family hosts must be equivalent to Amazon Linux 1 or 2 (got #{node['platform_version'].split('.')[0]})"
+  end
 else
-  raise "Mu Masters are currently only supported on RHEL-family hosts."
+  raise "Mu Masters are currently only supported on RHEL and Amazon family hosts (got #{node['platform_family']})."
 end
+
+rpms = {
+  "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
+  "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
+}
+
+rpms["ruby25"] = "https://s3.amazonaws.com/cloudamatic/muby-2.5.3-1.el#{elversion}.x86_64.rpm"
+rpms["python27"] = "https://s3.amazonaws.com/cloudamatic/muthon-2.7.16-1.el#{elversion}.x86_64.rpm"
 
 package basepackages
 
@@ -284,21 +301,24 @@ end
 # REMOVE OLD RUBYs
 execute "clean up old Ruby 2.1.6" do
   command "rm -rf /opt/rubies/ruby-2.1.6"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.1.6") }
-end
-
-yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
-  action :purge
 end
 
 execute "Kill ruby-2.3.1" do
   command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y; rpm -e ruby23"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
 execute "clean up old ruby-2.3.1" do
   command "rm -rf /opt/rubies/ruby-2.3.1"
+  ignore_failure true
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
+end
+
+execute "yum makecache" do
+  action :nothing
 end
 
 # Regular old rpm-based installs
@@ -307,6 +327,9 @@ rpms.each_pair { |pkg, src|
     source src
     if pkg == "ruby25" 
       options '--prefix=/opt/rubies/'
+    end
+    if pkg == "epel-release" 
+      notifies :run, "execute[yum makecache]", :immediately
     end
     if pkg == "chef-server-core"
       notifies :stop, "service[iptables]", :before
@@ -320,6 +343,7 @@ rpms.each_pair { |pkg, src|
     end
   end
 }
+
 package ["jq"] do
   ignore_failure true # sometimes we can't see EPEL immediately
 end
@@ -369,7 +393,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
   end
 end
 
-["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
+["mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh", "mu-adopt", "mu-azure-setup", "mu-gcp-setup", "mu-aws-setup"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end
@@ -380,6 +404,12 @@ end
 remote_file "#{MU_BASE}/bin/mu-self-update" do
   source "file://#{MU_BASE}/lib/bin/mu-self-update"
   mode 0755
+end
+
+bash "install modules for our built-in Python" do
+  code <<-EOH
+    /usr/local/python-current/bin/pip install -r #{MU_BASE}/lib/requirements.txt
+  EOH
 end
 
 ["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
@@ -424,26 +454,15 @@ end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
 
-# XXX rely on bundler to get this right for us
-#    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
-#      gem_binary gembin
-#      package_name "knife-windows"
-#      version KNIFE_WINDOWS
-#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-#    end
-
-#    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
-#      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
-#      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
-#      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
-#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      only_if { ::Dir.exist?(gemdir) }
-      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-#    end
   end
 }
 
+# This is mostly to make sure Berkshelf has a clean and current environment to
+# live with.
+execute "/usr/local/ruby-current/bin/bundle clean --force" do
+  cwd "#{MU_BASE}/lib/modules"
+  only_if { RUNNING_STANDALONE }
+end
 
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
@@ -544,7 +563,7 @@ end
 file "#{MU_BASE}/etc/mu.rc" do
   content %Q{export MU_INSTALLDIR="#{MU_BASE}"
 export MU_DATADIR="#{MU_BASE}/var"
-export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:/usr/local/python-current/bin:${PATH}:/opt/opscode/embedded/bin"
 }
   mode 0644
   action :create_if_missing
@@ -559,3 +578,10 @@ end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
 }
+bash "fix misc permissions" do
+  code <<-EOH
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git" -type d -exec chmod go+r {} \\;
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+r {} \\;
+    chmod go+rx #{MU_BASE}/lib/bin/* #{MU_BASE}/lib/extras/*-stock-* #{MU_BASE}/lib/extras/vault_tools/*.sh
+  EOH
+end

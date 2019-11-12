@@ -17,18 +17,11 @@ module MU
     class AWS
       # A storage pool as configured in {MU::Config::BasketofKittens::storage_pools}
       class StoragePool < MU::Cloud::StoragePool
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :config
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::storage_pools}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
@@ -111,40 +104,35 @@ module MU
         end
 
         # Locate an existing storage pool and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching storage pool
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching storage pool
+        def self.find(**args)
           map = {}
-          if cloud_id
-            storge_pool = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems(
-              file_system_id: cloud_id
+          if args[:cloud_id]
+            storge_pool = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems(
+              file_system_id: args[:cloud_id]
             ).file_systems.first
             
             map[cloud_id] = storge_pool if storge_pool
           end
 
           if tag_value
-            storage_pools = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_file_systems.file_systems
+            storage_pools = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems.file_systems
           
             if !storage_pools.empty?
               storage_pools.each{ |pool|
-                tags = MU::Cloud::AWS.efs(region: region, credentials: credentials).describe_tags(
+                tags = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_tags(
                   file_system_id: pool.file_system_id
                 ).tags
 
                 value = nil
                 tags.each{ |tag|
-                  if tag.key == tag_key
+                  if tag.key == args[:tag_key]
                     value = tag.value
                     break
                   end
                 }
                 
-                if value == tag_value
+                if value == args[:tag_value]
                   map[pool.file_system_id] = pool
                   break
                 end
