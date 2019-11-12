@@ -347,7 +347,6 @@ DockerDeploy Manual:
   - development
   - /^gem-.*$/
   - /^cicd-.*$/
->>>>>>> origin/cicd-container_deploy
 
 Gen Docs:
   stage: Merge/Tag
