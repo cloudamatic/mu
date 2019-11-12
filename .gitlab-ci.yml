@@ -195,6 +195,7 @@ Gem Parser Test:
 
 Mu Install:
   stage: Smoke Test
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
   - export AWS_REGION='us-east-1'
   - echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list
