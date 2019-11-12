@@ -5,14 +5,17 @@ stages:
   - Test
   - Security Test
   - Build
+  - Docker Build
   - Smoke Test
   - Merge/Tag
-  - Dockerbuild
   - Deploy
   
 Rubocop:
   stage: Lint Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - rubocop modules/
     - rubocop bin/
@@ -24,6 +27,9 @@ Rubocop:
 Cookstyle:
   stage: Lint Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - cookstyle cookbooks/
   allow_failure: true
@@ -34,6 +40,9 @@ Cookstyle:
 Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
   except:
@@ -43,6 +52,9 @@ Foodcritic:
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
   except:
@@ -52,6 +64,9 @@ Foodcritic Deprecations:
 ChefSpec:
   stage: Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
@@ -89,6 +104,9 @@ ChefSpec:
 New_Berks:
   stage: Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
@@ -102,6 +120,9 @@ New_Berks:
 Berks:
   stage: Test
   image: chef/chefdk:latest
+  variables: {
+    CHEF_LICENSE: "accept"
+  }
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
@@ -240,17 +261,93 @@ Smoke Test:
     variables:
     - $IMAGE_BUILD
 
-.Dockerbuild:
-  stage: Dockerbuild
-  image: docker:latest
+Docker Build:
+  stage: Docker Build
+  services:
+  - docker:dind
+  image: docker:stable
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_HOST: tcp://docker:2375/
+  dependencies:
+    - Gem Build
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
   script:
-    - echo "Build Mu Docker Container"
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+    - docker build -t $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$MU_VERSION -t $CI_REGISTRY_IMAGE:$MU_VERSION-$OS -t $CI_REGISTRY_IMAGE:$OS -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
+    - echo "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest" "$CI_REGISTRY_IMAGE:$MU_VERSION" "$CI_REGISTRY_IMAGE:$MU_VERSION-$OS" "$CI_REGISTRY_IMAGE:$OS" | xargs -n 1 docker push
+    #- docker run my-docker-image /script/to/run/tests
   only:
     - master
     - development
+    - /^gem-.*$/
+    - /^cicd-.*$/
   except:
     variables:
     - $IMAGE_BUILD
+  tags:
+    - docker-build
+
+DockerTest:
+  stage: Smoke Test
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - echo "hello from mu $MU_VERSION"
+  only:
+    - master
+    - development
+    - /^gem-.*$/
+    - /^cicd-.*$/
+
+DockerDeploy:
+  stage: Deploy
+  services:
+  - docker:dind
+  image: docker:stable
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_HOST: tcp://docker:2375/
+  when: on_success
+  script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION-$OS
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$OS
+    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
+    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
+  only:
+    - master
+
+DockerDeploy Manual:
+  stage: Deploy
+  services:
+  - docker:dind
+  image: docker:stable
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_HOST: tcp://docker:2375/
+  when: manual
+  script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION-$OS
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$OS
+    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
+    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
+  only:
+  - development
+  - /^gem-.*$/
+  - /^cicd-.*$/
+>>>>>>> origin/cicd-container_deploy
 
 Gen Docs:
   stage: Merge/Tag
