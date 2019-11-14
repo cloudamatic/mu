@@ -198,12 +198,7 @@ Mu Install:
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
   - export AWS_REGION='us-east-1'
-  - echo "deb http://ppa.launchpad.net/ansible/ansible/ubuntu trusty main" >> /etc/apt/sources.list
-  - apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 93C4A3FD7BB9C367
-  - apt-get -qq update
-  - apt-get -qq install dnsutils ansible
-  - "echo '    HostKeyAlgorithms ssh-rsa,rsa-sha2-512,rsa-sha2-256' >> /etc/ssh/ssh_config"
-  - alias ssh='ssh -v >> /tmp/ssh_debug'
+  - yum install ansible bind-utils
   script:
   - gem install cloud-mu-*.gem
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
