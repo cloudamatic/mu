@@ -39,6 +39,7 @@ module MU
     end
 
     @@litters = {}
+    @@litters_loadtime = {}
     @@litter_semaphore = Mutex.new
 
     # Return a {MU::MommaCat} instance for an existing deploy. Use this instead
@@ -67,11 +68,25 @@ module MU
         raise e if !e.message.match(/recursive locking/)
         littercache = @@litters.dup
       end
+
+      if littercache[deploy_id] and @@litters_loadtime[deploy_id]
+        deploy_root = File.expand_path(MU.dataDir+"/deployments")
+        this_deploy_dir = deploy_root+"/"+deploy_id
+        if File.exist?("#{this_deploy_dir}/deployment.json")
+          lastmod = File.mtime("#{this_deploy_dir}/deployment.json")
+          if lastmod > @@litters_loadtime[deploy_id]
+            MU.log "Deployment metadata for #{deploy_id} was modified on disk, reload", MU::NOTICE
+            use_cache = false
+          end
+        end
+      end
+
       if !use_cache or littercache[deploy_id].nil?
         newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         # This, we have to synchronize, as it's a write
         @@litter_semaphore.synchronize {
-          @@litters[deploy_id] ||= newlitter
+          @@litters[deploy_id] = newlitter
+          @@litters_loadtime[deploy_id] = Time.now
         }
       elsif set_context_to_me
         MU::MommaCat.setThreadContext(@@litters[deploy_id])
@@ -1102,23 +1117,27 @@ module MU
 
     # Iterate over all known deployments and look for instances that have been
     # terminated, but not yet cleaned up, then clean them up.
-    def self.cleanTerminatedInstances
+    def self.cleanTerminatedInstances(debug = false)
+      loglevel = debug ? MU::NOTICE : MU::DEBUG
       MU::MommaCat.lock("clean-terminated-instances", false, true)
-      MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
+      MU.log "Checking for harvested instances in need of cleanup", loglevel
       parent_thread_id = Thread.current.object_id
       purged = 0
       MU::MommaCat.listDeploys.each { |deploy_id|
         next if File.exist?(deploy_dir(deploy_id)+"/.cleanup")
-        MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
+        MU.log "Checking for dead wood in #{deploy_id}", loglevel
         need_reload = false
         @cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
           purged_this_deploy = 0
+            MU.log "#{deploy_id} has some kittens in it", loglevel, details: deploy.kittens.keys
           if deploy.kittens.has_key?("servers")
+            MU.log "#{deploy_id} has some servers declared", loglevel, details: deploy.object_id
             deploy.kittens["servers"].values.each { |nodeclasses|
               nodeclasses.each_pair { |nodeclass, servers|
                 deletia = []
+                MU.log "Checking status of servers under '#{nodeclass}'", loglevel, details: servers.keys
                 servers.each_pair { |mu_name, server|
                   server.describe
                   if !server.cloud_id
@@ -1145,13 +1164,14 @@ module MU
                   servers.delete(mu_name)
                 }
                 if purged_this_deploy > 0
-                  # XXX some kind of filter (obey sync_siblings on nodes' configs)
-                  deploy.syncLitter(servers.keys)
+                  # XXX triggering_node needs to take more than one node name
+                  deploy.syncLitter(servers.keys, triggering_node: deletia.first)
                 end
               }
             }
           end
           if need_reload
+            MU.log "Saving modified deploy #{deploy_id}", loglevel
             deploy.save!
             MU::MommaCat.getLitter(deploy_id, use_cache: false)
           end
@@ -1161,6 +1181,8 @@ module MU
       @cleanup_threads.each { |t|
         t.join
       }
+      MU.log "cleanTerminatedInstances threads complete", loglevel
+      MU::MommaCat.unlock("clean-terminated-instances", true)
       @cleanup_threads = []
 
       if purged > 0
@@ -1169,7 +1191,7 @@ module MU
         end
         MU::MommaCat.syncMonitoringConfig
       end
-      MU::MommaCat.unlock("clean-terminated-instances", true)
+      MU.log "cleanTerminatedInstances returning", loglevel
     end
 
     @@dummy_cache = {}
@@ -2782,6 +2804,7 @@ MESSAGE_END
     def save!(triggering_node = nil, force: false, origin: nil)
 
       return if @no_artifacts and !force
+
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 

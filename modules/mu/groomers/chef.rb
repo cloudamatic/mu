@@ -827,6 +827,14 @@ retry
 
         return if nodeonly
 
+        vaults_to_clean.each { |vault|
+          MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
+          MU.log "Purging unknown clients from #{vault['vault']} #{vault['item']}", MU::DEBUG
+          ::Chef::Knife.run(['vault', 'rotate', 'keys', vault['vault'], vault['item'], "--clean-unknown-clients"]) if !noop
+          ::Chef::Knife.run(['vault', 'refresh', vault['vault'], vault['item']]) if !noop
+          MU::MommaCat.unlock("vault-#{vault['vault']}")
+        }
+
         begin
           deleteSecret(vault: node) if !noop
         rescue MuNoSuchSecret
