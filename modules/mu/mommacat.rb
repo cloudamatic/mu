@@ -63,36 +63,49 @@ module MU
         @@litter_semaphore.synchronize {
           littercache = @@litters.dup
         }
+        if littercache[deploy_id] and @@litters_loadtime[deploy_id]
+          deploy_root = File.expand_path(MU.dataDir+"/deployments")
+          this_deploy_dir = deploy_root+"/"+deploy_id
+          if File.exist?("#{this_deploy_dir}/deployment.json")
+            lastmod = File.mtime("#{this_deploy_dir}/deployment.json")
+            if lastmod > @@litters_loadtime[deploy_id]
+              MU.log "Deployment metadata for #{deploy_id} was modified on disk, reload", MU::NOTICE
+              use_cache = false
+            end
+         end
+        end
       rescue ThreadError => e
         # already locked by a parent caller and this is a read op, so this is ok
         raise e if !e.message.match(/recursive locking/)
         littercache = @@litters.dup
       end
 
-      if littercache[deploy_id] and @@litters_loadtime[deploy_id]
-        deploy_root = File.expand_path(MU.dataDir+"/deployments")
-        this_deploy_dir = deploy_root+"/"+deploy_id
-        if File.exist?("#{this_deploy_dir}/deployment.json")
-          lastmod = File.mtime("#{this_deploy_dir}/deployment.json")
-          if lastmod > @@litters_loadtime[deploy_id]
-            MU.log "Deployment metadata for #{deploy_id} was modified on disk, reload", MU::NOTICE
-            use_cache = false
-          end
-        end
-      end
-
       if !use_cache or littercache[deploy_id].nil?
+        need_gc = !littercache[deploy_id].nil?
         newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         # This, we have to synchronize, as it's a write
         @@litter_semaphore.synchronize {
           @@litters[deploy_id] = newlitter
           @@litters_loadtime[deploy_id] = Time.now
         }
+        GC.start if need_gc
       elsif set_context_to_me
         MU::MommaCat.setThreadContext(@@litters[deploy_id])
       end
       return @@litters[deploy_id]
 #     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+    end
+
+    # Update the in-memory cache of a given deploy. This is intended for use by
+    # {#save!}, primarily.
+    # @param deploy_id [String]
+    # @param litter [MU::MommaCat]
+    def self.updateLitter(deploy_id, litter)
+      return if litter.nil?
+      @@litter_semaphore.synchronize {
+        @@litters[deploy_id] = litter
+        @@litters_loadtime[deploy_id] = Time.now
+      }
     end
 
     attr_reader :initializing
@@ -916,7 +929,7 @@ module MU
       if MU.myCloud == "AWS"
         MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
       end
-      MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
+      MU::MommaCat.getLitter(MU.deploy_id)
       MU::MommaCat.syncMonitoringConfig(false)
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
       FileUtils.touch(MU.dataDir+"/deployments/#{MU.deploy_id}/#{name}_done.txt")
@@ -1123,6 +1136,7 @@ module MU
       MU.log "Checking for harvested instances in need of cleanup", loglevel
       parent_thread_id = Thread.current.object_id
       purged = 0
+
       MU::MommaCat.listDeploys.each { |deploy_id|
         next if File.exist?(deploy_dir(deploy_id)+"/.cleanup")
         MU.log "Checking for dead wood in #{deploy_id}", loglevel
@@ -1173,7 +1187,7 @@ module MU
           if need_reload
             MU.log "Saving modified deploy #{deploy_id}", loglevel
             deploy.save!
-            MU::MommaCat.getLitter(deploy_id, use_cache: false)
+            MU::MommaCat.getLitter(deploy_id)
           end
           MU.purgeGlobals
         }
@@ -1190,6 +1204,7 @@ module MU
           MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
         MU::MommaCat.syncMonitoringConfig
+        GC.start
       end
       MU.log "cleanTerminatedInstances returning", loglevel
     end
@@ -2857,6 +2872,7 @@ MESSAGE_END
           deploy.flock(File::LOCK_UN)
           deploy.close
           @need_deploy_flush = false
+          MU::MommaCat.updateLitter(@deploy_id, self)
         end
 
         if !@original_config.nil? and @original_config.is_a?(Hash)

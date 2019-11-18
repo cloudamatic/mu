@@ -317,6 +317,13 @@ module MU
         }
       end
 
+      # A way of dynamically defining +attr_reader+ without leaking memory
+      def self.define_reader(name)
+        define_method(name) {
+          instance_variable_get("@#{name.to_s}")
+        }
+      end
+
       # @param cfg [Hash]: A Basket of Kittens configuration hash containing
       # lookup information for a cloud object
       def initialize(cfg)
@@ -327,7 +334,7 @@ module MU
           elsif !cfg[field.to_sym].nil?
             self.instance_variable_set("@#{field.to_s}".to_sym, cfg[field.to_sym])
           end
-          self.singleton_class.instance_eval { attr_reader field.to_sym }
+          MU::Config::Ref.define_reader(field)
         }
         if cfg['tag'] and cfg['tag']['key'] and
            !cfg['tag']['key'].empty? and cfg['tag']['value']
