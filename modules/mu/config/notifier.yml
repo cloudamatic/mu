@@ -1,4 +1,4 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: notifier
 subscriptions:
 - endpoint: admin@example.com
