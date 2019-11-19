@@ -51,6 +51,7 @@ suites:
       command:
       - sudo yum install -y bind-utils
       - sudo chown root:root /tmp/installer
+      - sudo chmod u+x /tmp/installer
       - sudo chown root:root /tmp/mu-master.yaml
       - ls -la /tmp/
       - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
