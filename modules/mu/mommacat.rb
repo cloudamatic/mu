@@ -661,8 +661,9 @@ module MU
     # @param max_length [Integer]: The maximum length of the resulting resource name.
     # @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
     # @param scrub_mu_isms [Boolean]: Don't bother with generating names specific to this deployment. Used to generate generic CloudFormation templates, amongst other purposes.
+    # @param allowed_chars [Regexp]: A pattern of characters that are legal for this resource name, such as +/[a-zA-Z0-9-]/+
     # @return [String]: A full name string for this resource
-    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'])
+    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], allowed_chars: nil)
       if name.nil?
         raise MuError, "Got no argument to MU::MommaCat.getResourceName"
       end
@@ -685,6 +686,19 @@ module MU
         basename = @appname.upcase + "-" + @environment.upcase + name.upcase
       end
 
+      subchar = if allowed_chars
+        if !"-".match(allowed_chars)
+          if "_".match(allowed_chars)
+            "_"
+          else
+            ""
+          end
+        else
+          "-"
+        end
+      end
+
+      basename.gsub!(allowed_chars, subchar) if allowed_chars
       begin
         if (basename.length + reserved) > max_length
           MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
@@ -697,6 +711,7 @@ module MU
             basename.slice!((max_length-(reserved+3))..basename.length)
             basename.sub!(/-$/, "")
             basename = basename + "-" + @seed.upcase
+            basename.gsub!(allowed_chars, subchar) if allowed_chars
           else
             # If we have to strip anything, assume we've lost uniqueness and
             # will have to compensate with #genUniquenessString.
@@ -704,6 +719,7 @@ module MU
             reserved = 4
             basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
             basename = basename + "-" + @seed.upcase + "-" + name.upcase
+            basename.gsub!(allowed_chars, subchar) if allowed_chars
           end
         end
       end while (basename.length + reserved) > max_length
@@ -730,6 +746,7 @@ module MU
       else
         muname = basename
       end
+      muname.gsub!(allowed_chars, subchar) if allowed_chars
 
       return muname
     end
