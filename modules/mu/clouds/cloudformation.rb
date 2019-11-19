@@ -28,6 +28,15 @@ module MU
 
       @@cloudformation_mode = false
 
+      # Return what we think of as a cloud object's habitat. In AWS, this means
+      # the +account_number+ in which it's resident. If this is not applicable,
+      # such as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::AWS]: The resource from which to extract the habitat id
+      # @return [String,nil]
+      def self.habitat(cloudobj)
+        cloudobj.respond_to?(:account_number) ? cloudobj.account_number : nil
+      end
+
       # Toggle ourselves into a mode that will emit a CloudFormation template
       # instead of actual infrastructure.
       # @param set [Boolean]: Set the mode
@@ -78,8 +87,8 @@ module MU
       # Stub method- there's no such thing as being "hosted" in a CloudFormation
       # environment. Calls {MU::Cloud::AWS.myRegion} to return sensible
       # values, if we happen to have AWS credentials configured.
-      def self.myRegion
-        MU::Cloud::AWS.myRegion
+      def self.myRegion(credentials = nil)
+        MU::Cloud::AWS.myRegion(credentials)
       end
 
       # Stub method- there's no such thing as being "hosted" in a CloudFormation
@@ -256,12 +265,6 @@ module MU
         when "vpcgwattach"
           desc = {
             "Type" => "AWS::EC2::VPCGatewayAttachment",
-            "Properties" => {
-            }
-          }
-        when "loggroup"
-          desc = {
-            "Type" => "AWS::EC2::LogGroup",
             "Properties" => {
             }
           }
@@ -649,7 +652,7 @@ module MU
                     child_name = resource['#MUOBJECT'].cloudobj.cfm_name
                     child_params = child_template[child_name]["Properties"]["Parameters"]
                     child_params = Hash.new if child_params.nil?
-                    cfm_template["Parameters"].each { |key, data|
+                    cfm_template["Parameters"].keys.each { |key|
                       child_params[key] = { "Ref" => key }
                     }
                     MU::Cloud::CloudFormation.setCloudFormationProp(child_template[child_name], "Parameters", child_params)

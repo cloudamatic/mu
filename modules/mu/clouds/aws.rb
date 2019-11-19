@@ -28,6 +28,24 @@ module MU
 
       @@creds_loaded = {}
 
+      # Module used by {MU::Cloud} to insert additional instance methods into
+      # instantiated resources in this cloud layer.
+      module AdditionalResourceMethods
+      end
+
+      # A hook that is always called just before any of the instance method of
+      # our resource implementations gets invoked, so that we can ensure that
+      # repetitive setup tasks (like resolving +:resource_group+ for Azure
+      # resources) have always been done.
+      # @param cloudobj [MU::Cloud]
+      # @param deploy [MU::MommaCat]
+      def self.resourceInitHook(cloudobj, deploy)
+        class << self
+          attr_reader :cloudformation_data
+        end
+        cloudobj.instance_variable_set(:@cloudformation_data, {})
+      end
+
       # Load some credentials for using the AWS API
       # @param name [String]: The name of the mu.yaml AWS credential set to use. If not specified, will use the default credentials, and set the global Aws.config credentials to those.
       # @return [Aws::Credentials]
@@ -145,8 +163,13 @@ module MU
       # Given an AWS region, check the API to make sure it's a valid one
       # @param r [String]
       # @return [String]
-      def self.validate_region(r)
-        MU::Cloud::AWS.ec2(region: r).describe_availability_zones.availability_zones.first.region_name
+      def self.validate_region(r, credentials: nil)
+        begin
+          MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_availability_zones.availability_zones.first.region_name
+        rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
+          MU.log "Got '#{e.message}' trying to validate region #{r} (hosted: #{hosted?.to_s})", MU::ERR, details: loadCredentials(credentials)
+          raise MuError, "Got '#{e.message}' trying to validate region #{r} with credentials #{credentials ? credentials : "<default>"} (hosted: #{hosted?.to_s})"
+        end
       end
 
       # Tag a resource with all of our standard identifying tags.
@@ -184,34 +207,58 @@ module MU
         MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
       end
 
+      @@myVPCObj = nil
+
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPCObj
+        return @@myVPCObj if @@myVPCObj
+        return nil if !hosted?
+        instance = MU.myCloudDescriptor
+        return nil if !instance or !instance.vpc_id
+        vpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: instance.vpc_id, dummy_ok: true, no_deploy_search: true)
+        return nil if vpc.nil? or vpc.size == 0
+        @@myVPCObj = vpc.first
+        @@myVPCObj
+      end
+
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
-      def self.myRegion
+      def self.myRegion(credentials = nil)
         return @@myRegion_var if @@myRegion_var
 
         if credConfig.nil? and !hosted? and !ENV['EC2_REGION']
           return nil
         end
 
-
         if $MU_CFG and $MU_CFG['aws']
           $MU_CFG['aws'].each_pair { |credset, cfg|
+            next if credentials and credset != credentials
             next if !cfg['region']
-            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'])
+            if (cfg['default'] or !@@myRegion_var) and validate_region(cfg['region'], credentials: credset)
               @@myRegion_var = cfg['region']
-              break if cfg['default']
+              break if cfg['default'] or credentials
             end
           }
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty? and
-              validate_region(ENV['EC2_REGION'])
+              validate_region(ENV['EC2_REGION']) and
+              (
+               (ENV.has_key?("AWS_SECRET_ACCESS_KEY") and ENV.has_key?("AWS_SECRET_ACCESS_KEY") ) or
+               (Aws.config['access_key'] and Aws.config['access_secret'])
+              )
           # Make sure this string is valid by way of the API
           @@myRegion_var = ENV['EC2_REGION']
-        else
+        end
+
+        if hosted? and !@@myRegion_var
           # hacky, but useful in a pinch (and if we're hosted in AWS)
           az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
           @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
         end
+
+        @@myRegion_var
       end
+
 
       # Is the region we're dealing with a GovCloud region?
       # @param region [String]: The region in question, defaults to the Mu Master's local region
@@ -282,9 +329,8 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
-        if $MU_CFG and (!$MU_CFG['aws'] or !account_number)
-          return []
-        end
+        cfg = credConfig(credentials)
+        return [] if !cfg
         if !region.nil? and @@azs[region]
           return @@azs[region]
         end
@@ -298,6 +344,18 @@ module MU
           @@azs[region] << az.zone_name if az.state == "available"
         }
         return @@azs[region]
+      end
+
+      # Do cloud-specific deploy instantiation tasks, such as copying SSH keys
+      # around, sticking secrets in buckets, creating resource groups, etc
+      # @param deploy [MU::MommaCat]
+      def self.initDeploy(deploy)
+      end
+
+      # Purge cloud-specific deploy meta-artifacts (SSH keys, resource groups,
+      # etc)
+      # @param deploy_id [MU::MommaCat]
+      def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
@@ -381,6 +439,14 @@ module MU
             instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
             if !instance_id.nil? and instance_id.size > 0
               @@is_in_aws = true
+              region = getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
+              begin
+                validate_region(region)
+              rescue MuError
+                @@creds_loaded.delete("#default")
+                @@is_in_aws = false
+                false
+              end
               return true
             end
           end
@@ -419,6 +485,16 @@ module MU
         sample
       end
 
+      # Return what we think of as a cloud object's habitat. In AWS, this means
+      # the +account_number+ in which it's resident. If this is not applicable,
+      # such as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::AWS]: The resource from which to extract the habitat id
+      # @return [String,nil]
+      def self.habitat(cloudobj, nolookup: false, deploy: nil)
+        cloudobj.respond_to?(:account_number) ? cloudobj.account_number : nil
+      end
+
+
       @@my_acct_num = nil
       @@my_hosted_cfg = nil
       @@acct_to_profile_map = {}
@@ -450,8 +526,29 @@ module MU
       # @param credentials [String]
       # @return [String]
       def self.adminBucketName(credentials = nil)
-         #XXX find a default if this particular account doesn't have a log_bucket_name configured
         cfg = credConfig(credentials)
+        return nil if !cfg
+        if !cfg['log_bucket_name']
+          cfg['log_bucket_name'] = $MU_CFG['hostname'] 
+          MU.log "No AWS log bucket defined for credentials #{credentials}, attempting to use default of #{cfg['log_bucket_name']}", MU::WARN
+        end
+        resp = MU::Cloud::AWS.s3(credentials: credentials).list_buckets
+        found = false
+        resp.buckets.each { |b|
+          if b.name == cfg['log_bucket_name']
+            found = true
+            break
+          end
+        }
+        if !found
+          MU.log "Attempting to create log bucket #{cfg['log_bucket_name']} for credentials #{credentials}", MU::WARN
+          begin
+            resp = MU::Cloud::AWS.s3(credentials: credentials).create_bucket(bucket: cfg['log_bucket_name'], acl: "private")
+          rescue Aws::S3::Errors::BucketAlreadyExists => e
+            raise MuError, "AWS credentials #{credentials} need a log bucket, and the name #{cfg['log_bucket_name']} is unavailable. Use mu-configure to edit credentials '#{credentials}' or 'hostname'"
+          end
+        end
+
         cfg['log_bucket_name']
       end
 
@@ -460,7 +557,8 @@ module MU
       # @param credentials [String]
       # @return [String]
       def self.adminBucketUrl(credentials = nil)
-        "s3://"+adminBucketName+"/"
+        return nil if !credConfig(credentials)
+        "s3://"+adminBucketName(credentials)+"/"
       end
 
       # Return the $MU_CFG data associated with a particular profile/name/set of
@@ -474,7 +572,9 @@ module MU
         # on a machine hosted in AWS, *and* that machine has an IAM profile,
         # fake it with those credentials and hope for the best.
         if !$MU_CFG['aws'] or !$MU_CFG['aws'].is_a?(Hash) or $MU_CFG['aws'].size == 0
-          return @@my_hosted_cfg if @@my_hosted_cfg
+          if @@my_hosted_cfg
+            return name_only ? "#default" : @@my_hosted_cfg
+          end
 
           if hosted?
             begin
@@ -499,9 +599,9 @@ module MU
         end
 
         if name.nil?
-          $MU_CFG['aws'].each_pair { |name, cfg|
+          $MU_CFG['aws'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else
@@ -531,7 +631,6 @@ module MU
                 cfg['account_number'] = acct_num.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
                 return name_only ? name.to_s : cfg
-                return cfg
               end
             }
           end
@@ -1062,7 +1161,7 @@ module MU
       def self.openFirewallForClients
         MU::Cloud.loadCloudType("AWS", :FirewallRule)
         begin
-          if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
             ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           end
           ::Chef::Config[:environment] = MU.environment
@@ -1257,8 +1356,6 @@ module MU
 
           MU.log "Initializing #{api} object with credentials #{credentials}", MU::DEBUG, details: params
           @api = Object.const_get("Aws::#{api}::Client").new(params)
-
-          @api
         end
 
         @instance_cache = {}
@@ -1278,7 +1375,7 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException, Net::ReadTimeout, Faraday::TimeoutError => e
             if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
               MU.log e.inspect, MU::ERR
               raise e

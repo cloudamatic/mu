@@ -15,30 +15,16 @@
 module MU
   class Cloud
     class Google
-      # Creates an Google project as configured in {MU::Config::BasketofKittens::folders}
+      # Creates a Google folder as configured in {MU::Config::BasketofKittens::folders}
       class Folder < MU::Cloud::Folder
-        @deploy = nil
-        @config = nil
-        @parent = nil
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          cloud_desc if @cloud_id # XXX this maybe isn't my job
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::folders}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-
-          if !mu_name.nil?
-            @mu_name = mu_name
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config['name'])
-          end
+          @mu_name ||= @deploy.getResourceName(@config['name'])
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -54,6 +40,9 @@ module MU
             display_name: name_string
           }
 
+          if @config['parent']['name'] and !@config['parent']['id']
+            @config['parent']['deploy_id'] = @deploy.deploy_id
+          end
           parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
 
           folder_obj = MU::Cloud::Google.folder(:Folder).new(params)
@@ -79,6 +68,20 @@ module MU
             end
           end while found.size == 0
 
+          @habitat = parent
+
+        end
+
+        # Retrieve the IAM bindings for this folder (associates between IAM roles and groups/users)
+        def bindings
+          MU::Cloud::Google::Folder.bindings(@cloud_id, credentials: @config['credentials'])
+        end
+
+        # Retrieve the IAM bindings for this folder (associates between IAM roles and groups/users)
+        # @param folder [String]:
+        # @param credentials [String]:
+        def self.bindings(folder, credentials: nil)
+          MU::Cloud::Google.folder(credentials: credentials).get_folder_iam_policy(folder).bindings
         end
 
         # Given a {MU::Config::Folder.reference} configuration block, resolve
@@ -88,9 +91,9 @@ module MU
         # @return [String]
         def self.resolveParent(parentblock, credentials: nil)
           my_org = MU::Cloud::Google.getOrg(credentials)
-          if !parentblock or parentblock['id'] == my_org.name or
+          if my_org and (!parentblock or parentblock['id'] == my_org.name or
              parentblock['name'] == my_org.display_name or (parentblock['id'] and
-             "organizations/"+parentblock['id'] == my_org.name)
+             "organizations/"+parentblock['id'] == my_org.name))
             return my_org.name
           end
 
@@ -103,12 +106,12 @@ module MU
               name: parentblock['name']
             ).first
             if sib_folder
-              return "folders/"+sib_folder.cloudobj.cloud_id
+              return sib_folder.cloud_desc.name
             end
           end
 
           begin
-          found = MU::Cloud::Google::Folder.find(cloud_id: parentblock['id'], credentials: credentials, flags: { 'display_name' => parentblock['name'] })
+            found = MU::Cloud::Google::Folder.find(cloud_id: parentblock['id'], credentials: credentials, flags: { 'display_name' => parentblock['name'] })
           rescue ::Google::Apis::ClientError => e
             if !e.message.match(/Invalid request status_code: 404/)
               raise e
@@ -123,11 +126,14 @@ module MU
         end
 
         # Return the cloud descriptor for the Folder
+        # @return [Google::Apis::Core::Hashable]
         def cloud_desc
-          MU::Cloud::Google::Folder.find(cloud_id: @cloud_id).values.first
+          @cached_cloud_desc ||= MU::Cloud::Google::Folder.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
+          @habitat_id ||= @cached_cloud_desc.parent.sub(/^(folders|organizations)\//, "")
+          @cached_cloud_desc
         end
 
-        # Return the metadata for this project's configuration
+        # Return the metadata for this folders's configuration
         # @return [Hash]
         def notify
           desc = MU.structToHash(MU::Cloud::Google.folder(credentials: @config['credentials']).get_folder("folders/"+@cloud_id))
@@ -147,7 +153,7 @@ module MU
         # Denote whether this resource implementation is experiment, ready for
         # testing, or ready for production use.
         def self.quality
-          MU::Cloud::BETA
+          MU::Cloud::RELEASE
         end
 
         # Remove all Google projects associated with the currently loaded deployment. Try to, anyway.
@@ -158,54 +164,70 @@ module MU
           # We can't label GCP folders, and their names are too short to encode
           # Mu deploy IDs, so all we can do is rely on flags['known'] passed in
           # from cleanup, which relies on our metadata to know what's ours.
-
+#noop = true
           if flags and flags['known']
+            threads = []
             flags['known'].each { |cloud_id|
-              found = self.find(cloud_id: cloud_id, credentials: credentials)
-              if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
-                MU.log "Deleting folder #{found.values.first.display_name} (#{found.keys.first})"
-                if !noop
-                  max_retries = 10
-                  retries = 0
-                  success = false
-                  begin
-                    MU::Cloud::Google.folder(credentials: credentials).delete_folder(
-                      "folders/"+found.keys.first   
-                    )
-                    found = self.find(cloud_id: cloud_id, credentials: credentials)
-                    if found and found.size > 0 and found.values.first.lifecycle_state != "DELETE_REQUESTED"
-                      if retries < max_retries
+              threads << Thread.new { 
+
+                found = self.find(cloud_id: cloud_id, credentials: credentials)
+
+                if found.size > 0 and found.values.first.lifecycle_state == "ACTIVE"
+                  MU.log "Deleting folder #{found.values.first.display_name} (#{found.keys.first})"
+                  if !noop
+                    max_retries = 10
+                    retries = 0
+                    success = false
+                    begin
+                      MU::Cloud::Google.folder(credentials: credentials).delete_folder(
+                        "folders/"+found.keys.first   
+                      )
+                      found = self.find(cloud_id: cloud_id, credentials: credentials)
+                      if found and found.size > 0 and found.values.first.lifecycle_state != "DELETE_REQUESTED"
+                        if retries < max_retries
+                          sleep 30
+                          retries += 1
+                          puts retries
+                        else
+                          MU.log "Folder #{cloud_id} still exists after #{max_retries.to_s} attempts to delete", MU::ERR
+                          break
+                        end
+                      else
+                        success = true
+                      end
+  
+                    rescue ::Google::Apis::ClientError => e
+# XXX maybe see if the folder has disappeared already?
+# XXX look for child folders that haven't been deleted, that's what this tends
+# to mean
+                      if e.message.match(/failedPrecondition/) and retries < max_retries
                         sleep 30
                         retries += 1
-                        puts retries
+                        retry
                       else
-                        MU.log "Folder #{cloud_id} still exists after #{max_retries.to_s} attempts to delete", MU::ERR
+                        MU.log "Got 'failedPrecondition' a bunch while trying to delete #{found.values.first.display_name} (#{found.keys.first})", MU::ERR
                         break
                       end
-                    else
-                      success = true
-                    end
-
-                  rescue ::Google::Apis::ClientError => e
-                    if e.message.match(/failedPrecondition/) and retries < max_retries
-                      sleep 30
-                      retries += 1
-                      retry
-                    else
-                      raise e
-                    end
-                  end while !success
+                    end while !success
+                  end
                 end
-              end
+              }
+            }
+            threads.each { |t|
+              t.join
             }
           end
         end
 
-        # Locate an existing project
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching project
-        def self.find(cloud_id: nil, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
+        # Locate and return cloud provider descriptors of this resource type
+        # which match the provided parameters, or all visible resources if no
+        # filters are specified. At minimum, implementations of +find+ must
+        # honor +credentials+ and +cloud_id+ arguments. We may optionally
+        # support other search methods, such as +tag_key+ and +tag_value+, or
+        # cloud-specific arguments like +project+. See also {MU::MommaCat.findStray}.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
+        def self.find(**args)
           found = {}
 
           # Recursively search a GCP folder hierarchy for a folder matching our
@@ -227,25 +249,76 @@ module MU
             nil
           end
 
-          if cloud_id
-            found[cloud_id.sub(/^folders\//, "")] = MU::Cloud::Google.folder(credentials: credentials).get_folder("folders/"+cloud_id.sub(/^folders\//, ""))
-          elsif flags['display_name']
-            parent = if flags['parent_id']
-              flags['parent_id']
-            else
-              my_org = MU::Cloud::Google.getOrg(credentials)
-              my_org.name
-            end
+          parent = if args[:flags] and args[:flags]['parent_id']
+            args[:flags]['parent_id']
+          else
+            my_org = MU::Cloud::Google.getOrg(args[:credentials])
+            my_org.name
+          end
+
+          if args[:cloud_id]
+            raw_id = args[:cloud_id].sub(/^folders\//, "")
+            resp = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
+            found[resp.name] = resp if resp
+
+          elsif args[:flags] and args[:flags]['display_name']
 
             if parent
-              resp = self.find_matching_folder(parent, name: flags['display_name'], credentials: credentials)
+              resp = self.find_matching_folder(parent, name: args[:flags]['display_name'], credentials: args[:credentials])
               if resp
-                found[resp.name.sub(/^folders\//, "")] = resp
+                found[resp.name] = resp
               end
             end
+          else
+            resp = MU::Cloud::Google.folder(credentials: args[:credentials]).list_folders(parent: parent)
+            if resp and resp.folders
+              resp.folders.each { |folder|
+                next if folder.lifecycle_state == "DELETE_REQUESTED"
+                found[folder.name] = folder
+                # recurse so that we'll pick up child folders
+                children = self.find(
+                  credentials: args[:credentials],
+                  flags: { 'parent_id' => folder.name }
+                )
+                if !children.nil? and !children.empty?
+                  found.merge!(children)
+                end
+              }
+            end
           end
-          
+
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials']
+          }
+
+          bok['display_name'] = cloud_desc.display_name
+          bok['cloud_id'] = cloud_desc.name
+          bok['name'] = cloud_desc.display_name#+bok['cloud_id'] # only way to guarantee uniqueness
+          if cloud_desc.parent.match(/^folders\/(.*)/)
+MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_desc.parent
+            bok['parent'] = MU::Config::Ref.get(
+              id: cloud_desc.parent,
+              cloud: "Google",
+              credentials: @config['credentials'],
+              type: "folders"
+            )
+          elsif rootparent
+            bok['parent'] = {
+              'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+            }
+          else
+            bok['parent'] = { 'id' => cloud_desc.parent }
+          end
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -254,6 +327,10 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "display_name" => {
+              "type" => "string",
+              "description" => "The +display_name+ field of this folder, specified only if we want it to be something other than the automatically-generated string derived from the +name+ field.",
+            }
           }
           [toplevel_required, schema]
         end
@@ -266,7 +343,7 @@ module MU
           ok = true
 
           if !MU::Cloud::Google.getOrg(folder['credentials'])
-            MU.log "Cannot manage Google Cloud projects in environments without an organization. See also: https://cloud.google.com/resource-manager/docs/creating-managing-organization", MU::ERR
+            MU.log "Cannot manage Google Cloud folders in environments without an organization", MU::ERR
             ok = false
           end
 

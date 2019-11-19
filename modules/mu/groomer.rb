@@ -18,7 +18,7 @@ module MU
   class Groomer
 
     # An exception denoting a Groomer run that has failed
-    class RunError < MuError
+    class RunError < StandardError
     end
 
     # An exception denoting nonexistent secret
@@ -49,6 +49,7 @@ module MU
     # @param groomer [String]: The grooming agent to load.
     # @return [Class]: The class object implementing this groomer agent
     def self.loadGroomer(groomer)
+      return nil if !groomer
       if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
         raise MuError, "Requested to use unsupported grooming agent #{groomer}"
       end

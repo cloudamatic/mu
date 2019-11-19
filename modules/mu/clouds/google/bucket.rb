@@ -17,28 +17,11 @@ module MU
     class Google
       # Support for Google Cloud Storage
       class Bucket < MU::Cloud::Bucket
-        @deploy = nil
-        @config = nil
-        @project_id = nil
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::logs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if mu_name
-            @mu_name = mu_name
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -72,6 +55,18 @@ module MU
             changed = true
           end
 
+          if @config['bucket_wide_acls'] and (!current.iam_configuration or
+             !current.iam_configuration.bucket_policy_only or
+             !current.iam_configuration.bucket_policy_only.enabled)
+            MU.log "Converting Cloud Storage bucket #{@cloud_id} to use bucket-wide ACLs only", MU::NOTICE
+            changed = true
+          elsif !@config['bucket_wide_acls'] and current.iam_configuration and
+                current.iam_configuration.bucket_policy_only and
+                current.iam_configuration.bucket_policy_only.enabled
+            MU.log "Converting Cloud Storage bucket #{@cloud_id} to use bucket and object ACLs", MU::NOTICE
+            changed = true
+          end
+
           if changed
             MU::Cloud::Google.storage(credentials: credentials).patch_bucket(@cloud_id, bucket_descriptor)
           end
@@ -79,18 +74,19 @@ module MU
           if @config['policies']
             @config['policies'].each { |pol|
               pol['grant_to'].each { |grantee|
+                grantee['id'] ||= grantee["identifier"]
                 entity = if grantee["type"]
                   sibling = deploy_obj.findLitterMate(
-                    name: grantee["identifier"],
+                    name: grantee["id"],
                     type: grantee["type"]
                   )
                   if sibling
                     sibling.cloudobj.cloud_id
                   else
-                    raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating Cloud Storage access policy"
+                    raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["id"]} when generating Cloud Storage access policy"
                   end
                 else
-                  pol['grant_to'].first['identifier']
+                  pol['grant_to'].first['id']
                 end
 
                 if entity.match(/@/) and !entity.match(/^(group|user)\-/)
@@ -121,6 +117,14 @@ module MU
             }
 
           end
+        end
+
+        # Upload a file to a bucket.
+        # @param url [String]: Target URL, of the form gs://bucket/folder/file
+        # @param acl [String]: Canned ACL permission to assign to the object we upload
+        # @param file [String]: Path to a local file to write to our target location. One of +file+ or +data+ must be specified.
+        # @param data [String]: Data to write to our target location. One of +file+ or +data+ must be specified.
+        def self.upload(url, acl: "private", file: nil, data: nil, credentials: nil)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -166,16 +170,133 @@ module MU
         end
 
         # Locate an existing bucket.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {}, tag_key: nil, tag_value: nil)
+        def self.find(**args)
+          args[:project] ||= args[:habitat]
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+
           found = {}
-          if cloud_id
-            found[cloud_id] = MU::Cloud::Google.storage(credentials: credentials).get_bucket(cloud_id)
+          if args[:cloud_id]
+            found[args[:cloud_id]] = MU::Cloud::Google.storage(credentials: args[:credentials]).get_bucket(args[:cloud_id])
+          else
+            resp = begin
+              MU::Cloud::Google.storage(credentials: args[:credentials]).list_buckets(args[:project])
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden:/)
+            end
+
+            if resp and resp.items
+              resp.items.each { |bucket|
+                found[bucket.id] = bucket
+              }
+            end
           end
+
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "Google",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
+
+          bok['name'] = cloud_desc.name
+          bok['project'] = @project_id
+          bok['storage_class'] = cloud_desc.storage_class
+          if cloud_desc.versioning and cloud_desc.versioning.enabled
+            bok['versioning'] = true
+          end
+          if cloud_desc.website
+            bok['web'] = true
+            if cloud_desc.website.not_found_page
+              bok['web_error_object'] = cloud_desc.website.not_found_page
+            end
+            if cloud_desc.website.main_page_suffix
+              bok['web_index_object'] = cloud_desc.website.main_page_suffix
+            end
+            pp cloud_desc
+          end
+
+#          MU.log "get_bucket_iam_policy", MU::NOTICE, details: MU::Cloud::Google.storage(credentials: @credentials).get_bucket_iam_policy(@cloud_id)
+          pols = MU::Cloud::Google.storage(credentials: @credentials).get_bucket_iam_policy(@cloud_id)
+
+          if pols and pols.bindings and pols.bindings.size > 0
+            bok['policies'] = []
+            count = 0
+            grantees = {}
+            pols.bindings.each { |binding|
+              grantees[binding.role] ||= []
+              binding.members.each { |grantee|
+                if grantee.match(/^(user|group):(.*)/)
+                  grantees[binding.role] << MU::Config::Ref.get(
+                    id: Regexp.last_match[2],
+                    type: Regexp.last_match[1]+"s",
+                    cloud: "Google",
+                    credentials: @credentials
+                  )
+                elsif grantee == "allUsers" or
+                      grantee == "allAuthenticatedUsers" or
+                      grantee.match(/^project(?:Owner|Editor|Viewer):/)
+                  grantees[binding.role] << { "id" => grantee }
+                elsif grantee.match(/^serviceAccount:(.*)/)
+                  sa_name = Regexp.last_match[1]
+                  if MU::Cloud::Google::User.cannedServiceAcctName?(sa_name)
+                    grantees[binding.role] << { "id" => grantee }
+                  else
+                    grantees[binding.role] << MU::Config::Ref.get(
+                      id: sa_name,
+                      type: "users",
+                      cloud: "Google",
+                      credentials: @credentials
+                    )
+                  end
+                else
+                  # *shrug*
+                  grantees[binding.role] << { "id" => grantee }
+                end
+              }
+            }
+
+            # munge together roles that apply to the exact same set of
+            # principals
+            reverse_map = {}
+            grantees.each_pair { |perm, grant_to|
+              reverse_map[grant_to] ||= []
+              reverse_map[grant_to] << perm
+            }
+            already_done = []
+
+            grantees.each_pair { |perm, grant_to|
+              if already_done.include?(perm+grant_to.to_s)
+                next
+              end
+              bok['policies'] << {
+                "name" => "policy"+count.to_s,
+                "grant_to" => grant_to,
+                "permissions" => reverse_map[grant_to]
+              }
+              reverse_map[grant_to].each { |doneperm|
+                already_done << doneperm+grant_to.to_s
+              }
+              count = count+1
+            }
+          end
+
+          if cloud_desc.iam_configuration and
+             cloud_desc.iam_configuration.bucket_policy_only and
+             cloud_desc.iam_configuration.bucket_policy_only.enabled
+            bok['bucket_wide_acls'] = true
+          else
+#            MU.log "list_bucket_access_controls", MU::NOTICE, details:  MU::Cloud::Google.storage(credentials: @credentials).list_bucket_access_controls(@cloud_id)
+#            MU.log "list_default_object_access_controls", MU::NOTICE, details:  MU::Cloud::Google.storage(credentials: @credentials).list_default_object_access_controls(@cloud_id)
+          end
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -188,6 +309,11 @@ module MU
               "type" => "string",
               "enum" => ["MULTI_REGIONAL", "REGIONAL", "STANDARD", "NEARLINE", "COLDLINE", "DURABLE_REDUCED_AVAILABILITY"],
               "default" => "STANDARD"
+            },
+            "bucket_wide_acls" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Disables object-level access controls in favor of bucket-wide policies"
             }
           }
           [toplevel_required, schema]
@@ -200,6 +326,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(bucket, configurator)
           ok = true
+          bucket['project'] ||= MU::Cloud::Google.defaultProject(bucket['credentials'])
 
           if bucket['policies']
             bucket['policies'].each { |pol|
@@ -243,6 +370,20 @@ module MU
             params[:versioning] = MU::Cloud::Google.storage(:Bucket)::Versioning.new(enabled: true)
           else
             params[:versioning] = MU::Cloud::Google.storage(:Bucket)::Versioning.new(enabled: false)
+          end
+
+          if @config['bucket_wide_acls']
+            params[:iam_configuration] =  MU::Cloud::Google.storage(:Bucket)::IamConfiguration.new(
+              bucket_policy_only: MU::Cloud::Google.storage(:Bucket)::IamConfiguration::BucketPolicyOnly.new(
+                enabled: @config['bucket_wide_acls']
+              )
+            )
+          else
+            params[:iam_configuration] =  MU::Cloud::Google.storage(:Bucket)::IamConfiguration.new(
+              bucket_policy_only: MU::Cloud::Google.storage(:Bucket)::IamConfiguration::BucketPolicyOnly.new(
+                enabled: false
+              )
+            )
           end
 
           MU::Cloud::Google.storage(:Bucket).new(params)

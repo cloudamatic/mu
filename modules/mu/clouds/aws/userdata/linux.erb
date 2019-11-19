@@ -14,7 +14,6 @@
 # limitations under the License.
 
 updates_run=0
-need_reboot=0
 instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 region="`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/[a-z]$//'`"
 
@@ -22,6 +21,12 @@ region="`curl -s http://169.254.169.254/latest/meta-data/placement/availability-
 for d in r s t u ;do
   if [ ! -f "/dev/xvd$d" ];then
     sed -Ein "s'^(/dev/xvd$d)'#\\1'" /etc/fstab
+  fi
+done
+
+for f in /etc/rc.local /etc/rc.d/rc.local;do
+  if [ -f $f ];then
+    chmod 755 $f
   fi
 done
 
@@ -35,27 +40,25 @@ if ping -c 5 8.8.8.8 > /dev/null; then
     if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
     AWSCLI=/usr/local/bin/aws
 <% if !$mu.skipApplyUpdates %>
+    set +e
     if [ ! -f /.mu-installer-ran-updates ];then
       service ssh stop
       apt-get --fix-missing -y upgrade 
+      touch /.mu-installer-ran-updates
       if [ $? -eq 0 ]
       then
         echo "Successfully updated packages"
         updates_run=1
+        # XXX this logic works on Ubuntu, is it Debian-friendly?
+        latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
+        running_kernel="`uname -r`"
+        if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
+          shutdown -r now "Applying new kernel"
+        fi
       else
         echo "FAILED PACKAGE UPDATE" >&2
       fi
-      # Proceed regardless
-      touch /.mu-installer-ran-updates
-
-      # XXX this logic works on Ubuntu, is it Debian-friendly?
-      latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
-      running_kernel="`uname -r`"
-      if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
-        need_reboot=1
-      else
-        service ssh start
-      fi
+      service ssh start
     fi
 <% end %>
   elif [ -x /usr/bin/yum ];then
@@ -75,12 +78,12 @@ if ping -c 5 8.8.8.8 > /dev/null; then
       cat /etc/rc.d/rc.local | grep -v '^/bin/sh /var/lib/cloud/instances/' >> /tmp/rc.local.$$
       echo "/bin/sh $userdata_dir/user-data.txt" >> /tmp/rc.local.$$
       mv /tmp/rc.local.$$ /etc/rc.d/rc.local
+      chmod 755 /etc/rc.d/rc.local
     fi
 
     sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
 
     if [ "$version" == "7" ];then
-      chmod 755 /etc/rc.d/rc.local
       systemctl reset-failed sshd.service
     fi
     if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
@@ -89,24 +92,23 @@ if ping -c 5 8.8.8.8 > /dev/null; then
       /bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
     fi
 <% if !$mu.skipApplyUpdates %>
+    set +e
     if [ ! -f /.mu-installer-ran-updates ];then
       service sshd stop
       kernel_update=`yum list updates | grep kernel`
       yum -y update
+      touch /.mu-installer-ran-updates
       if [ $? -eq 0 ]
       then
         echo "Successfully updated packages"
         updates_run=1
+        if [ -n "$kernel_update" ]; then
+          shutdown -r now "Applying new kernel"
+        fi
       else
         echo "FAILED PACKAGE UPDATE" >&2
       fi
-      # Proceed regardless
-      touch /.mu-installer-ran-updates
-      if [ -n "$kernel_update" ]; then
-        need_reboot=1
-      else
-        service sshd start
-      fi
+      service sshd start
     fi
 <% end %>
   fi
@@ -143,27 +145,19 @@ fi
 
 umask 0077
 
-# Install Chef now, because why not?
 if [ ! -f /opt/chef/embedded/bin/ruby ];then
   curl https://www.chef.io/chef/install.sh > chef-install.sh
   set +e
   # We may run afoul of a synchronous bootstrap process doing the same thing. So
   # wait until we've managed to run successfully.
-  while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
+  while ! sh chef-install.sh -v <%= $mu.chefVersion %>;do
     sleep 10
   done
   touch /opt/mu_installed_chef
-  set -e
 fi
-
-<% if !$mu.skipApplyUpdates %>
-if [ "$need_reboot" == "1" ];then
-  shutdown -r now "Applying new kernel"
-fi
-<% end %>
 
 if [ "$AWSCLI" != "" ];then
-  $AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+  $AWSCLI --region="$region" s3 cp s3://<%= $mu.adminBucketName %>/<%= $mu.muID %>-secret .
 fi
 
 echo '

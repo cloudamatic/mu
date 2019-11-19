@@ -3,11 +3,12 @@
 name: searchdomain-complex
 instance_type: t2.small.elasticsearch
 instance_count: 4
-dedicated_masters: 1
+dedicated_masters: 3
 master_instance_type: t2.medium.elasticsearch
 zone_aware: true
-ebs_iops: 100
-ebs_type: gp2
+#ebs_iops: 100 # also has value restrictions, eesh
+#ebs_size: 35 # this is somehow locked to instance type
+#ebs_type: gp2
 elasticsearch_version: "6.2"
 advanced_options:
   "indices.query.bool.max_clause_count": 512

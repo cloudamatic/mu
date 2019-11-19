@@ -253,8 +253,6 @@ module MU
           attr_reader :name
           attr_reader :cfm_template
           attr_reader :cfm_name
-          attr_reader :name
-
 
           # @param parent [MU::Cloud::CloudFormation::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:

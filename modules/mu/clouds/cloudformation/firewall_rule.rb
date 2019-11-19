@@ -94,10 +94,10 @@ module MU
         # @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
         # @return [void]
         def addRule(hosts,
-                    proto: proto = "tcp",
-                    port: port = nil,
-                    egress: egress = false,
-                    port_range: port_range = "0-65535"
+                    proto: "tcp",
+                    port: nil,
+                    egress: false,
+                    port_range: "0-65535"
         )
           rule = Hash.new
           rule["proto"] = proto
@@ -146,7 +146,7 @@ module MU
         # Manufacture an EC2 security group. The second parameter, rules, is an
         # "ingress_rules" structure parsed and validated by MU::Config.
         #########################################################################
-        def setRules(rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false)
+        def setRules(rules, add_to_self: false, ingress: true, egress: false)
           return if rules.nil? or rules.size == 0
 
           if add_to_self
@@ -292,14 +292,6 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           MU::Cloud::AWS::FirewallRule.schema(config)
-        end
-
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
-        # @param server [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
-        # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(server, configurator)
-          MU::Cloud::AWS::FirewallRule.validateConfig(server, configurator)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or

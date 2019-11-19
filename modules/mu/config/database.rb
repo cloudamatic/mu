@@ -310,9 +310,9 @@ module MU
 
         if !db["vpc"].nil?
           if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
-            if db["vpc"]["subnet_pref"] = "public"
+            if db["vpc"]["subnet_pref"] == "public"
               db["vpc"]["subnet_pref"] = "all_public"
-            elsif db["vpc"]["subnet_pref"] = "private"
+            elsif db["vpc"]["subnet_pref"] == "private"
               db["vpc"]["subnet_pref"] = "all_private"
             elsif %w{all any}.include? db["vpc"]["subnet_pref"]
               MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
@@ -435,8 +435,8 @@ module MU
         end
         db['dependencies'].uniq!
 
-        read_replicas.each { |replica|
-          ok = false if !configurator.insertKitten(replica, "databases")
+        read_replicas.each { |new_replica|
+          ok = false if !configurator.insertKitten(new_replica, "databases")
         }
         cluster_nodes.each { |member|
           ok = false if !configurator.insertKitten(member, "databases")

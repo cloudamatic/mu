@@ -6,16 +6,26 @@ mu -- Cloudamatic Automation Tooling
 [![Inline docs](http://inch-ci.org/github/cloudamatic/mu.svg?branch=master)](http://inch-ci.org/github/cloudamatic/mu)
 
 # About mu
-**mu**  is the deployer and developer toolset for the Cloudamatic complete cloud deployment solution, designed to provision, orchestrate and manage complex platforms and applications. mu provides Cloudamatic deployers and developers with the tools and commands to automate any arbitrarily complex application, platform or combination on a wide range of infrastructure targets, starting with AWS Cloud and including other clouds, virtualized environments and bare iron.
+**Mu**  is the deployer and developer toolset for the Cloudamatic suite of services, designed to provision, orchestrate and manage complex platforms and applications. At [eGT Labs](https://www.eglobaltech.com/egt-labs/), we use mu for rapid prototyping of cloud migration efforts for federal customers, for managing cloud applications throughout their lifecycles, and as a tools library for cloud maintenance tasks.
 
-For general information on Cloudamatic, see the [cloudamatic repository](https://github.com/cloudamatic/cloudamatic)
+**Install instructions and tutorials**: https://github.com/cloudamatic/mu/wiki
 
-For more detailed information on Cloudamatic architecture and mu tooling usage, see our [yard docs](https://cloudamatic.gitlab.io/mu/).
+**API and configuration language documentation**: https://cloudamatic.gitlab.io/mu/
 
-The mu tooling is currently supported on RHEL or CentOS 6/7.
+# Quick Start
 
-## Installation
-See the [README](../master/install) in the install folder for mu master installation instructions
+1. `gem install cloud-mu` - Install the toolkit in your Ruby 2.4+ ecosystem. See our [install wiki](https://github.com/cloudamatic/mu/wiki/Install) for other installation options
 
-## Usage
-See the [Usage](https://github.com/cloudamatic/mu/wiki/Usage) section of our Wiki for an overview of how to use the mu tooling for deployment
+2. `mu-configure` - Set up credentials to your cloud provider of choice. See the [mu-configure manual](https://github.com/cloudamatic/mu/wiki/Configuration) for more.
+
+3. `mu-deploy` - Build something! This will make a complete public/private VPC:
+
+```
+cat <<EOF > myvpc.yaml
+---
+appname: myvpc
+- vpcs:
+  name: thisvpc
+EOF
+mu-deploy myvpc.yaml
+```

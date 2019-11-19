@@ -34,27 +34,28 @@ module MU
       # Chunk of schema to reference an account/project, here to be embedded
       # into the schemas of other resources.
       def self.reference
-        {
-          "type" => "object",
-          "description" => "Deploy into or connect with resources in a specific habitat (AWS account, GCP project, etc)",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-            "id" => {
-              "type" => "string",
-              "description" => "Discover this habitat by looking for this cloud provider identifier, such as 836541910896 (an AWS account number) or my-project-196124 (a Google Cloud project id)"
-            },
-            "name" => {
-              "type" => "string",
-              "description" => "Discover this habitat by Mu-internal name; typically the shorthand 'name' field of a Habitat object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
-            },
-            "cloud" => MU::Config.cloud_primitive,
-            "deploy_id" => {
-              "type" => "string",
-              "description" => "Search for this Habitat in an existing Mu deploy by Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
-            }
-          }
-        }
+#        {
+#          "type" => "object",
+#          "description" => "Deploy into or connect with resources in a specific habitat (AWS account, GCP project, etc)",
+#          "minProperties" => 1,
+#          "additionalProperties" => false,
+#          "properties" => {
+#            "id" => {
+#              "type" => "string",
+#              "description" => "Discover this habitat by looking for this cloud provider identifier, such as 836541910896 (an AWS account number) or my-project-196124 (a Google Cloud project id)"
+#            },
+#            "name" => {
+#              "type" => "string",
+#              "description" => "Discover this habitat by Mu-internal name; typically the shorthand 'name' field of a Habitat object declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+#            },
+#            "cloud" => MU::Config.cloud_primitive,
+#            "deploy_id" => {
+#              "type" => "string",
+#              "description" => "Search for this Habitat in an existing Mu deploy by Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
+#            }
+#          }
+#        }
+        MU::Config::Ref.schema(type: "habitats")
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::habitat}, bare and unvalidated.

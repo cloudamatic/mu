@@ -20,6 +20,9 @@ Rubocop:
     - rubocop modules/
     - rubocop bin/
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Cookstyle:
   stage: Lint Test
@@ -30,6 +33,9 @@ Cookstyle:
   script:
     - cookstyle cookbooks/
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Foodcritic:
   stage: Lint Test
@@ -39,6 +45,9 @@ Foodcritic:
   }
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Foodcritic Deprecations:
   stage: Lint Test
@@ -48,6 +57,9 @@ Foodcritic Deprecations:
   }
   script:
     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 ChefSpec:
   stage: Test
@@ -58,16 +70,36 @@ ChefSpec:
   script:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .Rspec:
   stage: Test
+  before_script:
+    - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_ID__/${AZURE_CLIENT_ID}/" > spec/azure_creds.tmp
+    - cp spec/azure_creds.tmp spec/azure_creds
+    - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/azure_creds.tmp
+    - cp spec/azure_creds.tmp spec/azure_creds
+    - cat spec/mu.yaml | sed -e "s/__AZURE_DIRECTORY_ID__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
+    - cp spec/mu.yaml.tmp spec/mu.yaml
+    - cat spec/mu.yaml | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
+    - cp spec/mu.yaml.tmp spec/mu.yaml
   script:
     - cd modules
     - bundle install
-    - gem install rspec
+    - gem install rspec simplecov simplecov-console
     - cd ../
     - rspec
+  after_script:
+    - shred -u spec/azure_creds
+    - shred -u spec/azure_creds.tmp
+    - shred -u spec/mu.yaml
+    - shred -u spec/mu.yaml.tmp
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 New_Berks:
   stage: Test
@@ -81,6 +113,9 @@ New_Berks:
     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Installing $d" && cd "cookbooks/$d" && berks install); done
     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "cookbooks/$d" && berks verify); done
     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "cookbooks/$d" && berks outdated); done
+  except:
+    variables:
+    - $IMAGE_BUILD
   
 Berks:
   stage: Test
@@ -95,6 +130,9 @@ Berks:
     - berks install
     - berks verify
     - berks outdated
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Gem Build:
   stage: Build
@@ -109,6 +147,9 @@ Gem Build:
   artifacts:
     paths:
     - cloud-mu-*.gem
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .Muby Build:
   stage: Build
@@ -123,12 +164,18 @@ Gem Build:
     - master
     - development
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Gem Parser Test:
   stage: Smoke Test
   script:
     - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
     - gem install cloud-mu-*.gem
+    - MY_ADDR=`hostname -I | awk '{print $1}'`
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${MY_ADDR}" --google-project="egt-labs-admin" --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
+    - cat /root/.mu.yaml
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
   dependencies:
@@ -139,10 +186,15 @@ Gem Parser Test:
     - /^gem-.*$/
     - /^cicd-.*$/
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Smoke Test:
   stage: Smoke Test
   script:
+    - MY_ADDR=`hostname -I | awk '{print $1}'`
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${MY_ADDR}" --google-project="egt-labs-admin" --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
     - mu-upload-chef-artifacts -sn
     - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
   tags: 
@@ -151,6 +203,9 @@ Smoke Test:
     - master
     - development
   when: manual
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Docker Build:
   stage: Docker Build
@@ -175,6 +230,9 @@ Docker Build:
     - development
     - /^gem-.*$/
     - /^cicd-.*$/
+  except:
+    variables:
+    - $IMAGE_BUILD
   tags:
     - docker-build
 
@@ -240,7 +298,10 @@ Gen Docs:
   stage: Merge/Tag
   script:
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
+  - MY_ADDR=`hostname -I | awk '{print $1}'`
   - gem install cloud-mu-*.gem
+  - ruby bin/mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${MY_ADDR}" --google-project="egt-labs-admin" --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
+  - cat /root/.mu.yaml
   - ruby bin/mu-gen-docs
   - mkdir public
   - cp -Rf /var/www/html/docs/* public
@@ -254,6 +315,9 @@ Gen Docs:
   artifacts:
     paths:
     - public/
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 .GitHub Pages:
   stage: Deploy
@@ -274,6 +338,9 @@ Gen Docs:
   - master
   - gen_docs
   allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Upload Gem:
   stage: Deploy
@@ -288,6 +355,9 @@ Upload Gem:
   - Gem Build
   only:
   - master
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Upload Gem Manual:
   stage: Deploy
@@ -304,6 +374,9 @@ Upload Gem Manual:
   - development
   - /^gem-.*$/
   - /^cicd-.*$/
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 pages:
   stage: Deploy
@@ -317,3 +390,26 @@ pages:
   only:
   - master
   - gen_docs
+  except:
+    variables:
+    - $IMAGE_BUILD
+
+Base Images Linux:
+  stage: Deploy
+  script:
+  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms centos6 centos7 rhel7
+  tags:
+  - mu-gitlab-runner
+  only:
+    variables:
+    - $IMAGE_BUILD == "do_linux"
+
+Base Images Windows:
+  stage: Deploy
+  script:
+  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms win2k12 win2k16
+  tags:
+  - mu-gitlab-runner
+  only:
+    variables:
+    - $IMAGE_BUILD == "do_windows"

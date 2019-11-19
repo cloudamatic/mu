@@ -39,12 +39,40 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
+    # Exception we throw when we attempt to make an API call against a project
+    # that is already deleted.
+    class MuDefunctHabitat < StandardError;
+    end
+
     # Methods which a cloud resource implementation, e.g. Server, must implement
     generic_class_methods = [:find, :cleanup, :validateConfig, :schema, :isGlobal?]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
+
+    # Public attributes which will be available on all instantiated cloud resource objects
+    #
+    # +:config+: The fully-resolved {MU::Config} hash describing the object, aka the Basket of Kittens entry
+    #
+    # +:mu_name+: The unique internal name of the object, if one already exists
+    #
+    # +:cloud+: The cloud in which this object is resident
+    #
+    # +:cloud_id+: The cloud provider's official identifier for this object
+    #
+    # +:environment+: The declared environment string for the deployment of which this object is a member
+    #
+    # +:deploy:+ The {MU::MommaCat} object representing the deployment of which this object is a member
+    #
+    # +:deploy_id:+ The unique string which identifies the deployment of which this object is a member
+    #
+    # +:deploydata:+ A Hash containing all metadata reported by resources in this deploy method, via their +notify+ methods
+    #
+    # +:appname:+ The declared application name of this deployment
+    #
+    # +:credentials:+ The name of the cloud provider credential set from +mu.yaml+ which is used to manage this object
+    PUBLIC_ATTRS = [:config, :mu_name, :cloud, :cloud_id, :environment, :deploy, :deploy_id, :deploydata, :appname, :credentials]
 
     # Initialize empty classes for each of these. We'll fill them with code
     # later; we're doing this here because otherwise the parser yells about
@@ -161,7 +189,7 @@ module MU
         :interface => self.const_get("Habitat"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
-        :class => generic_class_methods,
+        :class => generic_class_methods + [:isLive?],
         :instance => generic_instance_methods + [:groom]
       },
       :Collection => {
@@ -217,7 +245,7 @@ module MU
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods + [:registerNode]
+        :instance => generic_instance_methods + [:groom, :registerNode]
       },
       :Server => {
         :has_multiples => true,
@@ -227,8 +255,8 @@ module MU
         :interface => self.const_get("Server"),
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
-        :class => generic_class_methods + [:validateInstanceType],
-        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume]
+        :class => generic_class_methods + [:validateInstanceType, :imageTimeStamp],
+        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume, :genericNAT]
       },
       :ServerPool => {
         :has_multiples => false,
@@ -403,8 +431,8 @@ module MU
         :interface => self.const_get("Bucket"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
-        :class => generic_class_methods,
-        :instance => generic_instance_methods + [:groom]
+        :class => generic_class_methods + [:upload],
+        :instance => generic_instance_methods + [:groom, :upload]
       },
       :NoSQLDB => {
         :has_multiples => false,
@@ -419,6 +447,195 @@ module MU
       }
     }.freeze
 
+    # The public AWS S3 bucket where we expect to find YAML files listing our
+    # standard base images for various platforms.
+    BASE_IMAGE_BUCKET = "cloudamatic"
+    # The path in the AWS S3 bucket where we expect to find YAML files listing
+    # our standard base images for various platforms.
+    BASE_IMAGE_PATH = "/images"
+
+    # Aliases for platform names, in case we don't have actual images built for
+    # them.
+    PLATFORM_ALIASES = {
+      "linux" => "centos7",
+      "windows" => "win2k12r2",
+      "win2k12" => "win2k12r2",
+      "ubuntu" => "ubuntu16",
+      "centos" => "centos7",
+      "rhel7" => "rhel71",
+      "rhel" => "rhel71",
+      "amazon" => "amazon2016"
+    }
+
+    @@image_fetch_cache = {}
+    @@platform_cache = []
+    @@image_fetch_semaphore = Mutex.new
+
+    # Rifle our image lists from {MU::Cloud.getStockImage} and return a list
+    # of valid +platform+ names.
+    # @return [Array<String>]
+    def self.listPlatforms
+      return @@platform_cache if @@platform_cache and !@@platform_cache.empty?
+      @@platform_cache = MU::Cloud.supportedClouds.map { |cloud|
+        begin
+          loadCloudType(cloud, :Server)
+        rescue MU::Cloud::MuCloudResourceNotImplemented, MU::MuError => e
+          next
+        end
+
+        images = MU::Cloud.getStockImage(cloud, quiet: true)
+        if images
+          images.keys
+        else
+          nil
+        end
+      }.flatten.uniq
+      @@platform_cache.delete(nil)
+      @@platform_cache.sort
+      @@platform_cache
+    end
+
+    # Locate a base image for a {MU::Cloud::Server} resource. First we check
+    # Mu's public bucket, which should list the latest and greatest. If we can't
+    # fetch that, then we fall back to a YAML file that's bundled as part of Mu,
+    # but which will typically be less up-to-date.
+    # @param cloud [String]: The cloud provider for which to return an image list
+    # @param platform [String]: The supported platform for which to return an image or images. If not specified, we'll return our entire library for the appropriate cloud provider.
+    # @param region [String]: The region for which the returned image or images should be supported, for cloud providers which require it (such as AWS).
+    # @param fail_hard [Boolean]: Raise an exception on most errors, such as an inability to reach our public listing, lack of matching images, etc.
+    # @return [Hash,String,nil]
+    def self.getStockImage(cloud = MU::Config.defaultCloud, platform: nil, region: nil, fail_hard: false, quiet: false)
+
+      if !MU::Cloud.supportedClouds.include?(cloud)
+        MU.log "'#{cloud}' is not a supported cloud provider! Available providers:", MU::ERR, details: MU::Cloud.supportedClouds
+        raise MuError, "'#{cloud}' is not a supported cloud provider!"
+      end
+
+      urls = ["http://"+BASE_IMAGE_BUCKET+".s3-website-us-east-1.amazonaws.com"+BASE_IMAGE_PATH]
+      if $MU_CFG and $MU_CFG['custom_images_url']
+        urls << $MU_CFG['custom_images_url']
+      end
+      
+      images = nil
+      urls.each { |base_url|
+        @@image_fetch_semaphore.synchronize {
+          if @@image_fetch_cache[cloud] and (Time.now - @@image_fetch_cache[cloud]['time']) < 30
+            images = @@image_fetch_cache[cloud]['contents'].dup
+          else
+            begin
+              Timeout.timeout(2) do
+                response = open("#{base_url}/#{cloud}.yaml").read
+                images ||= {}
+                images.deep_merge!(YAML.load(response))
+                break
+              end
+            rescue Exception => e
+              if fail_hard
+                raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
+              else
+                MU.log "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})", MU::WARN if !quiet
+              end
+            end
+          end
+        }
+      }
+
+      @@image_fetch_semaphore.synchronize {
+        @@image_fetch_cache[cloud] = {
+          'contents' => images.dup,
+          'time' => Time.now
+        }
+      }
+
+      backwards_compat = {
+        "AWS" => "amazon_images",
+        "Google" => "google_images",
+      }
+
+      # Load from inside our repository, if we didn't get images elsewise
+      if images.nil?
+        [backwards_compat[cloud], cloud].each { |file|
+          next if file.nil?
+          if File.exist?("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml")
+            images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/#{file}.yaml"))
+            break
+          end
+        }
+      end
+
+      # Now overlay local overrides, both of the systemwide (/opt/mu/etc) and
+      # per-user (~/.mu/etc) variety.
+      [backwards_compat[cloud], cloud].each { |file|
+        next if file.nil?
+        if File.exist?("#{MU.etcDir}/#{file}.yaml")
+          images ||= {}
+          images.deep_merge!(YAML.load(File.read("#{MU.etcDir}/#{file}.yaml")))
+        end
+        if Process.uid != 0
+          basepath = Etc.getpwuid(Process.uid).dir+"/.mu/etc"
+          if File.exist?("#{basepath}/#{file}.yaml")
+            images ||= {}
+            images.deep_merge!(YAML.load(File.read("#{basepath}/#{file}.yaml")))
+          end
+        end
+      }
+
+      if images.nil?
+        if fail_hard
+          raise MuError, "Failed to find any base images for #{cloud}"
+        else
+          MU.log "Failed to find any base images for #{cloud}", MU::WARN if !quiet
+          return nil
+        end
+      end
+
+      PLATFORM_ALIASES.each_pair { |a, t|
+        if images[t] and !images[a]
+          images[a] = images[t]
+        end
+      }
+
+      if platform
+        if !images[platform]
+          if fail_hard
+            raise MuError, "No base image for platform #{platform} in cloud #{cloud}"
+          else
+            MU.log "No base image for platform #{platform} in cloud #{cloud}", MU::WARN if !quiet
+            return nil
+          end
+        end
+        images = images[platform]
+
+        if region
+          # We won't fuss about the region argument if this isn't a cloud that
+          # has regions, just quietly don't bother.
+          if images.is_a?(Hash)
+            if images[region]
+              images = images[region]
+            else
+              if fail_hard
+                raise MuError, "No base image for platform #{platform} in cloud #{cloud} region #{region} found"
+              else
+                MU.log "No base image for platform #{platform} in cloud #{cloud} region #{region} found", MU::WARN if !quiet
+                return nil
+              end
+            end
+          end
+        end
+      else
+        if region
+          images.each_pair { |p, regions|
+            # Filter to match our requested region, but for all the platforms,
+            # since we didn't specify one.
+            if regions.is_a?(Hash)
+              regions.delete_if { |r| r != region }
+            end
+          }
+        end
+      end
+
+      images
+    end
 
     # A list of supported cloud resource types as Mu classes
     def self.resource_types;
@@ -429,6 +646,7 @@ module MU
     # @param type [String]: A string that looks like our short or full class name or singular or plural configuration names.
     # @return [Array]: Class name (Symbol), singular config name (String), plural config name (String), full class name (Object)
     def self.getResourceNames(type)
+      return [nil, nil, nil, nil, {}] if !type
       @@resource_types.each_pair { |name, cloudclass|
         if name == type.to_sym or
             cloudclass[:cfg_name] == type or
@@ -462,8 +680,26 @@ module MU
     @@supportedCloudList = ['AWS', 'CloudFormation', 'Google', 'Azure']
 
     # List of known/supported Cloud providers
+    # @return [Array<String>]
     def self.supportedClouds
       @@supportedCloudList
+    end
+
+    # List of known/supported Cloud providers for which we have at least one
+    # set of credentials configured.
+    # @return [Array<String>]
+    def self.availableClouds
+      available = []
+      MU::Cloud.supportedClouds.each { |cloud|
+        begin
+          cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty?
+          available << cloud
+        rescue NameError
+        end
+      }
+
+      available
     end
 
     # Load the container class for each cloud we know about, and inject autoload
@@ -495,7 +731,7 @@ module MU
     # @param template_variables [Hash]: A list of variable substitutions to pass as globals to the ERB parser when loading the userdata script.
     # @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
     # @return [String]
-    def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, cloud: "aws", scrub_mu_isms: false)
+    def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, cloud: "AWS", scrub_mu_isms: false, credentials: nil)
       return nil if platform.nil? or platform.empty?
       userdata_mutex.synchronize {
         script = ""
@@ -503,10 +739,16 @@ module MU
           if template_variables.nil? or !template_variables.is_a?(Hash)
             raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
           end
+          template_variables["credentials"] ||= credentials
           $mu = OpenStruct.new(template_variables)
-          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud}/userdata")
-          platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
-          platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
+          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}/userdata")
+
+          platform = if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16 windows win2k19}.include?(platform)
+            "windows"
+          else
+            "linux"
+          end
+
           erbfile = "#{userdata_dir}/#{platform}.erb"
           if !File.exist?(erbfile)
             MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
@@ -590,12 +832,12 @@ module MU
         }
         @@resource_types[type.to_sym][:instance].each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
         cloudclass.required_instance_methods.each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            MU.log "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}, will declare as attr_accessor", MU::DEBUG
           end
         }
 
@@ -603,7 +845,7 @@ module MU
         return myclass
       rescue NameError => e
         @cloud_class_cache[cloud][type] = nil
-        raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
+        raise MuCloudResourceNotImplemented, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
       end
     end
 
@@ -624,20 +866,9 @@ module MU
 
     @@resource_types.each_pair { |name, attrs|
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
-        attr_reader :cloud
-        attr_reader :environment
         attr_reader :cloudclass
         attr_reader :cloudobj
-        attr_reader :deploy_id
-        attr_reader :mu_name
-        attr_reader :cloud_id
-        attr_reader :credentials
-        attr_reader :url
-        attr_reader :config
-        attr_reader :deploydata
         attr_reader :destroyed
-        attr_reader :cfm_template
-        attr_reader :cfm_name
         attr_reader :delayed_save
 
         def self.shortname
@@ -668,11 +899,6 @@ module MU
           MU::Cloud.resource_types[shortname.to_sym][:deps_wait_on_my_creation]
         end
 
-        def groomer
-          return @cloudobj.groomer if !@cloudobj.nil?
-          nil
-        end
-
         # Print something palatable when we're called in a string context.
         def to_s
           fullname = "#{self.class.shortname}"
@@ -688,85 +914,231 @@ module MU
           return fullname
         end
 
+        # Set our +deploy+ and +deploy_id+ attributes, optionally doing so even
+        # if they have already been set.
+        #
+        # @param mommacat [MU::MommaCat]: The deploy to which we're being told we belong
+        # @param force [Boolean]: Set even if we already have a deploy object
+        # @return [String]: Our new +deploy_id+
+        def intoDeploy(mommacat, force: false)
+          if force or (!@deploy)
+            MU.log "Inserting #{self} (#{self.object_id}) into #{mommacat.deploy_id}", MU::DEBUG
+            @deploy = mommacat
+            @deploy_id = @deploy.deploy_id
+            @cloudobj.intoDeploy(mommacat, force: force) if @cloudobj
+          end
+          @deploy_id
+        end
 
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
         # @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
         # @param kitten_cfg [Hash]: The parse configuration for this object from {MU::Config}
-        def initialize(mommacat: nil,
-                       mu_name: nil,
-                       cloud_id: nil,
-                       credentials: nil,
-                       kitten_cfg: nil,
-                       delayed_save: false)
-          raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
-          @live = true
-          @deploy = mommacat
-          @config = kitten_cfg
-          @delayed_save = delayed_save
-          @cloud_id = cloud_id
-          @credentials = credentials
-          @credentials ||= kitten_cfg['credentials']
+        def initialize(**args)
+          raise MuError, "Cannot invoke Cloud objects without a configuration" if args[:kitten_cfg].nil?
 
-          if !@deploy.nil?
-            @deploy_id = @deploy.deploy_id
-            MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
-          elsif mu_name.nil?
-            raise MuError, "Can't instantiate a MU::Cloud object with a live deploy or giving us a mu_name"
-          else
-            MU.log "Initializing an independent instance of #{self.class.name} named #{mu_name}", MU::DEBUG, details: kitten_cfg
-          end
-          if !kitten_cfg.has_key?("cloud")
-            kitten_cfg['cloud'] = MU::Config.defaultCloud
-          end
-          @cloud = kitten_cfg['cloud']
-          @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
-          @environment = kitten_cfg['environment']
-          @method_semaphore = Mutex.new
-          @method_locks = {}
-# XXX require subclass to provide attr_readers of @config and @deploy
-
-          @cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
-
-          raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
-
-# If we just loaded an existing object, go ahead and prepopulate the
-# describe() cache
-          if !cloud_id.nil? or !mu_name.nil?
-            @cloudobj.describe(cloud_id: cloud_id)
-            @cloud_id ||= @cloudobj.cloud_id
-          end
-
-          @deploydata = @cloudobj.deploydata
-          @config = @cloudobj.config
-
-# If we're going to be integrated into AD or otherwise need a short
-# hostname, generate it now.
-          if self.class.shortname == "Server" and (@cloudobj.windows? or @config['active_directory']) and @cloudobj.mu_windows_name.nil?
-            if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
-              @cloudobj.mu_windows_name = @deploydata['mu_windows_name']
+          # We are a parent wrapper object. Initialize our child object and
+          # housekeeping bits accordingly.
+          if self.class.name.match(/^MU::Cloud::([^:]+)$/)
+            @live = true
+            @delayed_save = args[:delayed_save]
+            @method_semaphore = Mutex.new
+            @method_locks = {}
+            if args[:mommacat]
+               MU.log "Initializing an instance of #{self.class.name} in #{args[:mommacat].deploy_id} #{mu_name}", MU::DEBUG, details: args[:kitten_cfg]
+            elsif args[:mu_name].nil?
+              raise MuError, "Can't instantiate a MU::Cloud object with a live deploy or giving us a mu_name"
             else
-              # Use the same random differentiator as the "real" name if we're
-              # from a ServerPool. Helpful for admin sanity.
-              unq = @cloudobj.mu_name.sub(/^.*?-(...)$/, '\1')
-              if @config['basis'] and !unq.nil? and !unq.empty?
-                @cloudobj.mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
-              else
-                @cloudobj.mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+              MU.log "Initializing a detached #{self.class.name} named #{args[:mu_name]}", MU::DEBUG, details: args[:kitten_cfg]
+            end
+
+            my_cloud = args[:kitten_cfg]['cloud'].to_s || MU::Config.defaultCloud
+            if my_cloud.nil? or !MU::Cloud.supportedClouds.include?(my_cloud)
+              raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
+            end
+          
+            @cloudclass = MU::Cloud.loadCloudType(my_cloud, self.class.shortname)
+            @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(my_cloud)
+            @cloudobj = @cloudclass.new(
+              mommacat: args[:mommacat],
+              kitten_cfg: args[:kitten_cfg],
+              cloud_id: args[:cloud_id],
+              mu_name: args[:mu_name]
+            )
+            raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
+# These should actually call the method live instead of caching a static value
+            PUBLIC_ATTRS.each { |a|
+              instance_variable_set(("@"+a.to_s).to_sym, @cloudobj.send(a))
+            }
+            @deploy ||= args[:mommacat]
+            @deploy_id ||= @deploy.deploy_id if @deploy
+
+            # Register with the containing deployment
+            if !@deploy.nil? and !@cloudobj.mu_name.nil? and
+               !@cloudobj.mu_name.empty? and !args[:delay_descriptor_load]
+              describe # XXX is this actually safe here?
+              @deploy.addKitten(self.class.cfg_name, @config['name'], self)
+            elsif !@deploy.nil? and @cloudobj.mu_name.nil?
+              MU.log "#{self} in #{@deploy.deploy_id} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR, details: [caller, args.keys]
+            end
+
+
+          # We are actually a child object invoking this via super() from its
+          # own initialize(), so initialize all the attributes and instance
+          # variables we know to be universal.
+          else
+
+            # Declare the attributes that everyone should have
+            class << self
+              PUBLIC_ATTRS.each { |a|
+                attr_reader a
+              }
+            end
+
+# XXX this butchers ::Id and ::Ref objects that might be used by dependencies() to good effect, but we also can't expect our implementations to cope with knowing when a .to_s has to be appended to things at random
+            @config = MU::Config.manxify(args[:kitten_cfg]) || MU::Config.manxify(args[:config])
+
+            if !@config
+              MU.log "Missing config arguments in setInstanceVariables, can't initialize a cloud object without it", MU::ERR, details: args.keys
+              raise MuError, "Missing config arguments in setInstanceVariables"
+            end
+
+            @deploy = args[:mommacat] || args[:deploy]
+
+            @credentials = args[:credentials]
+            @credentials ||= @config['credentials']
+
+            @cloud = @config['cloud']
+            if !@cloud
+              if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
+               cloudclass_name = Regexp.last_match[1]
+                if MU::Cloud.supportedClouds.include?(cloudclass_name)
+                  @cloud = cloudclass_name
+                end
               end
+            end
+            if !@cloud
+              raise MuError, "Failed to determine what cloud #{self} should be in!"
+            end
+
+            @environment = @config['environment']
+            if @deploy
+              @deploy_id = @deploy.deploy_id
+              @appname = @deploy.appname
+            end
+
+            @cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+            @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
+
+            # A pre-existing object, you say?
+            if args[:cloud_id]
+
+# TODO implement ::Id for every cloud... and they should know how to get from
+# cloud_desc to a fully-resolved ::Id object, not just the short string
+
+              @cloud_id = args[:cloud_id]
+              describe(cloud_id: @cloud_id)
+              @habitat_id = habitat_id # effectively, cache this
+
+              # If we can build us an ::Id object for @cloud_id instead of a
+              # string, do so.
+              begin
+                idclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("Id")
+                long_id = if @deploydata and @deploydata[idclass.idattr.to_s]
+                  @deploydata[idclass.idattr.to_s]
+                elsif self.respond_to?(idclass.idattr)
+                  self.send(idclass.idattr)
+                end
+
+                @cloud_id = idclass.new(long_id) if !long_id.nil? and !long_id.empty?
+# 1 see if we have the value on the object directly or in deploy data
+# 2 set an attr_reader with the value
+# 3 rewrite our @cloud_id attribute with a ::Id object
+              rescue NameError, MU::Cloud::MuCloudResourceNotImplemented
+              end
+
+            end
+
+            # Use pre-existing mu_name (we're probably loading an extant deploy)
+            # if available
+            if args[:mu_name]
+              @mu_name = args[:mu_name].dup
+            # If scrub_mu_isms is set, our mu_name is always just the bare name
+            # field of the resource.
+            elsif @config['scrub_mu_isms']
+              @mu_name = @config['name'].dup
+# XXX feck it insert an inheritable method right here? Set a default? How should resource implementations determine whether they're instantiating a new object?
+            end
+
+            @tags = {}
+            if !@config['scrub_mu_isms']
+              @tags = @deploy ? @deploy.listStandardTags : MU::MommaCat.listStandardTags
+            end
+            if @config['tags']
+              @config['tags'].each { |tag|
+                @tags[tag['key']] = tag['value']
+              }
+            end
+
+            if @cloudparentclass.respond_to?(:resourceInitHook)
+              @cloudparentclass.resourceInitHook(self, @deploy)
+            end
+
+            # Add cloud-specific instance methods for our resource objects to
+            # inherit.
+            if @cloudparentclass.const_defined?(:AdditionalResourceMethods)
+              self.extend @cloudparentclass.const_get(:AdditionalResourceMethods)
+            end
+
+            if ["Server", "ServerPool"].include?(self.class.shortname) and @deploy
+              @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: @config.has_key?("basis"))
+              if self.class.shortname == "Server"
+                @groomer = MU::Groomer.new(self)
+              end
+
+              @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
+
+              if windows? or @config['active_directory'] and !@mu_windows_name
+                if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
+                  @mu_windows_name = @deploydata['mu_windows_name']
+                else
+                  # Use the same random differentiator as the "real" name if we're
+                  # from a ServerPool. Helpful for admin sanity.
+                  unq = @mu_name.sub(/^.*?-(...)$/, '\1')
+                  if @config['basis'] and !unq.nil? and !unq.empty?
+                    @mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
+                  else
+                    @mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+                  end
+                end
+              end
+              class << self
+                attr_reader :groomer
+                attr_reader :groomerclass
+                attr_accessor :mu_windows_name # XXX might be ok as reader now
+              end 
             end
           end
 
-          # Register us with our parent deploy so that we can be found by our
-          # littermates if needed.
-          if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
-            describe # XXX is this actually safe here?
-            @deploy.addKitten(self.class.cfg_name, @config['name'], self)
-          elsif !@deploy.nil?
-            MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
-          end
-
         end
+
+        def cloud
+          if @cloud
+            @cloud
+          elsif @config and @config['cloud']
+            @config['cloud']
+          elsif self.class.name.match(/^MU::Cloud::([^:]+)::.+/)
+            cloudclass_name = Regexp.last_match[1]
+            if MU::Cloud.supportedClouds.include?(cloudclass_name)
+              cloudclass_name
+            else
+              nil
+            end
+          else
+            nil
+          end
+        end
+
 
         # Remove all metadata and cloud resources associated with this object
         def destroy
@@ -796,23 +1168,99 @@ module MU
             end
           end
         end
-        
-        def cloud_desc()
-          describe
-          if !@cloudobj.nil?
-            @cloud_desc_cache ||= @cloudobj.cloud_desc
-            @url = @cloudobj.url if @cloudobj.respond_to?(:url)
+
+        # Return the cloud object's idea of where it lives (project, account,
+        # etc) in the form of an identifier. If not applicable for this object,
+        # we expect to return +nil+.
+        # @return [String,nil]
+        def habitat(nolookup: true)
+          return nil if ["folder", "habitat"].include?(self.class.cfg_name)
+          if @cloudobj 
+            @cloudparentclass.habitat(@cloudobj, nolookup: nolookup, deploy: @deploy)
+          else
+            @cloudparentclass.habitat(self, nolookup: nolookup, deploy: @deploy)
           end
-          if !@config.nil? and !@cloud_id.nil? and @cloud_desc_cache.nil?
+        end
+
+        def habitat_id(nolookup: false)
+          @habitat_id ||= habitat(nolookup: nolookup)
+          @habitat_id
+        end
+
+        # We're fundamentally a wrapper class, so go ahead and reroute requests
+        # that are meant for our wrapped object.
+        def method_missing(method_sym, *arguments)
+          if @cloudobj
+            MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}", MU::DEBUG, details: arguments
+            @cloudobj.method(method_sym).call(*arguments)
+          else
+            raise NoMethodError, "No such instance method #{method_sym.to_s} available on #{self.class.name}"
+          end
+        end
+
+        # Merge the passed hash into the existing configuration hash of this
+        # cloud object. Currently this is only used by the {MU::Adoption}
+        # module. I don't love exposing this to the whole internal API, but I'm
+        # probably overthinking that.
+        # @param newcfg [Hash]
+        def config!(newcfg)
+          @config.merge!(newcfg)
+        end
+        
+        def cloud_desc(use_cache: true)
+          describe
+
+          if !@cloudobj.nil?
+            if @cloudobj.class.instance_methods(false).include?(:cloud_desc)
+              @cloud_desc_cache ||= @cloudobj.cloud_desc
+            end
+          end
+          if !@config.nil? and !@cloud_id.nil? and (!use_cache or @cloud_desc_cache.nil?)
             # The find() method should be returning a Hash with the cloud_id
             # as a key and a cloud platform descriptor as the value.
             begin
+              args = {
+                :region => @config['region'],
+                :cloud => @config['cloud'],
+                :cloud_id => @cloud_id,
+                :credentials => @credentials,
+                :project => habitat_id, # XXX this belongs in our required_instance_methods hack
+                :flags => @config
+              }
+              @cloudparentclass.required_instance_methods.each { |m|
+#                if respond_to?(m)
+#                  args[m] = method(m).call
+#                else
+                  args[m] = instance_variable_get(("@"+m.to_s).to_sym)
+#                end
+              }
 
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config, credentials: @credentials)
-              if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc_cache = matches[@cloud_id]
-              else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@credentials}/#{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
+              matches = self.class.find(args)
+              if !matches.nil? and matches.is_a?(Hash)
+# XXX or if the hash is keyed with an ::Id element, oh boy
+#                puts matches[@cloud_id][:self_link]
+#                puts matches[@cloud_id][:url]
+#                if matches[@cloud_id][:self_link]
+#                  @url ||= matches[@cloud_id][:self_link]
+#                elsif matches[@cloud_id][:url]
+#                  @url ||= matches[@cloud_id][:url]
+#                elsif matches[@cloud_id][:arn]
+#                  @arn ||= matches[@cloud_id][:arn]
+#                end
+                if matches[@cloud_id]
+                  @cloud_desc_cache = matches[@cloud_id]
+                else
+                  matches.each_pair { |k, v| # flatten out ::Id objects just in case
+                    if @cloud_id.to_s == k.to_s
+                      @cloud_desc_cache = v
+                      break
+                    end
+                  }
+                end
+              end
+
+              if !@cloud_desc_cache
+                MU.log "cloud_desc via #{self.class.name}.find() failed to locate a live object.\nWas called by #{caller[0]}", MU::WARN, details: args
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
@@ -858,19 +1306,6 @@ module MU
             end
             if @deploydata.has_key?('cloud_id')
               @cloud_id ||= @deploydata['cloud_id']
-            else
-              # XXX temp hack to catch old Amazon-style identifiers. Remove this
-              # before supporting any other cloud layers, otherwise name
-              # collision is possible.
-              ["group_id", "instance_id", "awsname", "identifier", "vpc_id", "id"].each { |identifier|
-                if @deploydata.has_key?(identifier)
-                  @cloud_id ||= @deploydata[identifier]
-                  if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
-                    @mu_name = @deploydata[identifier]
-                  end
-                  break
-                end
-              }
             end
           end
 
@@ -886,7 +1321,7 @@ module MU
         # resources in this deployment), as well as for certain config stanzas
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
-        def dependencies(use_cache: false)
+        def dependencies(use_cache: false, debug: false)
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?
@@ -897,6 +1332,8 @@ module MU
           end
           @config['dependencies'] = [] if @config['dependencies'].nil?
 
+          loglevel = debug ? MU::NOTICE : MU::DEBUG
+
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
@@ -904,7 +1341,7 @@ module MU
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
-              MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::DEBUG
+              MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", loglevel
               @dependencies[dep['type']][dep['name']] = handle
             else
               # XXX yell under circumstances where we should expect to have
@@ -914,62 +1351,102 @@ module MU
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
-            MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
-            if !@config['vpc']["vpc_name"].nil? and @deploy
-              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['vpc_name'], type: "vpcs", return_all: true)
+            @config['vpc']["id"] ||= @config['vpc']["vpc_id"] # old deploys
+            @config['vpc']["name"] ||= @config['vpc']["vpc_name"] # old deploys
+            # If something hash-ified a MU::Config::Ref here, fix it
+            if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(Hash)
+              @config['vpc']["id"] = MU::Config::Ref.new(@config['vpc']["id"])
+            end
+            if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(MU::Config::Ref) and !@config['vpc']["id"].kitten.nil?
+              @vpc = @config['vpc']["id"].kitten
+            elsif !@config['vpc']["name"].nil? and @deploy
+              MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
+
+              sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
               if sib_by_name.is_a?(Array)
                 if sib_by_name.size == 1
                   @vpc = matches.first
+                  MU.log "Single VPC match for #{self}", loglevel, details: @vpc.to_s
                 else
 # XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow
                   # we got multiple matches, try to pick one by preferred subnet
                   # behavior
+                  MU.log "Sorting a bunch of VPC matches for #{self}", loglevel, details: sib_by_name.map { |s| s.to_s }.join(", ")
                   sib_by_name.each { |sibling|
                     all_private = sibling.subnets.map { |s| s.private? }.all?(true)
                     all_public = sibling.subnets.map { |s| s.private? }.all?(false)
+                    names = sibling.subnets.map { |s| s.name }
+                    ids = sibling.subnets.map { |s| s.cloud_id }
                     if all_private and ["private", "all_private"].include?(@config['vpc']['subnet_pref'])
                       @vpc = sibling
                       break
                     elsif all_public and ["public", "all_public"].include?(@config['vpc']['subnet_pref'])
                       @vpc = sibling
                       break
-                    else
-                      MU.log "Got multiple matching VPCs for #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}"
+                    elsif @config['vpc']['subnet_name'] and
+                          names.include?(@config['vpc']['subnet_name'])
+puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
+                      @vpc = sibling
+                      break
+                    elsif @config['vpc']['subnet_id'] and
+                          ids.include?(@config['vpc']['subnet_id'])
                       @vpc = sibling
                       break
                     end
                   }
+                  if !@vpc
+                    sibling = sib_by_name.sample
+                    MU.log "Got multiple matching VPCs for #{self.class.cfg_name} #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}", MU::WARN, details: @config['vpc']
+                    @vpc = sibling
+                  end
                 end
               else
                 @vpc = sib_by_name
+                MU.log "Found exact VPC match for #{self}", loglevel, details: sib_by_name.to_s
               end
+            else
+              MU.log "No shortcuts available to fetch VPC for #{self}", loglevel, details: @config['vpc']
             end
 
-            if !@vpc and !@config['vpc']["vpc_name"].nil? and
+            if !@vpc and !@config['vpc']["name"].nil? and
                 @dependencies.has_key?("vpc") and
-                @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
-              @vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
+                @dependencies["vpc"].has_key?(@config['vpc']["name"])
+              MU.log "Grabbing VPC I see in @dependencies['vpc']['#{@config['vpc']["name"]}'] for #{self}", loglevel, details: @config['vpc']
+              @vpc = @dependencies["vpc"][@config['vpc']["name"]]
             elsif !@vpc
               tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-              if !@config['vpc'].has_key?("vpc_id") and
+              if !@config['vpc'].has_key?("id") and
                   !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
                 @config['vpc']["deploy_id"] = @deploy.deploy_id
               end
+              MU.log "Doing findStray for VPC for #{self}", loglevel, details: @config['vpc']
               vpcs = MU::MommaCat.findStray(
                 @config['cloud'],
                 "vpc",
                 deploy_id: @config['vpc']["deploy_id"],
-                cloud_id: @config['vpc']["vpc_id"],
-                name: @config['vpc']["vpc_name"],
+                cloud_id: @config['vpc']["id"],
+                name: @config['vpc']["name"],
                 tag_key: tag_key,
                 tag_value: tag_value,
+                habitats: [@project_id],
                 region: @config['vpc']["region"],
                 calling_deploy: @deploy,
-                dummy_ok: true
+                credentials: @credentials,
+                dummy_ok: true,
+                debug: debug
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
-            if !@vpc.nil? and (
+            if @vpc and @vpc.config and @vpc.config['bastion'] and
+               @vpc.config['bastion'].to_h['name'] != @config['name']
+              refhash = @vpc.config['bastion'].to_h
+              refhash['deploy_id'] ||= @vpc.deploy.deploy_id
+              natref = MU::Config::Ref.get(refhash)
+              if natref and natref.kitten(@vpc.deploy)
+                @nat = natref.kitten(@vpc.deploy)
+              end
+            end
+            if @nat.nil? and !@vpc.nil? and (
               @config['vpc'].has_key?("nat_host_id") or
               @config['vpc'].has_key?("nat_host_tag") or
               @config['vpc'].has_key?("nat_host_ip") or
@@ -1006,6 +1483,22 @@ module MU
             end
           elsif self.class.cfg_name == "vpc"
             @vpc = self
+          end
+
+          # Google accounts usually have a useful default VPC we can use
+          if @vpc.nil? and @project_id and @cloud == "Google" and
+             self.class.can_live_in_vpc
+            MU.log "Seeing about default VPC for #{self.to_s}", MU::NOTICE
+            vpcs = MU::MommaCat.findStray(
+              "Google",
+              "vpc",
+              cloud_id: "default",
+              habitats: [@project_id],
+              credentials: @credentials,
+              dummy_ok: true,
+              debug: debug
+            )
+            @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
           end
 
           # Special dependencies: LoadBalancers I've asked to attach to an
@@ -1046,17 +1539,46 @@ module MU
           MU::Cloud::ALPHA
         end
 
+        # Return a list of "container" artifacts, by class, that apply to this
+        # resource type in a cloud provider. This is so methods that call find
+        # know whether to call +find+ with identifiers for parent resources.
+        # This is similar in purpose to the +isGlobal?+ resource class method,
+        # which tells our search functions whether or not a resource scopes to
+        # a region.  In almost all cases this is one-entry list consisting of
+        # +:Habitat+. Notable exceptions include most implementations of
+        # +Habitat+, which either reside inside a +:Folder+ or nothing at all;
+        # whereas a +:Folder+ tends to not have any containing parent. Very few
+        # resource implementations will need to override this.
+        # A +nil+ entry in this list is interpreted as "this resource can be
+        # global."
+        # @return [Array<Symbol,nil>]
+        def self.canLiveIn
+          if self.shortname == "Folder"
+            [nil, :Folder]
+          elsif self.shortname == "Habitat"
+            [:Folder]
+          else
+            [:Habitat]
+          end
+        end
+
         def self.find(*flags)
           allfound = {}
 
-          MU::Cloud.supportedClouds.each { |cloud|
+          MU::Cloud.availableClouds.each { |cloud|
             begin
               args = flags.first
+              next if args[:cloud] and args[:cloud] != cloud
               # skip this cloud if we have a region argument that makes no
               # sense there
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty? or cloudbase.credConfig(args[:credentials]).nil?
               if args[:region] and cloudbase.respond_to?(:listRegions)
-                next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
+                if !cloudbase.listRegions(credentials: args[:credentials])
+                  MU.log "Failed to get region list for credentials #{args[:credentials]} in cloud #{cloud}", MU::ERR, details: caller
+                else
+                  next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
+                end
               end
               begin
                 cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
@@ -1094,9 +1616,9 @@ module MU
           end
         end
 
-        if shortname == "Server"
+        if shortname == "Server" or shortname == "ServerPool"
           def windows?
-            return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+            return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 win2k19 windows}.include?(@config['platform'])
             begin
               return true if cloud_desc.respond_to?(:platform) and cloud_desc.platform == "Windows"
 # XXX ^ that's AWS-speak, doesn't cover GCP or anything else; maybe we should require cloud layers to implement this so we can just call @cloudobj.windows?
@@ -1330,7 +1852,9 @@ module MU
                 if !output.nil? and !output.empty?
                   raise MU::Cloud::BootstrapTempFail, "Linux package manager is still doing something, need to wait (#{output})"
                 end
-                if !@config['skipinitialupdates']
+                if !@config['skipinitialupdates'] and
+                   !@config['scrub_mu_isms'] and
+                   !@config['userdata_script']
                   output = ssh.exec!(lnx_updates_check)
                   if !output.nil? and output.match(/userdata still running/)
                     raise MU::Cloud::BootstrapTempFail, "Waiting for initial userdata system updates to complete"
@@ -1408,6 +1932,8 @@ module MU
             session = nil
             retries = 0
 
+            vpc_class = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("VPC")
+
             # XXX WHY is this a thing
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
@@ -1431,6 +1957,7 @@ module MU
                     :proxy => proxy
                 )
               else
+
                 MU.log "Attempting SSH to #{canonical_ip} (#{@mu_name}) as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
                 session = Net::SSH.start(
                     canonical_ip,
@@ -1464,16 +1991,21 @@ module MU
 
               if retries < max_retries
                 retries = retries + 1
-                msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
+                msg = "ssh #{ssh_user}@#{@mu_name}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
                 if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                   MU.log msg, MU::NOTICE
+                  if !vpc_class.haveRouteToInstance?(cloud_desc, credentials: @credentials) and
+                     canonical_ip.match(/(^127\.)|(^192\.168\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^::1$)|(^[fF][cCdD])/) and
+                     !nat_ssh_host
+                    MU.log "Node #{@mu_name} at #{canonical_ip} looks like it's in a private address space, and I don't appear to have a direct route to it. It may not be possible to connect with this routing!", MU::WARN
+                  end
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
                 end
                 sleep retry_interval
                 retry
               else
-                raise MuError, "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
+                raise MuError, "#{@mu_name}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
               end
             end
             return session
@@ -1499,6 +2031,17 @@ module MU
             end
           }
           MU::MommaCat.unlockAll
+        end
+
+        # A hook that is always called just before each instance method is
+        # invoked, so that we can ensure that repetitive setup tasks (like
+        # resolving +:resource_group+ for Azure resources) have always been
+        # done.
+        def resourceInitHook
+          @cloud ||= cloud
+          if @cloudparentclass.respond_to?(:resourceInitHook)
+            @cloudparentclass.resourceInitHook(@cloudobj, @deploy)
+          end
         end
 
         # Wrap the instance methods that this cloud resource type has to
@@ -1540,15 +2083,17 @@ module MU
               deploydata = @cloudobj.method(:notify).call
               @deploydata ||= deploydata # XXX I don't remember why we're not just doing this from the get-go; maybe because we prefer some mangling occurring in @deploy.notify?
               if deploydata.nil? or !deploydata.is_a?(Hash)
-                MU.log "#{self} notify method did not return a Hash of deployment data", MU::WARN
+                MU.log "#{self} notify method did not return a Hash of deployment data, attempting to fill in with cloud descriptor #{@cloudobj.cloud_id}", MU::WARN
                 deploydata = MU.structToHash(@cloudobj.cloud_desc)
+                raise MuError, "Failed to collect metadata about #{self}" if deploydata.nil?
               end
-              deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
+              deploydata['cloud_id'] ||= @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               deploydata['nodename'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
+              deploydata.delete("#MUOBJECT")
               @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             elsif method == :notify
-              retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
+              retval['cloud_id'] = @cloudobj.cloud_id.to_s if !@cloudobj.cloud_id.nil?
               retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             end

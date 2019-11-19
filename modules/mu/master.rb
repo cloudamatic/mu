@@ -1,4 +1,3 @@
-#!/usr/local/ruby-current/bin/ruby
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
@@ -196,7 +195,7 @@ module MU
         end
         alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
 
-        if !File.exists?(realdevice)
+        if !File.exist?(realdevice)
           MU.log "Creating #{path} volume"
           if MU::Cloud::AWS.hosted?
             dummy_svr = MU::Cloud::AWS::Server.new(
@@ -251,7 +250,7 @@ module MU
           keyfile.close
 
           # we can assume that mu-master::init installed cryptsetup-luks
-          if !File.exists?(alias_device)
+          if !File.exist?(alias_device)
             MU.log "Initializing crypto on #{alias_device}", MU::NOTICE
             %x{/sbin/cryptsetup luksFormat #{realdevice} #{keyfile.path} --batch-mode}
             %x{/sbin/cryptsetup luksOpen #{realdevice} #{alias_device.gsub(/.*?\/([^\/]+)$/, '\1')} --key-file #{keyfile.path}}
@@ -265,7 +264,7 @@ module MU
           %x{/sbin/mkfs.xfs "#{alias_device}"}
           %x{/usr/sbin/xfs_admin -L "#{path.gsub(/[^0-9a-z_\-]/i, "_")}" "#{alias_device}"}
         end
-        Dir.mkdir(path, 0700) if !Dir.exists?(path) # XXX recursive
+        Dir.mkdir(path, 0700) if !Dir.exist?(path) # XXX recursive
         %x{/usr/sbin/xfs_info "#{alias_device}" > /dev/null 2>&1}
         if $?.exitstatus != 0
           MU.log "Mounting #{alias_device} to #{path}"
@@ -348,8 +347,8 @@ module MU
       ldap_users['mu'] = {}
       ldap_users['mu']['admin'] = true
       ldap_users['mu']['non_ldap'] = true
-      ldap_users.each_pair { |username, data|
-        key = username.to_s
+      ldap_users.each_pair { |uname, data|
+        key = uname.to_s
         all_user_data[key] = {}
         userdir = $MU_CFG['installdir']+"/var/users/#{key}"
         if !Dir.exist?(userdir)
@@ -368,6 +367,88 @@ module MU
         }
       }
       all_user_data
+    end
+
+
+    @@kubectl_path = nil
+    # Locate a working +kubectl+ executable and return its fully-qualified
+    # path.
+    def self.kubectl
+      return @@kubectl_path if @@kubectl_path
+
+      paths = ["/opt/mu/bin"]+ENV['PATH'].split(/:/)
+      best = nil
+      best_version = nil
+      paths.uniq.each { |path|
+        if File.exist?(path+"/kubectl")
+          version = %x{#{path}/kubectl version --short --client}.chomp.sub(/.*Client version:\s+v/i, '')
+          next if !$?.success?
+          if !best_version or MU.version_sort(best_version, version) > 0
+            best_version = version
+            best = path+"/kubectl"
+          end
+        end
+      }
+      if !best
+        MU.log "Failed to find a working kubectl executable in any path", MU::WARN, details: paths.uniq.sort
+        return nil
+      else
+        MU.log "Kubernetes commands will use #{best} (#{best_version})"
+      end
+
+      @@kubectl_path = best
+      @@kubectl_path
+    end
+
+    # Given an array of hashes representing Kubernetes resources, 
+    def self.applyKubernetesResources(name, blobs = [], kubeconfig: nil, outputdir: nil)
+      use_tmp = false
+      if !outputdir
+        require 'tempfile'
+        use_tmp = true
+      end
+
+      count = 0
+      blobs.each { |blob|
+        f = nil
+        blobfile = if use_tmp
+          f = Tempfile.new("k8s-resource-#{count.to_s}-#{name}")
+          f.puts blob.to_yaml
+          f.close
+          f.path
+        else
+          path = outputdir+"/k8s-resource-#{count.to_s}-#{name}"
+          File.open(path, "w") { |fh|
+            fh.puts blob.to_yaml
+          }
+          path
+        end
+        next if !kubectl
+        done = false
+        retries = 0
+        begin
+          %x{#{kubectl} --kubeconfig "#{kubeconfig}" get -f #{blobfile} > /dev/null 2>&1}
+          arg = $?.exitstatus == 0 ? "apply" : "create"
+          cmd = %Q{#{kubectl} --kubeconfig "#{kubeconfig}" #{arg} -f #{blobfile}}
+          MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", MU::NOTICE, details: cmd
+          output = %x{#{cmd} 2>&1}
+          if $?.exitstatus == 0
+            MU.log "Kubernetes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
+            done = true
+          else
+            MU.log "Kubernetes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
+            if retries < 5
+              sleep 5
+            else
+              MU.log "Giving up on Kubernetes resource #{count.to_s} #{arg}"
+              done = true
+            end
+            retries += 1
+          end
+          f.unlink if use_tmp
+        end while !done
+        count += 1
+      }
     end
 
     # Update Mu's local cache/metadata for the given user, fixing permissions

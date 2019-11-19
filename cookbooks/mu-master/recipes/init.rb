@@ -36,7 +36,7 @@ ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.17.15-1"
-CHEF_CLIENT_VERSION="14.11.21"
+CHEF_CLIENT_VERSION="14.13.11"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
@@ -180,19 +180,19 @@ when 'rhel'
 
   basepackages = rhelbase
 
-  case node['platform_version'].split('.')[0]
-  when '6'
-    basepackages.concat(["mysql-devel"])
+  case node['platform_version'].split('.')[0].to_i
+  when 6
+    basepackages.concat(["cryptsetup-luks", "mysql-devel", "centos-release-scl"])
     removepackages = ["nagios"]
 
-  when '7'
+  when 7
     basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
     removepackages = ['nagios', 'firewalld']
 
-  when '8'
-    raise "Mu currently does not suport RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
+  when 8
+    raise "Mu currently does not support RHEL 8... but I assume it will in the future... But I am Bill and I am hopeful about the future."
   else
-    raise "Mu does not suport RHEL #{node['platform_version']}"
+    raise "Mu does not support RHEL #{node['platform_version']} (matched on #{node['platform_version'].split('.')[0]})"
   end
 
 when 'amazon'
@@ -317,12 +317,19 @@ execute "clean up old ruby-2.3.1" do
   only_if { ::Dir.exist?("/opt/rubies/ruby-2.3.1") }
 end
 
+execute "yum makecache" do
+  action :nothing
+end
+
 # Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
     if pkg == "ruby25" 
       options '--prefix=/opt/rubies/'
+    end
+    if pkg == "epel-release" 
+      notifies :run, "execute[yum makecache]", :immediately
     end
     if pkg == "chef-server-core"
       notifies :stop, "service[iptables]", :before
@@ -386,7 +393,7 @@ file "#{MU_BASE}/var/users/mu/realname" do
   end
 end
 
-["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
+["mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh", "mu-adopt", "mu-azure-setup", "mu-gcp-setup", "mu-aws-setup"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end
@@ -447,26 +454,15 @@ end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
 
-# XXX rely on bundler to get this right for us
-#    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
-#      gem_binary gembin
-#      package_name "knife-windows"
-#      version KNIFE_WINDOWS
-#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-#    end
-
-#    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
-#      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
-#      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
-#      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
-#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-#      only_if { ::Dir.exist?(gemdir) }
-      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-#    end
   end
 }
 
+# This is mostly to make sure Berkshelf has a clean and current environment to
+# live with.
+execute "/usr/local/ruby-current/bin/bundle clean --force" do
+  cwd "#{MU_BASE}/lib/modules"
+  only_if { RUNNING_STANDALONE }
+end
 
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
@@ -582,3 +578,10 @@ end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
 }
+bash "fix misc permissions" do
+  code <<-EOH
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git" -type d -exec chmod go+r {} \\;
+    find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+r {} \\;
+    chmod go+rx #{MU_BASE}/lib/bin/* #{MU_BASE}/lib/extras/*-stock-* #{MU_BASE}/lib/extras/vault_tools/*.sh
+  EOH
+end

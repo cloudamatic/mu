@@ -3,21 +3,11 @@ module MU
     class AWS
       # An API as configured in {MU::Config::BasketofKittens::endpoints}
       class Endpoint < MU::Cloud::Endpoint
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::endpoints}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -266,14 +256,11 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         end
 
         # Locate an existing API.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching API.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
-          if cloud_id
-            return MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_api(
-              rest_api_id: cloud_id
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching API.
+        def self.find(**args)
+          if args[:cloud_id]
+            return MU::Cloud::AWS.apig(region: args[:region], credentials: args[:credentials]).get_rest_api(
+              rest_api_id: args[:cloud_id]
             )
           end
 #          resp = MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_apis

@@ -17,9 +17,44 @@
 # limitations under the License.
 
 # XXX this is nonsense if we're not in AWS
-response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
-instance_id = response.body
-search_domains = ["ec2.internal", "sclearerver.#{instance_id}.platform-mu", "platform-mu"]
+instance_id = node.name
+search_domains = ["platform-mu"]
+if node['ec2']
+  response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
+  instance_id = response.body
+  search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
+elsif node['gce']
+  instance_id = node['gce']['instance']['name']
+  domains = node['gce']['instance']['hostname'].split(/\./)
+  domains.shift
+  search_domains = []
+  begin
+    search_domains << domains.join(".")+"."
+    domains.shift
+  end while domains.size > 1
+  search_domains << "google.internal."
+end
+
+if ::File.exist?("/etc/sudoers.d/waagent")
+  sshgroup = if node['platform'] == "centos"
+    "centos"
+  elsif node['platform'] == "ubuntu"
+    "ubuntu"
+  elsif node['platform'] == "windows"
+    "windows"
+  else
+    "root"
+  end
+  
+  File.readlines("/etc/sudoers.d/waagent").each { |l|
+    l.chomp!
+    user = l.sub(/ .*/, '')
+    group sshgroup do
+      members user
+      append true
+    end
+  }
+end
 
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
@@ -27,7 +62,7 @@ include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 include_recipe 'mu-tools::gcloud'
-#include_recipe 'mu-master::eks-kubectl'
+#include_recipe 'mu-master::kubectl'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -187,8 +222,16 @@ if !node['update_nagios_only']
   include_recipe "apache2::mod_proxy"
   include_recipe "apache2::mod_proxy_http"
   include_recipe "apache2::mod_rewrite"
-  include_recipe "apache2::mod_ldap"
-  include_recipe "apache2::mod_authnz_ldap"
+
+  if node['platform_family'] == "rhel" and node['platform_version'].split('.')[0].to_i == 6
+    package "httpd24-mod_ldap"
+    apache_module 'ldap' do
+      conf true
+    end
+  else
+    include_recipe "apache2::mod_authnz_ldap"
+  end
+
   apache_site "default" do
     enable false
   end

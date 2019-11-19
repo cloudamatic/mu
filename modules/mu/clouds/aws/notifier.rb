@@ -17,19 +17,11 @@ module MU
     class AWS
       # Support for AWS SNS
       class Notifier < MU::Cloud::Notifier
-        @deploy = nil
-        @config = nil
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::logs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -99,16 +91,13 @@ module MU
         end
 
         # Locate an existing notifier.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching notifier.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching notifier.
+        def self.find(**args)
           found = {}
-          if cloud_id
-            arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+":sns:"+region+":"+MU::Cloud::AWS.credToAcct(credentials)+":"+cloud_id
-            desc = MU::Cloud::AWS.sns(region: region, credentials: credentials).get_topic_attributes(topic_arn: arn).attributes
-            found[cloud_id] = desc if desc
+          if args[:cloud_id]
+            arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
+            desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
+            found[args[:cloud_id]] = desc if desc
           end
           found
         end

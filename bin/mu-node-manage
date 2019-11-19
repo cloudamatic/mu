@@ -182,36 +182,38 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
     next if mommacat.kittens.nil? or mommacat.kittens['servers'].nil?
-    mommacat.kittens['servers'].each_pair { |nodeclass, servers|
-      servers.each_pair { |mu_name, server|
-        next if nodes.size > 0 and !nodes.include?(mu_name)
-        count = count + 1
-        child = Process.fork {
-          begin
-            type = "server"
-            type = "server_pool" if server.config.has_key?("basis")
-            if vaults_only
-              next if !server.config.has_key?("vault_access")
-              server.config["vault_access"].each { |v|
-                MU::Groomer::Chef.grantSecretAccess(mu_name, v['vault'], v['item'])
-              }
-            else
-              mommacat.groomNode(server.cloud_id, nodeclass, type, mu_name: mu_name)
+    mommacat.kittens['servers'].each_pair { |habitat, nodeclasses|
+      nodeclasses.each_pair { |nodeclass, servers|
+        servers.each_pair { |mu_name, server|
+          next if nodes.size > 0 and !nodes.include?(mu_name)
+          count = count + 1
+          child = Process.fork {
+            begin
+              type = "server"
+              type = "server_pool" if server.config.has_key?("basis")
+              if vaults_only
+                next if !server.config.has_key?("vault_access")
+                server.config["vault_access"].each { |v|
+                  MU::Groomer::Chef.grantSecretAccess(mu_name, v['vault'], v['item'])
+                }
+              else
+                mommacat.groomNode(server.cloud_id, nodeclass, type, mu_name: mu_name)
+              end
+            rescue Exception => e
+              MU.log e.inspect, MU::ERR, details: e.backtrace
+              exit 1
             end
-          rescue Exception => e
-            MU.log e.inspect, MU::ERR, details: e.backtrace
-            exit 1
-          end
+          }
+          $children[child] = mu_name
         }
-        $children[child] = mu_name
-      }
-      while $children.size >= $opts[:concurrent]-1
-        child = Process.wait
-        if !$?.success?
-          badnodes << $children[child]
+        while $children.size >= $opts[:concurrent]-1
+          child = Process.wait
+          if !$?.success?
+            badnodes << $children[child]
+          end
+          $children.delete(child)
         end
-        $children.delete(child)
-      end
+      }
     }
   }
   Process.waitall.each { |child|
@@ -240,6 +242,10 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
         done = false
         begin
           serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+          if !serverobj
+            MU.log "Failed to load server object for #{nodename}", MU::ERR
+            next
+          end
 
           # Generate the command if attemting a chef run
           if chefrun
@@ -593,7 +599,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
 
       MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
       begin
-        MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
+        MU::Cloud::AWS.ec2(region: server['region']).modify_instance_attribute(
           instance_id: id,
           attribute: "userData",
           value: Base64.encode64(userdata)

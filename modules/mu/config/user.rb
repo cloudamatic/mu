@@ -41,6 +41,10 @@ module MU
               "description" => "If we attempt to create or associate a user that already exists, simply modify that user in-place and use it, rather than throwing an error. If this flag is set, the user will *not* be deleted on cleanup, nor will we overwrite any existing tags on cloud platforms that support user tagging.",
               "default" => true
             },
+            "force_password_change" => {
+              "type" => "boolean",
+              "description" => "For supported platforms and user types, require the user to reset their password on their next login. Our default behavior is to set this flag when initially creating an account. Setting it explicitly +true+ will set this flag on every subsequent +groom+ of the user, which may not be desired behavior."
+            },
             "create_api_key" => {
               "type" => "boolean",
               "default" => false,

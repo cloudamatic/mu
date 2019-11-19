@@ -14,6 +14,11 @@
 #
 # See http://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 
+require 'simplecov'
+require 'simplecov-console'
+SimpleCov.formatter = SimpleCov::Formatter::Console
+SimpleCov.start
+
 $LOAD_PATH << "#{File.realpath(File.expand_path(File.dirname(__FILE__))+"/..")}/modules"
 # require 'mu'
 

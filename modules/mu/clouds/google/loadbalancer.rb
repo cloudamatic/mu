@@ -18,41 +18,18 @@ module MU
       # A load balancer as configured in {MU::Config::BasketofKittens::loadbalancers}
       class LoadBalancer < MU::Cloud::LoadBalancer
 
-        @project_id = nil
-        @deploy = nil
         @lb = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
         attr_reader :targetgroups
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-            @config['project'] ||= MU::Cloud::Google.defaultProject(@config['credentials'])
-            if !@project_id
-              project = MU::Cloud::Google.projectLookup(@config['project'], @deploy, sibling_only: true, raise_on_fail: false)
-              @project_id = project.nil? ? @config['project'] : project.cloudobj.cloud_id
-            end
-          elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
-          else
-            @mu_name = @deploy.getResourceName(@config["name"])
-          end
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
+          @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
-
           parent_thread_id = Thread.current.object_id
 
           backends = {}
@@ -81,7 +58,7 @@ module MU
             if !@config["private"]
 #TODO ip_address, port_range, target
               realproto = ["HTTP", "HTTPS"].include?(l['lb_protocol']) ? l['lb_protocol'] : "TCP"
-              ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
+              ruleobj = ::Google::Apis::ComputeV1::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
                 load_balancing_scheme: "EXTERNAL",
@@ -91,7 +68,7 @@ module MU
               )
             else
 # TODO network, subnetwork, port_range, target
-              ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
+              ruleobj = ::Google::Apis::ComputeV1::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
                 load_balancing_scheme: "INTERNAL",
@@ -116,10 +93,6 @@ module MU
             end
           }
 
-        end
-
-        # Wrapper that fetches the API's description of one of these things
-        def cloud_desc
         end
 
         # Return the metadata for this LoadBalancer
@@ -175,6 +148,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: nil, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
 
           if region
             ["forwarding_rule", "region_backend_service"].each { |type|
@@ -192,6 +166,7 @@ module MU
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
                 flags["project"],
+                nil,
                 noop
               )
             }

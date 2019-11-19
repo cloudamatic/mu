@@ -1,0 +1,5 @@
+//SET THIS VALUE FOR LOCAL TESTING
+{
+"client_id": "__AZURE_CLIENT_ID__",
+"client_secret": "__AZURE_CLIENT_SECRET__"
+}

@@ -103,8 +103,8 @@ module MU
             },
             "alarms" => MU::Config::Alarm.inline,
             "ingress_rules" => {
-                "type" => "array",
-                "items" => MU::Config::FirewallRule.ruleschema
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.ruleschema
             },
             "region" => MU::Config.region_primitive,
             "cross_zone_unstickiness" => {

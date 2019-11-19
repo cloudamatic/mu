@@ -17,19 +17,11 @@ module MU
     class AWS
       # A group as configured in {MU::Config::BasketofKittens::groups}
       class Group < MU::Cloud::Group
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
 
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::groups}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
-
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= if @config['unique_name']
             @deploy.getResourceName(@config["name"])
           else
@@ -167,18 +159,15 @@ module MU
         end
 
         # Locate an existing group group.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching group group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching group group.
+        def self.find(**args)
           found = nil
           begin
-            resp = MU::Cloud::AWS.iam(credentials: credentials).get_group(
-              group_name: cloud_id
+            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_group(
+              group_name: args[:cloud_id]
             )
             found ||= {}
-            found[cloud_id] = resp
+            found[args[:cloud_id]] = resp
           rescue Aws::IAM::Errors::NoSuchEntity
           end
           found

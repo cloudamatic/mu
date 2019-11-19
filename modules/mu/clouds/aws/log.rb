@@ -17,19 +17,11 @@ module MU
     class AWS
       # A logging facility as configured in {MU::Config::BasketofKittens::logs}
       class Log < MU::Cloud::Log
-        @deploy = nil
-        @config = nil
 
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::logs}
-        def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          @deploy = mommacat
-          @config = MU::Config.manxify(kitten_cfg)
-          @cloud_id ||= cloud_id
+        # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
+        # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
+        def initialize(**args)
+          super
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -271,18 +263,15 @@ module MU
         end
 
         # Locate an existing log group.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching log group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching log group.
+        def self.find(**args)
           found = nil
-          if !cloud_id.nil? and !cloud_id.match(/^arn:/i)
+          if !args[:cloud_id].nil? and !args[:cloud_id].match(/^arn:/i)
             found ||= {}
-            found[cloud_id] = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region, credentials: nil)
+            found[args[:cloud_id]] = MU::Cloud::AWS::Log.getLogGroupByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
           else
-            resp = MU::Cloud::AWS.cloudwatchlogs(region: region, credentials: credentials).describe_log_groups.log_groups.each { |group|
-              if group.arn == cloud_id or group.arn.sub(/:\*$/, "") == cloud_id
+            resp = MU::Cloud::AWS.cloudwatchlogs(region: args[:region], credentials: args[:credentials]).describe_log_groups.log_groups.each { |group|
+              if group.arn == args[:cloud_id] or group.arn.sub(/:\*$/, "") == args[:cloud_id]
                 found ||= {}
                 found[group.log_group_name] = group
                 break

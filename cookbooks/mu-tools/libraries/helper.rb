@@ -168,7 +168,14 @@ module Mutools
     end
 
     def get_deploy_secret
-      uri = URI("https://#{get_mu_master_ips.first}:2260/rest/bucketname")
+      cloud = if !get_aws_metadata("meta-data/instance-id").nil?
+        "AWS"
+      elsif !get_google_metadata("instance/name").nil?
+        "Google"
+#      elsif <some condition here>
+#        "Azure"
+      end
+      uri = URI("https://#{get_mu_master_ips.first}:2260/rest/bucketname/#{cloud}/#{node['credentials']}")
       http = Net::HTTP.new(uri.hostname, uri.port)
       http.use_ssl = true
       http.verify_mode = ::OpenSSL::SSL::VERIFY_NONE # XXX this sucks
@@ -177,7 +184,7 @@ module Mutools
       secret = nil
       filename = mu_get_tag_value("MU-ID")+"-secret"
 
-      if !get_aws_metadata("meta-data/instance-id").nil?
+      if cloud == "AWS"
         resp = nil
         begin
           resp = s3.get_object(bucket: bucket, key: filename)
@@ -187,18 +194,23 @@ module Mutools
         end
         Chef::Log.info("Fetch deploy secret from s3://#{bucket}/#{filename}")
         secret = resp.body.read
-      elsif !get_google_metadata("instance/name").nil?
+      elsif cloud == "Google"
         include_recipe "mu-tools::gcloud"
+        resp = nil
         ["/opt/google-cloud-sdk/bin/gsutil", "/bin/gsutil"].each { |gsutil|
           next if !File.exist?(gsutil)
           Chef::Log.info("Fetching deploy secret: #{gsutil} cp gs://#{bucket}/#{filename} -")
-          if File.exist?("/usr/bin/python2.7")
-            # secret = %x{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
-            secret = shell_out("CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
+          cmd = if File.exist?("/usr/bin/python2.7")
+            %Q{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
           else
-            # secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
-            secret = shell_out("#{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
+            %Q{#{gsutil} cp gs://#{bucket}/#{filename} -}
           end
+          Chef::Log.info(cmd)
+          resp = shell_out(cmd)
+          if resp.status.exitstatus != 0
+            raise "\nDeploy secret fetch failed with exit code #{resp.status.exitstatus.to_s}: #{resp.stderr}. Command was:\n#{cmd}"
+          end
+          secret = resp.stdout
           break if !secret.nil? and !secret.empty?
         }
         if secret.nil? or secret.empty?

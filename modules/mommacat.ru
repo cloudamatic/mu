@@ -46,7 +46,7 @@ end
 Signal.trap("URG") do
   puts "------------------------------"
   puts "Open flock() locks:"
-  pp MU::MommaCat.locks
+  pp MU::MommaCat.trapSafeLocks
   puts "------------------------------"
 end
 
@@ -303,6 +303,7 @@ app = proc do |env|
         ]
       end
     elsif !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
+
       action, filter, path = env['REQUEST_PATH'].sub(/^\/rest\/?/, "").split(/\//, 3)
       # Don't give away the store. This can't be public until we can
       # authenticate and access-control properly.
@@ -311,7 +312,23 @@ app = proc do |env|
         next
       end
 
-      if action == "deploy"
+      if action == "hosts_add"
+        if Process.uid != 0
+          returnval = throw500 "Service not available"
+        elsif !filter or !path
+          returnval = throw404 env['REQUEST_PATH']
+        else
+          MU::MommaCat.addInstanceToEtcHosts(path, filter)
+          returnval = [
+            200,
+            {
+              'Content-Type' => 'text/plain',
+              'Content-Length' => 2
+            },
+            ["ok"]
+          ]
+        end
+      elsif action == "deploy"
         returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading deploy data for #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
@@ -329,9 +346,9 @@ app = proc do |env|
           200,
           {
             'Content-Type' => 'text/plain',
-            'Content-Length' => MU.adminBucketName.length.to_s
+            'Content-Length' => MU.adminBucketName(filter, credentials: path).length.to_s
           },
-          [MU.adminBucketName]
+          [MU.adminBucketName(filter, credentials: path)]
         ]
       else
         returnval = throw404 env['REQUEST_PATH']
@@ -405,7 +422,8 @@ app = proc do |env|
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))
-          instance.addVolume(params["dev"], params["size"])
+MU.log "ADDVOLUME REQUEST", MU::WARN, details: params
+          instance.addVolume(params["dev"], params["size"], delete_on_termination: params["delete_on_termination"])
         else
           returnval = throw500 "I don't know how to add a volume for #{instance}"
           ok = false

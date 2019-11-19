@@ -1,6 +1,8 @@
 <% if $complexity == 'complex' %>
 name: <%= server_pools_name %>
 cloud: AWS
+vpc:
+  vpc_name: <%= vpc_name %>
 alarms:
 - comparison_operator: "GreaterThanThreshold"
   metric_name: "HTTPCode_Target_5XX_Count"

@@ -17,22 +17,18 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '2.0.3'
-  s.date        = '2019-05-25'
+  s.version     = '3.0.0'
+  s.date        = '2019-11-11'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
   s.description = <<-EOF
-The eGTLabs Mu toolkit for unified cloud deployments. This gem contains a minimal version of Mu with cloud provider APIs, and will generate a sample configuration the first time it is invoked.
+The eGTLabs Mu toolkit for unified cloud deployments. This gem contains the Mu deployment interface to cloud provider APIs. It will generate a sample configuration the first time it is invoked.
 
-It will attempt to autodetect when it's being run in a virtual machine on a known cloud provider and activate the appropriate API with machine-based credentials. Installing this gem on an Amazon Web Service instance, for example, should automatically enable the MU::Cloud::AWS layer and attempt to use the machine's IAM Profile to communicate with the AWS API.
-
-
-require 'cloud-mu'
-
+Mu will attempt to autodetect when it's being run in a virtual machine on a known cloud provider and activate the appropriate API with machine-based credentials. Installing this gem on an Amazon Web Service instance, for example, should automatically enable the MU::Cloud::AWS layer and attempt to use the machine's IAM Profile to communicate with the AWS API.
 
 EOF
-  s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Clara Bridges", "Zach Rowe"]
+  s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Zach Rowe"]
   s.email       = 'eGTLabs@eglobaltech.com'
   s.files       = build_file_list(whereami)
   s.executables = Dir.entries(whereami+"/bin").reject { |f| File.directory?(f) }
@@ -52,14 +48,15 @@ EOF
   s.add_runtime_dependency 'colorize', "~> 0.8"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'netaddr', '~> 2.0'
-  s.add_runtime_dependency 'nokogiri', "~> 1.8"
+  s.add_runtime_dependency 'nokogiri', "~> 1.10"
   s.add_runtime_dependency 'solve', '~> 4.0'
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
   s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
   s.add_runtime_dependency 'googleauth', "~> 0.6"
-  s.add_runtime_dependency 'google-api-client', "~> 0.28.4"
+  s.add_runtime_dependency 'google-api-client', "~> 0.30.8"
   s.add_runtime_dependency 'rubocop', '~> 0.58'
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
+  s.add_runtime_dependency 'azure_sdk', "~> 0.37"
 end

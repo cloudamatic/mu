@@ -128,9 +128,13 @@ add_berkshelf_cookbooks()
   berksdir="$user_home/.berkshelf"
   berks="/usr/local/ruby-current/bin/ruby /usr/local/ruby-current/bin/berks"
   cd $repodir
-  is_synced="`$berks list -F json 2>&1 | grep 'lockfile is out of sync'`"
 
-  if [ "$MU_DEPRESOLVE" == "1" -o "$is_synced" != "" ];then
+  need_rebuild="`$berks list -F json 2>&1 | egrep '(lockfile is out of sync|is not installed)'`"
+  if ! $berks list -F json 2>&1 > /dev/null ;then
+    need_rebuild=1
+  fi
+
+  if [ "$MU_DEPRESOLVE" == "1" -o "$need_rebuild" != "" ];then
     # The cleansing fire for Berksfile.lock and ~/.berkshelf/cookbooks
     if [ "$MU_DEPRESOLVE" == "1" ];then
       echo "${GREEN}Resolving standard Mu cookbook dependencies in $repodir/Berksfile${NORM}"
@@ -164,8 +168,8 @@ add_berkshelf_cookbooks()
     $berks install
   fi
 
-  is_synced="`$berks list -F json 2>&1 | grep 'lockfile is out of sync'`"
-  if [ "$is_synced" != "" ];then
+  need_sync="`$berks list -F json 2>&1 | grep 'lockfile is out of sync'`"
+  if [ "$need_sync" != "" ];then
     echo "${RED}$repodir/Berksfile.lock still out of sync after install, bailing${NORM}"
     $berks install -d
     $berks upload -d --no-freeze
@@ -527,6 +531,9 @@ for repo in $REPOS;do
           oldsrc="`grep "^$artifact:$shortname:" $manifest`"
           set -e
           if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if [ ! -d "$repo_name/$artifact/$shortname" ];then
+              continue
+            fi
             if [ $create_berksfile == "1" ];then
               echo "cookbook '$shortname', path: ENV['MU_DATADIR']+'/$repo_name/$artifact/$shortname'" >> "$artifact_source/Berksfile"
             fi

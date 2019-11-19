@@ -1,8 +1,11 @@
 <% if $complexity == 'complex' %>
 name: servercomplex
 size: <%= instance_type %>
-# TODO: BUILD OUT COMPLEX EXAMPLE
+vpc:
+  vpc_name: <%= vpc_name %>
 <% else %>
 name: serversimple
 size: <%= instance_type %>
+vpc:
+  vpc_name: <%= vpc_name %>
 <% end %>

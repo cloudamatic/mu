@@ -29,13 +29,61 @@ module MU
       @@authorizers = {}
       @@acct_to_profile_map = {}
       @@enable_semaphores = {}
+      @@readonly_semaphore = Mutex.new
+      @@readonly = {}
+
+      # Module used by {MU::Cloud} to insert additional instance methods into
+      # instantiated resources in this cloud layer.
+      module AdditionalResourceMethods
+        # Google Cloud url attribute, found in some form on most GCP cloud
+        # resources.
+        # @return [String]
+        def url
+          desc = cloud_desc
+          (desc and desc.self_link) ? desc.self_link : nil
+        end
+      end
 
       # Any cloud-specific instance methods we require our resource
       # implementations to have, above and beyond the ones specified by
       # {MU::Cloud}
       # @return [Array<Symbol>]
       def self.required_instance_methods
-        []
+        [:url]
+      end
+
+      # A hook that is always called just before any of the instance method of
+      # our resource implementations gets invoked, so that we can ensure that
+      # repetitive setup tasks (like resolving +:resource_group+ for Azure
+      # resources) have always been done.
+      # @param cloudobj [MU::Cloud]
+      # @param deploy [MU::MommaCat]
+      def self.resourceInitHook(cloudobj, deploy)
+        class << self
+          attr_reader :project_id
+          attr_reader :customer
+          # url is too complex for an attribute (we get it from the cloud API),
+          # so it's up in AdditionalResourceMethods instead
+        end
+        return if !cloudobj
+
+        cloudobj.instance_variable_set(:@customer, MU::Cloud::Google.customerID(cloudobj.config['credentials']))
+
+# XXX ensure @cloud_id and @project_id if this is a habitat
+# XXX skip project_id if this is a folder or group
+        if deploy
+# XXX this may be wrong for new deploys (but def right for regrooms)
+          project = MU::Cloud::Google.projectLookup(cloudobj.config['project'], deploy, sibling_only: true, raise_on_fail: false)
+          project_id = project.nil? ? cloudobj.config['project'] : project.cloudobj.cloud_id
+          cloudobj.instance_variable_set(:@project_id, project_id)
+        else
+          cloudobj.instance_variable_set(:@project_id, cloudobj.config['project'])
+        end
+
+# XXX @url? Well we're not likely to have @cloud_desc at this point, so maybe
+# that needs to be a generic-to-google wrapper like def url; cloud_desc.self_link;end
+
+# XXX something like: vpc["habitat"] = MU::Cloud::Google.projectToRef(vpc["project"], config: configurator, credentials: vpc["credentials"])
       end
 
       # If we're running this cloud, return the $MU_CFG blob we'd use to
@@ -62,6 +110,17 @@ module MU
         sample
       end
 
+      # If we reside in this cloud, return the VPC in which we, the Mu Master, reside.
+      # @return [MU::Cloud::VPC]
+      def self.myVPCObj
+        return nil if !hosted?
+        instance = MU.myCloudDescriptor
+        return nil if !instance or !instance.network_interfaces or instance.network_interfaces.size == 0
+        vpc = MU::MommaCat.findStray("Google", "vpc", cloud_id: instance.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1'), dummy_ok: true, habitats: [myProject])
+        return nil if vpc.nil? or vpc.size == 0
+        vpc.first
+      end
+
       # Return the name strings of all known sets of credentials for this cloud
       # @return [Array<String>]
       def self.listCredentials
@@ -72,6 +131,88 @@ module MU
         $MU_CFG['google'].keys
       end
 
+      @@habmap = {}
+
+      # Return what we think of as a cloud object's habitat. In GCP, this means
+      # the +project_id+ in which is resident. If this is not applicable, such
+      # as for a {Habitat} or {Folder}, returns nil.
+      # @param cloudobj [MU::Cloud::Google]: The resource from which to extract the habitat id
+      # @return [String,nil]
+      def self.habitat(cloudobj, nolookup: false, deploy: nil)
+        @@habmap ||= {}
+# XXX whaddabout config['habitat'] HNNNGH
+
+        return nil if !cloudobj.cloudclass.canLiveIn.include?(:Habitat)
+
+# XXX users are assholes because they're valid two different ways ugh ugh
+        return nil if [MU::Cloud::Google::Group, MU::Cloud::Google::Folder].include?(cloudobj.cloudclass)
+        if cloudobj.config and cloudobj.config['project']
+          if nolookup
+            return cloudobj.config['project']
+          end
+          if @@habmap[cloudobj.config['project']]
+            return @@habmap[cloudobj.config['project']]
+          end
+          deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
+
+          projectobj = projectLookup(cloudobj.config['project'], deploy, raise_on_fail: false)
+
+          if projectobj
+            @@habmap[cloudobj.config['project']] = projectobj.cloud_id
+            return projectobj.cloud_id
+          end
+        end
+
+        # blow up if this resource *has* to live in a project
+        if cloudobj.cloudclass.canLiveIn == [:Habitat]
+          MU.log "Failed to find project for cloudobj of class #{cloudobj.cloudclass.class.name}", MU::ERR, details: cloudobj
+          raise MuError, "Failed to find project for cloudobj of class #{cloudobj.cloudclass.class.name}"
+        end
+
+        nil
+      end
+
+      # Take a plain string that might be a reference to sibling project
+      # declared elsewhere in the active stack, or the project id of a live
+      # cloud resource, and return a {MU::Config::Ref} object
+      # @param project [String]: The name of a sibling project, or project id of an active project in GCP
+      # @param config [MU::Config]: A {MU::Config} object containing sibling resources, typically what we'd pass if we're calling during configuration parsing
+      # @param credentials [String]: 
+      # @return [MU::Config::Ref]
+      def self.projectToRef(project, config: nil, credentials: nil)
+        return nil if !project
+
+        if config and config.haveLitterMate?(project, "habitat")
+          ref = MU::Config::Ref.new(
+            name: project,
+            cloud: "Google",
+            credentials: credentials,
+            type: "habitats"
+          )
+        end
+        
+        if !ref
+          resp = MU::MommaCat.findStray(
+            "Google",
+            "habitats",
+            cloud_id: project,
+            credentials: credentials,
+            dummy_ok: true
+          )
+          if resp and resp.size > 0
+            project_obj = resp.first
+            ref = MU::Config::Ref.new(
+              id: project_obj.cloud_id,
+              cloud: "Google",
+              credentials: credentials,
+              type: "habitats"
+            )
+          end
+        end
+
+        ref
+      end
+
       # A shortcut for {MU::MommaCat.findStray} to resolve a shorthand project
       # name into a cloud object, whether it refers to a sibling by internal
       # name or by cloud identifier.
@@ -79,7 +220,7 @@ module MU
       # @param deploy [String]
       # @param raise_on_fail [Boolean]
       # @param sibling_only [Boolean]
-      # @return [MU::Cloud::Habitat,nil]
+      # @return [MU::Config::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
         project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
 
@@ -87,11 +228,12 @@ module MU
           resp = MU::MommaCat.findStray(
             "Google",
             "habitats",
-            deploy_id: deploy.deploy_id,
+            deploy_id: deploy ? deploy.deploy_id : nil,
             cloud_id: name,
             name: name,
             dummy_ok: true
           )
+
           project_obj = resp.first if resp and resp.size > 0
         end
 
@@ -109,6 +251,9 @@ module MU
       def self.adminBucketName(credentials = nil)
          #XXX find a default if this particular account doesn't have a log_bucket_name configured
         cfg = credConfig(credentials)
+        if cfg.nil?
+          raise MuError, "Failed to load Google credential set #{credentials}"
+        end
         cfg['log_bucket_name']
       end
 
@@ -124,7 +269,7 @@ module MU
       # credentials. If no account name is specified, will return one flagged as
       # default. Returns nil if GCP is not configured. Throws an exception if 
       # an account name is specified which does not exist.
-      # @param name [String]: The name of the key under 'aws' in mu.yaml to return
+      # @param name [String]: The name of the key under 'google' in mu.yaml to return
       # @return [Hash,nil]
       def self.credConfig(name = nil, name_only: false)
         # If there's nothing in mu.yaml (which is wrong), but we're running
@@ -134,23 +279,17 @@ module MU
           return @@my_hosted_cfg if @@my_hosted_cfg
 
           if hosted?
-            begin
-#              iam_data = JSON.parse(getAWSMetaData("iam/info"))
-#              if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
-                @@my_hosted_cfg = hosted_config
-                return name_only ? "#default" : @@my_hosted_cfg
-#              end
-            rescue JSON::ParserError => e
-            end
+            @@my_hosted_cfg = hosted_config
+            return name_only ? "#default" : @@my_hosted_cfg
           end
 
           return nil
         end
 
         if name.nil?
-          $MU_CFG['google'].each_pair { |name, cfg|
+          $MU_CFG['google'].each_pair { |set, cfg|
             if cfg['default']
-              return name_only ? name : cfg
+              return name_only ? set : cfg
             end
           }
         else
@@ -179,6 +318,18 @@ module MU
         @@myRegion_var
       end
 
+      # Do cloud-specific deploy instantiation tasks, such as copying SSH keys
+      # around, sticking secrets in buckets, creating resource groups, etc
+      # @param deploy [MU::MommaCat]
+      def self.initDeploy(deploy)
+      end
+
+      # Purge cloud-specific deploy meta-artifacts (SSH keys, resource groups,
+      # etc)
+      # @param deploy_id [MU::MommaCat]
+      def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
+      end
+
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
       # @param deploy_id [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
@@ -201,8 +352,7 @@ module MU
           )
           f.unlink
         rescue ::Google::Apis::ClientError => e
-# XXX comment for NCBI tests
-#          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
         end
       end
 
@@ -252,9 +402,10 @@ module MU
             )
           }
         rescue ::Google::Apis::ClientError => e
+MU.log e.message, MU::WARN, details: e.inspect
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
-          elsif e.inspect.match(/notFound: No such object:/)
+          elsif e.message.match(/notFound: |Unknown user:/)
             if retries < 5
               sleep 5
               retries += 1
@@ -267,7 +418,7 @@ module MU
             sleep 10
             retry
           else
-            raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
+            raise MuError, "Got #{e.message} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
           end
         end
       end
@@ -291,7 +442,7 @@ module MU
           return @@is_in_gcp
         end
 
-        if getGoogleMetaData("instance/name")
+        if getGoogleMetaData("project/project-id")
           @@is_in_gcp = true
           return true
         end
@@ -325,11 +476,11 @@ module MU
       # @param name [String]: A resource name for the certificate
       # @param cert [String,OpenSSL::X509::Certificate]: An x509 certificate
       # @param key [String,OpenSSL::PKey]: An x509 private key
-      # @return [Google::Apis::ComputeBeta::SslCertificate]
+      # @return [Google::Apis::ComputeV1::SslCertificate]
       def self.createSSLCertificate(name, cert, key, flags = {}, credentials: nil)
         flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
         flags["description"] ||= MU.deploy_id
-        certobj = ::Google::Apis::ComputeBeta::SslCertificate.new(
+        certobj = ::Google::Apis::ComputeV1::SslCertificate.new(
           name: name,
           certificate: cert.to_s,
           private_key: key.to_s,
@@ -363,19 +514,33 @@ module MU
           data = nil
           @@authorizers[credentials] ||= {}
   
-          def self.get_machine_credentials(scopes)
+          def self.get_machine_credentials(scopes, credentials = nil)
             @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
             MU.log "We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
 
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth.get_application_default(scopes)
             @@authorizers[credentials][scopes.to_s].fetch_access_token!
             @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
+            begin
+              listRegions(credentials: credentials)
+              listInstanceTypes(credentials: credentials)
+              listProjects(credentials)
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
+              @@authorizers.delete(credentials)
+              return nil
+            end
             @@authorizers[credentials][scopes.to_s]
           end
 
-          if cfg["credentials_file"]
+          if cfg["credentials_file"] or cfg["credentials_encoded"]
+
             begin
-              data = JSON.parse(File.read(cfg["credentials_file"]))
+              data = if cfg["credentials_encoded"]
+                JSON.parse(Base64.decode64(cfg["credentials_encoded"]))
+              else
+                JSON.parse(File.read(cfg["credentials_file"]))
+              end
               @@default_project ||= data["project_id"]
               creds = {
                 :json_key_io => StringIO.new(MultiJson.dump(data)),
@@ -389,7 +554,7 @@ module MU
                 raise MuError, "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid (#{e.message})"
               end
               MU.log "Google Cloud credentials file #{cfg["credentials_file"]} is missing or invalid", MU::WARN, details: e.message
-              return get_machine_credentials(scopes)
+              return get_machine_credentials(scopes, credentials)
             end
           elsif cfg["credentials"]
             begin
@@ -400,7 +565,9 @@ module MU
                 raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
               end
               MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}", MU::WARN
-              return get_machine_credentials(scopes)
+              found = get_machine_credentials(scopes, credentials)
+              raise MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+              return found
             end
 
             @@default_project ||= data["project_id"]
@@ -412,7 +579,9 @@ module MU
             @@authorizers[credentials][scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
             return @@authorizers[credentials][scopes.to_s]
           elsif MU::Cloud::Google.hosted?
-            return get_machine_credentials(scopes)
+            found = get_machine_credentials(scopes, credentials)
+            raise MuError, "No valid credentials available! Either grant admin privileges to machine service account, or manually add a different one with mu-configure" if found.nil?
+            return found
           else
             raise MuError, "Google Cloud credentials not configured"
           end
@@ -456,15 +625,39 @@ module MU
         end
       end
 
+      @@default_project_cache = {}
+
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       # @param credentials [String]
       # @return [String]
       def self.defaultProject(credentials = nil)
+        if @@default_project_cache.has_key?(credentials)
+          return @@default_project_cache[credentials]
+        end
         cfg = credConfig(credentials)
-        return myProject if !cfg or !cfg['project']
+        if !cfg or !cfg['project']
+          if hosted?
+            @@default_project_cache[credentials] = myProject
+            return myProject 
+          end
+          if cfg
+            begin
+              result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+              result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
+              available = result.projects.map { |p| p.project_id }
+              if available.size == 1
+                @@default_project_cache[credentials] = available[0]
+                return available[0]
+              end
+            rescue # fine
+            end
+          end
+        end
+        return nil if !cfg
         loadCredentials(credentials) if !@@authorizers[credentials]
+        @@default_project_cache[credentials] = cfg['project']
         cfg['project']
       end
 
@@ -487,7 +680,7 @@ module MU
       def self.listProjects(credentials = nil)
         cfg = credConfig(credentials)
         return [] if !cfg or !cfg['project']
-        result = MU::Cloud::Google.resource_manager.list_projects
+        result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
         result.projects.map { |p| p.project_id }
       end
@@ -531,23 +724,28 @@ module MU
       # "translate" machine types across cloud providers.
       # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
       # @return [Hash]
-      def self.listInstanceTypes(region = self.myRegion)
-        return @@instance_types if @@instance_types and @@instance_types[region]
-        if !MU::Cloud::Google.defaultProject
-          return {}
+      def self.listInstanceTypes(region = self.myRegion, credentials: nil, project: MU::Cloud::Google.defaultProject)
+        return {} if !credConfig(credentials)
+        if @@instance_types and
+           @@instance_types[project] and
+           @@instance_types[project][region]
+          return @@instance_types
         end
 
+        return {} if !project
+
         @@instance_types ||= {}
-        @@instance_types[region] ||= {}
-        result = MU::Cloud::Google.compute.list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
+        @@instance_types[project] ||= {}
+        @@instance_types[project][region] ||= {}
+        result = MU::Cloud::Google.compute(credentials: credentials).list_machine_types(project, listAZs(region).first)
         result.items.each { |type|
-          @@instance_types[region][type.name] ||= {}
-          @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
-          @@instance_types[region][type.name]["vcpu"] = type.guest_cpus.to_f
+          @@instance_types[project][region][type.name] ||= {}
+          @@instance_types[project][region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
+          @@instance_types[project][region][type.name]["vcpu"] = type.guest_cpus.to_f
           if type.is_shared_cpu
-            @@instance_types[region][type.name]["ecu"] = "Variable"
+            @@instance_types[project][region][type.name]["ecu"] = "Variable"
           else
-            @@instance_types[region][type.name]["ecu"] = type.guest_cpus
+            @@instance_types[project][region][type.name]["ecu"] = type.guest_cpus
           end
         }
         @@instance_types
@@ -564,24 +762,26 @@ module MU
       # server resides (if it resides in this cloud provider's ecosystem).
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
-      def self.listAZs(region = MU.curRegion)
-        region ||= self.myRegion
-
+      def self.listAZs(region = self.myRegion)
+        return [] if !credConfig
         MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
-        raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
+        if !@@regions.has_key?(region)
+          MU.log "Failed to get GCP region #{region}", MU::ERR, details: @@regions
+          raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
+        end
         @@regions[region]
       end
 
       # Google's Compute Service API
-      # @param subclass [<Google::Apis::ComputeBeta>]: If specified, will return the class ::Google::Apis::ComputeBeta::subclass instead of an API client instance
+      # @param subclass [<Google::Apis::ComputeV1>]: If specified, will return the class ::Google::Apis::ComputeV1::subclass instead of an API client instance
       def self.compute(subclass = nil, credentials: nil)
-        require 'google/apis/compute_beta'
+        require 'google/apis/compute_v1'
 
         if subclass.nil?
-          @@compute_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], credentials: credentials)
+          @@compute_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ComputeV1::ComputeService", scopes: ['cloud-platform', 'compute.readonly'], credentials: credentials)
           return @@compute_api[credentials]
         elsif subclass.is_a?(Symbol)
-          return Object.const_get("::Google").const_get("Apis").const_get("ComputeBeta").const_get(subclass)
+          return Object.const_get("::Google").const_get("Apis").const_get("ComputeV1").const_get(subclass)
         end
       end
 
@@ -591,7 +791,7 @@ module MU
         require 'google/apis/storage_v1'
 
         if subclass.nil?
-          @@storage_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "StorageV1::StorageService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@storage_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "StorageV1::StorageService", scopes: ['cloud-platform'], credentials: credentials)
           return @@storage_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("StorageV1").const_get(subclass)
@@ -604,7 +804,7 @@ module MU
         require 'google/apis/iam_v1'
 
         if subclass.nil?
-          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@iam_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "IamV1::IamService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials)
           return @@iam_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
@@ -615,18 +815,29 @@ module MU
       # @param subclass [<Google::Apis::AdminDirectoryV1>]: If specified, will return the class ::Google::Apis::AdminDirectoryV1::subclass instead of an API client instance
       def self.admin_directory(subclass = nil, credentials: nil)
         require 'google/apis/admin_directory_v1'
-    
-        if subclass.nil?
-          begin
-            @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: ['https://www.googleapis.com/auth/admin.directory.group.member.readonly', 'https://www.googleapis.com/auth/admin.directory.group.readonly', 'https://www.googleapis.com/auth/admin.directory.user.readonly', 'https://www.googleapis.com/auth/admin.directory.domain.readonly', 'https://www.googleapis.com/auth/admin.directory.orgunit.readonly', 'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly', 'https://www.googleapis.com/auth/admin.directory.customer.readonly'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-          rescue Signet::AuthorizationError => e
-            MU.log "Cannot masquerade as #{MU::Cloud::Google.credConfig(credentials)['masquerade_as']}", MU::ERROR, details: "You can only use masquerade_as with GSuite. For more information on delegating GSuite authority to a service account, see:\nhttps://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
-            raise e
+
+        writescopes = ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema']
+        readscopes = ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly']
+        @@readonly_semaphore.synchronize {
+          use_scopes = readscopes+writescopes
+          if @@readonly[credentials] and @@readonly[credentials]["AdminDirectoryV1"]
+            use_scopes = readscopes.dup
           end
-          return @@admin_directory_api[credentials]
-        elsif subclass.is_a?(Symbol)
-          return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
-        end
+
+          if subclass.nil?
+            begin
+              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+            rescue Signet::AuthorizationError => e
+              MU.log "Falling back to read-only access to DirectoryService API for credential set '#{credentials}'", MU::WARN
+              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+              @@readonly[credentials] ||= {}
+              @@readonly[credentials]["AdminDirectoryV1"] = true
+            end
+            return @@admin_directory_api[credentials]
+          elsif subclass.is_a?(Symbol)
+            return Object.const_get("::Google").const_get("Apis").const_get("AdminDirectoryV1").const_get(subclass)
+          end
+        }
       end
 
       # Google's Cloud Resource Manager API
@@ -635,8 +846,10 @@ module MU
         require 'google/apis/cloudresourcemanager_v1'
 
         if subclass.nil?
-#          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
-          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformprojects'], credentials: credentials)
+          if !MU::Cloud::Google.credConfig(credentials)
+            raise MuError, "No such credential set #{credentials} defined in mu.yaml!"
+          end
+          @@resource_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV1::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformprojects', 'cloudplatformorganizations', 'cloudplatformfolders'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV1").const_get(subclass)
@@ -649,7 +862,7 @@ module MU
         require 'google/apis/cloudresourcemanager_v2'
 
         if subclass.nil?
-          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/cloudplatformfolders'], credentials: credentials)
+          @@resource2_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudresourcemanagerV2::CloudResourceManagerService", scopes: ['cloud-platform', 'cloudplatformfolders'], credentials: credentials,  masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@resource2_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudresourcemanagerV2").const_get(subclass)
@@ -662,7 +875,7 @@ module MU
         require 'google/apis/container_v1'
 
         if subclass.nil?
-          @@container_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@container_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ContainerV1::ContainerService", scopes: ['cloud-platform'], credentials: credentials)
           return @@container_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ContainerV1").const_get(subclass)
@@ -675,7 +888,7 @@ module MU
         require 'google/apis/servicemanagement_v1'
 
         if subclass.nil?
-          @@service_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@service_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['cloud-platform'], credentials: credentials)
           return @@service_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ServicemanagementV1").const_get(subclass)
@@ -688,7 +901,7 @@ module MU
         require 'google/apis/sqladmin_v1beta4'
 
         if subclass.nil?
-          @@sql_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@sql_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['cloud-platform'], credentials: credentials)
           return @@sql_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("SqladminV1beta4").const_get(subclass)
@@ -701,7 +914,7 @@ module MU
         require 'google/apis/firestore_v1'
 
         if subclass.nil?
-          @@firestore_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "FirestoreV1::FirestoreService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@firestore_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "FirestoreV1::FirestoreService", scopes: ['cloud-platform'], credentials: credentials)
           return @@firestore_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("FirestoreV1").const_get(subclass)
@@ -714,7 +927,7 @@ module MU
         require 'google/apis/logging_v2'
 
         if subclass.nil?
-          @@logging_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "LoggingV2::LoggingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@logging_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "LoggingV2::LoggingService", scopes: ['cloud-platform'], credentials: credentials)
           return @@logging_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("LoggingV2").const_get(subclass)
@@ -727,24 +940,84 @@ module MU
         require 'google/apis/cloudbilling_v1'
 
         if subclass.nil?
-          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'], credentials: credentials)
+          @@billing_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudbillingV1::CloudbillingService", scopes: ['cloud-platform', 'cloud-billing'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
           return @@billing_api[credentials]
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("CloudbillingV1").const_get(subclass)
         end
       end
 
+      # Retrieve the domains, if any, which these credentials can manage via
+      # GSuite or Cloud Identity.
+      # @param credentials [String]
+      # @return [Array<String>],nil]
+      def self.getDomains(credentials = nil)
+        my_org = getOrg(credentials)
+        return nil if !my_org
 
+        resp = MU::Cloud::Google.admin_directory(credentials: credentials).list_domains(MU::Cloud::Google.customerID(credentials))
+        resp.domains.map { |d| d.domain_name.downcase }
+      end
+
+      @@orgmap = {}
       # Retrieve the organization, if any, to which these credentials belong.
       # @param credentials [String]
       # @return [Array<OpenStruct>],nil]
-      def self.getOrg(credentials = nil)
-        resp = MU::Cloud::Google.resource_manager(credentials: credentials).search_organizations
+      def self.getOrg(credentials = nil, with_id: nil)
+        creds = MU::Cloud::Google.credConfig(credentials)
+        credname = if creds and creds['name']
+          creds['name']
+        else
+          "default"
+        end 
+
+        return @@orgmap[credname] if @@orgmap.has_key?(credname)
+        resp = MU::Cloud::Google.resource_manager(credentials: credname).search_organizations
         if resp and resp.organizations
           # XXX no idea if it's possible to be a member of multiple orgs
-          return resp.organizations.first
+          if !with_id
+            @@orgmap[credname] = resp.organizations.first
+            return resp.organizations.first
+          else
+            resp.organizations.each { |org|
+              if org.name == with_id
+                @@orgmap[credname] = org
+                return org
+              end
+            }
+            return nil
+          end
         end
+
+        @@orgmap[credname] = nil
+
+        
+        MU.log "Unable to list_organizations with credentials #{credname}. If this account is part of a GSuite or Cloud Identity domain, verify that Oauth delegation is properly configured and that 'masquerade_as' is properly set for the #{credname} Google credential set in mu.yaml.", MU::ERR, details: ["https://cloud.google.com/resource-manager/docs/creating-managing-organization", "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"]
+
         nil
+      end
+
+      @@customer_ids_cache = {}
+
+      # Fetch the GSuite/Cloud Identity customer id for the domain associated
+      # with the given credentials, if a domain is set via the +masquerade_as+
+      # configuration option.
+      def self.customerID(credentials = nil)
+        cfg = credConfig(credentials)
+        if !cfg or !cfg['masquerade_as']
+          return nil
+        end
+
+        if @@customer_ids_cache[credentials]
+          return @@customer_ids_cache[credentials]
+        end
+
+        user = MU::Cloud::Google.admin_directory(credentials: credentials).get_user(cfg['masquerade_as'])
+        if user and user.customer_id
+          @@customer_ids_cache[credentials] = user.customer_id
+        end
+
+        @@customer_ids_cache[credentials]
       end
 
       private
@@ -755,18 +1028,37 @@ module MU
       class GoogleEndpoint
         @api = nil
         @credentials = nil
+        @scopes = nil
+        @masquerade = nil
         attr_reader :issuer
 
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
+        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
           @credentials = credentials
+          @scopes = scopes.map { |s|
+            if !s.match(/\//) # allow callers to use shorthand
+              s = "https://www.googleapis.com/auth/"+s
+            end
+            s
+          }
+          @masquerade = masquerade
           @api = Object.const_get("Google::Apis::#{api}").new
-          @api.authorization = MU::Cloud::Google.loadCredentials(scopes, credentials: credentials)
-          if masquerade
-            @api.authorization.sub = masquerade
-            @api.authorization.fetch_access_token!
+          @api.authorization = MU::Cloud::Google.loadCredentials(@scopes, credentials: credentials)
+          raise MuError, "No useable Google credentials found#{credentials ? " with set '#{credentials}'" : ""}" if @api.authorization.nil?
+          if @masquerade
+            begin
+              @api.authorization.sub = @masquerade
+              @api.authorization.fetch_access_token!
+            rescue Signet::AuthorizationError => e
+              MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::ERROR, details: @scopes
+              if e.message.match(/client not authorized for any of the scopes requested/)
+# XXX it'd be helpful to list *all* scopes we like, as well as the API client's numeric id
+                MU.log "To grant access to API scopes for this service account, see:", MU::ERR, details: "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"
+              end
+              raise e
+            end
           end
           @issuer = @api.authorization.issuer
         end
@@ -783,9 +1075,9 @@ module MU
           resp = nil
           begin
             if region
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter)
+              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter, mu_gcp_enable_apis: false)
             else
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter)
+              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter, mu_gcp_enable_apis: false)
             end
 
           rescue ::Google::Apis::ClientError => e
@@ -798,6 +1090,7 @@ module MU
             resp.items.each { |obj|
               threads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
+                Thread.abort_on_exception = false
                 MU.log "Removing #{type.gsub(/_/, " ")} #{obj.name}"
                 delete_sym = "delete_#{type}".to_sym
                 if !noop
@@ -816,9 +1109,10 @@ module MU
                       failed = true
                       retries += 1
                       if resp.error.errors.first.code == "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE" and retries < 6
-                        sleep 15
+                        sleep 10
                       else
                         MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
+                        Thread.abort_on_exception = false
                         raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
                       end
                     else
@@ -827,6 +1121,8 @@ module MU
 # TODO validate that the resource actually went away, because it seems not to do so very reliably
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/(^notFound: |operation in progress)/)
+                  rescue MU::Cloud::MuDefunctHabitat => e
+                    # this is ok- it's already deleted
                   end while failed and retries < 6
                 end
               }
@@ -844,10 +1140,31 @@ module MU
         def method_missing(method_sym, *arguments)
           retries = 0
           actual_resource = nil
+
+          enable_on_fail = true
+          arguments.each { |arg|
+            if arg.is_a?(Hash) and arg.has_key?(:mu_gcp_enable_apis)
+              enable_on_fail = arg[:mu_gcp_enable_apis]
+              arg.delete(:mu_gcp_enable_apis)
+              
+            end
+          }
+          arguments.delete({})
+          next_page_token = nil
+          overall_retval = nil
+
           begin
             MU.log "Calling #{method_sym}", MU::DEBUG, details: arguments
             retval = nil
             retries = 0
+            wait_backoff = 5
+            if next_page_token
+              if arguments.size == 1 and arguments.first.is_a?(Hash)
+                arguments[0][:page_token] = next_page_token
+              else
+                arguments << { :page_token => next_page_token }
+              end
+            end
             begin
               if !arguments.nil? and arguments.size == 1
                 retval = @api.method(method_sym).call(arguments[0])
@@ -856,53 +1173,93 @@ module MU
               else
                 retval = @api.method(method_sym).call
               end
+            rescue ArgumentError => e
+              MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s}: #{e.message}", MU::ERR, details: arguments
+              raise e
             rescue ::Google::Apis::AuthorizationError => e
               if arguments.size > 0
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym} in project #{arguments.first}"
               else
                 raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym}"
               end
+            rescue ::Google::Apis::RateLimitError, ::Google::Apis::TransmissionError, ::ThreadError, ::Google::Apis::ServerError => e
+              if retries <= 10
+                sleep wait_backoff
+                retries += 1
+                wait_backoff = wait_backoff * 2
+                retry
+              else
+                raise e
+              end
             rescue ::Google::Apis::ClientError, OpenSSL::SSL::SSLError => e
-              if e.message.match(/^invalidParameter:/)
-                MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
+              if e.message.match(/^quotaExceeded: Request rate/)
+                if retries <= 10
+                  sleep wait_backoff
+                  retries += 1
+                  wait_backoff = wait_backoff * 2
+                  retry
+                else
+                  raise e
+                end
+              elsif e.message.match(/^invalidParameter:|^badRequest:/)
+                MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
 # uncomment for debugging stuff; this can occur in benign situations so we don't normally want it logging
               elsif e.message.match(/^forbidden:/)
-#                MU.log "Using credentials #{@credentials}: #{method_sym.to_s}: "+e.message, MU::ERR, details: caller
+                MU.log "#{e.class.name} calling #{@api.class.name}.#{method_sym.to_s} got \"#{e.message}\" using credentials #{@credentials}#{@masquerade ? " (OAuth'd as #{@masquerade})": ""}.#{@scopes ? "\nScopes:\n#{@scopes.join("\n")}" : "" }", MU::DEBUG, details: arguments
+                raise e
               end
               @@enable_semaphores ||= {}
               max_retries = 3
               wait_time = 90
-              if retries <= max_retries and e.message.match(/^accessNotConfigured/)
+              if enable_on_fail and retries <= max_retries and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
-                project = if arguments.size > 0 and !arguments.first.is_a?(Hash)
-                  arguments.first.to_s
+
+                project = if arguments.size > 0 and arguments.first.is_a?(String)
+                  arguments.first
                 else
                   MU::Cloud::Google.defaultProject(@credentials)
                 end
+# XXX validate that this actually looks like a project id, maybe
+                if method_sym == :delete and !MU::Cloud::Google::Habitat.isLive?(project, @credentials)
+                  MU.log "Got accessNotConfigured while attempting to delete a resource in #{project}", MU::WARN
+                   
+                  return
+                end
+
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
                   consumer_id: "project:"+project
                 )
                 # XXX dumbass way to get this string
-                e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
+                if e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
 
-                svc_name = Regexp.last_match[1]
-                save_verbosity = MU.verbosity
-                if svc_name != "servicemanagement.googleapis.com"
-                  retries += 1
-                  @@enable_semaphores[project].synchronize {
+                  svc_name = Regexp.last_match[1]
+                  save_verbosity = MU.verbosity
+                  if svc_name != "servicemanagement.googleapis.com" and method_sym != :delete
+                    retries += 1
+                    @@enable_semaphores[project].synchronize {
+                      MU.setLogging(MU::Logger::NORMAL)
+                      MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                      MU.setLogging(save_verbosity)
+                      begin
+                        MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
+                      rescue ::Google::Apis::ClientError => e
+                        MU.log "Error enabling #{svc_name} in #{project} for #{method_sym.to_s}: "+ e.message, MU::ERR, details: enable_obj
+                        raise e
+                      end
+                    }
+                    sleep wait_time/retries
+                    retry
+                  else
                     MU.setLogging(MU::Logger::NORMAL)
-                    MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                    MU.log "Google Cloud's Service Management API must be enabled manually by visiting #{e.message.gsub(/.*?(https?:\/\/[^\s]+)(?:$|\s).*/, '\1')}", MU::ERR
                     MU.setLogging(save_verbosity)
-                    MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
-                  }
-                  sleep wait_time/retries
-                  retry
+                    raise MU::MuError, "Service Management API not yet enabled for this account/project"
+                  end
+                elsif e.message.match(/scheduled for deletion and cannot be used for API calls/)
+                  raise MuDefunctHabitat, e.message
                 else
-                  MU.setLogging(MU::Logger::NORMAL)
-                  MU.log "Google Cloud's Service Management API must be enabled manually by visiting #{e.message.gsub(/.*?(https?:\/\/[^\s]+)(?:$|\s).*/, '\1')}", MU::ERR
-                  MU.setLogging(save_verbosity)
-                  raise MU::MuError, "Service Management API not yet enabled for this account/project"
+                  MU.log "Unfamiliar error calling #{method_sym.to_s} "+e.message, MU::ERR, details: arguments
                 end
               elsif retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or
@@ -921,9 +1278,17 @@ module MU
               end
             end
 
-            if retval.class == ::Google::Apis::ComputeBeta::Operation
+            if retval.class.name.match(/.*?::Operation$/)
+
               retries = 0
               orig_target = retval.name
+
+              # Check whether the various types of +Operation+ responses say
+              # they're done, without knowing which specific API they're from
+              def is_done?(retval)
+                (retval.respond_to?(:status) and retval.status == "DONE") or (retval.respond_to?(:done) and retval.done)
+              end
+
               begin
                 if retries > 0 and retries % 3 == 0
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::NOTICE
@@ -931,14 +1296,37 @@ module MU
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::DEBUG, details: retval
                 end
 
-                if retval.status != "DONE"
+                if !is_done?(retval)
                   sleep 7
                   begin
-                    resp = MU::Cloud::Google.compute(credentials: @credentials).get_global_operation(
-                      arguments.first, # there's always a project id
-                      retval.name
-                    )
-                    retval = resp
+                    if retval.class.name.match(/::Compute[^:]*::/)
+                      resp = MU::Cloud::Google.compute(credentials: @credentials).get_global_operation(
+                        arguments.first, # there's always a project id
+                        retval.name
+                      )
+                      retval = resp
+                    elsif retval.class.name.match(/::Servicemanagement[^:]*::/)
+                      resp = MU::Cloud::Google.service_manager(credentials: @credentials).get_operation(
+                        retval.name
+                      )
+                      retval = resp
+                    elsif retval.class.name.match(/::Cloudresourcemanager[^:]*::/)
+                      resp = MU::Cloud::Google.resource_manager(credentials: @credentials).get_operation(
+                        retval.name
+                      )
+                      retval = resp
+                      if retval.error
+                        raise MuError, retval.error.message
+                      end
+                    elsif retval.class.name.match(/::Container[^:]*::/)
+                      resp = MU::Cloud::Google.container(credentials: @credentials).get_project_location_operation(
+                        retval.self_link.sub(/.*?\/projects\//, 'projects/')
+                      )
+                      retval = resp
+                    else
+                      pp retval
+                      raise MuError, "I NEED TO IMPLEMENT AN OPERATION HANDLER FOR #{retval.class.name}"
+                    end
                   rescue ::Google::Apis::ClientError => e
                     # this is ok; just means the operation is done and went away
                     if e.message.match(/^notFound:/)
@@ -949,7 +1337,8 @@ module MU
                   end
                   retries = retries + 1
                 end
-              end while retval.status != "DONE"
+
+              end while !is_done?(retval)
 
               # Most insert methods have a predictable get_* counterpart. Let's
               # take advantage.
@@ -967,6 +1356,10 @@ module MU
                   faked_args.pop
                 end
                 faked_args.push(cloud_id)
+                if get_method == :get_project_location_cluster
+                  faked_args[0] = faked_args[0]+"/clusters/"+faked_args[1]
+                  faked_args.pop
+                end
                 actual_resource = @api.method(get_method).call(*faked_args)
 #if method_sym == :insert_instance
 #MU.log "actual_resource", MU::WARN, details: actual_resource
@@ -989,7 +1382,43 @@ module MU
                 return actual_resource
               end
             end
-            return retval
+
+            # This atrocity appends the pages of list_* results
+            if overall_retval
+              if method_sym.to_s.match(/^list_(.*)/)
+                require 'google/apis/iam_v1'
+                what = Regexp.last_match[1].to_sym
+                whatassign = (Regexp.last_match[1]+"=").to_sym
+                if overall_retval.class == ::Google::Apis::IamV1::ListServiceAccountsResponse
+                  what = :accounts
+                  whatassign = :accounts=
+                end
+                if retval.respond_to?(what) and retval.respond_to?(whatassign)
+                  if !retval.public_send(what).nil?
+                    newarray = retval.public_send(what) + overall_retval.public_send(what)
+                    overall_retval.public_send(whatassign, newarray)
+                  end
+                else
+                  MU.log "Not sure how to append #{method_sym.to_s} results to #{overall_retval.class.name} (apparently #{what.to_s} and #{whatassign.to_s} aren't it), returning first page only", MU::WARN, details: retval
+                  return retval
+                end
+              else
+                MU.log "Not sure how to append #{method_sym.to_s} results, returning first page only", MU::WARN, details: retval
+                return retval
+              end
+            else
+              overall_retval = retval
+            end
+
+            arguments.delete({ :page_token => next_page_token })
+            next_page_token = nil
+
+            if retval.respond_to?(:next_page_token) and !retval.next_page_token.nil?
+              next_page_token = retval.next_page_token
+              MU.log "Getting another page of #{method_sym.to_s}", MU::DEBUG, details: next_page_token
+            else
+              return overall_retval
+            end
           rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError, ::Google::Apis::TransmissionError => e
             if e.class.name == "Google::Apis::ClientError" and
                (!method_sym.to_s.match(/^insert_/) or !e.message.match(/^notFound: /) or
@@ -1003,8 +1432,8 @@ module MU
                 logs = MU::Cloud::Google.logging(credentials: @credentials).list_entry_log_entries(logreq)
                 details = nil
                 if logs.entries
-                  details = logs.entries.map { |e| e.json_payload }
-                  details.reject! { |e| e["error"].nil? or e["error"].size == 0 }
+                  details = logs.entries.map { |err| err.json_payload }
+                  details.reject! { |err| err["error"].nil? or err["error"].size == 0 }
                 end
 
                 raise MuError, "#{method_sym.to_s} of #{retval.target_id} appeared to succeed, but then the resource disappeared! #{details.to_s}"
@@ -1029,7 +1458,7 @@ module MU
             sleep interval
             MU.log method_sym.to_s.bold+" "+e.inspect, MU::WARN, details: arguments
             retry
-          end
+          end while !next_page_token.nil?
         end
       end
 
