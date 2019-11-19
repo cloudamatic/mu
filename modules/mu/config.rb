@@ -992,6 +992,15 @@ return
 
       @config['credentials'] ||= @default_credentials
 
+      if @config['cloud'] and !MU::Cloud.availableClouds.include?(@config['cloud'])
+        if MU::Cloud.supportedClouds.include?(@config['cloud'])
+          MU.log "Cloud provider #{@config['cloud']} declared, but no #{@config['cloud']} credentials available", MU::ERR
+        else
+          MU.log "Cloud provider #{@config['cloud']} is not supported", MU::ERR, details: MU::Cloud.supportedClouds
+        end
+        exit 1
+      end
+
       types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
@@ -1280,6 +1289,16 @@ $CONFIGURABLES
         end
       }
       ok = true
+
+      if descriptor['cloud'] and
+         !MU::Cloud.availableClouds.include?(descriptor['cloud'])
+        if MU::Cloud.supportedClouds.include?(descriptor['cloud'])
+          MU.log "#{cfg_name} #{descriptor['name']} is configured with cloud #{descriptor['cloud']}, but no #{descriptor['cloud']} credentials available", MU::ERR
+        else
+          MU.log "#{cfg_name} #{descriptor['name']}: Cloud provider #{descriptor['cloud']} is not supported", MU::ERR, details: MU::Cloud.supportedClouds
+        end
+        return false
+      end
 
       descriptor["#MU_CLOUDCLASS"] = classname
 
@@ -1982,7 +2001,7 @@ $CONFIGURABLES
         conf_chunk.map! { |item|
           # If we're working on a resource type, go get implementation-specific
           # schema information so that we set those defaults correctly.
-          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"]
+          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
             toplevel_required, cloudschema = cloudclass.schema(self)
@@ -2133,6 +2152,10 @@ $CONFIGURABLES
       kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
 
+      if !MU::Cloud.supportedClouds.include?(kitten['cloud'])
+        return
+      end
+
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
@@ -2204,6 +2227,7 @@ $CONFIGURABLES
         }
         count = count + @kittens[type].size
       }
+
 
       if count == 0
         MU.log "You must declare at least one resource to create", MU::ERR
