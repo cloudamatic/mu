@@ -229,7 +229,7 @@ Test Kitchen:
   only:
   - master
   - development
-  - mess_with_test_kitchen
+  - gem-mess_with_test_kitchen
   after_script:
   - unset AZURE_CLIENT_ID
   - unset AZURE_CLIENT_SECRET

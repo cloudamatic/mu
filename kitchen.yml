@@ -54,7 +54,7 @@ suites:
       - sudo chown root:root /tmp/mu-master.yaml
       - ls -la /tmp/
       - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-      - sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
+      - sudo $MU_BRANCH="development" su root -c "/tmp/installer -p $myip -m zach@zach.systems -o 2260 -h \"$(echo $HOSTNAME | sed s/\\./-/g)\" -n"
       - sudo mu-deploy /tmp/mu-master.yaml -p name=test-mu -p cloud=Azure
       root_path: '/tmp/'
     includes:
