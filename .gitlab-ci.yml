@@ -193,7 +193,7 @@ Gem Parser Test:
     variables:
     - $IMAGE_BUILD
 
-Mu Install:
+.Mu Install:
   stage: Smoke Test
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
@@ -216,24 +216,12 @@ Mu Install:
 Test Kitchen:
   stage: Smoke Test
   image: chef/chefdk:latest
-  before_script:
-  - export AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
-  - export AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
-  - export AZURE_TENANT_ID="#{AZURE_SUBSCIPTION_ID}"
   script:
-  - apt-get -qq update
-  - apt-get -qq -y install python3-pip
-  - pip3 install awscli
-  - echo "client_id = $AZURE_CLIENT_ID"
   - kitchen test mu-install-aws-amazon2
   only:
   - master
   - development
-  - gem-mess_with_test_kitchen
   after_script:
-  - unset AZURE_CLIENT_ID
-  - unset AZURE_CLIENT_SECRET
-  - unset AZURE_TENANT_ID
   - kitchen destroy
 
 Smoke Test:
