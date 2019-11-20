@@ -46,6 +46,7 @@ suites:
     provisioner:
       name:   shell
       script:
+      - "./kitchen_vars"
       - "./install/installer"
       - "./install/mu-master.yaml"
       command:
@@ -53,9 +54,10 @@ suites:
       - sudo chown root:root /tmp/installer
       - sudo chmod u+x /tmp/installer
       - sudo chown root:root /tmp/mu-master.yaml
-      - ls -la /tmp/
+      - source /tmp/kitchen_vars
+      - env
       - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-      - sudo $MU_BRANCH="development" su root -c "/tmp/installer -p $myip -m zach@zach.systems -o 2260 -h \"$(echo $HOSTNAME | sed s/\\./-/g)\" -n"
+      - sudo /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
       root_path: '/tmp/'
     includes:
       - centos-7
