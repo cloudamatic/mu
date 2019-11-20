@@ -1944,22 +1944,51 @@ end
       }
     end
 
-    # Clean a node's entries out of ~/.ssh/config
-    # @param node [String]: The node's name
+    # Clean an IP address out of ~/.ssh/known hosts
+    # @param ip [String]: The IP to remove
     # @return [void]
-    def self.removeHostFromSSHConfig(node)
+    def self.removeIPFromSSHKnownHosts(ip)
+      return if ip.nil?
+      sshdir = "#{@myhome}/.ssh"
+      knownhosts = "#{sshdir}/known_hosts"
+
+      if File.exist?(knownhosts) and File.open(knownhosts).read.match(/^#{Regexp.quote(ip)} /)
+        MU.log "Expunging old #{ip} entry from #{knownhosts}", MU::NOTICE
+        if !@noop
+          File.open(knownhosts, File::CREAT|File::RDWR, 0600) { |f|
+            f.flock(File::LOCK_EX)
+            newlines = Array.new
+            delete_block = false
+            f.readlines.each { |line|
+              next if line.match(/^#{Regexp.quote(ip)} /)
+              newlines << line
+            }
+            f.rewind
+            f.truncate(0)
+            f.puts(newlines)
+            f.flush
+            f.flock(File::LOCK_UN)
+          }
+        end
+      end
+    end
+
+    # Clean a node's entries out of ~/.ssh/config
+    # @param nodename [String]: The node's name
+    # @return [void]
+    def self.removeHostFromSSHConfig(nodename)
       sshdir = "#{@myhome}/.ssh"
       sshconf = "#{sshdir}/config"
 
-      if File.exist?(sshconf) and File.open(sshconf).read.match(/ #{node} /)
-        MU.log "Expunging old #{node} entry from #{sshconf}", MU::DEBUG
+      if File.exist?(sshconf) and File.open(sshconf).read.match(/ #{nodename} /)
+        MU.log "Expunging old #{nodename} entry from #{sshconf}", MU::DEBUG
         if !@noop
           File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
             f.flock(File::LOCK_EX)
             newlines = Array.new
             delete_block = false
             f.readlines.each { |line|
-              if line.match(/^Host #{node}(\s|$)/)
+              if line.match(/^Host #{nodename}(\s|$)/)
                 delete_block = true
               elsif line.match(/^Host /)
                 delete_block = false
@@ -2040,6 +2069,9 @@ end
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
+      if server and server.canonicalIP
+        MU::MommaCat.removeIPFromSSHKnownHosts(server.canonicalIP)
+      end
 # XXX add names paramater with useful stuff
       MU::MommaCat.addHostToSSHConfig(
           server,
