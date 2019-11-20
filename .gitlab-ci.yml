@@ -221,6 +221,7 @@ Test Kitchen:
   only:
   - master
   - development
+  - gem-mess_with_test_kitchen
   after_script:
   - kitchen destroy
 
