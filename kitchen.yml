@@ -10,7 +10,7 @@ driver:
   instance_initiated_shutdown_behavior: terminate
   tags:
       Name: kitchen-mu-node
-      created-by: zach
+      created-by: mu-pipeline
   sudo: true
 
 provisioner:
@@ -19,7 +19,7 @@ provisioner:
   chef_license: accept
 
 verifier:
-  name: inspec
+  name: shell
 
 platforms:
   - name: centos-7
