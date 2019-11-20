@@ -212,7 +212,7 @@ Test Kitchen:
   before_script:
   - echo "export MU_BRANCH=$(CI_COMMIT_REF_NAME)" > ./kitchen_vars
   script:
-  - kitchen test -C 5
+  - kitchen test -c 5
   only:
   - master
   - development
