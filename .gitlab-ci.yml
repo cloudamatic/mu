@@ -210,7 +210,7 @@ Test Kitchen:
   stage: Smoke Test
   image: chef/chefdk:latest
   before_script:
-    echo "export MU_BRANCH=$(CI_COMMIT_REF_NAME)" > ./kitchen_vars
+  - echo "export MU_BRANCH=$(CI_COMMIT_REF_NAME)" > ./kitchen_vars
   script:
   - kitchen test mu-install-aws-amazon2
   only:
