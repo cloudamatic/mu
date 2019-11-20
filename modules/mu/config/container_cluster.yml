@@ -5,7 +5,6 @@ instance_type: t2.medium
 instance_count: 4
 kubernetes:
   max_pods: 10
-instance_subnet_pref: all_public
 platform: centos
 # This stanza is optional; normal deployments to EKS might be done with kubectl
 # or through a CI tool such as GitLab

@@ -542,7 +542,8 @@ module MU
 
           if !mu_zone.nil? and !MU.myVPC.nil?
             subdomain = cloudclass.cfg_name
-            dns_name = name.downcase+"."+subdomain+"."+MU.myInstanceId
+            dns_name = name.downcase+"."+subdomain
+            dns_name += "."+MU.myInstanceId if MU.myInstanceId
             record_type = "CNAME"
             record_type = "A" if target.match(/^\d+\.\d+\.\d+\.\d+/)
             ip = nil
@@ -869,36 +870,33 @@ module MU
         end
 
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
-        # @param region [String]: The cloud provider region
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
-        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching DNSZones
+        def self.find(**args)
           matches = {}
 
-          resp = MU::Cloud::AWS.route53(credentials: credentials).list_hosted_zones(
+          resp = MU::Cloud::AWS.route53(credentials: args[:credentials]).list_hosted_zones(
               max_items: 100
           )
 
           resp.hosted_zones.each { |zone|
-            if !cloud_id.nil? and !cloud_id.empty?
-              if zone.id == cloud_id
+            if !args[:cloud_id].nil? and !args[:cloud_id].empty?
+              if zone.id == args[:cloud_id]
                 begin 
-                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
+                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: args[:credentials]).get_hosted_zone(id: zone.id).hosted_zone
                 rescue Aws::Route53::Errors::NoSuchHostedZone
                   MU.log "Hosted zone #{zone.id} doesn't exist"
                 end
-              elsif zone.name == cloud_id or zone.name == cloud_id+"."
+              elsif zone.name == args[:cloud_id] or zone.name == args[:cloud_id]+"."
                 begin 
-                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
+                  matches[zone.id] = MU::Cloud::AWS.route53(credentials: args[:credentials]).get_hosted_zone(id: zone.id).hosted_zone
                 rescue Aws::Route53::Errors::NoSuchHostedZone
                   MU.log "Hosted zone #{zone.id} doesn't exist"
                 end
               end
             end
-            if !deploy_id.nil? and !deploy_id.empty? and zone.config.comment == deploy_id
+            if !args[:deploy_id].nil? and !args[:deploy_id].empty? and zone.config.comment == args[:deploy_id]
               begin 
-                matches[zone.id] = MU::Cloud::AWS.route53(credentials: credentials).get_hosted_zone(id: zone.id).hosted_zone
+                matches[zone.id] = MU::Cloud::AWS.route53(credentials: args[:credentials]).get_hosted_zone(id: zone.id).hosted_zone
               rescue Aws::Route53::Errors::NoSuchHostedZone
                 MU.log "Hosted zone #{zone.id} doesn't exist"
               end

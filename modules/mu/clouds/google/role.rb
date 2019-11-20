@@ -491,12 +491,10 @@ module MU
                     MU::Cloud::Google.admin_directory(credentials: credentials).delete_role(customer, id)
                   end
                 end
-              elsif id.match(/^projects\//)
+              elsif id.match(/^projects\/.*?\/roles\//)
                 begin
                   resp = MU::Cloud::Google.iam(credentials: credentials).get_project_role(id)
                 rescue ::Google::Apis::ClientError => e
-#MU.log e.message, MU::ERR, details: id
-#next
                   next if e.message.match(/notFound/)
                   raise e
                 end

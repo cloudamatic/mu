@@ -376,6 +376,7 @@ module MU
         rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
         rg_obj.location = region
         rg_obj.tags = MU::MommaCat.listStandardTags
+        rg_obj.tags.reject! { |k, v| v.nil? }
 
         MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
           if rg.name == name and rg.location == region and rg.tags == rg_obj.tags
@@ -384,7 +385,6 @@ module MU
           end
         }
         MU.log "Configuring resource group #{name} in #{region}", details: rg_obj
-
         MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
           name,
           rg_obj

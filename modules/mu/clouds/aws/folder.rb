@@ -63,16 +63,13 @@ module MU
         end
 
         # Locate an existing AWS organization. If no identifying parameters are specified, this will return a description of the Organization which owns the account for our credentials.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching log group.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching log group.
+        def self.find(**args)
           found = nil
 
-          if cloud_id
+          if args[:cloud_id]
           else
-            resp = MU::Cloud::AWS.orgs(credentials: credentials).describe_organization
+            resp = MU::Cloud::AWS.orgs(credentials: args[:credentials]).describe_organization
             found ||= {}
             found[resp.organization.id] = resp.organization
           end

@@ -242,6 +242,8 @@ next if !create
           subnet_cfg = config['vpc']
           if config['vpc']['subnets'] and
              !subnet_cfg['subnet_name'] and !subnet_cfg['subnet_id']
+            # XXX if illegal subnets somehow creep in here, we'll need to be
+            # picky by region or somesuch
             subnet_cfg = config['vpc']['subnets'].sample
 
           end
@@ -249,6 +251,7 @@ next if !create
           if subnet.nil?
             raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
           end
+
           base_iface_obj = {
             :network => vpc.url,
             :subnetwork => subnet.url
@@ -268,11 +271,19 @@ next if !create
         def create
           @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
-          sa = MU::Config::Ref.get(@config['service_account'])
+          sa = nil
+          retries = 0
+          begin
+            sa = MU::Config::Ref.get(@config['service_account'])
+            if !sa or !sa.kitten or !sa.kitten.cloud_desc
+              sleep 10
+            end
+          end while !sa or !sa.kitten or !sa.kitten.cloud_desc and retries < 5
 
           if !sa or !sa.kitten or !sa.kitten.cloud_desc
             raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
+          
 
           @service_acct = MU::Cloud::Google.compute(:ServiceAccount).new(
             email: sa.kitten.cloud_desc.email,
@@ -344,7 +355,7 @@ next if !create
 
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
-            MU.log "Creating instance #{@mu_name}", MU::NOTICE, details: instanceobj
+            MU.log "Creating instance #{@mu_name} in #{@project_id} #{@config['availability_zone']}", details: instanceobj
 
             begin
               instance = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_instance(
@@ -409,8 +420,10 @@ next if !create
           return {
             "cloud" => "Google",
             "size" => "g1-small",
-            "run_list" => [ "mu-utility::nat" ],
+            "run_list" => [ "mu-nat" ],
+            "groomer" => "Ansible",
             "platform" => "centos7",
+            "src_dst_check" => false,
             "ssh_user" => "centos",
             "associate_public_ip" => true,
             "static_ip" => { "assign_ip" => true },
@@ -1339,7 +1352,10 @@ next if !create
             MU::Cloud.availableClouds.each { |cloud|
               next if cloud == "Google"
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              foreign_types = (cloudbase.listInstanceTypes).values.first
+              if foreign_types.size == 1
+                foreign_types = foreign_types.values.first
+              end
               if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
                 vcpu = foreign_types[size]["vcpu"]
                 mem = foreign_types[size]["memory"]
@@ -1378,6 +1394,7 @@ next if !create
           ok = true
 
           server['project'] ||= MU::Cloud::Google.defaultProject(server['credentials'])
+
           size = validateInstanceType(server["size"], server["region"], project: server['project'], credentials: server['credentials'])
 
           if size.nil?
@@ -1456,6 +1473,10 @@ next if !create
               ok = false
               MU.log "Failed to identify a subnet in my region (#{server['region']})", MU::ERR, details: server["vpc"]["vpc_id"]
             end
+          end
+
+          if server['vpc']
+            server['vpc']['project'] ||= server['project']
           end
 
           if server['image_id'].nil?

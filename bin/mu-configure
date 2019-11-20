@@ -1196,7 +1196,7 @@ if !$NOOP
     system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
     require 'mu'
   end
-  exit
+
   if $IN_GEM
     if $INITIALIZE
       $MU_CFG = MU.detectCloudProviders

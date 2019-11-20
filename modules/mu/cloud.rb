@@ -1351,6 +1351,8 @@ module MU
 
           # Special dependencies: my containing VPC
           if self.class.can_live_in_vpc and !@config['vpc'].nil?
+            @config['vpc']["id"] ||= @config['vpc']["vpc_id"] # old deploys
+            @config['vpc']["name"] ||= @config['vpc']["vpc_name"] # old deploys
             # If something hash-ified a MU::Config::Ref here, fix it
             if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(Hash)
               @config['vpc']["id"] = MU::Config::Ref.new(@config['vpc']["id"])
@@ -1930,6 +1932,8 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             session = nil
             retries = 0
 
+            vpc_class = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("VPC")
+
             # XXX WHY is this a thing
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
@@ -1954,6 +1958,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                     :proxy => proxy
                 )
               else
+
                 MU.log "Attempting SSH to #{canonical_ip} (#{@mu_name}) as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
                 session = Net::SSH.start(
                     canonical_ip,
@@ -1988,9 +1993,14 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
 
               if retries < max_retries
                 retries = retries + 1
-                msg = "ssh #{ssh_user}@#{@mu_name}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
+                msg = "ssh #{ssh_user}@#{@mu_name}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
                 if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                   MU.log msg, MU::NOTICE
+                  if !vpc_class.haveRouteToInstance?(cloud_desc, credentials: @credentials) and
+                     canonical_ip.match(/(^127\.)|(^192\.168\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^::1$)|(^[fF][cCdD])/) and
+                     !nat_ssh_host
+                    MU.log "Node #{@mu_name} at #{canonical_ip} looks like it's in a private address space, and I don't appear to have a direct route to it. It may not be possible to connect with this routing!", MU::WARN
+                  end
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
                 end

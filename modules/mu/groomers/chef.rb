@@ -261,6 +261,10 @@ module MU
           chef_node.normal['application_attributes'] = @config['application_attributes']
           chef_node.save
         end
+        if !@config['groomer_variables'].nil?
+          chef_node.normal['mu'] = @config['groomer_variables']
+          chef_node.save
+        end
         if @server.deploy.original_config.has_key?('parameters')
           MU.log "Setting node:#{@server.mu_name} parameters", MU::DEBUG, details: @server.deploy.original_config['parameters']
           chef_node.normal['mu_parameters'] = @server.deploy.original_config['parameters']
@@ -461,7 +465,7 @@ module MU
 
           retries = 0
           begin
-            ssh = @server.getSSHSession(15)
+            ssh = @server.getSSHSession(25)
             Timeout::timeout(60) {
               if leave_ours
                 MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
@@ -822,6 +826,14 @@ retry
         end
 
         return if nodeonly
+
+        vaults_to_clean.each { |vault|
+          MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
+          MU.log "Purging unknown clients from #{vault['vault']} #{vault['item']}", MU::DEBUG
+          ::Chef::Knife.run(['vault', 'rotate', 'keys', vault['vault'], vault['item'], "--clean-unknown-clients"]) if !noop
+          ::Chef::Knife.run(['vault', 'refresh', vault['vault'], vault['item']]) if !noop
+          MU::MommaCat.unlock("vault-#{vault['vault']}")
+        }
 
         begin
           deleteSecret(vault: node) if !noop

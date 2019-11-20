@@ -89,11 +89,20 @@ module MU
             desc.instances.each { |member|
               begin
                 groomthreads << Thread.new {
-                  Thread.abort_on_exception = false
                   MU.dupGlobals(parent_thread_id)
                   MU.log "Initializing #{member.instance_id} in ServerPool #{@mu_name}"
                   MU::MommaCat.lock(member.instance_id+"-mommagroom")
-                  kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+                  begin
+                    kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+                  rescue RuntimeError => e
+                    if e.message.match(/can't add a new key into hash during iteration/)
+                      MU.log e.message+", retrying", MU::WARN
+                      sleep 3
+                      retry
+                    else
+                      raise e
+                    end
+                  end
                   MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   if !kitten.postBoot(member.instance_id)
@@ -435,18 +444,13 @@ module MU
         end
 
         # Locate an existing ServerPool or ServerPools and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
+        def self.find(**args)
           found = []
-          if cloud_id
-            resp = MU::Cloud::AWS.autoscale(region: region, credentials: credentials).describe_auto_scaling_groups({
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS.autoscale(region: args[:region], credentials: args[:credentials]).describe_auto_scaling_groups({
               auto_scaling_group_names: [
-                cloud_id
+                args[:cloud_id]
               ], 
             })
             return resp.auto_scaling_groups
@@ -1361,9 +1365,15 @@ module MU
           if @config["vpc_zone_identifier"]
             asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
           elsif @config["vpc"]
+            if !@vpc and @config['vpc'].is_a?(MU::Config::Ref)
+              @vpc = @config['vpc'].kitten
+            end
 
             subnet_ids = []
 
+            if !@vpc
+              raise MuError, "Failed to load vpc for Autoscale Group #{@mu_name}"
+            end
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               @config["vpc"]["subnets"].each { |subnet|
                 subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])

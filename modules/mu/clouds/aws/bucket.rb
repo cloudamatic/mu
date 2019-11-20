@@ -33,11 +33,17 @@ module MU
           bucket_name = @deploy.getResourceName(@config["name"], max_length: 63).downcase
 
           MU.log "Creating S3 bucket #{bucket_name}"
-          MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
+          resp = MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
             acl: @config['acl'],
             bucket: bucket_name
           )
+
           @cloud_id = bucket_name
+          is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+          begin
+            is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+            sleep 3
+          end while !is_live
 
           @@region_cache_semaphore.synchronize {
             @@region_cache[@cloud_id] ||= @config['region']
@@ -216,7 +222,7 @@ puts path
                     else
                       @@region_cache[bucket.name] = location
                     end
-                  rescue Aws::S3::Errors::AccessDenied => e
+                  rescue Aws::S3::Errors::NoSuchBucket, Aws::S3::Errors::AccessDenied
                     # this is routine- we saw a bucket that's not our business
                     next
                   end
@@ -261,14 +267,14 @@ puts path
         end
 
         # Locate an existing bucket.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching bucket.
+        def self.find(**args)
           found = {}
-          if cloud_id
-            found[cloud_id] = describe_bucket(cloud_id, minimal: true, credentials: credentials, region: region)
+          if args[:cloud_id]
+            begin
+              found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: true, credentials: args[:credentials], region: args[:region])
+            rescue ::Aws::S3::Errors::NoSuchBucket
+            end
           end
           found
         end

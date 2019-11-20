@@ -25,7 +25,7 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
-            @cloud_id = Id.new(cloud_desc.id) if @cloud_id
+            @cloud_id = Id.new(cloud_desc.id) if @cloud_id and cloud_desc
           else
             @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 31)
           end

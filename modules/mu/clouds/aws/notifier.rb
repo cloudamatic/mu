@@ -91,16 +91,13 @@ module MU
         end
 
         # Locate an existing notifier.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching notifier.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching notifier.
+        def self.find(**args)
           found = {}
-          if cloud_id
-            arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+":sns:"+region+":"+MU::Cloud::AWS.credToAcct(credentials)+":"+cloud_id
-            desc = MU::Cloud::AWS.sns(region: region, credentials: credentials).get_topic_attributes(topic_arn: arn).attributes
-            found[cloud_id] = desc if desc
+          if args[:cloud_id]
+            arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
+            desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
+            found[args[:cloud_id]] = desc if desc
           end
           found
         end

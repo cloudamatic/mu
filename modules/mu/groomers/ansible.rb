@@ -268,7 +268,7 @@ module MU
         @server.describe(update_cache: true) # Make sure we're fresh
 
         allvars = {
-          "mu_deployment" => MU.structToHash(@server.deploy.deployment),
+          "mu_deployment" => MU::Config.stripConfig(@server.deploy.deployment),
           "mu_service_name" => @config["name"],
           "mu_canonical_ip" => @server.canonicalIP,
           "mu_admin_email" => $MU_CFG['mu_admin_email'],
@@ -300,6 +300,9 @@ module MU
         end
         if !@config['application_attributes'].nil?
           groupvars["application_attributes"] = @config['application_attributes']
+        end
+        if !@config['groomer_variables'].nil?
+          groupvars["mu"] = @config['groomer_variables']
         end
 
         File.open(@ansible_path+"/group_vars/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|

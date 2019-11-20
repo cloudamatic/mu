@@ -147,7 +147,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          rtb = @config['route_tables'].first
+          rtb = @config['route_tables'].first # there's only ever one
 
           rtb['routes'].each { |route|
             # If we had a sibling server being spun up as a NAT, rig up the 
@@ -236,7 +236,7 @@ end
           resp = {}
           if args[:cloud_id] and args[:project]
             begin
-            vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
+              vpc = MU::Cloud::Google.compute(credentials: args[:credentials]).get_network(
               args[:project],
               args[:cloud_id].to_s.sub(/^.*?\/([^\/]+)$/, '\1')
             )
@@ -405,36 +405,48 @@ end
             dummy_ok: true,
             calling_deploy: @deploy
           )
-# XXX wat
+
           return nil if found.nil? || found.empty?
-          if found.size > 1
-            found.each { |nat|
-              # Try some cloud-specific criteria
-              cloud_desc = nat.cloud_desc
-              if !nat_host_ip.nil? and
-# XXX this is AWS code, is wrong here
-                  (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
-                return nat
-              elsif cloud_desc.vpc_id == @cloud_id
-                # XXX Strictly speaking we could have different NATs in
-                # different subnets, so this can be wrong in corner cases.
-                return nat
-              end
-            }
-          elsif found.size == 1
+
+          if found.size == 1
             return found.first
+          elsif found.size > 1
+            found.each { |nat|
+              next if !nat.cloud_desc
+              # Try some cloud-specific criteria
+              nat.cloud_desc.network_interfaces.each { |iface|
+                if !nat_ip.nil?
+                  return nat if iface.network_ip == nat_ip
+                  if iface.access_configs
+                    iface.access_configs.each { |public_iface|
+                      return if public_iface.nat_ip == nat_ip
+                    }
+                  end
+                end
+                if iface.network == @url
+                  # XXX Strictly speaking we could have different NATs in
+                  # different subnets, so this can be wrong in corner cases.
+                  return nat
+                end
+              }
+            }
           end
+
           return nil
         end
 
         # Check for a subnet in this VPC matching one or more of the specified
         # criteria, and return it if found.
-        def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
+        def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil, region: nil)
           if !cloud_id.nil? and cloud_id.match(/^https:\/\//)
+            cloud_id.match(/\/regions\/([^\/]+)\/subnetworks\/([^\/]+)$/)
+            region = Regexp.last_match[1]
+            cloud_id = Regexp.last_match[2]
             cloud_id.gsub!(/.*?\//, "")
           end
-          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block})", MU::DEBUG, details: caller[0]
+          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block}, region: #{region})", MU::DEBUG, details: caller[0]
           subnets.each { |subnet|
+            next if region and subnet.az != region
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
             elsif !name.nil? and !subnet.name.nil? and
@@ -694,6 +706,68 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           [toplevel_required, schema]
         end
 
+        # If the VPC a config block was set to one that's been "split," try to
+        # figure out which of the new VPCs we really want to be in. For use by
+        # resource types that don't go in subnets, but do tie to VPCs.
+        # @param vpc_block [Hash]
+        # @param configurator [MU::Config]
+        # @return [Hash]
+        def self.pickVPC(vpc_block, my_config, my_type, configurator)
+          _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(my_type)
+          return if vpc_block.nil?
+          vpc_block['name'] ||= vpc_block['vpc_name']
+          return if !vpc_block['name']
+
+          vpcs = configurator.haveLitterMate?(
+            nil,
+            "vpcs",
+            has_multiple: true
+          )
+          # drop all virtual vpcs that aren't real anymore
+          vpcs.reject! { |v| v['virtual_name'] == v['name'] }
+          # drop the ones that have nothing to do with us
+          vpcs.reject! { |v| v['virtual_name'] != vpc_block['name'] }
+
+          return vpc_block if vpcs.size == 0
+
+          # see if one of this thing's siblings declared a subnet_pref we can
+          # use to guess which one we should marry ourselves to
+          configurator.kittens.each_pair { |type, siblings|
+            siblings.each { |sibling|
+              next if !sibling['dependencies']
+              sibling['dependencies'].each { |dep|
+                if [cfg_name, cfg_plural].include?(dep['type']) and
+                   dep['name'] == my_config['name']
+                  vpcs.each { |v|
+                    if sibling['vpc']['name'] == v['name']
+                      vpc_block['name'] = v['name']
+                      return vpc_block
+                    end
+                  }
+                  if sibling['vpc']['subnet_pref']
+                    vpcs.each { |v|
+                      gateways = v['route_tables'].map { |rtb|
+                        rtb['routes'].map { |r| r["gateway"] }
+                      }.flatten.uniq
+                      if ["public", "all_public"].include?(sibling['vpc']['subnet_pref']) and
+                         gateways.include?("#INTERNET")
+                        vpc_block['name'] = v['name']
+                        return vpc_block
+                      elsif ["private", "all_private"].include?(sibling['vpc']['subnet_pref']) and
+                         !gateways.include?("#INTERNET")
+                        vpc_block['name'] = v['name']
+                        return vpc_block
+                      end
+                    }
+
+                  end
+                end
+              }
+            }
+          }
+
+          vpc_block
+        end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
         # @param vpc [Hash]: The resource to process and validate
@@ -720,7 +794,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             vpc['route_tables'].each { |t|
               is_public = false
               t['routes'].each { |r|
-                if !vpc["virtual_name"] and !vpc["create_nat_gateway"] and
+                if !vpc["virtual_name"] and
+                   !vpc["create_nat_gateway"] and
+                   !vpc['bastion'] and
                    r["gateway"] == "#NAT"
                   r["gateway"] = "#DENY"
                 end
@@ -781,6 +857,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 next if ["name", "route_tables", "subnets", "ip_block"].include?(key)
                 newvpc[key] = val
               }
+              if vpc["bastion"] and
+                 !tbl["routes"].map { |r| r["gateway"] }.include?("#INTERNET")
+                newvpc["bastion"] = vpc["bastion"]
+                vpc.delete("bastion")
+              end
               newvpc['peers'] ||= []
 # Add the peer connections we're generating, in addition 
               peernames.each { |peer|
@@ -809,7 +890,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             else
               ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"], credentials: vpc['credentials'])
             end
-            if has_nat and !has_deny
+            if has_nat and !has_deny and !vpc['bastion']
               vpc['route_tables'].first["routes"] << {
                 "gateway"=>"#DENY",
                 "destination_network"=>"0.0.0.0/0"

@@ -199,7 +199,7 @@ module MU
             end
           else
             @config['type'] ||= "service"
-            return MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
+            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
           end
 
         end

@@ -1,0 +1,65 @@
+---
+- name: remove firewalld
+  package:
+    name: firewalld
+    state: absent
+
+- name: make sure iptables is available
+  package:
+    name: iptables-services
+    state: present
+
+- name: Enable ip_forward
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+
+- name: Disable send_redirects
+  sysctl:
+    name: net.ipv4.conf.eth0.send_redirects
+    value: '0'
+    state: present
+
+- name: NAT postrouting
+  iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: eth0
+    source: "{{ mu['nat_ip_block'] }}"
+    jump: MASQUERADE
+
+- name: NAT stateful connections
+  iptables:
+    chain: INPUT
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+
+- name: allow inbound from NAT network
+  iptables:
+    chain: INPUT
+    source: "{{ mu['nat_ip_block'] }}"
+    jump: ACCEPT
+
+- name: flushy
+  iptables:
+    chain: FORWARD
+    flush: yes
+
+- name: allow forward of NAT network (outbound)
+  iptables:
+    chain: FORWARD
+    source: "{{ mu['nat_ip_block'] }}"
+    jump: ACCEPT
+
+- name: allow forward of NAT network (inbound)
+  iptables:
+    chain: FORWARD
+    destination: "{{ mu['nat_ip_block'] }}"
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+
+- name: Default forwarding policy to ACCEPT
+  iptables:
+    chain: FORWARD
+    policy: DROP

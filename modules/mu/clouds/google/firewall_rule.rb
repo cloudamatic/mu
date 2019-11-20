@@ -423,6 +423,12 @@ end
 
           if acl['vpc']
             acl['vpc']['project'] ||= acl['project']
+            acl['vpc'] = MU::Cloud::Google::VPC.pickVPC(
+              acl['vpc'],
+              acl,
+              "firewall_rule",
+              config
+            )
           end
 
           acl['rules'] ||= []

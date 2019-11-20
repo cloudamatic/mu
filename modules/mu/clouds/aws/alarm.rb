@@ -147,12 +147,9 @@ module MU
         end
 
         # Locate an existing alarm.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
-          MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region, credentials: credentials)
+        def self.find(**args)
+          MU::Cloud::AWS::Alarm.getAlarmByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
         end
 
         # Create an alarm.
@@ -260,13 +257,13 @@ module MU
           alarm["dimensions"] ||= []
 
           if alarm["#TARGETCLASS"] == "cache_cluster"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "CacheClusterId" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "CacheClusterId" }
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
           elsif alarm["#TARGETCLASS"] == "server"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "InstanceId" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
           elsif alarm["#TARGETCLASS"] == "database"
-            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "DBInstanceIdentifier" }
+            alarm['dimensions'] << { "name" => alarm["#TARGETNAME"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
           end
 

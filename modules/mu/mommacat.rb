@@ -39,6 +39,7 @@ module MU
     end
 
     @@litters = {}
+    @@litters_loadtime = {}
     @@litter_semaphore = Mutex.new
 
     # Return a {MU::MommaCat} instance for an existing deploy. Use this instead
@@ -62,22 +63,49 @@ module MU
         @@litter_semaphore.synchronize {
           littercache = @@litters.dup
         }
+        if littercache[deploy_id] and @@litters_loadtime[deploy_id]
+          deploy_root = File.expand_path(MU.dataDir+"/deployments")
+          this_deploy_dir = deploy_root+"/"+deploy_id
+          if File.exist?("#{this_deploy_dir}/deployment.json")
+            lastmod = File.mtime("#{this_deploy_dir}/deployment.json")
+            if lastmod > @@litters_loadtime[deploy_id]
+              MU.log "Deployment metadata for #{deploy_id} was modified on disk, reload", MU::NOTICE
+              use_cache = false
+            end
+         end
+        end
       rescue ThreadError => e
         # already locked by a parent caller and this is a read op, so this is ok
         raise e if !e.message.match(/recursive locking/)
         littercache = @@litters.dup
       end
+
       if !use_cache or littercache[deploy_id].nil?
+        need_gc = !littercache[deploy_id].nil?
         newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         # This, we have to synchronize, as it's a write
         @@litter_semaphore.synchronize {
-          @@litters[deploy_id] ||= newlitter
+          @@litters[deploy_id] = newlitter
+          @@litters_loadtime[deploy_id] = Time.now
         }
+        GC.start if need_gc
       elsif set_context_to_me
         MU::MommaCat.setThreadContext(@@litters[deploy_id])
       end
       return @@litters[deploy_id]
 #     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+    end
+
+    # Update the in-memory cache of a given deploy. This is intended for use by
+    # {#save!}, primarily.
+    # @param deploy_id [String]
+    # @param litter [MU::MommaCat]
+    def self.updateLitter(deploy_id, litter)
+      return if litter.nil?
+      @@litter_semaphore.synchronize {
+        @@litters[deploy_id] = litter
+        @@litters_loadtime[deploy_id] = Time.now
+      }
     end
 
     attr_reader :initializing
@@ -262,7 +290,6 @@ module MU
             creds.uniq!
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds.each { |credentials|
-            puts credentials
               cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
             }
           }
@@ -282,7 +309,7 @@ module MU
       loadDeploy(set_context_to_me: set_context_to_me)
       if !deploy_secret.nil?
         if !authKey(deploy_secret)
-          raise DeployInitializeError, "Invalid or incorrect deploy key."
+          raise DeployInitializeError, "Client request did not include a valid deploy authorization secret. Verify that userdata runs correctly?"
         end
       end
 
@@ -328,9 +355,16 @@ module MU
                 next
               end
 
-              if orig_cfg['vpc']
-                ref = MU::Config::Ref.get(orig_cfg['vpc'])
-                orig_cfg['vpc']['id'] = ref if ref.kitten
+              if orig_cfg['vpc'] and orig_cfg['vpc'].is_a?(Hash)
+                ref = if orig_cfg['vpc']['id'] and orig_cfg['vpc']['id'].is_a?(Hash)
+                  orig_cfg['vpc']['id']['mommacat'] = self
+                  MU::Config::Ref.get(orig_cfg['vpc']['id'])
+                else
+                  orig_cfg['vpc']['mommacat'] = self
+                  MU::Config::Ref.get(orig_cfg['vpc'])
+                end
+                orig_cfg['vpc'].delete('mommacat')
+                orig_cfg['vpc'] = ref if ref.kitten
               end
 
               begin
@@ -627,8 +661,9 @@ module MU
     # @param max_length [Integer]: The maximum length of the resulting resource name.
     # @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
     # @param scrub_mu_isms [Boolean]: Don't bother with generating names specific to this deployment. Used to generate generic CloudFormation templates, amongst other purposes.
+    # @param allowed_chars [Regexp]: A pattern of characters that are legal for this resource name, such as +/[a-zA-Z0-9-]/+
     # @return [String]: A full name string for this resource
-    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'])
+    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], allowed_chars: nil)
       if name.nil?
         raise MuError, "Got no argument to MU::MommaCat.getResourceName"
       end
@@ -651,6 +686,19 @@ module MU
         basename = @appname.upcase + "-" + @environment.upcase + name.upcase
       end
 
+      subchar = if allowed_chars
+        if !"-".match(allowed_chars)
+          if "_".match(allowed_chars)
+            "_"
+          else
+            ""
+          end
+        else
+          "-"
+        end
+      end
+
+      basename.gsub!(allowed_chars, subchar) if allowed_chars
       begin
         if (basename.length + reserved) > max_length
           MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
@@ -663,6 +711,7 @@ module MU
             basename.slice!((max_length-(reserved+3))..basename.length)
             basename.sub!(/-$/, "")
             basename = basename + "-" + @seed.upcase
+            basename.gsub!(allowed_chars, subchar) if allowed_chars
           else
             # If we have to strip anything, assume we've lost uniqueness and
             # will have to compensate with #genUniquenessString.
@@ -670,6 +719,7 @@ module MU
             reserved = 4
             basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
             basename = basename + "-" + @seed.upcase + "-" + name.upcase
+            basename.gsub!(allowed_chars, subchar) if allowed_chars
           end
         end
       end while (basename.length + reserved) > max_length
@@ -696,6 +746,7 @@ module MU
       else
         muname = basename
       end
+      muname.gsub!(allowed_chars, subchar) if allowed_chars
 
       return muname
     end
@@ -895,7 +946,7 @@ module MU
       if MU.myCloud == "AWS"
         MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
       end
-      MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
+      MU::MommaCat.getLitter(MU.deploy_id)
       MU::MommaCat.syncMonitoringConfig(false)
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
       FileUtils.touch(MU.dataDir+"/deployments/#{MU.deploy_id}/#{name}_done.txt")
@@ -1096,23 +1147,28 @@ module MU
 
     # Iterate over all known deployments and look for instances that have been
     # terminated, but not yet cleaned up, then clean them up.
-    def self.cleanTerminatedInstances
+    def self.cleanTerminatedInstances(debug = false)
+      loglevel = debug ? MU::NOTICE : MU::DEBUG
       MU::MommaCat.lock("clean-terminated-instances", false, true)
-      MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
+      MU.log "Checking for harvested instances in need of cleanup", loglevel
       parent_thread_id = Thread.current.object_id
       purged = 0
+
       MU::MommaCat.listDeploys.each { |deploy_id|
         next if File.exist?(deploy_dir(deploy_id)+"/.cleanup")
-        MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
+        MU.log "Checking for dead wood in #{deploy_id}", loglevel
+        need_reload = false
         @cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
-          # We can't use cached litter information because we will then try to delete the same node over and over again until we restart the service
-          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
+          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
           purged_this_deploy = 0
+            MU.log "#{deploy_id} has some kittens in it", loglevel, details: deploy.kittens.keys
           if deploy.kittens.has_key?("servers")
+            MU.log "#{deploy_id} has some servers declared", loglevel, details: deploy.object_id
             deploy.kittens["servers"].values.each { |nodeclasses|
               nodeclasses.each_pair { |nodeclass, servers|
                 deletia = []
+                MU.log "Checking status of servers under '#{nodeclass}'", loglevel, details: servers.keys
                 servers.each_pair { |mu_name, server|
                   server.describe
                   if !server.cloud_id
@@ -1120,6 +1176,7 @@ module MU
                   elsif !server.active?
                     next if File.exist?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
                     deletia << mu_name
+                    need_reload = true
                     MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
                     begin
                       server.destroy
@@ -1134,12 +1191,20 @@ module MU
                     purged_this_deploy = purged_this_deploy + 1
                   end
                 }
+                deletia.each { |mu_name|
+                  servers.delete(mu_name)
+                }
                 if purged_this_deploy > 0
-                  # XXX some kind of filter (obey sync_siblings on nodes' configs)
-                  deploy.syncLitter(servers.keys)
+                  # XXX triggering_node needs to take more than one node name
+                  deploy.syncLitter(servers.keys, triggering_node: deletia.first)
                 end
               }
             }
+          end
+          if need_reload
+            MU.log "Saving modified deploy #{deploy_id}", loglevel
+            deploy.save!
+            MU::MommaCat.getLitter(deploy_id)
           end
           MU.purgeGlobals
         }
@@ -1147,6 +1212,8 @@ module MU
       @cleanup_threads.each { |t|
         t.join
       }
+      MU.log "cleanTerminatedInstances threads complete", loglevel
+      MU::MommaCat.unlock("clean-terminated-instances", true)
       @cleanup_threads = []
 
       if purged > 0
@@ -1154,8 +1221,9 @@ module MU
           MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
         MU::MommaCat.syncMonitoringConfig
+        GC.start
       end
-      MU::MommaCat.unlock("clean-terminated-instances", true)
+      MU.log "cleanTerminatedInstances returning", loglevel
     end
 
     @@dummy_cache = {}
@@ -1191,7 +1259,8 @@ module MU
         flags: {},
         habitats: [],
         dummy_ok: false,
-        debug: false
+        debug: false,
+        no_deploy_search: false
     ) 
       start = Time.now
       callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, dummy_ok: #{dummy_ok.to_s}, flags: #{flags.to_s}) from #{caller[0]}"
@@ -1253,7 +1322,7 @@ module MU
 
         kittens = {}
         # Search our other deploys for matching resources
-        if (deploy_id or name or mu_name or cloud_id)
+        if !no_deploy_search and (deploy_id or name or mu_name or cloud_id)
           MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
           # Check our in-memory cache of live deploys before resorting to
@@ -1569,7 +1638,7 @@ end
       rescue Exception => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
-      MU.log "findStray: returning #{matches.size.to_s} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+      MU.log "findStray: returning #{matches ? matches.size.to_s : "0"} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
 
       matches
     end
@@ -2015,7 +2084,7 @@ end
         return
       end
       if ssh_key_name.nil? or ssh_key_name.empty?
-        MU.log "Failed to extract canonical_ip for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
+        MU.log "Failed to extract ssh_key_name for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
         return
       end
 
@@ -2287,7 +2356,7 @@ MESSAGE_END
         MU::MommaCat.listDeploys.sort.each { |deploy_id|
           begin
             # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
-            deploy = MU::MommaCat.getLitter(deploy_id, use_cache: false)
+            deploy = MU::MommaCat.getLitter(deploy_id)
             if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
               MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
               next
@@ -2298,6 +2367,7 @@ MESSAGE_END
               deploy.kittens["servers"].values.each { |nodeclasses|
                 nodeclasses.values.each { |nodes|
                   nodes.values.each { |server|
+                    next if !server.cloud_desc
                     MU.dupGlobals(parent_thread_id)
                     threads << Thread.new {
                       MU::MommaCat.setThreadContext(deploy)
@@ -2528,10 +2598,14 @@ MESSAGE_END
       update_servers.each { |node|
         # Not clear where this pollution comes from, but let's stick a temp
         # fix in here.
-        if node.deploydata['nodename'] != node.mu_name
+        if node.deploydata['nodename'] != node.mu_name and
+           !node.deploydata['nodename'].nil? and !node.deploydata['nodename'].emty?
           MU.log "Node #{node.mu_name} had wrong or missing nodename (#{node.deploydata['nodename']}), correcting", MU::WARN
           node.deploydata['nodename'] = node.mu_name
-          @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
+          if @deployment[svrs] and @deployment[svrs][node.config['name']] and
+             @deployment[svrs][node.config['name']][node.mu_name]
+            @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
+          end
           save!
         end
       }
@@ -2671,9 +2745,9 @@ MESSAGE_END
 
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
       if MU.inGem?
-        cmd = %Q{thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+        cmd = %Q{thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
       else
-        cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.mySSLDir}/mommacat.key --ssl-cert-file #{MU.mySSLDir}/mommacat.pem --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+        cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
       end
 
       MU.log cmd, MU::NOTICE
@@ -2769,6 +2843,7 @@ MESSAGE_END
     def save!(triggering_node = nil, force: false, origin: nil)
 
       return if @no_artifacts and !force
+
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 
@@ -2821,6 +2896,7 @@ MESSAGE_END
           deploy.flock(File::LOCK_UN)
           deploy.close
           @need_deploy_flush = false
+          MU::MommaCat.updateLitter(@deploy_id, self)
         end
 
         if !@original_config.nil? and @original_config.is_a?(Hash)

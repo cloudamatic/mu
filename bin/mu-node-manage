@@ -599,7 +599,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
 
       MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
       begin
-        MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
+        MU::Cloud::AWS.ec2(region: server['region']).modify_instance_attribute(
           instance_id: id,
           attribute: "userData",
           value: Base64.encode64(userdata)

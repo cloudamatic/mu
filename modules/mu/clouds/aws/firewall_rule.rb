@@ -562,10 +562,15 @@ module MU
                     rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
                     end
                   end
-                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
-                    group_id: @cloud_id,
-                    ip_permissions: [rule]
-                  )
+                  begin
+                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
+                      group_id: @cloud_id,
+                      ip_permissions: [rule]
+                    )
+                  rescue Aws::EC2::Errors::InvalidParameterCombination => e
+                    MU.log "FirewallRule #{@mu_name} had a bogus rule: #{e.message}", MU::ERR, details: rule
+                    raise e
+                  end
                 end
 
                 if egress

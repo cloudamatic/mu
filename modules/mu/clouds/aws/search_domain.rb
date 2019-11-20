@@ -32,7 +32,6 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          pp params
           resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
@@ -86,6 +85,11 @@ module MU
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
+          elsif deploy_struct['endpoints']
+            deploy_struct['kibana'] = {}
+            deploy_struct['endpoints'].each_pair { |k, v|
+              deploy_struct['kibana'][k] = v+"/_plugin/kibana/"
+            }
           end
           deploy_struct['domain_name'] ||= @config['domain_name'] if @config['domain_name']
           deploy_struct
@@ -112,20 +116,25 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
           if list and list.domain_names and list.domain_names.size > 0
-            descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+            names = list.domain_names.map { |d| d.domain_name }
+            begin
+              # why is this API so obnoxious?
+              sample = names.slice!(0, (names.length >= 5 ? 5 : names.length))
+              descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: sample)
 
-            descs.domain_status_list.each { |domain|
-              tags = MU::Cloud::AWS.elasticsearch(region: region).list_tags(arn: domain.arn)
-              tags.tag_list.each { |tag|
-                if tag.key == "MU-ID" and tag.value == MU.deploy_id
-                  MU.log "Deleting ElasticSearch Domain #{domain.domain_name}"
-                  if !noop
-                    MU::Cloud::AWS.elasticsearch(region: region).delete_elasticsearch_domain(domain_name: domain.domain_name)
+              descs.domain_status_list.each { |domain|
+                tags = MU::Cloud::AWS.elasticsearch(region: region).list_tags(arn: domain.arn)
+                tags.tag_list.each { |tag|
+                  if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                    MU.log "Deleting ElasticSearch Domain #{domain.domain_name}"
+                    if !noop
+                      MU::Cloud::AWS.elasticsearch(region: region).delete_elasticsearch_domain(domain_name: domain.domain_name)
+                    end
+                    break
                   end
-                  break
-                end
+                }
               }
-            }
+            end while names.size > 0
           end
 
           unless noop
@@ -142,18 +151,15 @@ module MU
         end
 
         # Locate an existing search_domain.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region.
-        # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching search_domain.
-        def self.find(cloud_id: nil, region: MU.curRegion, credentials: nil, flags: {})
-          if cloud_id
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching search_domain.
+        def self.find(**args)
+          if args[:cloud_id]
             # Annoyingly, we might expect one of several possible artifacts,
             # since AWS couldn't decide what the real identifier of these
             # things should be
-            list = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).list_domain_names
+            list = MU::Cloud::AWS.elasticsearch(region: args[:region], credentials: args[:credentials]).list_domain_names
             if list and list.domain_names and list.domain_names.size > 0
-              descs = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+              descs = MU::Cloud::AWS.elasticsearch(region: args[:region], credentials: args[:credentials]).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
               descs.domain_status_list.each { |domain|
                 return domain if domain.arn == cloud_id
                 return domain if domain.domain_name == cloud_id
@@ -305,11 +311,20 @@ module MU
 
           if dom["dedicated_masters"] > 0 and dom["master_instance_type"].nil?
             dom["master_instance_type"] = dom["instance_type"]
+            if dom["dedicated_masters"] != 3 and dom["dedicated_masters"] != 5
+              MU.log "SearchDomain #{dom['name']}: You must choose either three or five dedicated master nodes", MU::ERR
+              ok = false
+            end
           end
 
           if dom["instance_count"] < 1
             MU.log "Must have at least one search node in SearchDomain '#{dom['name']}'", MU::ERR
             ok = false
+          end
+
+          if dom["ebs_iops"]
+            MU.log "SearchDomain #{dom['name']} declared ebs_iops, setting volume type to io1", MU::NOTICE
+            dom["ebs_type"] = "io1"
           end
 
           if dom["zone_aware"] and (dom["instance_count"] % 2) != 0
@@ -554,12 +569,21 @@ module MU
               }
             end
 
+            # XXX this will break on regroom, revisit and make deterministic
+            # or remembered
+            subnet_ids = subnet_ids.sample(3) if subnet_ids.size > 3
+
             if ext.nil? or
                ext.vpc_options.subnet_ids != subnet_ids or
                ext.vpc_options.security_group_ids != sgs
               params[:vpc_options] = {}
               params[:vpc_options][:subnet_ids] = subnet_ids
               params[:vpc_options][:security_group_ids] = sgs
+            end
+            if @config['zone_aware'] and params[:elasticsearch_cluster_config]
+              params[:elasticsearch_cluster_config][:zone_awareness_config] = {
+                :availability_zone_count => subnet_ids.size
+              }
             end
           end
 
@@ -650,13 +674,16 @@ module MU
 
           begin
             resp = cloud_desc
-            if (resp.endpoint.nil? or resp.endpoint.empty?) and !resp.deleted
+
+            if (resp.endpoint.nil? or resp.endpoint.empty?) and
+               (resp.endpoints.nil? or resp.endpoints.empty?) and
+               !resp.deleted
               loglevel = (retries > 0 and retries % 3 == 0) ? MU::NOTICE : MU::DEBUG
               MU.log "Waiting for Elasticsearch domain #{@mu_name} (#{@config['domain_name']}) to finish creating", loglevel
               sleep interval
             end
             retries += 1
-          end while (resp.endpoint.nil? or resp.endpoint.empty?) and !resp.deleted
+          end while (resp.endpoint.nil? or resp.endpoint.empty?) and (resp.endpoints.nil? or resp.endpoints.empty?) and !resp.deleted
         end
 
       end

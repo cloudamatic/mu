@@ -317,6 +317,13 @@ module MU
         }
       end
 
+      # A way of dynamically defining +attr_reader+ without leaking memory
+      def self.define_reader(name)
+        define_method(name) {
+          instance_variable_get("@#{name.to_s}")
+        }
+      end
+
       # @param cfg [Hash]: A Basket of Kittens configuration hash containing
       # lookup information for a cloud object
       def initialize(cfg)
@@ -327,7 +334,7 @@ module MU
           elsif !cfg[field.to_sym].nil?
             self.instance_variable_set("@#{field.to_s}".to_sym, cfg[field.to_sym])
           end
-          self.singleton_class.instance_eval { attr_reader field.to_sym }
+          MU::Config::Ref.define_reader(field)
         }
         if cfg['tag'] and cfg['tag']['key'] and
            !cfg['tag']['key'].empty? and cfg['tag']['value']
@@ -336,7 +343,7 @@ module MU
         end
 
         if @deploy_id and !@mommacat
-          @mommacat = MU::MommaCat.new(@deploy_id, set_context_to_me: false, create: false)
+          @mommacat = MU::MommaCat.getLitter(@deploy_id, set_context_to_me: false)
         elsif @mommacat and !@deploy_id
           @deploy_id = @mommacat.deploy_id
         end
@@ -571,6 +578,7 @@ return
 
       def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil, index: 0)
         @name = name
+        @bindings = {}
         @value = value
         @valid_values = valid_values
         @pseudo = pseudo
@@ -766,7 +774,7 @@ return
 
       # Make sure our parameter values are all available in the local namespace
       # that ERB will be using, minus any that conflict with existing variables
-      erb_binding = get_binding
+      erb_binding = get_binding(@@tails.keys.sort)
       @@tails.each_pair { |key, tail|
         next if !tail.is_a?(MU::Config::Tail) or tail.is_list_element
         # XXX figure out what to do with lists
@@ -803,7 +811,7 @@ return
 
       begin
         config = JSON.parse(raw_json)
-        if param_pass
+        if param_pass and config.is_a?(Hash)
           config.keys.each { |key|
             if key != "parameters"
               if key == "appname" and @@parameters["myAppName"].nil?
@@ -814,7 +822,7 @@ return
               config.delete(key)
             end
           }
-        else
+        elsif config.is_a?(Hash)
           config.delete("parameters")
         end
       rescue JSON::ParserError => e
@@ -835,6 +843,7 @@ return
 
     attr_reader :kittens
     attr_reader :updating
+    attr_reader :existing_deploy
     attr_reader :kittencfg_semaphore
 
     # Load, resolve, and validate a configuration file ("Basket of Kittens").
@@ -860,6 +869,9 @@ return
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
       @updating = updating
+      if @updating
+        @existing_deploy = MU::MommaCat.new(@updating)
+      end
       @default_credentials = default_credentials
 
       ok = true
@@ -979,6 +991,15 @@ return
       end
 
       @config['credentials'] ||= @default_credentials
+
+      if @config['cloud'] and !MU::Cloud.availableClouds.include?(@config['cloud'])
+        if MU::Cloud.supportedClouds.include?(@config['cloud'])
+          MU.log "Cloud provider #{@config['cloud']} declared, but no #{@config['cloud']} credentials available", MU::ERR
+        else
+          MU.log "Cloud provider #{@config['cloud']} is not supported", MU::ERR, details: MU::Cloud.supportedClouds
+        end
+        exit 1
+      end
 
       types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 
@@ -1127,7 +1148,6 @@ $CONFIGURABLES
       subnet_bits = cidr.netmask.prefix_len
       begin
         subnet_bits += 1
-
         if subnet_bits > max_mask
           MU.log "Can't subdivide #{cidr.to_s} into #{subnets_desired.to_s}", MU::ERR
           raise MuError, "Subnets smaller than /#{max_mask} not permitted"
@@ -1209,7 +1229,7 @@ $CONFIGURABLES
     # an extra pass to make sure we get all intra-stack dependencies correct.
     # @param acl [Hash]: The configuration hash for the FirewallRule to check
     # @return [Hash]
-    def resolveIntraStackFirewallRefs(acl)
+    def resolveIntraStackFirewallRefs(acl, delay_validation = false)
       acl["rules"].each { |acl_include|
         if acl_include['sgs']
           acl_include['sgs'].each { |sg_ref|
@@ -1232,7 +1252,7 @@ $CONFIGURABLES
               siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
               if !siblingfw["#MU_VALIDATED"]
 # XXX raise failure somehow
-                insertKitten(siblingfw, "firewall_rules")
+                insertKitten(siblingfw, "firewall_rules", delay_validation: delay_validation)
               end
             end
           }
@@ -1246,10 +1266,15 @@ $CONFIGURABLES
     # @param type [String]: The type of resource being added
     # @param delay_validation [Boolean]: Whether to hold off on calling the resource's validateConfig method
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
-    def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false)
+    def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false, overwrite: false)
       append = false
       start = Time.now
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      MU.log "insertKitten on #{cfg_name} #{descriptor['name']} (delay_validation: #{delay_validation.to_s})", MU::DEBUG, details: caller[0]
+
+      if overwrite
+        removeKitten(descriptor['name'], type)
+      end
 
       if !ignore_duplicates and haveLitterMate?(descriptor['name'], cfg_name)
 #        raise DuplicateNameError, "A #{shortclass} named #{descriptor['name']} has already been inserted into this configuration"
@@ -1264,6 +1289,16 @@ $CONFIGURABLES
         end
       }
       ok = true
+
+      if descriptor['cloud'] and
+         !MU::Cloud.availableClouds.include?(descriptor['cloud'])
+        if MU::Cloud.supportedClouds.include?(descriptor['cloud'])
+          MU.log "#{cfg_name} #{descriptor['name']} is configured with cloud #{descriptor['cloud']}, but no #{descriptor['cloud']} credentials available", MU::ERR
+        else
+          MU.log "#{cfg_name} #{descriptor['name']}: Cloud provider #{descriptor['cloud']} is not supported", MU::ERR, details: MU::Cloud.supportedClouds
+        end
+        return false
+      end
 
       descriptor["#MU_CLOUDCLASS"] = classname
 
@@ -1345,7 +1380,7 @@ $CONFIGURABLES
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
 
           if siblingvpc and siblingvpc['bastion'] and
-             ["server", "server_pool"].include?(cfg_name) and
+             ["server", "server_pool", "container_cluster"].include?(cfg_name) and
              !descriptor['bastion']
             if descriptor['name'] != siblingvpc['bastion'].to_h['name']
               descriptor["dependencies"] << {
@@ -1359,7 +1394,7 @@ $CONFIGURABLES
           # resolved before we can proceed
           if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
             if !siblingvpc["#MU_VALIDATED"]
-              ok = false if !insertKitten(siblingvpc, "vpcs")
+              ok = false if !insertKitten(siblingvpc, "vpcs", overwrite: overwrite)
             end
           end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
@@ -1410,13 +1445,15 @@ $CONFIGURABLES
       # Does it have generic ingress rules?
       fwname = cfg_name+descriptor['name']
 
-      if !haveLitterMate?(fwname, "firewall_rules") and
-         (descriptor['ingress_rules'] or
-         ["server", "server_pool", "database"].include?(cfg_name))
+      if (descriptor['ingress_rules'] or
+         ["server", "server_pool", "database", "cache_cluster"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
         fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
-        acl = {
+        acl = haveLitterMate?(fwname, "firewall_rules")
+        already_exists = !acl.nil?
+
+        acl ||= {
           "name" => fwname,
           "rules" => descriptor['ingress_rules'],
           "region" => descriptor['region'],
@@ -1436,10 +1473,11 @@ $CONFIGURABLES
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
-        descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
+        descriptor["add_firewall_rules"] ||= []
         descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
-        acl = resolveIntraStackFirewallRefs(acl)
-        ok = false if !insertKitten(acl, "firewall_rules", delay_validation)
+
+        acl = resolveIntraStackFirewallRefs(acl, delay_validation)
+        ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: already_exists)
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -1474,10 +1512,6 @@ $CONFIGURABLES
               "type" => "firewall_rule",
               "name" => acl_include["rule_name"]
             }
-            siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            if !siblingfw["#MU_VALIDATED"]
-              ok = false if !insertKitten(siblingfw, "firewall_rules", delay_validation)
-            end
           elsif acl_include["rule_name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -1489,13 +1523,14 @@ $CONFIGURABLES
       if descriptor["alarms"] && !descriptor["alarms"].empty?
         descriptor["alarms"].each { |alarm|
           alarm["name"] = "#{cfg_name}-#{descriptor["name"]}-#{alarm["name"]}"
-          alarm['dimensions'] = [] if !alarm['dimensions']
+          alarm['dimensions'] ||= []
+          alarm["namespace"] ||= descriptor['name']
           alarm["credentials"] = descriptor["credentials"]
           alarm["#TARGETCLASS"] = cfg_name
           alarm["#TARGETNAME"] = descriptor['name']
           alarm['cloud'] = descriptor['cloud']
 
-          ok = false if !insertKitten(alarm, "alarms", true)
+          ok = false if !insertKitten(alarm, "alarms", true, overwrite: overwrite)
         }
         descriptor.delete("alarms")
       end
@@ -1924,12 +1959,22 @@ $CONFIGURABLES
 
     # (see #include)
     def include(file)
-      MU::Config.include(file, get_binding, param_pass = @param_pass)
+      MU::Config.include(file, get_binding(@@tails.keys.sort), param_pass = @param_pass)
+    end
+
+    @@bindings = {}
+    # Keep a cache of bindings we've created as sandbox contexts for ERB
+    # processing, so we don't keep reloading the entire Mu library inside new
+    # ones.
+    def self.global_bindings
+      @@bindings
     end
 
     # Namespace magic to pass to ERB's result method.
-    def get_binding
-      binding
+    def get_binding(keyset)
+#      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
+      MU::Config.global_bindings[keyset] = binding
+      MU::Config.global_bindings[keyset]
     end
 
     def applySchemaDefaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil, type: nil)
@@ -1956,7 +2001,7 @@ $CONFIGURABLES
         conf_chunk.map! { |item|
           # If we're working on a resource type, go get implementation-specific
           # schema information so that we set those defaults correctly.
-          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"]
+          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
             toplevel_required, cloudschema = cloudclass.schema(self)
@@ -2107,6 +2152,10 @@ $CONFIGURABLES
       kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
 
+      if !MU::Cloud.supportedClouds.include?(kitten['cloud'])
+        return
+      end
+
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
@@ -2178,6 +2227,7 @@ $CONFIGURABLES
         }
         count = count + @kittens[type].size
       }
+
 
       if count == 0
         MU.log "You must declare at least one resource to create", MU::ERR

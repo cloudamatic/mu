@@ -464,7 +464,7 @@ module MU
             )
           end
 
-          MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+          MU.log %Q{How to interact with your GKE cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
         end
 
 
@@ -1056,6 +1056,14 @@ module MU
             cluster['dependencies'] << {
               "type" => "user",
               "name" => cluster["name"]
+            }
+          end
+
+          if cluster['dependencies']
+            cluster['dependencies'].each { |dep|
+              if dep['type'] == "vpc"
+                dep['phase'] = "groom"
+              end
             }
           end
 

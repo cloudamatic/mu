@@ -164,27 +164,22 @@ module MU
 
 
         # Locate an existing Database or Databases and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching Databases
+        def self.find(**args)
           map = {}
-          if cloud_id
-            resp = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
-            map[cloud_id] = resp if resp
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS::Database.getDatabaseById(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+            map[args[:cloud_id]] = resp if resp
           end
 
-          if tag_value
-            MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_instances.db_instances.each { |db|
-              resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(
-                  resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: region, credentials: credentials)
+          if args[:tag_value]
+            MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
+              resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
+                  resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: args[:region], credentials: args[:credentials])
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
                 resp.tag_list.each { |tag|
-                  map[db.db_instance_identifier] = db if tag.key == tag_key and tag.value == tag_value
+                  map[db.db_instance_identifier] = db if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                 }
               end
             }
@@ -370,7 +365,7 @@ module MU
               # Does create_db_instance implement wait_until_available ?
               waiter.max_attempts = nil
               waiter.before_attempt do |w_attempts|
-                MU.log "Waiting for RDS database #{@config['identifier']} to be ready..", MU::NOTICE if w_attempts % 10 == 0
+                MU.log "Waiting for RDS database #{@config['identifier']} to be ready...", MU::NOTICE if w_attempts % 10 == 0
               end
               waiter.before_wait do |w_attempts, r|
                 throw :success if r.db_instances.first.db_instance_status == "available"
@@ -457,6 +452,14 @@ module MU
           # Maybe wait for DB instance to be in available state. DB should still be writeable at this state
           if @config['allow_major_version_upgrade'] && @config["creation_style"] == "new"
             MU.log "Setting major database version upgrade on #{@config['identifier']}'"
+            database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
+            begin
+              if database.db_instance_status != "available"
+                sleep 5
+                database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
+              end
+            end while database.db_instance_status != "available"
+
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
               db_instance_identifier: @config['identifier'],
               apply_immediately: true,
@@ -611,11 +614,8 @@ module MU
 
             subnets.each{ |subnet|
               next if subnet.nil?
-              if @config["publicly_accessible"]
-                subnet_ids << subnet.cloud_id if !subnet.private?
-              elsif !@config["publicly_accessible"]
-                subnet_ids << subnet.cloud_id if subnet.private?
-              end
+              next if @config["publicly_accessible"] and subnet.private?
+              subnet_ids << subnet.cloud_id
             }
           else
             # If we didn't specify a VPC try to figure out if the account has a default VPC
@@ -1564,6 +1564,10 @@ module MU
               ok = false
               MU.log "Database #{db['name']}: Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
             end
+          end
+
+          if db['engine'] == "aurora-postgresql"
+            db.delete('cloudwatch_logs')
           end
 
           if db['engine'].match(/^aurora/) and !db['create_cluster'] and !db['add_cluster_node']

@@ -393,8 +393,13 @@ module MU
 #				end
 
           retries = 0
-          begin
+          instance = begin
             response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+            if response and response.instances and response.instances.size > 0
+              instance = response.instances.first
+            else
+              MU.log "halp", MU::ERR, details: response
+            end
           rescue Aws::EC2::Errors::InvalidRequest => e
             MU.log e.message, MU::ERR, details: instance_descriptor
             raise e
@@ -411,11 +416,9 @@ module MU
             end
           end
 
-          instance = response.instances.first
           MU.log "#{node} (#{instance.instance_id}) coming online"
 
-          return instance
-
+          instance
         end
 
         # Ask the Amazon API to restart this node
@@ -975,13 +978,7 @@ module MU
         # postBoot
 
         # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-#        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, credentials: nil, flags: {})
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
 
@@ -1286,7 +1283,12 @@ module MU
           retries = 0
           if !@cloud_id.nil?
             begin
-              return MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id])
+              if resp and resp.reservations and resp.reservations.first and
+                 resp.reservations.first.instances and
+                 resp.reservations.first.instances.first
+                return resp.reservations.first.instances.first
+              end
             rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
               return nil
             rescue NoMethodError => e
@@ -2134,7 +2136,8 @@ module MU
             "cloud" => "AWS",
             "bastion" => true,
             "size" => "t2.small",
-            "run_list" => [ "mu-utility::nat" ],
+            "run_list" => [ "mu-nat" ],
+            "groomer" => "Ansible",
             "platform" => "centos7",
             "ssh_user" => "centos",
             "associate_public_ip" => true,
@@ -2222,7 +2225,10 @@ module MU
             MU::Cloud.availableClouds.each { |cloud|
               next if cloud == "AWS"
               cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-              foreign_types = (cloudbase.listInstanceTypes)[cloudbase.myRegion]
+              foreign_types = (cloudbase.listInstanceTypes).values.first
+              if foreign_types.size == 1
+                foreign_types = foreign_types.values.first
+              end
               if foreign_types and foreign_types.size > 0 and foreign_types.has_key?(size)
                 vcpu = foreign_types[size]["vcpu"]
                 mem = foreign_types[size]["memory"]

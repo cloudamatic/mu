@@ -46,7 +46,7 @@ end
 Signal.trap("URG") do
   puts "------------------------------"
   puts "Open flock() locks:"
-  pp MU::MommaCat.locks
+  pp MU::MommaCat.trapSafeLocks
   puts "------------------------------"
 end
 

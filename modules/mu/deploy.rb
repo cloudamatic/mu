@@ -137,11 +137,7 @@ module MU
         MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
       end
 
-      # Instance variables that are effectively class variables
-      @my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
-      @my_az = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
-
-      @fromName ='chef-server';
+      @fromName = MU.muCfg['mu_admin_email']
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
@@ -631,6 +627,17 @@ MESSAGE_END
                   myservice['#MUOBJECT'] = ext_obj
                 end
                 myservice['#MUOBJECT'] ||= myservice["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
+              end
+            rescue RuntimeError => e
+              # cloud implementations can iterate over these same hashes,
+              # which can throw this if we catch them at the wrong moment.
+              # here's your hacky workaround.
+              if e.message.match(/can't add a new key into hash during iteration/)
+                MU.log e.message+" in main deploy thread, probably transient", MU::DEBUG
+                sleep 1
+                retry
+              else
+                raise e
               end
             rescue Exception => e
               MU::MommaCat.unlockAll
