@@ -343,6 +343,17 @@ module MU
     ((Gem.paths and Gem.paths.home and File.realpath(File.expand_path(File.dirname(__FILE__))).match(/^#{Gem.paths.home}/)) or !Dir.exist?("/opt/mu"))
   end
 
+  # Are we operating in a gem?
+  def self.inGem?
+    return @in_gem if defined? @in_gem
+
+    if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
+      @in_gem = true
+    else
+      @in_gem = false
+    end
+  end
+
   # The main (root) Mu user's data directory.
   @@mainDataDir = File.expand_path(@@myRoot+"/../var")
   # The main (root) Mu user's data directory.
@@ -631,8 +642,9 @@ module MU
      !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
-      resolver = Resolv::DNS.new
-      @@mu_public_ip = resolver.getaddress(@@mu_public_addr).to_s
+      hostname = IO.readlines("/etc/hostname")[0].gsub /\n/, ''
+
+      @@mu_public_ip = File.open('/etc/hosts').grep(/.*#{hostname}.*/).first.match(/^\d+\.\d+\.\d+\.\d+/)[0]
     else
       @@mu_public_ip = @@mu_public_addr
     end

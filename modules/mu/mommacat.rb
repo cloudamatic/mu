@@ -2628,7 +2628,7 @@ MESSAGE_END
         update_servers = update_servers - skip
       end
 
-      return if update_servers.size < 1
+      return if MU.inGem? || update_servers.size < 1
       threads = []
       parent_thread_id = Thread.current.object_id
       update_servers.each { |sibling|
@@ -2744,7 +2744,12 @@ MESSAGE_END
       Dir.chdir(MU.myRoot+"/modules")
 
       # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
-      cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      if MU.inGem?
+        cmd = %Q{thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      else
+        cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
+      end
+
       MU.log cmd, MU::NOTICE
       output = %x{#{cmd}}
       Dir.chdir(origdir)

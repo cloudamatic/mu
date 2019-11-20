@@ -120,6 +120,7 @@ module MU
             @config['mu_name'] = @mu_name
 
           end
+          @groomer = MU::Groomer.new(self) unless MU.inGem?
           @config['instance_secret'] ||= Password.random(50)
 
         end
@@ -938,11 +939,17 @@ module MU
 
           # See if this node already exists in our config management. If it does,
           # we're done.
-          if @groomer.haveBootstrapped?
+          if MU.inGem?
+            MU.log "Deploying from a gem, not grooming"
+
+            return true
+          elsif @groomer.haveBootstrapped?
             MU.log "Node #{node} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
+
             if @config['groom'].nil? or @config['groom']
               @groomer.saveDeployData
             end
+
             MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
             MU::MommaCat.unlock(instance.instance_id+"-groom")
             return true
