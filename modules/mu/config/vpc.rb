@@ -390,16 +390,16 @@ module MU
                   "description" => "The ID of a VPN, NAT, or Internet gateway attached to your VPC. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gateway, and will implicitly create one if none exists. #DENY will ensure that the subnets associated with this route do *not* have a route outside of the VPC's local address space (primarily for Google Cloud, where we must explicitly disable egress to the internet)."
               },
               "nat_host_id" => {
-                  "type" => "string",
-                  "description" => "The instance id of a NAT host in this VPN."
+                "type" => "string",
+                "description" => "The instance id of a NAT host in this VPC."
               },
               "nat_host_name" => {
-                  "type" => "string",
-                  "description" => "The MU resource name or Name tag of a NAT host in this VPN."
+                "type" => "string",
+                "description" => "The MU resource name or Name tag of a NAT host in this VPC."
               },
               "interface" => {
-                  "type" => "string",
-                  "description" => "A network interface over which to route."
+                "type" => "string",
+                "description" => "A network interface over which to route."
               }
           }
         }

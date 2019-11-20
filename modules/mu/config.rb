@@ -2522,14 +2522,13 @@ $CONFIGURABLES
                       end
                       example += "#      "+l+"    "+"\n"
                     }
-                    example += "# .\n#\n" if complexity == "simple"
+                    example += "# &nbsp;\n#\n" if complexity == "simple"
                   }
                   schema["properties"][name]["items"]["description"] ||= ""
                   if !schema["properties"][name]["items"]["description"].empty?
                     schema["properties"][name]["items"]["description"] += "\n"
                   end
                   schema["properties"][name]["items"]["description"] += example
-                  puts schema["properties"][name]["items"]["description"]
                 end
               end
             end
