@@ -511,7 +511,7 @@ GEM
       winrm-elevated (~> 1.0)
       winrm-fs (~> 1.0)
     chef-sugar (5.0.1)
-    chef-vault (3.3.0)
+    chef-vault (3.4.3)
     chef-zero (14.0.13)
       ffi-yajl (~> 2.2)
       hashie (>= 2.0, < 4.0)
@@ -789,7 +789,7 @@ DEPENDENCIES
   berkshelf (~> 7.0)
   chef-dk (~> 3.2.30)
   chef-sugar
-  chef-vault (~> 3.3.0)
+  chef-vault (~> 3.4)
   cloud-mu!
   ffi-libarchive
   foodcritic (~> 14.1.0)
