@@ -1,4 +1,4 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: <%= queues_name %>
 visibility_timeout: "1 hour"
 failqueue:

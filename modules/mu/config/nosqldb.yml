@@ -1,4 +1,4 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: complex
 stream: NEW_IMAGE
 read_capacity: 50

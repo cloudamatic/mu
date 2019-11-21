@@ -1,4 +1,4 @@
-<% if $complexity == "complex" %>
+<% if complexity == "complex" %>
 
 name: database-complex
 size: db.r4.large
@@ -12,7 +12,7 @@ backup_retention_period: 10
 cluster_node_count: 2
 create_cluster: true
 vpc:
-  vpc_name: <%= vpc_name %>
+  name: <%= vpc_name %>
 create_read_replica: true
 master_user: Bob
 multi_az_on_create: true
@@ -21,7 +21,7 @@ multi_az_on_create: true
 
 name: database-simple
 vpc:
-  vpc_name: <%= vpc_name %>
+  name: <%= vpc_name %>
 size: <%= db_size %>
 engine: mariadb
 storage: 5

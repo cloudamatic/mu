@@ -1161,7 +1161,6 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-
           tagfilters = [
             {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
@@ -1172,7 +1171,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
           vpcs = []
           retries = 0
           begin
-            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(filters: tagfilters).vpcs
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(filters: tagfilters, max_results: 1000).vpcs
             vpcs = resp if !resp.empty?
           rescue Aws::EC2::Errors::InvalidVpcIDNotFound => e
             if retries < 5

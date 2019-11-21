@@ -1,6 +1,11 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: <%= logs_name %>
-# TODO: BUILD OUT COMPLEX EXAMPLE
+filters:
+- name: myfilter
+  metric_name: LogMetrics/myfilter
+  namespace: ok
+  search_pattern: failed
+  value: yes
 <% else %>
 name: <%= logs_name %>
 <% end %>
