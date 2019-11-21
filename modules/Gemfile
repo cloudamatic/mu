@@ -28,7 +28,7 @@ gem 'thin'
 gem 'berkshelf', '~> 7.0'
 gem 'mysql2'
 gem 'ruby-wmi'
-gem 'chef-vault', "~> 3.3.0"
+gem 'chef-vault', "~> 3.4"
 #gem 'netaddr', '~> 2.0.3'
 #gem 'nokogiri', "~> 1.8.4"
 #gem 'solve', '~> 4.0.0'
