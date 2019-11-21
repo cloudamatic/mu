@@ -212,7 +212,7 @@ Test Kitchen:
   before_script:
   - echo "export MU_BRANCH=$(CI_COMMIT_REF_NAME)" > ./kitchen_vars
   script:
-  - kitchen test -c 5
+  - kitchen test mu-install-aws-amazon2 mu-install-aws-centos-7 -c 5
   only:
   - master
   - development
