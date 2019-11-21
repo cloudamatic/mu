@@ -271,8 +271,6 @@ Docker Build:
   except:
     variables:
     - $IMAGE_BUILD
-  tags:
-    - docker-build
 
 DockerTest:
   stage: Smoke Test
