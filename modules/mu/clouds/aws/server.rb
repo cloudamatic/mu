@@ -120,9 +120,10 @@ module MU
             @config['mu_name'] = @mu_name
 
           end
-          @groomer = MU::Groomer.new(self) unless MU.inGem?
+
           @config['instance_secret'] ||= Password.random(50)
 
+          @groomer = MU::Groomer.new(self) unless MU.inGem?
         end
 
         @@userdata_semaphore = Mutex.new
