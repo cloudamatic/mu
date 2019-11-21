@@ -2468,8 +2468,10 @@ $CONFIGURABLES
     # and turn into documentation.
     def self.printSchema(kitten_rb, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
       return if schema.nil?
+
       if schema["type"] == "object"
-        printme = Array.new
+        printme = []
+
         if !schema["properties"].nil?
           # order sub-elements by whether they're required, so we can use YARD's
           # grouping tags on them
@@ -2484,6 +2486,53 @@ $CONFIGURABLES
           printme << "# @!group Optional parameters" if schema["required"].nil? or schema["required"].size == 0
           prop_list.each { |name|
             prop = schema["properties"][name]
+
+            if class_hierarchy.size == 1
+
+              _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(name)
+              if cfg_name
+                example_path = MU.myRoot+"/modules/mu/config/"+cfg_name+".yml"
+                if File.exist?(example_path)
+                  example = "#\n# Examples:\n#\n"
+                  # XXX these variables are all parameters from the BoKs in
+                  # modules/tests. A really clever implementation would read
+                  # and parse them to get default values, perhaps, instead of
+                  # hard-coding them here.
+                  instance_type = "t2.medium"
+                  db_size = "db.t2.medium"
+                  vpc_name = "some_vpc"
+                  logs_name = "some_loggroup"
+                  queues_name = "some_queue"
+                  server_pools_name = "some_server_pool"
+                  ["simple", "complex"].each { |complexity|
+                    erb = ERB.new(File.read(example_path), nil, "<>")
+                    example += "#      !!!yaml\n"
+                    example += "#      ---\n"
+                    example += "#      appname: #{complexity}\n"
+                    example += "#      #{cfg_plural}:\n"
+                    firstline = true
+                    erb.result(binding).split(/\n/).each { |l|
+                      l.sub!(/#.*/, "")
+                      next if l.empty? or l.match(/^\s+$/)
+                      if firstline
+                        l = "- "+l
+                        firstline = false
+                      else
+                        l = "  "+l
+                      end
+                      example += "#      "+l+"    "+"\n"
+                    }
+                    example += "# &nbsp;\n#\n" if complexity == "simple"
+                  }
+                  schema["properties"][name]["items"]["description"] ||= ""
+                  if !schema["properties"][name]["items"]["description"].empty?
+                    schema["properties"][name]["items"]["description"] += "\n"
+                  end
+                  schema["properties"][name]["items"]["description"] += example
+                end
+              end
+            end
+
             if !schema["required"].nil? and schema["required"].include?(name)
               printme << "# @!group Required parameters" if !req
               req = true

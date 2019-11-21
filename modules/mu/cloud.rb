@@ -1142,6 +1142,30 @@ module MU
 
         # Remove all metadata and cloud resources associated with this object
         def destroy
+          if self.class.cfg_name == "server"
+            begin
+              ip = canonicalIP
+              MU::MommaCat.removeIPFromSSHKnownHosts(ip) if ip
+              if @deploy and @deploy.deployment and
+                 @deploy.deployment['servers'] and @config['name'] and
+                me = @deploy.deployment['servers'][@config['name']][@mu_name]
+                if me
+                  ["private_ip_address", "public_ip_address"].each { |field|
+                    if me[field]
+                      MU::MommaCat.removeIPFromSSHKnownHosts(me[field])
+                    end
+                  }
+                  if me["private_ip_list"]
+                    me["private_ip_list"].each { |ip|
+                      MU::MommaCat.removeIPFromSSHKnownHosts(ip)
+                    }
+                  end
+                end
+              end
+            rescue MU::MuError => e
+              MU.log e.message, MU::WARN
+            end
+          end
           if !@cloudobj.nil? and !@cloudobj.groomer.nil?
             @cloudobj.groomer.cleanup
           elsif !@groomer.nil?
