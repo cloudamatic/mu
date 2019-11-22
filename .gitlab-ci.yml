@@ -15,108 +15,108 @@ variables:
   AWS_REGION: us-east-1
   CHEF_LICENSE: "accept"
   
-# .Rubocop:
-#   stage: Lint Test
-#   image: chef/chefdk:latest
-#   script:
-#     - rubocop modules/
-#     - rubocop bin/
-#   allow_failure: true
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+.Rubocop:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - rubocop modules/
+    - rubocop bin/
+  allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
-# .Cookstyle:
-#   stage: Lint Test
-#   image: chef/chefdk:latest
-#   script:
-#     - cookstyle cookbooks/
-#   allow_failure: true
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+.Cookstyle:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - cookstyle cookbooks/
+  allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
-# Foodcritic:
-#   stage: Lint Test
-#   image: chef/chefdk:latest
-#   script:
-#     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+Foodcritic:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
+  except:
+    variables:
+    - $IMAGE_BUILD
 
-# Foodcritic Deprecations:
-#   stage: Lint Test
-#   image: chef/chefdk:latest
-#   script:
-#     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+Foodcritic Deprecations:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
+  except:
+    variables:
+    - $IMAGE_BUILD
 
-# ChefSpec:
-#   stage: Test
-#   image: chef/chefdk:latest
-#   script:
-#     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
-#   allow_failure: true
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+ChefSpec:
+  stage: Test
+  image: chef/chefdk:latest
+  script:
+    - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
+  allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
-# .Rspec:
-#   stage: Test
-#   before_script:
-#     - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_ID__/${AZURE_CLIENT_ID}/" > spec/azure_creds.tmp
-#     - cp spec/azure_creds.tmp spec/azure_creds
-#     - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/azure_creds.tmp
-#     - cp spec/azure_creds.tmp spec/azure_creds
-#     - cat spec/mu.yaml | sed -e "s/__AZURE_DIRECTORY_ID__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
-#     - cp spec/mu.yaml.tmp spec/mu.yaml
-#     - cat spec/mu.yaml | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
-#     - cp spec/mu.yaml.tmp spec/mu.yaml
-#   script:
-#     - cd modules
-#     - bundle install
-#     - gem install rspec simplecov simplecov-console
-#     - cd ../
-#     - rspec
-#   after_script:
-#     - shred -u spec/azure_creds
-#     - shred -u spec/azure_creds.tmp
-#     - shred -u spec/mu.yaml
-#     - shred -u spec/mu.yaml.tmp
-#   allow_failure: true
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+.Rspec:
+  stage: Test
+  before_script:
+    - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_ID__/${AZURE_CLIENT_ID}/" > spec/azure_creds.tmp
+    - cp spec/azure_creds.tmp spec/azure_creds
+    - cat spec/azure_creds | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/azure_creds.tmp
+    - cp spec/azure_creds.tmp spec/azure_creds
+    - cat spec/mu.yaml | sed -e "s/__AZURE_DIRECTORY_ID__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
+    - cp spec/mu.yaml.tmp spec/mu.yaml
+    - cat spec/mu.yaml | sed -e "s/__AZURE_CLIENT_SECRET__/${AZURE_CLIENT_SECRET}/" > spec/mu.yaml.tmp
+    - cp spec/mu.yaml.tmp spec/mu.yaml
+  script:
+    - cd modules
+    - bundle install
+    - gem install rspec simplecov simplecov-console
+    - cd ../
+    - rspec
+  after_script:
+    - shred -u spec/azure_creds
+    - shred -u spec/azure_creds.tmp
+    - shred -u spec/mu.yaml
+    - shred -u spec/mu.yaml.tmp
+  allow_failure: true
+  except:
+    variables:
+    - $IMAGE_BUILD
 
-# New_Berks:
-#   stage: Test
-#   image: chef/chefdk:latest
-#   script:
-#     - apt-get -qq update
-#     - apt-get -qq install git -y
-#     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Installing $d" && cd "cookbooks/$d" && berks install); done
-#     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "cookbooks/$d" && berks verify); done
-#     - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "cookbooks/$d" && berks outdated); done
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+New_Berks:
+  stage: Test
+  image: chef/chefdk:latest
+  script:
+    - apt-get -qq update
+    - apt-get -qq install git -y
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Installing $d" && cd "cookbooks/$d" && berks install); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Verifying $d" && cd "cookbooks/$d" && berks verify); done
+    - for d in `ls -1 ./cookbooks | grep -v '^firewall$'` ; do (echo && echo "Analyzing $d" && cd "cookbooks/$d" && berks outdated); done
+  except:
+    variables:
+    - $IMAGE_BUILD
   
-# Berks:
-#   stage: Test
-#   image: chef/chefdk:latest
-#   script:
-#     - apt-get -qq update
-#     - apt-get -qq install git -y
-#     - rm -rf Berksfile.lock
-#     - berks install
-#     - berks verify
-#     - berks outdated
-#   except:
-#     variables:
-#     - $IMAGE_BUILD
+Berks:
+  stage: Test
+  image: chef/chefdk:latest
+  script:
+    - apt-get -qq update
+    - apt-get -qq install git -y
+    - rm -rf Berksfile.lock
+    - berks install
+    - berks verify
+    - berks outdated
+  except:
+    variables:
+    - $IMAGE_BUILD
 
 Gem Build:
   stage: Build
@@ -241,7 +241,6 @@ Gen Docs:
   - master
   - development
   - gen_docs
-  - tweak_cicd
   retry: 2
   artifacts:
     paths:
@@ -261,21 +260,19 @@ DockerHub Upload:
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME mu
-    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
+    - docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PWD
   script:
     - docker tag mu egtlabs/mu:latest
     - docker tag mu egtlabs/mu:$MU_VERSION
     - docker tag mu egtlabs/mu:$MU_VERSION-$OS
     - docker tag mu egtlabs/mu:$OS
+    - docker tag mu egtlabs/mu:development
     - if [ $CI_COMMIT_REF_NAME == "master" ]; then docker push egtlabs/mu:latest; fi
     - if [ $CI_COMMIT_REF_NAME == "master" ]; then docker push egtlabs/mu:$MU_VERSION; fi
-    - if [ $CI_COMMIT_REF_NAME == "development" ]; then  docker push egtlabs/mu:$MU_VERSION; fi
-    - if [ $CI_COMMIT_REF_NAME == "tweak_cicd" ]; then  docker push egtlabs/mu:$MU_VERSION; fi
-    # - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
+    - if [ $CI_COMMIT_REF_NAME == "development" ]; then  docker push egtlabs/mu:development; fi
   only:
     - master
     - development
-    - tweak_cicd
 
 Upload Gem:
   stage: Deploy
