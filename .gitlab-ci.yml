@@ -143,9 +143,6 @@ Docker Build:
   image: docker:stable
   services:
     - docker:dind
-  # variables:
-  #   DOCKER_DRIVER: overlay2
-  #   DOCKER_HOST: tcp://docker:2375/
   dependencies:
     - Gem Build
   before_script:
@@ -156,10 +153,7 @@ Docker Build:
     - docker build -t mu .
     - docker run mu mu-configure --help
     - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    # - docker tag mu $CI_REGISTRY_IMAGE:$MU_VERSION
-    # - docker tag mu $CI_REGISTRY_IMAGE:$MU_VERSION
-    # - docker tag mu $CI_REGISTRY_IMAGE:$MU_VERSION-$OS
-    # - docker tag mu $CI_REGISTRY_IMAGE:$OS
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   # only:
   #   - master
   #   - development
@@ -168,6 +162,7 @@ Docker Build:
   # except:
   #   variables:
   #   - $IMAGE_BUILD
+  retry: 2
 
 Docker Test:
   stage: Smoke Test
