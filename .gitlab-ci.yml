@@ -240,6 +240,7 @@ Gen Docs:
   - master
   - development
   - gen_docs
+  - tweak_cicd
   artifacts:
     paths:
     - public/
