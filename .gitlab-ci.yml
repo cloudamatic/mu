@@ -147,10 +147,11 @@ Docker Build:
     - Gem Build
   before_script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME || true
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
   script:
-    - docker build -t mu .
+    - docker build --cache-from $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME -t mu .
     - docker run mu mu-configure --help
     - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
