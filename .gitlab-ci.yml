@@ -155,7 +155,7 @@ Docker Build:
   except:
     variables:
     - $IMAGE_BUILD
-  retry: 5
+  retry: 2
 
 Gem Parser Test:
   stage: Smoke Test
