@@ -166,6 +166,7 @@ Docker Build:
 
 Docker Test:
   stage: Smoke Test
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   script:
     - mu-configure --help # We should try to come up with a better test than this
 
