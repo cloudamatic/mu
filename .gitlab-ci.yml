@@ -1,4 +1,4 @@
-image: ruby:2.5
+image: ruby:2.5-slim
 
 stages:
   - Lint Test
@@ -175,23 +175,6 @@ Gem Parser Test:
     variables:
     - $IMAGE_BUILD
 
-.Muby Build:
-  stage: Build
-  image: centos
-  script: 
-    - yum -y groupinstall 'Development Tools'
-    - yum -y install rpm-build
-    - yum-builddep -y extras/ruby_rpm/muby.spec
-    - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
-    - echo "maybe do something cool and smart here?"
-  only:
-    - master
-    - development
-  allow_failure: true
-  except:
-    variables:
-    - $IMAGE_BUILD
-
 .Mu Install:
   stage: Smoke Test
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
@@ -249,13 +232,11 @@ Gen Docs:
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   script:
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" ---google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" -google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
     - mu-gen-docs
     - mkdir public
     - cp -Rf /var/www/html/docs/* public
     - ls public
-  dependencies:
-  - Gem Build
   only:
   - master
   - development
