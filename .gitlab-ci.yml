@@ -146,6 +146,8 @@ Docker Build:
     - docker run mu mu-configure --help
     - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   only:
     - master
     - development
@@ -159,7 +161,7 @@ Docker Build:
 
 Gem Parser Test:
   stage: Smoke Test
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
@@ -177,7 +179,7 @@ Gem Parser Test:
 
 .Mu Install:
   stage: Smoke Test
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
@@ -228,7 +230,7 @@ Smoke Test:
 
 Gen Docs:
   stage: Merge/Tag
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
     - mkdir public/
     - mkdir -p /var/www/html/docs
@@ -258,8 +260,8 @@ DockerHub Upload:
   before_script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME mu
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA mu
     - docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PWD
   script:
     - docker tag mu egtlabs/mu:latest
