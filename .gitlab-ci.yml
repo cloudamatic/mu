@@ -1,4 +1,4 @@
-image: ruby:2.5
+image: ruby:2.5-slim
 
 stages:
   - Lint Test
@@ -9,12 +9,15 @@ stages:
   - Smoke Test
   - Merge/Tag
   - Deploy
+
+variables:
+  DOCKER_DRIVER: overlay
+  AWS_REGION: us-east-1
+  CHEF_LICENSE: "accept"
   
-Rubocop:
+.Rubocop:
   stage: Lint Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - rubocop modules/
     - rubocop bin/
@@ -23,11 +26,9 @@ Rubocop:
     variables:
     - $IMAGE_BUILD
 
-Cookstyle:
+.Cookstyle:
   stage: Lint Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - cookstyle cookbooks/
   allow_failure: true
@@ -38,8 +39,6 @@ Cookstyle:
 Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122 -X firewall/*
   except:
@@ -49,8 +48,6 @@ Foodcritic:
 Foodcritic Deprecations:
   stage: Lint Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - foodcritic cookbooks/ -t deprecated -t chef13 -t chef14 -t chef15 -X cokbooks/firewall/*
   except:
@@ -60,8 +57,6 @@ Foodcritic Deprecations:
 ChefSpec:
   stage: Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
   allow_failure: true
@@ -99,8 +94,6 @@ ChefSpec:
 New_Berks:
   stage: Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
@@ -114,8 +107,6 @@ New_Berks:
 Berks:
   stage: Test
   image: chef/chefdk:latest
-  variables:
-    CHEF_LICENSE: "accept"
   script:
     - apt-get -qq update
     - apt-get -qq install git -y
@@ -131,12 +122,6 @@ Gem Build:
   stage: Build
   script:
     - gem build cloud-mu.gemspec
-  only:
-    - master
-    - development
-    - gen_docs
-    - /^gem-.*$/
-    - /^cicd-.*$/
   artifacts:
     paths:
     - cloud-mu-*.gem
@@ -144,60 +129,60 @@ Gem Build:
     variables:
     - $IMAGE_BUILD
 
-.Muby Build:
-  stage: Build
-  image: centos
-  script: 
-    - yum -y groupinstall 'Development Tools'
-    - yum -y install rpm-build
-    - yum-builddep -y extras/ruby_rpm/muby.spec
-    - /usr/bin/rpmbuild -ba extras/ruby_rpm/muby.spec
-    - echo "maybe do something cool and smart here?"
-  only:
-    - master
-    - development
-  allow_failure: true
-  except:
-    variables:
-    - $IMAGE_BUILD
-
-Gem Parser Test:
-  stage: Smoke Test
-  before_script: 
-  - export AWS_REGION='us-east-1'
-  script:
-    - apt-get -qq update
-    - apt-get -qq install dnsutils
-    - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-    - gem install cloud-mu-*.gem
-    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" ---google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" -google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
-    - mu-deploy -d modules/tests/super_simple_bok.yml
-    - mu-deploy -d modules/tests/super_complex_bok.yml
+Docker Build:
+  stage: Docker Build
+  image: docker:stable
+  services:
+    - docker:dind
   dependencies:
-  - Gem Build
+    - Gem Build
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME || true
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+  script:
+    - docker build --cache-from $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME -t mu .
+    - docker run mu mu-configure --help
+    - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   only:
     - master
     - development
     - /^gem-.*$/
     - /^cicd-.*$/
-  allow_failure: true
+    - /^docker-.*$/
+  except:
+    variables:
+    - $IMAGE_BUILD
+  retry: 2
+
+Gem Parser Test:
+  stage: Smoke Test
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  before_script:
+    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
+  script:
+    - mu-deploy -d modules/tests/super_simple_bok.yml
+    - mu-deploy -d modules/tests/super_complex_bok.yml
+  only:
+    - master
+    - development
+    - /^gem-.*$/
+    - /^cicd-.*$/
   except:
     variables:
     - $IMAGE_BUILD
 
 .Mu Install:
   stage: Smoke Test
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   before_script:
-  - export AWS_REGION='us-east-1'
-  - yum install -qy ansible bind-utils
+    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
   script:
-  - gem install cloud-mu-*.gem
-  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-  - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
-  - for cloud in AWS Azure Google; do mu-deploy install/mu-master.yaml -p name=$cloud-MU-$CI_COMMIT_SHORT_SHA -p cloud=$cloud; done
+    - for cloud in AWS Azure Google; do mu-deploy install/mu-master.yaml -p name=$cloud-MU-$CI_COMMIT_SHORT_SHA -p cloud=$cloud; done
   only:
   - master
   - development
@@ -213,22 +198,21 @@ Test Kitchen:
   - echo "export MU_BRANCH=$(CI_COMMIT_REF_NAME)" > ./kitchen_vars
   script:
   - kitchen test mu-install-aws-amazon2 mu-install-aws-centos-7 -c 5
+  after_script:
+  - kitchen destroy
   only:
   - master
   - development
-  - gem-mess_with_test_kitchen
-  after_script:
-  - kitchen destroy
-
+  when: manual
+  
 Smoke Test:
   stage: Smoke Test
-  before_script: 
-  - export AWS_REGION='us-east-1'
+  before_script:
+    - apt-get -qq update
+    - apt-get -qq -y install dnsutils
+    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
   script:
-  - apt-get -qq update
-  - apt-get -qq -y install dnsutils
-  - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
   - mu-upload-chef-artifacts -sn
   - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
   tags: 
@@ -241,112 +225,23 @@ Smoke Test:
     variables:
     - $IMAGE_BUILD
 
-Docker Build:
-  stage: Docker Build
-  services:
-  - docker:dind
-  image: docker:stable
-  variables:
-    DOCKER_DRIVER: overlay2
-    DOCKER_HOST: tcp://docker:2375/
-  dependencies:
-    - Gem Build
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
-    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker build -t $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$MU_VERSION -t $CI_REGISTRY_IMAGE:$MU_VERSION-$OS -t $CI_REGISTRY_IMAGE:$OS -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - echo "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest" "$CI_REGISTRY_IMAGE:$MU_VERSION" "$CI_REGISTRY_IMAGE:$MU_VERSION-$OS" "$CI_REGISTRY_IMAGE:$OS" | xargs -n 1 docker push
-    #- docker run my-docker-image /script/to/run/tests
-  only:
-    - master
-    - development
-    - /^gem-.*$/
-    - /^cicd-.*$/
-  except:
-    variables:
-    - $IMAGE_BUILD
-
-DockerTest:
-  stage: Smoke Test
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-  script:
-    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
-    - echo "hello from mu $MU_VERSION"
-  only:
-    - master
-    - development
-    - /^gem-.*$/
-    - /^cicd-.*$/
-
-DockerDeploy:
-  stage: Deploy
-  services:
-  - docker:dind
-  image: docker:stable
-  variables:
-    DOCKER_DRIVER: overlay2
-    DOCKER_HOST: tcp://docker:2375/
-  when: on_success
-  script:
-    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
-    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION-$OS
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$OS
-    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
-    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
-  only:
-    - master
-
-DockerDeploy Manual:
-  stage: Deploy
-  services:
-  - docker:dind
-  image: docker:stable
-  variables:
-    DOCKER_DRIVER: overlay2
-    DOCKER_HOST: tcp://docker:2375/
-  when: manual
-  script:
-    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
-    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:latest
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$MU_VERSION-$OS
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA egtlabs/mu:$OS
-    - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
-    - echo "egtlabs/mu:latest" "egtlabs/mu:$MU_VERSION" "egtlabs/mu:$MU_VERSION-$OS" "egtlabs/mu:$OS" | xargs -n 1 docker push
-  only:
-  - development
-  - /^gem-.*$/
-  - /^cicd-.*$/
 
 Gen Docs:
   stage: Merge/Tag
-  before_script: 
-  - export AWS_REGION='us-east-1'
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  before_script:
+    - mkdir public/
+    - mkdir -p /var/www/html/docs
+    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
   script:
-  - apt-get -qq update
-  - apt-get -qq -y install dnsutils
-  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-  - gem install cloud-mu-*.gem
-  - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" ---google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" -google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
-  - mu-gen-docs
-  - mkdir public
-  - cp -Rf /var/www/html/docs/* public
-  - ls public
-  dependencies:
-  - Gem Build
+    - mu-gen-docs
+    - mv -f /var/www/html/docs/* public/
   only:
   - master
   - development
   - gen_docs
+  retry: 2
   artifacts:
     paths:
     - public/
@@ -354,28 +249,30 @@ Gen Docs:
     variables:
     - $IMAGE_BUILD
 
-.GitHub Pages:
+DockerHub Upload:
   stage: Deploy
-  image: bitnami/git:latest
+  services:
+  - docker:dind
+  image: docker:stable
+  when: on_success
+  before_script:
+    - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
+    - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME mu
+    - docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PWD
   script:
-  - echo "Hello I am going to push to GitHub"
-  - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-  - git clone git@github.com:cloudamatic/cloudamatic.github.io.git
-  - cp -Rf public/* cloudamatic.github.io
-  - cd cloudamatic.github.io
-  - git status
-  - git add -a
-  - git commit -m "$CI_COMMIT_MESSAGE"
-  - git push origin master
-  dependencies:
-  - Gen Docs
+    - docker tag mu egtlabs/mu:latest
+    - docker tag mu egtlabs/mu:$MU_VERSION
+    - docker tag mu egtlabs/mu:$MU_VERSION-$OS
+    - docker tag mu egtlabs/mu:$OS
+    - docker tag mu egtlabs/mu:development
+    - if [ $CI_COMMIT_REF_NAME == "master" ]; then docker push egtlabs/mu:latest; fi
+    - if [ $CI_COMMIT_REF_NAME == "master" ]; then docker push egtlabs/mu:$MU_VERSION; fi
+    - if [ $CI_COMMIT_REF_NAME == "development" ]; then  docker push egtlabs/mu:development; fi
   only:
-  - master
-  - gen_docs
-  allow_failure: true
-  except:
-    variables:
-    - $IMAGE_BUILD
+    - master
+    - development
 
 Upload Gem:
   stage: Deploy
