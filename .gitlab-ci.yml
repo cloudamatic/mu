@@ -211,7 +211,7 @@ Gem Parser Test:
 
 .Mu Install:
   stage: Smoke Test
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   before_script:
   - export AWS_REGION='us-east-1'
   script:
@@ -276,8 +276,8 @@ DockerHub Upload:
   before_script:
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")
-    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA mu
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME mu
     - echo $DOCKER_PASS | docker login --username zr2d2 --password-stdin
   script:
     - docker tag mu egtlabs/mu:latest
@@ -296,7 +296,7 @@ DockerHub Upload:
 
 Gen Docs:
   stage: Merge/Tag
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   before_script: 
     - export AWS_REGION='us-east-1'
   script:
