@@ -230,14 +230,13 @@ Gen Docs:
   stage: Merge/Tag
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   before_script:
-    - mkdir public
+    - mkdir public/
     - mkdir -p /var/www/html/docs
-    - ln -s public /var/www/html/docs
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
   script:
     - mu-gen-docs
-    - ls public
+    - mv -rf /var/www/html/docs/* public/
   only:
   - master
   - development
