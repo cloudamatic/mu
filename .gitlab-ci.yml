@@ -152,7 +152,7 @@ Docker Build:
   script:
     - docker build -t mu .
     - docker run mu mu-configure --help
-    - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag mu $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   # only:
   #   - master
