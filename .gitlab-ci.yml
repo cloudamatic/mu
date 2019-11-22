@@ -213,7 +213,6 @@ Gem Parser Test:
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
   - export AWS_REGION='us-east-1'
-  - yum install -qy ansible bind-utils
   script:
   - gem install cloud-mu-*.gem
   - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
