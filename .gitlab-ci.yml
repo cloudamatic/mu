@@ -160,9 +160,10 @@ Docker Build:
 Gem Parser Test:
   stage: Smoke Test
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
-  script:
+  before_script:
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
+  script:
     - mu-deploy -d modules/tests/super_simple_bok.yml
     - mu-deploy -d modules/tests/super_complex_bok.yml
   only:
@@ -177,12 +178,11 @@ Gem Parser Test:
 .Mu Install:
   stage: Smoke Test
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  before_script:
+    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
   script:
-  - gem install cloud-mu-*.gem
-  - curl https://gist.githubusercontent.com/ryantiger658/87ee6aca72802ce55211a7e6c6bfa76f/raw/aaa54c255936dcb7495b6befeababd44c162922d/.mu.yaml >> /root/.mu.yaml
-  - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
-  - for cloud in AWS Azure Google; do mu-deploy install/mu-master.yaml -p name=$cloud-MU-$CI_COMMIT_SHORT_SHA -p cloud=$cloud; done
+    - for cloud in AWS Azure Google; do mu-deploy install/mu-master.yaml -p name=$cloud-MU-$CI_COMMIT_SHORT_SHA -p cloud=$cloud; done
   only:
   - master
   - development
@@ -207,11 +207,12 @@ Test Kitchen:
   
 Smoke Test:
   stage: Smoke Test
+  before_script:
+    - apt-get -qq update
+    - apt-get -qq -y install dnsutils
+    - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+    - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
   script:
-  - apt-get -qq update
-  - apt-get -qq -y install dnsutils
-  - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
-  - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
   - mu-upload-chef-artifacts -sn
   - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
   tags: 
@@ -228,19 +229,21 @@ Smoke Test:
 Gen Docs:
   stage: Merge/Tag
   image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
-  script:
+  before_script:
+    - mkdir public
+    - mkdir -p /var/www/html/docs
+    - ln -s public /var/www/html/docs
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address="${myip}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --google-region=us-east4 --google-project="egt-labs-admin" --aws-region=us-east-1 --azure-region=eastus
+  script:
     - mu-gen-docs
-    - pwd
-    - mkdir public
-    - cp -Rf /var/www/html/docs/* public
     - ls public
   only:
   - master
   - development
   - gen_docs
   - tweak_cicd
+  retry: 2
   artifacts:
     paths:
     - public/
