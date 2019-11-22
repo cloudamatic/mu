@@ -66,6 +66,9 @@ basis:
 name: <%= server_pools_name %>
 min_size: 1
 max_size: 1
+vpc:
+  name: <%= vpc_name %>
+  subnet_pref: public
 basis:
   launch_config:
     name: <%= server_pools_name %>
