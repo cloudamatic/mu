@@ -1,11 +1,31 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: servercomplex
 size: <%= instance_type %>
 vpc:
-  vpc_name: <%= vpc_name %>
+  name: <%= vpc_name %>
+  subnet_pref: public
+platform: ubuntu
+ssh_user: ubuntu
+associate_public_ip: true
+canned_iam_policies:
+- AmazonDynamoDBReadOnlyAccess
+- AmazonElastiCacheFullAccess
+- AWSLambdaExecute
+groomer: Ansible
+run_list:
+- geerlingguy.java
+- geerlingguy.nginx
+- sensu.sensu
+tags:
+- key: ThisIsATag
+  value: ThisIsAValue
+src_dst_check: false
+storage:
+- device: /dev/xvdg
+  size: 50
 <% else %>
 name: serversimple
 size: <%= instance_type %>
 vpc:
-  vpc_name: <%= vpc_name %>
+  name: <%= vpc_name %>
 <% end %>

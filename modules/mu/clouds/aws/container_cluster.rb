@@ -66,6 +66,7 @@ module MU
                   ]
                 }
               end
+              params.delete(:version) if params[:version] == "latest"
 
               MU.log "Creating EKS cluster #{@mu_name}", details: params
               resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(params)
@@ -91,7 +92,7 @@ module MU
                 sleep 5
                 retry
               else
-                MU.log e.message, MU::WARN, details: role_arn
+                MU.log e.message, MU::WARN, details: params
                 sleep 5
                 retry
               end

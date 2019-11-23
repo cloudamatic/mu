@@ -1,4 +1,4 @@
-<% if $complexity == "complex" %>
+<% if complexity == "complex" %>
 
 name: searchdomain-complex
 instance_type: t2.small.elasticsearch
@@ -17,7 +17,7 @@ advanced_options:
 #  user_pool_id: "us-east-1_eSwWA1VYQ"
 slow_logs: <%= logs_name %>
 vpc:
-  vpc_name: <%= vpc_name %>
+  name: <%= vpc_name %>
 
 <% else %> # IF NOT COMPLEX THEN ASSUME SIMPLE
 

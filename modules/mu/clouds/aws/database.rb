@@ -928,7 +928,7 @@ module MU
               basename[0..29].gsub(/[^a-z0-9]/i, "")
             elsif config["engine"].match(/^sqlserver/)
               basename[0..127].gsub(/[^a-z0-9]/i, "")
-            elsif config["engine"].match(/^mysql/)
+            elsif config["engine"].match(/^(mysql|maria)/)
               basename[0..15].gsub(/[^a-z0-9]/i, "")
             elsif config["engine"].match(/^aurora/)
               basename[0..15].gsub(/[^a-z0-9]/i, "")
@@ -1603,7 +1603,7 @@ module MU
           db["license_model"] ||=
             if ["postgres", "postgresql", "aurora-postgresql"].include?(db["engine"])
               "postgresql-license"
-            elsif db["engine"] == "mysql"
+            elsif ["mysql", "mariadb"].include?(db["engine"])
               "general-public-license"
             else
               "license-included"

@@ -1,6 +1,57 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: <%= vpc_name %>
-# TODO: BUILD OUT COMPLEX EXAMPLE
+create_nat_gateway: true
+ip_block: 10.231.0.0/16
+enable_traffic_logging: true
+region: us-east-2
+availability_zones:
+- us-east-2a
+- us-east-2c
+- us-east-2e
+route_tables:
+  - name: public
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#INTERNET"
+  - name: private
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#NAT"
+subnets:
+- name: Subnet0Internet
+  availability_zone: us-east-2a
+  ip_block: 10.0.0.0/19
+  route_table: internet
+  map_public_ips: true
+  create_nat_gateway: true
+- name: Subnet0Private
+  availability_zone: us-east-2a
+  ip_block: 10.0.32.0/19
+  route_table: private
+- name: Subnet1Internet
+  availability_zone: us-east-2c
+  ip_block: 10.0.64.0/19
+  route_table: internet
+  map_public_ips: true
+- name: Subnet1Private
+  availability_zone: us-east-2c
+  ip_block: 10.0.96.0/19
+  route_table: private
+- name: Subnet2Internet
+  availability_zone: us-east-2e
+  ip_block: 10.0.128.0/19
+  route_table: internet
+  map_public_ips: true
+- name: Subnet2Private
+  availability_zone: us-east-2e
+  route_table: private
+  ip_block: 10.0.160.0/19
+- name: NonRoutable1
+  availability_zone: us-east-2a
+  ip_block: 10.0.192.0/19
+- name: NonRoutable2
+  availability_zone: us-east-2c
+  ip_block: 10.0.224.0/19
 <% else %>
 name: <%= vpc_name %>
 <% end %>

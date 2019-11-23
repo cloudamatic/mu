@@ -67,7 +67,7 @@ module MU
               domain_name: @deploydata['domain_name']
             ).domain_status
           else
-            raise MU::MuError "#{@mu_name} can't find its official Elasticsearch domain name!"
+            raise MuError "#{@mu_name} can't find its official Elasticsearch domain name!"
           end
         end
 

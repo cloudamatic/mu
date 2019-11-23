@@ -48,11 +48,13 @@ module MU
             require 'chef'
             require 'chef/api_client_v1'
             require 'chef/knife'
+            require 'chef/application/knife'
             require 'chef/knife/ssh'
             require 'chef/knife/bootstrap'
             require 'chef/knife/node_delete'
             require 'chef/knife/client_delete'
             require 'chef/knife/data_bag_delete'
+            require 'chef/knife/data_bag_show'
             require 'chef/knife/vault_delete'
             require 'chef/scan_access_control'
             require 'chef/file_access_control/unix'
@@ -826,6 +828,31 @@ retry
         end
 
         return if nodeonly
+
+        vaults_to_clean.each { |vault|
+          MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
+          MU.log "Purging unknown clients from #{vault['vault']} #{vault['item']}", MU::DEBUG
+          output = %x{#{@knife} data bag show "#{vault['vault']}" "#{vault['item']}_keys" --format json}
+          # This is an ugly workaround for --clean-unknown-clients, which in
+          # fact cleans known clients.
+          if output
+            begin
+              vault_cfg = JSON.parse(output)
+              if vault_cfg['clients']
+                searchstr = vault_cfg['clients'].map { |c| "name:"+c }.join(" OR ")
+                MU.log "Preserving client list for vault #{vault['vault']} #{vault['item']}", MU::DEBUG, details: vault_cfg['clients']
+                if !noop
+                  ::Chef::Knife.run(['vault', 'rotate', 'keys', vault['vault'], vault['item'], "--clean-unknown-clients"])
+                  ::Chef::Knife.run(['vault', 'update', vault['vault'], vault['item'], "--search", searchstr])
+                  ::Chef::Knife.run(['vault', 'refresh', vault['vault'], vault['item']])
+                end
+              end
+            rescue JSON::ParserError => e
+              MU.log "Error parsing JSON from data bag #{vault['vault']} #{vault['item']}_keys, skipping vault client cleanse", MU::WARN
+            end
+          end
+          MU::MommaCat.unlock("vault-#{vault['vault']}")
+        }
 
         begin
           deleteSecret(vault: node) if !noop

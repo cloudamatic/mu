@@ -1,4 +1,4 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: bucket
 acl: public-read
 versioning: true

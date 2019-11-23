@@ -1,4 +1,4 @@
-<% if $complexity == "complex" %>
+<% if complexity == "complex" %>
 name: k8s
 flavor: EKS
 instance_type: t2.medium

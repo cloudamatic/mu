@@ -1,8 +1,8 @@
-<% if $complexity == 'complex' %>
+<% if complexity == 'complex' %>
 name: <%= server_pools_name %>
 cloud: AWS
 vpc:
-  vpc_name: <%= vpc_name %>
+  name: <%= vpc_name %>
 alarms:
 - comparison_operator: "GreaterThanThreshold"
   metric_name: "HTTPCode_Target_5XX_Count"
@@ -66,6 +66,9 @@ basis:
 name: <%= server_pools_name %>
 min_size: 1
 max_size: 1
+vpc:
+  name: <%= vpc_name %>
+  subnet_pref: public
 basis:
   launch_config:
     name: <%= server_pools_name %>

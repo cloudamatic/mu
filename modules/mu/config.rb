@@ -317,6 +317,13 @@ module MU
         }
       end
 
+      # A way of dynamically defining +attr_reader+ without leaking memory
+      def self.define_reader(name)
+        define_method(name) {
+          instance_variable_get("@#{name.to_s}")
+        }
+      end
+
       # @param cfg [Hash]: A Basket of Kittens configuration hash containing
       # lookup information for a cloud object
       def initialize(cfg)
@@ -327,7 +334,7 @@ module MU
           elsif !cfg[field.to_sym].nil?
             self.instance_variable_set("@#{field.to_s}".to_sym, cfg[field.to_sym])
           end
-          self.singleton_class.instance_eval { attr_reader field.to_sym }
+          MU::Config::Ref.define_reader(field)
         }
         if cfg['tag'] and cfg['tag']['key'] and
            !cfg['tag']['key'].empty? and cfg['tag']['value']
@@ -985,6 +992,15 @@ return
 
       @config['credentials'] ||= @default_credentials
 
+      if @config['cloud'] and !MU::Cloud.availableClouds.include?(@config['cloud'])
+        if MU::Cloud.supportedClouds.include?(@config['cloud'])
+          MU.log "Cloud provider #{@config['cloud']} declared, but no #{@config['cloud']} credentials available", MU::ERR
+        else
+          MU.log "Cloud provider #{@config['cloud']} is not supported", MU::ERR, details: MU::Cloud.supportedClouds
+        end
+        exit 1
+      end
+
       types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
@@ -1273,6 +1289,16 @@ $CONFIGURABLES
         end
       }
       ok = true
+
+      if descriptor['cloud'] and
+         !MU::Cloud.availableClouds.include?(descriptor['cloud'])
+        if MU::Cloud.supportedClouds.include?(descriptor['cloud'])
+          MU.log "#{cfg_name} #{descriptor['name']} is configured with cloud #{descriptor['cloud']}, but no #{descriptor['cloud']} credentials available", MU::ERR
+        else
+          MU.log "#{cfg_name} #{descriptor['name']}: Cloud provider #{descriptor['cloud']} is not supported", MU::ERR, details: MU::Cloud.supportedClouds
+        end
+        return false
+      end
 
       descriptor["#MU_CLOUDCLASS"] = classname
 
@@ -1975,7 +2001,7 @@ $CONFIGURABLES
         conf_chunk.map! { |item|
           # If we're working on a resource type, go get implementation-specific
           # schema information so that we set those defaults correctly.
-          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"]
+          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
             toplevel_required, cloudschema = cloudclass.schema(self)
@@ -2126,6 +2152,10 @@ $CONFIGURABLES
       kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
 
+      if !MU::Cloud.supportedClouds.include?(kitten['cloud'])
+        return
+      end
+
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
@@ -2197,6 +2227,7 @@ $CONFIGURABLES
         }
         count = count + @kittens[type].size
       }
+
 
       if count == 0
         MU.log "You must declare at least one resource to create", MU::ERR
@@ -2437,8 +2468,10 @@ $CONFIGURABLES
     # and turn into documentation.
     def self.printSchema(kitten_rb, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
       return if schema.nil?
+
       if schema["type"] == "object"
-        printme = Array.new
+        printme = []
+
         if !schema["properties"].nil?
           # order sub-elements by whether they're required, so we can use YARD's
           # grouping tags on them
@@ -2453,6 +2486,53 @@ $CONFIGURABLES
           printme << "# @!group Optional parameters" if schema["required"].nil? or schema["required"].size == 0
           prop_list.each { |name|
             prop = schema["properties"][name]
+
+            if class_hierarchy.size == 1
+
+              _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(name)
+              if cfg_name
+                example_path = MU.myRoot+"/modules/mu/config/"+cfg_name+".yml"
+                if File.exist?(example_path)
+                  example = "#\n# Examples:\n#\n"
+                  # XXX these variables are all parameters from the BoKs in
+                  # modules/tests. A really clever implementation would read
+                  # and parse them to get default values, perhaps, instead of
+                  # hard-coding them here.
+                  instance_type = "t2.medium"
+                  db_size = "db.t2.medium"
+                  vpc_name = "some_vpc"
+                  logs_name = "some_loggroup"
+                  queues_name = "some_queue"
+                  server_pools_name = "some_server_pool"
+                  ["simple", "complex"].each { |complexity|
+                    erb = ERB.new(File.read(example_path), nil, "<>")
+                    example += "#      !!!yaml\n"
+                    example += "#      ---\n"
+                    example += "#      appname: #{complexity}\n"
+                    example += "#      #{cfg_plural}:\n"
+                    firstline = true
+                    erb.result(binding).split(/\n/).each { |l|
+                      l.sub!(/#.*/, "")
+                      next if l.empty? or l.match(/^\s+$/)
+                      if firstline
+                        l = "- "+l
+                        firstline = false
+                      else
+                        l = "  "+l
+                      end
+                      example += "#      "+l+"    "+"\n"
+                    }
+                    example += "# &nbsp;\n#\n" if complexity == "simple"
+                  }
+                  schema["properties"][name]["items"]["description"] ||= ""
+                  if !schema["properties"][name]["items"]["description"].empty?
+                    schema["properties"][name]["items"]["description"] += "\n"
+                  end
+                  schema["properties"][name]["items"]["description"] += example
+                end
+              end
+            end
+
             if !schema["required"].nil? and schema["required"].include?(name)
               printme << "# @!group Required parameters" if !req
               req = true

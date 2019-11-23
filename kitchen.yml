@@ -1,0 +1,97 @@
+driver:
+  name: ec2
+  region: us-east-1
+  subnet_id: subnet-00f6ebfde53bbdccd
+  instance_type: t2.medium
+  iam_profile_name: mu-master-role
+  associate_public_ip: true
+  interface: dns
+  shared_credentials_profile: test_kitchen
+  instance_initiated_shutdown_behavior: terminate
+  tags:
+      Name: kitchen-mu-node
+      created-by: mu-pipeline
+  sudo: true
+
+provisioner:
+  name: chef_zero
+  roles_path: roles
+  chef_license: accept
+
+verifier:
+  name: shell
+
+platforms:
+  - name: centos-7
+    vm_tags:
+      osdistro: centos7
+
+  - name: amazon2
+    vm_tags:
+      osdistro: amazon2
+
+  - name: centos-7-az
+    driver:
+      name: azurerm
+      subscription_id: '3d20ddd8-4652-4074-adda-0d127ef1f0e0'
+      location: 'East US'
+      #image_urn: 'tunnelbiz:centos70-min:centos7-min:0.1.1'
+      machine_size: 'Standard_B2s'
+      vm_name: mu-install
+      vm_tags:
+        osdistro: centos7
+
+suites:
+  - name: mu-install-aws
+    provisioner:
+      name:   shell
+      script:
+      - "./kitchen_vars"
+      - "./install/installer"
+      - "./install/mu-master.yaml"
+      command:
+      - sudo yum install -y bind-utils
+      - sudo chown root:root /tmp/installer
+      - sudo chmod u+x /tmp/installer
+      - sudo chown root:root /tmp/mu-master.yaml
+      - source /tmp/kitchen_vars
+      - env
+      - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+      - sudo /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
+      root_path: '/tmp/'
+    includes:
+      - centos-7
+      - amazon2
+
+  - name: mu-install-azure
+    provisioner:
+      name:   shell
+      script:
+      - "./install/installer"
+      - "./install/mu-master.yaml"
+      command:
+      - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
+      - sudo ll /tmp/ && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
+      - sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure
+      root_path: '/tmp/'
+    includes:
+      - centos-7-az
+
+  #- name: mu-node
+  #  run_list:
+  #    - recipe[mu-tools::newclient]
+  #    - recipe[mu-tools::gcloud]
+  #    - role[mu-node]
+  #  includes:
+      # - ubuntu
+  #    - centos-7
+      # - centos-6
+      # - rhel-7
+      # - rhel-6
+      # - amazon
+  #    - amazon2
+      # - windows
+
+  # - name: mu-master
+  #   run_list:
+  #     - role[mu-master]

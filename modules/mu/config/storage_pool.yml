@@ -1,4 +1,4 @@
-<% if $complexity == "complex" %>
+<% if complexity == "complex" %>
 # XXX glue to other resources in test BoKs, if you want to test complexity
 name: efs
 mount_points:

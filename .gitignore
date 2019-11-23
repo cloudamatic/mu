@@ -12,7 +12,10 @@ bin/vault
 .vscode
 Berksfile.lock
 cloud-mu-*.gem
+.kitchen/.kitchen.local.yml
+.kitchen/
 coverage
 spec/mu.yaml
 spec/azure_creds
+.kitchen.local.yml
 mu-gen-docs-index*
