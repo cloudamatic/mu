@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.0.1'
-  s.date        = '2019-11-22'
+  s.version     = '3.0.2'
+  s.date        = '2019-12-03'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -59,4 +59,6 @@ EOF
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
   s.add_runtime_dependency 'azure_sdk', "~> 0.37"
+  s.add_runtime_dependency 'rack', "~> 2.0"
+  s.add_runtime_dependency 'thin', "~> 1.7"
 end

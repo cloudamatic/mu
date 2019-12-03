@@ -2784,20 +2784,19 @@ MESSAGE_END
 
       MU.log cmd, MU::NOTICE
 
-      output = %x{#{cmd}}
-
-      Dir.chdir(origdir)
-
       retries = 0
       begin
+        output = %x{#{cmd}}
         sleep 1
         retries += 1
         if retries >= 10
-          MU.log "MommaCat failed to start (command was #{cmd})", MU::WARN, details: output
+          MU.log "MommaCat failed to start (command was #{cmd}, working directory #{MU.myRoot}/modules)", MU::WARN, details: output
           pp caller
           return $?.exitstatus
         end
       end while !status
+
+      Dir.chdir(origdir)
     
       if $?.exitstatus != 0
         exit 1

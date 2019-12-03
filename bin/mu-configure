@@ -804,7 +804,7 @@ if !$NOOP
   # Converts the current $CONFIGURABLES object to a Hash suitable for merging
   # with $MU_CFG.
   def setConfigTree(tree = $CONFIGURABLES)
-    cfg = {}
+    cfg = $MU_CFG.nil? ? {} : $MU_CFG.dup
     tree.each_pair { |key, data|
       next if !AMROOT and data['rootonly']
       if data.has_key?("subtree")
