@@ -1972,6 +1972,13 @@ $CONFIGURABLES
 
     # Namespace magic to pass to ERB's result method.
     def get_binding(keyset)
+      environment = $environment
+      myPublicIp = $myPublicIp
+      myRoot = $myRoot
+      myAZ = $myAZ
+      myRegion = $myRegion
+      myAppName = $myAppName
+
 #      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
       MU::Config.global_bindings[keyset] = binding
       MU::Config.global_bindings[keyset]
