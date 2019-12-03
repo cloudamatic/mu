@@ -816,6 +816,10 @@ MU.log e.message, MU::WARN, details: e.inspect
       def self.admin_directory(subclass = nil, credentials: nil)
         require 'google/apis/admin_directory_v1'
 
+        # fill in the default credential set name so we don't generate
+        # dopey extra warnings about falling back on scopes
+        credentials ||= MU::Cloud::Google.credConfig(credentials, name_only: true)
+
         writescopes = ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema']
         readscopes = ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly']
         @@readonly_semaphore.synchronize {
