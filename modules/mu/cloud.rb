@@ -1381,8 +1381,16 @@ module MU
             if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(Hash)
               @config['vpc']["id"] = MU::Config::Ref.new(@config['vpc']["id"])
             end
-            if !@config['vpc']["id"].nil? and @config['vpc']["id"].is_a?(MU::Config::Ref) and !@config['vpc']["id"].kitten.nil?
-              @vpc = @config['vpc']["id"].kitten
+            if !@config['vpc']["id"].nil?
+              if @config['vpc']["id"].is_a?(MU::Config::Ref) and !@config['vpc']["id"].kitten.nil?
+                @vpc = @config['vpc']["id"].kitten
+              else
+                if @config['vpc']['habitat']
+                  @config['vpc']['habitat'] = MU::Config::Ref.get(@config['vpc']['habitat'])
+                end
+                vpc_ref = MU::Config::Ref.get(@config['vpc'])
+                @vpc = vpc_ref.kitten
+              end
             elsif !@config['vpc']["name"].nil? and @deploy
               MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
 

@@ -380,6 +380,9 @@ start = Time.now
               "credentials" => pool["credentials"],
               "type" => "service"
             }
+            if user["name"].length < 6
+              user["name"] += Password.pronounceable(6)
+            end
             configurator.insertKitten(user, "users", true)
             pool['dependencies'] ||= []
             pool['service_account'] = MU::Config::Ref.get(

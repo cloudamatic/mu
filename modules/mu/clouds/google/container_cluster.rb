@@ -1044,6 +1044,9 @@ module MU
               "credentials" => cluster["credentials"],
               "type" => "service"
             }
+            if user["name"].length < 6
+              user["name"] += Password.pronounceable(6)
+            end
             configurator.insertKitten(user, "users", true)
             cluster['dependencies'] ||= []
             cluster['service_account'] = MU::Config::Ref.get(

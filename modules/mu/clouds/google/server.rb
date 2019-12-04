@@ -1424,6 +1424,9 @@ next if !create
               "credentials" => server["credentials"],
               "type" => "service"
             }
+            if user["name"].length < 6
+              user["name"] += Password.pronounceable(6)
+            end
             if server['roles']
               user['roles'] = server['roles'].dup
             end
@@ -1432,13 +1435,13 @@ next if !create
             server['service_account'] = MU::Config::Ref.get(
               type: "users",
               cloud: "Google",
-              name: server["name"],
-              project: server["project"],
-              credentials: server["credentials"]
+              name: user["name"],
+              project: user["project"],
+              credentials: user["credentials"]
             )
             server['dependencies'] << {
               "type" => "user",
-              "name" => server["name"]
+              "name" => user["name"]
             }
           end
 
