@@ -423,12 +423,13 @@ end
 
           if acl['vpc']
             acl['vpc']['project'] ||= acl['project']
-            acl['vpc'] = MU::Cloud::Google::VPC.pickVPC(
+            correct_vpc = MU::Cloud::Google::VPC.pickVPC(
               acl['vpc'],
               acl,
               "firewall_rule",
               config
             )
+            acl['vpc'] = correct_vpc if correct_vpc
           end
 
           acl['rules'] ||= []
