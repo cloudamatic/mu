@@ -2054,6 +2054,15 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               cloudclass.cleanup(params)
             rescue MuCloudResourceNotImplemented
               MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
+            rescue Exception => e
+              in_msg = cloud
+              if params and params[:region]
+                in_msg += " "+params[:region]
+              end
+              if params and params[:flags] and params[:flags]["project"]
+                in_msg += " project "+params[:flags]["project"]
+              end
+              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN
             end
           }
           MU::MommaCat.unlockAll
