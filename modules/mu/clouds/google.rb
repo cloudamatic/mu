@@ -165,8 +165,8 @@ module MU
 
         # blow up if this resource *has* to live in a project
         if cloudobj.cloudclass.canLiveIn == [:Habitat]
-          MU.log "Failed to find project for cloudobj of class #{cloudobj.cloudclass.class.name}", MU::ERR, details: cloudobj
-          raise MuError, "Failed to find project for cloudobj of class #{cloudobj.cloudclass.class.name}"
+          MU.log "Failed to find project for cloudobj #{cloudobj.to_s}", MU::ERR, details: cloudobj
+          raise MuError, "Failed to find project for cloudobj #{cloudobj.to_s}"
         end
 
         nil
@@ -816,6 +816,10 @@ MU.log e.message, MU::WARN, details: e.inspect
       def self.admin_directory(subclass = nil, credentials: nil)
         require 'google/apis/admin_directory_v1'
 
+        # fill in the default credential set name so we don't generate
+        # dopey extra warnings about falling back on scopes
+        credentials ||= MU::Cloud::Google.credConfig(credentials, name_only: true)
+
         writescopes = ['admin.directory.group.member', 'admin.directory.group', 'admin.directory.user', 'admin.directory.domain', 'admin.directory.orgunit', 'admin.directory.rolemanagement', 'admin.directory.customer', 'admin.directory.user.alias', 'admin.directory.userschema']
         readscopes = ['admin.directory.group.member.readonly', 'admin.directory.group.readonly', 'admin.directory.user.readonly', 'admin.directory.domain.readonly', 'admin.directory.orgunit.readonly', 'admin.directory.rolemanagement.readonly', 'admin.directory.customer.readonly', 'admin.directory.user.alias.readonly', 'admin.directory.userschema.readonly']
         @@readonly_semaphore.synchronize {
@@ -826,7 +830,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 
           if subclass.nil?
             begin
-              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
+              @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials, auth_error_quiet: true)
             rescue Signet::AuthorizationError => e
               MU.log "Falling back to read-only access to DirectoryService API for credential set '#{credentials}'", MU::WARN
               @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
@@ -1035,7 +1039,7 @@ MU.log e.message, MU::WARN, details: e.inspect
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil)
+        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'], masquerade: nil, credentials: nil, auth_error_quiet: false)
           @credentials = credentials
           @scopes = scopes.map { |s|
             if !s.match(/\//) # allow callers to use shorthand
@@ -1052,11 +1056,16 @@ MU.log e.message, MU::WARN, details: e.inspect
               @api.authorization.sub = @masquerade
               @api.authorization.fetch_access_token!
             rescue Signet::AuthorizationError => e
-              MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::ERROR, details: @scopes
-              if e.message.match(/client not authorized for any of the scopes requested/)
+              if auth_error_quiet
+                MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::DEBUG, details: @scopes
+              else
+                MU.log "Cannot masquerade as #{@masquerade} to API #{api}: #{e.message}", MU::ERROR, details: @scopes
+                if e.message.match(/client not authorized for any of the scopes requested/)
 # XXX it'd be helpful to list *all* scopes we like, as well as the API client's numeric id
-                MU.log "To grant access to API scopes for this service account, see:", MU::ERR, details: "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"
+                  MU.log "To grant access to API scopes for this service account, see:", MU::ERR, details: "https://admin.google.com/AdminHome?chromeless=1#OGX:ManageOauthClients"
+                end
               end
+
               raise e
             end
           end

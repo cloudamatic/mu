@@ -14,33 +14,13 @@
 
 source "https://rubygems.org"
 gemspec :path => "../", :name => "cloud-mu"
-#gem 'yard'
-#gem 'ruby-graphviz', "~> 1.2.3"
-#gem "aws-sdk-core", "< 3"  
-#gem 'chronic_duration', "~> 0.10.6"
-#gem 'simple-password-gen'
-#gem 'optimist'
-#gem 'json-schema'
-#gem 'colorize'
-#gem 'color'
-gem 'rack'
-gem 'thin'
 gem 'berkshelf', '~> 7.0'
 gem 'mysql2'
 gem 'ruby-wmi'
 gem 'chef-vault', "~> 3.4"
-#gem 'netaddr', '~> 2.0.3'
-#gem 'nokogiri', "~> 1.8.4"
-#gem 'solve', '~> 4.0.0'
-#gem 'net-ldap'
-#gem 'googleauth', "~> 0.6.6"
-#gem 'google-api-client', "~> 0.25.0"
 gem 'chef-sugar'
 gem 'ffi-libarchive' # needed to keep berkshelf from breaking on Mac tarballs
 gem 'winrm', '~> 2.3', '>= 2.3.2'
 gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :branch => "winrm_cert_auth"
-#gem 'rubocop', '~> 0.58.2'
 gem 'foodcritic', '~> 14.1.0'
-#gem 'addressable', '~> 2.5.2'
 gem 'chef-dk', '~> 3.2.30'
-#gem 'slack-notifier'

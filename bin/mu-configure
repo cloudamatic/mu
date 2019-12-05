@@ -107,6 +107,12 @@ $CONFIGURABLES = {
     "desc" => "The local system's value for HOSTNAME",
     "changes" => ["chefrun", "hostname"]
   },
+  "disable_mommacat" => {
+    "title" => "Disable Momma Cat",
+    "default" => false,
+    "desc" => "Disable the Momma Cat grooming daemon. Nodes which require asynchronous Ansible/Chef bootstraps will not function. This option is only honored in gem-based installations.",
+    "boolean" => true
+  },
   "mommacat_port" => {
     "title" => "Momma Cat Listen Port",
     "pattern" => /^[0-9]+$/i,
@@ -804,7 +810,7 @@ if !$NOOP
   # Converts the current $CONFIGURABLES object to a Hash suitable for merging
   # with $MU_CFG.
   def setConfigTree(tree = $CONFIGURABLES)
-    cfg = {}
+    cfg = $MU_CFG.nil? ? {} : $MU_CFG.dup
     tree.each_pair { |key, data|
       next if !AMROOT and data['rootonly']
       if data.has_key?("subtree")

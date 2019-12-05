@@ -525,7 +525,7 @@ end
               region: @region,
               habitats: hab_arg,
               credentials: @credentials,
-              dummy_ok: (["habitats", "folders", "users", "groups"].include?(@type))
+              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
             )
             @obj ||= found.first if found
           rescue ThreadError => e
@@ -1786,6 +1786,9 @@ $CONFIGURABLES
 
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
+      if cloud == "Google" and acl["vpc"] and acl["vpc"]["habitat"]
+        acl['project'] = acl["vpc"]["habitat"]["id"] || acl["vpc"]["habitat"]["name"]
+      end
       acl.delete("vpc") if !acl["vpc"]
       if !resclass.isGlobal? and !region.nil? and !region.empty?
         acl["region"] = region
@@ -1972,6 +1975,13 @@ $CONFIGURABLES
 
     # Namespace magic to pass to ERB's result method.
     def get_binding(keyset)
+      environment = $environment
+      myPublicIp = $myPublicIp
+      myRoot = $myRoot
+      myAZ = $myAZ
+      myRegion = $myRegion
+      myAppName = $myAppName
+
 #      return MU::Config.global_bindings[keyset] if MU::Config.global_bindings[keyset]
       MU::Config.global_bindings[keyset] = binding
       MU::Config.global_bindings[keyset]

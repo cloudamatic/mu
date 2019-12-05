@@ -45,8 +45,17 @@ module MU
         def create
           @cloud_id = @mu_name.downcase.gsub(/[^-a-z0-9]/, "-")
 
-          vpc_id = @vpc.url if !@vpc.nil?
-          vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
+          vpc_id = if @vpc
+            @vpc.url if !@vpc.nil?
+          else
+            vpc_ref = MU::Config::Ref.get(@config['vpc'])
+            if !vpc_ref.kitten
+              MU.log "Failed to resolve VPC for FirewallRule #{@mu_name}", MU::ERR, details: @config['vpc']
+              raise MuError, "Failed to resolve VPC for FirewallRule #{@mu_name}"
+            else
+              vpc_ref.kitten.url
+            end
+          end
 
           if vpc_id.nil?
             raise MuError, "Failed to resolve VPC for #{self}"
@@ -419,16 +428,22 @@ end
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           ok = true
-          acl['project'] ||= MU::Cloud::Google.defaultProject(acl['credentials'])
 
           if acl['vpc']
-            acl['vpc']['project'] ||= acl['project']
-            acl['vpc'] = MU::Cloud::Google::VPC.pickVPC(
+            if !acl['vpc']['habitat']
+              acl['vpc']['project'] ||= acl['project']
+            elsif acl['vpc']['habitat'] and acl['vpc']['habitat']['id']
+              acl['vpc']['project'] = acl['vpc']['habitat']['id']
+            elsif acl['vpc']['habitat'] and acl['vpc']['habitat']['name']
+              acl['vpc']['project'] = acl['vpc']['habitat']['name']
+            end
+            correct_vpc = MU::Cloud::Google::VPC.pickVPC(
               acl['vpc'],
               acl,
               "firewall_rule",
               config
             )
+            acl['vpc'] = correct_vpc if correct_vpc
           end
 
           acl['rules'] ||= []

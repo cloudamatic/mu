@@ -2762,6 +2762,9 @@ MESSAGE_END
 		# Start the Momma Cat daemon and return the exit status of the command used
     # @return [Integer]
     def self.start
+      if MU.inGem? and MU.muCfg['disable_mommacat']
+        return
+      end
       base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
       [base, "#{base}/log", "#{base}/run"].each { |dir|
        if !Dir.exist?(dir)
@@ -2784,20 +2787,19 @@ MESSAGE_END
 
       MU.log cmd, MU::NOTICE
 
-      output = %x{#{cmd}}
-
-      Dir.chdir(origdir)
-
       retries = 0
       begin
+        output = %x{#{cmd}}
         sleep 1
         retries += 1
         if retries >= 10
-          MU.log "MommaCat failed to start (command was #{cmd})", MU::WARN, details: output
+          MU.log "MommaCat failed to start (command was #{cmd}, working directory #{MU.myRoot}/modules)", MU::WARN, details: output
           pp caller
           return $?.exitstatus
         end
       end while !status
+
+      Dir.chdir(origdir)
     
       if $?.exitstatus != 0
         exit 1
@@ -2809,6 +2811,9 @@ MESSAGE_END
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
     def self.status
+      if MU.inGem? and MU.muCfg['disable_mommacat']
+        return true
+      end
       if File.exist?(daemonPidFile)
         pid = File.read(daemonPidFile).chomp.to_i
         begin
