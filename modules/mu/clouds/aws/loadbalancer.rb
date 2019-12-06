@@ -188,7 +188,7 @@ module MU
             if @config['targetgroups']
               MU.log "Configuring target groups and health checks check for ELB #{@mu_name}", details: @config['healthcheck']
               @config['targetgroups'].each { |tg|
-                tg_name = @deploy.getResourceName(tg["name"], max_length: 32, allowed_chars: /[A-Za-z0-9-]/)
+                tg_name = @deploy.getResourceName(tg["name"], max_length: 32, disallowed_chars: /[^A-Za-z0-9-]/)
                 tg_descriptor = {
                   :name => tg_name,
                   :protocol => tg['proto'],
