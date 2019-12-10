@@ -974,6 +974,10 @@ retry
           }
         end
 
+        if @config.has_key?("monitor") and !@config['monitor']
+          tags['nomonitor'] = true
+        end
+
         chef_node.normal['tags'] = tags
         chef_node.save
 

@@ -164,6 +164,11 @@ module MU
               "default" => false,
               "description" => "Remove pre-existing groomer agents from node before bootstrapping. Especially useful for image builds."
           },
+          "monitor" => {
+            "type" => "boolean",
+            "default" => true,
+            "description" => "Whether to monitor this host with Nagios"
+          },
           "tags" => MU::Config.tags_primitive,
           "optional_tags" => MU::Config.optional_tags_primitive,
           "alarms" => MU::Config::Alarm.inline,
