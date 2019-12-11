@@ -28,7 +28,8 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          if @config['flavor'] == "EKS"
+          if @config['flavor'] == "EKS" or
+             (@config['flavor'] == "Fargate" and !@config['containers'])
             subnet_ids = []
             @config["vpc"]["subnets"].each { |subnet|
               subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
@@ -36,7 +37,7 @@ module MU
               subnet_ids << subnet_obj.cloud_id
             }
 
-            role_arn = @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").cloudobj.arn
+            role_arn = @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").arn
 
             security_groups = []
             if @dependencies.has_key?("firewall_rule")
@@ -127,6 +128,31 @@ module MU
             end while status != "ACTIVE"
 
             MU.log "Creation of EKS cluster #{@mu_name} complete"
+
+            if @config['flavor'] == "Fargate"
+              podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
+              desc = {
+                :fargate_profile_name => @mu_name,
+                :cluster_name => @mu_name,
+                :pod_execution_role_arn => podrole_arn,
+                :selectors => [
+                  {
+                    "namespace" => "default"
+                  }
+                ],
+                :subnets => subnet_ids,
+                :tags => @tags
+              }
+              MU.log "Creating EKS Fargate profile for #{@mu_name}", MU::NOTICE, details: desc
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
+              begin
+                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                  cluster_name: @mu_name,
+                  fargate_profile_name: @mu_name
+                )
+                sleep 1 if resp.fargate_profile.status == "CREATING"
+              end while resp.fargate_profile.status == "CREATING"
+            end
           else
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
               cluster_name: @mu_name
@@ -139,10 +165,13 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
+          serverpool = if ['EKS', 'ECS'].include?(@config['flavor'])
+            @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
+          end
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
-          if @config['flavor'] == "EKS"
+          if @config['flavor'] == "EKS" or
+             (@config['flavor'] == "Fargate" and !@config['containers'])
             # This will be needed if a loadbalancer has never been created in
             # this account; EKS applications might want one, but will fail in
             # confusing ways if this hasn't been done.
@@ -940,7 +969,7 @@ MU.log c.name, MU::NOTICE, details: t
               "enum" => ["ECS", "EKS", "Fargate", "Kubernetes"],
               "type" => "string",
               "description" => "The AWS container platform to deploy",
-              "default" => "ECS"
+              "default" => "Fargate"
             },
             "kubernetes" => {
               "default" => { "version" => "latest" }
@@ -1660,6 +1689,30 @@ MU.log c.name, MU::NOTICE, details: t
             }
           end
 
+          if cluster['flavor'] == "Fargate" and !cluster['containers']
+
+            if !cluster['kubernetes'] and !cluster['kubernetes_resources']
+              MU.log "Fargate requested without ECS-specific parameters, will build an EKS (Kubernetes) cluster", MU::NOTICE
+            end
+            role = {
+              "name" => cluster["name"]+"pods",
+              "credentials" => cluster["credentials"],
+              "cloud" => "AWS",
+              "can_assume" => [
+                { "entity_id" => "eks-fargate-pods.amazonaws.com", "entity_type" => "service" }
+              ],
+              "import" => ["AmazonEKSFargatePodExecutionRolePolicy"]
+            }
+            role["tags"] = cluster["tags"] if !cluster["tags"].nil?
+            role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
+            configurator.insertKitten(role, "roles")
+            cluster['dependencies'] << {
+              "type" => "role",
+              "name" => cluster["name"]+"pods",
+              "phase" => "groom"
+            }
+          end
+
           if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] == "EKS"
             MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet", MU::ERR
             ok = false
@@ -1785,26 +1838,27 @@ MU.log c.name, MU::NOTICE, details: t
               }
             end
 
-            if cluster["flavor"] == "EKS"
-              role = {
-                "name" => cluster["name"]+"controlplane",
-                "credentials" => cluster["credentials"],
-                "cloud" => "AWS",
-                "can_assume" => [
-                  { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
-                ],
-                "import" => ["AmazonEKSServicePolicy", "AmazonEKSClusterPolicy"]
+          end
 
-              }
-              role["tags"] = cluster["tags"] if !cluster["tags"].nil?
-              role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
-              configurator.insertKitten(role, "roles")
-              cluster['dependencies'] << {
-                "type" => "role",
-                "name" => cluster["name"]+"controlplane",
-                "phase" => "groom"
-              }
-            end
+          if cluster["flavor"] == "EKS" or
+             (cluster['flavor'] == "Fargate" and !cluster['containers'])
+            role = {
+              "name" => cluster["name"]+"controlplane",
+              "credentials" => cluster["credentials"],
+              "cloud" => "AWS",
+              "can_assume" => [
+                { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
+              ],
+              "import" => ["AmazonEKSServicePolicy", "AmazonEKSClusterPolicy"]
+            }
+            role["tags"] = cluster["tags"] if !cluster["tags"].nil?
+            role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
+            configurator.insertKitten(role, "roles")
+            cluster['dependencies'] << {
+              "type" => "role",
+              "name" => cluster["name"]+"controlplane",
+              "phase" => "groom"
+            }
           end
 
           ok

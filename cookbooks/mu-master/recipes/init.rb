@@ -427,9 +427,11 @@ end
   gem_package bundler_path do
     gem_binary gembin
     package_name "bundler"
-    action :upgrade if rubydir == "/usr/local/ruby-current" or File.exists?(bundler_path)
+    if rubydir == "/usr/local/ruby-current" or File.exists?(bundler_path)
+      action :upgrade
+      ignore_failure true
+    end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
-    ignore_failure true # large version leaps seem to confuse it here, but get handled correctly by the bundle install below
   end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"
