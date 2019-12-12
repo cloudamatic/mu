@@ -131,28 +131,30 @@ module MU
 
             if @config['flavor'] == "Fargate"
               podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
-              desc = {
-                :fargate_profile_name => @mu_name,
-                :cluster_name => @mu_name,
-                :pod_execution_role_arn => podrole_arn,
-                :selectors => [
-                  {
-                    "namespace" => "default"
-                  }
-                ], # XXX expose this param
-                :subnets => subnet_ids,
-                :tags => @tags
+              poolnum = 0
+              poolthreads =[]
+              @config['kubernetes_pools'].each { |selectors|
+                profname = @mu_name+"-"+poolnum.to_s
+                poolnum += 1
+                desc = {
+                  :fargate_profile_name => profname,
+                  :cluster_name => @mu_name,
+                  :pod_execution_role_arn => podrole_arn,
+                  :selectors => selectors,
+                  :subnets => subnet_ids,
+                  :tags => @tags
+                }
+                MU.log "Creating EKS Fargate profile #{profname}", details: desc
+                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
+                begin
+                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                    cluster_name: @mu_name,
+                    fargate_profile_name: profname
+                  )
+                  sleep 1 if resp.fargate_profile.status == "CREATING"
+                end while resp.fargate_profile.status == "CREATING"
+                MU.log "Creation of EKS Fargate profile #{profname} complete"
               }
-              MU.log "Creating EKS Fargate profile for #{@mu_name}", details: desc
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
-              begin
-                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
-                  cluster_name: @mu_name,
-                  fargate_profile_name: @mu_name
-                )
-                sleep 1 if resp.fargate_profile.status == "CREATING"
-              end while resp.fargate_profile.status == "CREATING"
-              MU.log "Creation of EKS Fargate profile #{@mu_name} complete"
             end
           else
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
@@ -914,10 +916,18 @@ MU.log c.name, MU::NOTICE, details: t
                 if profiles and profiles.fargate_profile_names
                   profiles.fargate_profile_names.each { |profile|
                     MU.log "Deleting Fargate EKS profile #{profile}"
-                    check = MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(
-                      cluster_name: cluster,
-                      fargate_profile_name: profile
-                    )
+                    next if noop
+                    check = begin
+                      MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(
+                        cluster_name: cluster,
+                        fargate_profile_name: profile
+                      )
+                    rescue Aws::EKS::Errors::ResourceNotFoundException
+                      next
+                    rescue Aws::EKS::Errors::ResourceInUseException
+                      sleep 10
+                      retry
+                    end
                     sleep 5
                     retries = 0
                     begin
@@ -1011,6 +1021,35 @@ MU.log c.name, MU::NOTICE, details: t
               "type" => "string",
               "description" => "The AWS container platform to deploy",
               "default" => "Fargate"
+            },
+            "kubernetes_pools" => {
+              "default" => [
+                [
+                  {
+                    "namespace" => "default"
+                  }
+                ]
+              ],
+              "type" => "array",
+              "description" => "Fargate Kubernetes worker pools, with namespace/label selectors for targeting pods. Specifying multiple pools will create and attach multiple Fargate Profiles to this EKS cluster. Our default behavior is to create one pool (one Fargate Profile) that will match any pod and deploy it to the +default+ namespace.",
+              "items" => {
+                "type" => "array",
+                "items" => {
+                  "type" => "object",
+                  "description" => "A namespace/label selector for a Fargate EKS Profile. See also https://docs.aws.amazon.com/cli/latest/reference/eks/create-fargate-profile.html",
+                  "properties" => {
+                    "namespace" => {
+                      "type" => "string",
+                      "default" => "default",
+                      "description" => "The Kubernetes namespace into which pods matching our labels should be deployed."
+                    },
+                    "labels" => {
+                      "type" => "object",
+                      "description" => "Key/value pairs of Kubernetes labels, which a pod must have in order to be deployed to this pool. A pod must match all labels."
+                    }
+                  }
+                }
+              }
             },
             "kubernetes" => {
               "default" => { "version" => "latest" }
