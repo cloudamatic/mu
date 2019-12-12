@@ -130,6 +130,13 @@ module MU
             MU.log "Creation of EKS cluster #{@mu_name} complete"
 
             if @config['flavor'] == "Fargate"
+              fargate_subnets = []
+              @config["vpc"]["subnets"].each { |subnet|
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+                next if !subnet_obj.private?
+                fargate_subnets << subnet_obj.cloud_id
+              }
               podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
               poolnum = 0
               poolthreads =[]
@@ -141,7 +148,7 @@ module MU
                   :cluster_name => @mu_name,
                   :pod_execution_role_arn => podrole_arn,
                   :selectors => selectors,
-                  :subnets => subnet_ids,
+                  :subnets => fargate_subnets,
                   :tags => @tags
                 }
                 MU.log "Creating EKS Fargate profile #{profname}", details: desc
