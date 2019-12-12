@@ -139,11 +139,11 @@ module MU
                   {
                     "namespace" => "default"
                   }
-                ],
+                ], # XXX expose this param
                 :subnets => subnet_ids,
                 :tags => @tags
               }
-              MU.log "Creating EKS Fargate profile for #{@mu_name}", MU::NOTICE, details: desc
+              MU.log "Creating EKS Fargate profile for #{@mu_name}", details: desc
               resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
               begin
                 resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
@@ -152,6 +152,7 @@ module MU
                 )
                 sleep 1 if resp.fargate_profile.status == "CREATING"
               end while resp.fargate_profile.status == "CREATING"
+              MU.log "Creation of EKS Fargate profile #{@mu_name} complete"
             end
           else
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
@@ -204,8 +205,10 @@ module MU
             @endpoint = me.endpoint
             @cacert = me.certificate_authority.data
             @cluster = @mu_name
-            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
-            @worker_role_arn = resp.role.arn
+            if @config['flavor'] != "Fargate"
+              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
+              @worker_role_arn = resp.role.arn
+            end
             kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
             eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
             gitlab_helper = @deploy.deploy_dir+"/gitlab-eks-helper-#{@config['name']}.sh"
@@ -213,19 +216,20 @@ module MU
             File.open(kube_conf, "w"){ |k|
               k.puts kube.result(binding)
             }
-            File.open(eks_auth, "w"){ |k|
-              k.puts configmap.result(binding)
-            }
             gitlab = ERB.new(File.read(MU.myRoot+"/extras/gitlab-eks-helper.sh.erb"))
             File.open(gitlab_helper, "w"){ |k|
               k.puts gitlab.result(binding)
             }
-            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
 
-            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
-            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
+            if @config['flavor'] != "Fargate"
+              File.open(eks_auth, "w"){ |k|
+                k.puts configmap.result(binding)
+              }
+              authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
+              MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
-            %x{#{authmap_cmd}}
+              %x{#{authmap_cmd}}
+            end
 
 # and this one
             admin_user_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
@@ -695,7 +699,8 @@ MU.log c.name, MU::NOTICE, details: t
         # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
         # @return [OpenStruct]
         def cloud_desc
-          if @config['flavor'] == "EKS"
+          if @config['flavor'] == "EKS" or
+             (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
               name: @mu_name
             )
@@ -726,6 +731,7 @@ MU.log c.name, MU::NOTICE, details: t
           deploy_struct["region"] = @config['region']
           if @config['flavor'] == "EKS"
             deploy_struct["max_pods"] = @config['kubernetes']['max_pods'].to_s
+# XXX if FargateKS, get the Fargate Profile artifact
           end
           return deploy_struct
         end
@@ -901,6 +907,41 @@ MU.log c.name, MU::NOTICE, details: t
                 desc = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
                   name: cluster
                 ).cluster
+
+                profiles = MU::Cloud::AWS.eks(region: region, credentials: credentials).list_fargate_profiles(
+                  cluster_name: cluster
+                )
+                if profiles and profiles.fargate_profile_names
+                  profiles.fargate_profile_names.each { |profile|
+                    MU.log "Deleting Fargate EKS profile #{profile}"
+                    check = MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(
+                      cluster_name: cluster,
+                      fargate_profile_name: profile
+                    )
+                    sleep 5
+                    retries = 0
+                    begin
+                      begin
+                      check = MU::Cloud::AWS.eks(region: region, credentials: credentials).describe_fargate_profile(
+                        cluster_name: cluster,
+                        fargate_profile_name: profile
+                      )
+                      rescue Aws::EKS::Errors::ResourceNotFoundException
+                        break
+                      end
+
+                      if check.fargate_profile.status != "DELETING"
+                        MU.log "Failed to delete Fargate EKS profile #{profile}", MU::ERR, details: check
+                        break
+                      end
+                      if retries > 0 and (retries % 3) == 0
+                        MU.log "Waiting for Fargate EKS profile #{profile} to delete (status #{check.fargate_profile.status})", MU::NOTICE
+                      end
+                      sleep 30
+                      retries += 1
+                    end while retries < 40
+                  }
+                end
 
                 untag = []
                 untag << desc.resources_vpc_config.vpc_id
