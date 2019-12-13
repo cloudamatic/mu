@@ -125,7 +125,7 @@ module MU
 
       @@log_semaphere.synchronize {
         handles = [handle]
-        extra_logfile = if deploy and deploy.deploy_dir
+        extra_logfile = if deploy and deploy.deploy_dir and Dir.exist?(deploy.deploy_dir)
           File.open(deploy.deploy_dir+"/deploy.log", "a")
         end
         handles << extra_logfile if extra_logfile
