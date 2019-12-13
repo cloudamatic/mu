@@ -128,41 +128,6 @@ module MU
             end while status != "ACTIVE"
 
             MU.log "Creation of EKS cluster #{@mu_name} complete"
-
-            if @config['flavor'] == "Fargate"
-              fargate_subnets = []
-              @config["vpc"]["subnets"].each { |subnet|
-                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
-                next if !subnet_obj.private?
-                fargate_subnets << subnet_obj.cloud_id
-              }
-              podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
-              poolnum = 0
-              poolthreads =[]
-              @config['kubernetes_pools'].each { |selectors|
-                profname = @mu_name+"-"+poolnum.to_s
-                poolnum += 1
-                desc = {
-                  :fargate_profile_name => profname,
-                  :cluster_name => @mu_name,
-                  :pod_execution_role_arn => podrole_arn,
-                  :selectors => selectors,
-                  :subnets => fargate_subnets,
-                  :tags => @tags
-                }
-                MU.log "Creating EKS Fargate profile #{profname}", details: desc
-                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
-                begin
-                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
-                    cluster_name: @mu_name,
-                    fargate_profile_name: profname
-                  )
-                  sleep 1 if resp.fargate_profile.status == "CREATING"
-                end while resp.fargate_profile.status == "CREATING"
-                MU.log "Creation of EKS Fargate profile #{profname} complete"
-              }
-            end
           else
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
               cluster_name: @mu_name
@@ -209,6 +174,41 @@ module MU
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])
+
+            if @config['flavor'] == "Fargate"
+              fargate_subnets = []
+              @config["vpc"]["subnets"].each { |subnet|
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+                next if !subnet_obj.private?
+                fargate_subnets << subnet_obj.cloud_id
+              }
+              podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
+              poolnum = 0
+              poolthreads =[]
+              @config['kubernetes_pools'].each { |selectors|
+                profname = @mu_name+"-"+poolnum.to_s
+                poolnum += 1
+                desc = {
+                  :fargate_profile_name => profname,
+                  :cluster_name => @mu_name,
+                  :pod_execution_role_arn => podrole_arn,
+                  :selectors => selectors,
+                  :subnets => fargate_subnets,
+                  :tags => @tags
+                }
+                MU.log "Creating EKS Fargate profile #{profname}", details: desc
+                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
+                begin
+                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                    cluster_name: @mu_name,
+                    fargate_profile_name: profname
+                  )
+                  sleep 1 if resp.fargate_profile.status == "CREATING"
+                end while resp.fargate_profile.status == "CREATING"
+                MU.log "Creation of EKS Fargate profile #{profname} complete"
+              }
+            end
 
             me = cloud_desc
             @endpoint = me.endpoint
