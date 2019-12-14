@@ -194,9 +194,31 @@ module MU
                   :cluster_name => @mu_name,
                   :pod_execution_role_arn => podrole_arn,
                   :selectors => selectors,
-                  :subnets => fargate_subnets,
+                  :subnets => fargate_subnets.sort,
                   :tags => @tags
                 }
+                begin
+                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                    cluster_name: @mu_name,
+                    fargate_profile_name: profname
+                  )
+                  if resp and resp.fargate_profile
+                    old_desc = MU.structToHash(resp.fargate_profile, stringify_keys: true)
+                    new_desc = MU.structToHash(desc, stringify_keys: true)
+                    ["created_at", "status", "fargate_profile_arn"].each { |k|
+                      old_desc.delete(k)
+                    }
+                    old_desc["subnets"].sort!
+                    if !old_desc.eql?(new_desc)
+                      MU.log "Deleting Fargate profile #{profname} in order to apply changes", MU::WARN, details: desc 
+                      MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profname, @mu_name, @config['region'], @credentials)
+                    else
+                      next
+                    end
+                  end
+                rescue Aws::EKS::Errors::ResourceNotFoundException
+                  # This is just fine!
+                end
                 MU.log "Creating EKS Fargate profile #{profname}", details: desc
                 resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
                 begin
@@ -219,7 +241,6 @@ module MU
               @worker_role_arn = resp.role.arn
             end
             kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
-            eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
             gitlab_helper = @deploy.deploy_dir+"/gitlab-eks-helper-#{@config['name']}.sh"
             
             File.open(kube_conf, "w"){ |k|
@@ -231,6 +252,7 @@ module MU
             }
 
             if @config['flavor'] != "Fargate"
+              eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
               File.open(eks_auth, "w"){ |k|
                 k.puts configmap.result(binding)
               }
@@ -924,39 +946,7 @@ MU.log c.name, MU::NOTICE, details: t
                   profiles.fargate_profile_names.each { |profile|
                     MU.log "Deleting Fargate EKS profile #{profile}"
                     next if noop
-                    check = begin
-                      MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(
-                        cluster_name: cluster,
-                        fargate_profile_name: profile
-                      )
-                    rescue Aws::EKS::Errors::ResourceNotFoundException
-                      next
-                    rescue Aws::EKS::Errors::ResourceInUseException
-                      sleep 10
-                      retry
-                    end
-                    sleep 5
-                    retries = 0
-                    begin
-                      begin
-                      check = MU::Cloud::AWS.eks(region: region, credentials: credentials).describe_fargate_profile(
-                        cluster_name: cluster,
-                        fargate_profile_name: profile
-                      )
-                      rescue Aws::EKS::Errors::ResourceNotFoundException
-                        break
-                      end
-
-                      if check.fargate_profile.status != "DELETING"
-                        MU.log "Failed to delete Fargate EKS profile #{profile}", MU::ERR, details: check
-                        break
-                      end
-                      if retries > 0 and (retries % 3) == 0
-                        MU.log "Waiting for Fargate EKS profile #{profile} to delete (status #{check.fargate_profile.status})", MU::NOTICE
-                      end
-                      sleep 30
-                      retries += 1
-                    end while retries < 40
+                    MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profile, cluster, region, credentials)
                   }
                 end
 
@@ -1034,6 +1024,9 @@ MU.log c.name, MU::NOTICE, details: t
                 [
                   {
                     "namespace" => "default"
+                  },
+                  {
+                    "namespace" => "gitlab-managed-apps"
                   }
                 ]
               ],
@@ -1949,6 +1942,44 @@ MU.log c.name, MU::NOTICE, details: t
           end
 
           ok
+        end
+
+        private
+
+        def self.purge_fargate_profile(profile, cluster, region, credentials)
+          check = begin
+            MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(
+              cluster_name: cluster,
+              fargate_profile_name: profile
+            )
+          rescue Aws::EKS::Errors::ResourceNotFoundException
+            return
+          rescue Aws::EKS::Errors::ResourceInUseException
+            sleep 10
+            retry
+          end
+          sleep 5
+          retries = 0
+          begin
+            begin
+            check = MU::Cloud::AWS.eks(region: region, credentials: credentials).describe_fargate_profile(
+              cluster_name: cluster,
+              fargate_profile_name: profile
+            )
+            rescue Aws::EKS::Errors::ResourceNotFoundException
+              break
+            end
+
+            if check.fargate_profile.status != "DELETING"
+              MU.log "Failed to delete Fargate EKS profile #{profile}", MU::ERR, details: check
+              break
+            end
+            if retries > 0 and (retries % 3) == 0
+              MU.log "Waiting for Fargate EKS profile #{profile} to delete (status #{check.fargate_profile.status})", MU::NOTICE
+            end
+            sleep 30
+            retries += 1
+          end while retries < 40
         end
 
       end
