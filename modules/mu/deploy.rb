@@ -131,6 +131,7 @@ module MU
         MU.setVar("appname", @appname.upcase)
         MU.setVar("environment", @environment.upcase)
         MU.setVar("timestamp", @timestamp)
+        MU.setVar("mommacat", @mommacat)
         MU.setVar("seed", seed)
         MU.setVar("handle", MU::MommaCat.generateHandle(seed))
 

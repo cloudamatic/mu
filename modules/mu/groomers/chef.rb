@@ -50,6 +50,7 @@ module MU
             require 'chef/knife'
             require 'chef/application/knife'
             require 'chef/knife/ssh'
+            require 'mu/monkey_patches/chef_knife_ssh'
             require 'chef/knife/bootstrap'
             require 'chef/knife/node_delete'
             require 'chef/knife/client_delete'
@@ -82,6 +83,7 @@ module MU
             if mu_user != "root"
               ::Chef::Config.trusted_certs_dir = "#{Etc.getpwnam(mu_user).dir}/.chef/trusted_certs"
             end
+
             @chefloaded = true
             MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)", MU::DEBUG
           end
@@ -299,8 +301,12 @@ module MU
             end
             Timeout::timeout(timeout) {
               retval = ssh.exec!(cmd) { |ch, stream, data|
+                extra_logfile = if Dir.exist?(@server.deploy.deploy_dir)
+                  File.open(@server.deploy.deploy_dir+"/log", "a")
+                end
                 puts data
                 output_lines << data
+                extra_logfile.puts data.chomp if extra_logfile
                 raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
                 if data.match(/#{error_signal}/)
                   error_msg = ""
@@ -597,6 +603,7 @@ module MU
         @server.windows? ? timeout = 1800 : timeout = 300
         retries = 0
         begin
+          load MU.myRoot+'/modules/mu/monkey_patches/chef_knife_ssh.rb'
           if !@server.windows?
             kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
             kb.config[:use_sudo] = true
@@ -646,7 +653,6 @@ module MU
             raise MU::Cloud::BootstrapTempFail, "#{@server.mu_name} has a pending reboot"
           end
           Timeout::timeout(timeout) {
-            require 'chef'
             MU::Cloud.handleNetSSHExceptions
             kb.run
           }
@@ -682,6 +688,7 @@ MU.log e.inspect, MU::ERR, details: e.backtrace
 sleep 10*retries
 retry
         end
+
 
         # Now that we're done, remove one-shot bootstrap recipes from the
         # node's final run list
