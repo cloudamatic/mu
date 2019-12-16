@@ -719,23 +719,19 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
         # Locate an existing VPC or VPCs and return an array containing matching AWS resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(**args)
-          cloud_id = args[:cloud_id]
-          region = args[:region] || MU.curRegion
-          tag_key = args[:tag_key] || "Name"
-          tag_value = args[:tag_value]
-          credentials = args[:credentials]
-          flags = args[:flags]
+          args[:region] ||= MU.curRegion
+          args[:tag_key] ||= "Name"
 
           retries = 0
           map = {}
           begin
             sleep 5 if retries < 0
 
-            if tag_value
-              MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
-              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(
+            if !args[:tag_value].nil?
+              MU.log "Searching for VPC by tag:#{args[:tag_key]}=#{args[:tag_value]}", MU::DEBUG
+              resp = MU::Cloud::AWS.ec2(region: args[:region], credentials: args[:credentials]).describe_vpcs(
                 filters: [
-                  {name: "tag:#{tag_key}", values: [tag_value]}
+                  {name: "tag:#{args[:tag_key]}", values: [args[:tag_value]]}
                 ]
               )
               if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
@@ -746,24 +742,130 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                 }
                 return map
               end
-            end
-
-            if !cloud_id.nil?
-              MU.log "Searching for VPC id '#{cloud_id}' in #{region}", MU::DEBUG
+            elsif !args[:cloud_id].nil?
+              MU.log "Searching for VPC id '#{args[:cloud_id]}' in #{args[:region]}", MU::DEBUG
               begin
-                resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(vpc_ids: [cloud_id.to_s])
+                resp = MU::Cloud::AWS.ec2(region: args[:region], credentials: args[:credentials]).describe_vpcs(vpc_ids: [args[:cloud_id].to_s])
                 resp.vpcs.each { |vpc|
                   map[vpc.vpc_id] = vpc
                 }
                 return map
               rescue Aws::EC2::Errors::InvalidVpcIDNotFound => e
               end
+            else
+              resp = MU::Cloud::AWS.ec2(region: args[:region], credentials: args[:credentials]).describe_vpcs
+              resp.vpcs.each { |vpc|
+                map[vpc.vpc_id] = vpc
+              }
             end
 
             retries = retries + 1
           end while retries < 5
 
           return map
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          return nil if cloud_desc.is_default
+
+          bok['name'] = @cloud_id.sub(/^vpc-/, '') # blech
+          bok['ip_block'] = cloud_desc.cidr_block
+
+          if cloud_desc.tags and !cloud_desc.tags.empty?
+            bok['tags'] = MU.structToHash(cloud_desc.tags)
+            bok['tags'].each { |tag| # see if we can find a better name
+              if tag['key'] == "Name"
+                bok['name'] = tag['value']
+                break
+              elsif tag['key'] == "aws:cloudformation:logical-id"
+                bok['name'] = tag['value']
+              end
+            }
+          end
+
+          rtbs = MU::Cloud::AWS::VPC.get_route_tables(vpc_ids: [@cloud_id], region: @config['region'], credentials: @credentials)
+
+          associations = {}
+          if rtbs and !rtbs.empty?
+            bok['route_tables'] = []
+            rtbs.each { |rtb_desc|
+              rtb = { "name" => rtb_desc.route_table_id.sub(/^rtb-/, '') }
+              if rtb_desc.tags and !rtb_desc.tags.empty?
+                rtb_desc.tags.each { |tag|
+                  if tag.key == "Name"
+                    rtb['name'] = tag.value
+                    break
+                  elsif tag.key == "aws:cloudformation:logical-id"
+                    rtb['name'] = tag.value
+                  end
+                }
+              end
+              if rtb_desc.associations
+                rtb_desc.associations.each { |assoc|
+                  if assoc.subnet_id
+if associations[assoc.subnet_id] and associations[assoc.subnet_id] != rtb['name']
+  MU.log "wait more than one route table association for #{assoc.subnet_id} what", MU::WARN, details: associations[assoc.subnet_id]+" => "+rtb['name']
+end
+                    associations[assoc.subnet_id] = rtb['name']
+                  elsif assoc.gateway_id
+MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_desc
+                  end
+                }
+              end
+              if rtb_desc.routes
+                rtb['routes'] = []
+                rtb_desc.routes.each { |r|
+                  route = {
+                    "destination_network" => r.destination_cidr_block,
+                  }
+                  if r.nat_gateway_id
+                    route["gateway"] = "#NAT"
+                  elsif r.gateway_id and r.gateway_id != "local"
+                    route["gateway"] = "#INTERNET"
+                  elsif r.vpc_peering_connection_id
+                    route["peer_id"] = r.vpc_peering_connection_id
+                  elsif r.instance_id
+                    route["nat_host_id"] = r.instance_id
+                  end
+                  rtb['routes'] << route
+                }
+              end
+              bok['route_tables'] << rtb
+            }
+          end
+
+          if !@subnets.empty?
+            bok['subnets'] = []
+            @subnets.each { |s|
+              subnet = {
+                "ip_block" => s.cloud_desc.cidr_block,
+                "availability_zone" => s.cloud_desc.availability_zone,
+                "map_public_ips" => s.cloud_desc.map_public_ip_on_launch,
+                "name" => s.name
+              }
+              if associations[s.cloud_id]
+                subnet["route_table"] = associations[s.cloud_id]
+              end
+              bok['subnets'] << subnet
+# XXX enable_traffic_logging, log_group_name, traffic_type_to_log
+            }
+          end
+
+          bok
         end
 
         # Return an array of MU::Cloud::AWS::VPC::Subnet objects describe the
