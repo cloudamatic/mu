@@ -116,7 +116,6 @@ module MU
             raise e
           end
 
-
           @cloud_id = resp.function_name
         end
 
@@ -296,20 +295,96 @@ module MU
         def self.find(**args)
           matches = {}
 
-          if !args[:cloud_id].nil?
-            all_functions = MU::Cloud::AWS.lambda(region: args[:region], credentials: args[:credentials]).list_functions
-            all_functions.functions.each do |x|
-              if x.function_name == args[:cloud_id]
-                matches[x.function_name] = x
-                break
-              end
+          all_functions = MU::Cloud::AWS.lambda(region: args[:region], credentials: args[:credentials]).list_functions
+          all_functions.functions.each do |x|
+            if !args[:cloud_id] or x.function_name == args[:cloud_id]
+              matches[x.function_name] = x
+              break if args[:cloud_id]
             end
           end
 
           return matches
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
 
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.function_name
+          bok['handler'] = cloud_desc.handler
+          bok['memory'] = cloud_desc.memory_size
+          bok['runtime'] = cloud_desc.runtime
+          bok['timeout'] = cloud_desc.timeout
+
+          function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
+MU.log @cloud_id, MU::NOTICE, details: function
+          if function.code.repository_type == "S3"
+            bok['code'] = {}
+            function.code.location.match(/^https:\/\/([^\.]+)\..*?\/([^?]+).*?(?:versionId=([^&]+))?/)
+            bok['code']['s3_bucket'] = Regexp.last_match[1]
+            bok['code']['s3_key'] = Regexp.last_match[2]
+            if Regexp.last_match[3]
+              bok['code']['s3_version'] = Regexp.last_match[3]
+            end
+          else
+            MU.log "Don't know how to declare code block for Lambda function #{@cloud_id}", MU::ERR, details: function.code
+            return nil
+          end
+
+          if function.tags
+            bok['tags'] = function.tags
+          end
+
+          if function.configuration.vpc_config and
+             function.configuration.vpc_config.vpc_id and
+             !function.configuration.vpc_config.vpc_id.empty?
+            bok['vpc'] = MU::Config::Ref.get(
+              id: function.configuration.vpc_config.vpc_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              type: "vpcs",
+              subnets: function.configuration.vpc_config.subnet_ids.map { |s| { "subnet_id" => s } }
+            )
+            if !function.configuration.vpc_config.security_group_ids.empty?
+              bok['add_firewall_rules'] = []
+              function.configuration.vpc_config.security_group_ids.each { |fw|
+                bok['add_firewall_rules'] << MU::Config::Ref.get(
+                  id: fw,
+                  cloud: "AWS",
+                  credentials: @credentials,
+                  type: "firewall_rules"
+                )
+              }
+            end
+          end
+
+          if function.configuration.environment and
+             function.configuration.environment.variables and
+             !function.configuration.environment.variables.empty?
+            bok['environment_variable'] = []
+            function.configuration.environment.variables.each_pair { |k, v|
+              bok['environment_variable'] << {
+                "key" => k,
+                "value" => v
+              }
+            }
+          end
+
+# XXX iam_role, triggers, permissions
+
+          bok
+        end
 
 
         # Cloud-specific configuration properties.
