@@ -290,7 +290,7 @@ module MU
                   allocation_ids << allocation_id
                   resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_nat_gateway(
                     subnet_id: subnet['subnet_id'],
-                    allocation_id: allocation_id
+                    allocation_id: allocation_id,
                   ).nat_gateway
 
                   nat_gateway_id = resp.nat_gateway_id
@@ -315,6 +315,9 @@ module MU
 
                   raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
                   nat_gateways << {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
+                  @tags.each_pair { |k, v|
+                    MU::MommaCat.createTag(nat_gateway_id, k, v, region: @config['region'], credentials: @config['credentials'])
+                  }
                 end
 
                 if subnet.has_key?("map_public_ips")

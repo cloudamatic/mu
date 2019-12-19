@@ -58,6 +58,10 @@ suites:
       - env
       - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
       - sudo /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
+      - sudo mu-deploy /tmp/mu-master.yaml -p name=mu-master-from-pipeline -p cloud=AWS | tee /tmp/aws-master.out
+      - sudo chmod 644 /tmp/aws-master.out
+      - aws_id=`grep " - deploy - Deployment" /tmp/aws-master.out | grep ' complete' | awk '{print $8}'`
+      - sudo mu-cleanup ${aws_id}
       root_path: '/tmp/'
     includes:
       - centos-7
@@ -65,14 +69,17 @@ suites:
 
   - name: mu-install-azure
     provisioner:
-      name:   shell
+      name: shell
       script:
       - "./install/installer"
       - "./install/mu-master.yaml"
       command:
       - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
       - sudo ll /tmp/ && sudo MU_BRANCH=development /tmp/installer -p $myip -m zach@zach.systems -o 2260 -h "$(echo $HOSTNAME | sed s/\\./-/g)" -n
-      - sudo mu-deploy /tmp/mu-master.yaml -p name=stange-mu -p cloud=Azure
+      - sudo mu-deploy /tmp/mu-master.yaml -p name=mu-master-from-pipeline -p cloud=Azure | tee /tmp/azure-master.out
+      - azure_id=`grep " - deploy - Deployment" /tmp/azure-master.out | grep ' complete' | awk '{print $8}'`
+      - sudo chmod 644 /tmp/azure-master.out
+      - sudo mu-cleanup ${azure_id}
       root_path: '/tmp/'
     includes:
       - centos-7-az
