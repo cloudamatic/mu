@@ -542,6 +542,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                 peer_obj = peer_obj.first
                 peer['account'] ||= MU::Cloud::AWS.credToAcct(peer_obj.credentials)
                 peer['vpc']['id'] ||= peer_obj.cloud_id
+                peer['vpc']['region'] ||= peer_obj.config['region']
               end
 
               peer_id = peer['vpc']['id']
@@ -565,11 +566,12 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
               peering_id = if !resp or !resp.vpc_peering_connections or
                  resp.vpc_peering_connections.empty?
 
-                MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id} in account #{MU::Cloud::AWS.credToAcct(@config['credentials'])}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
+                MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id} in account #{MU::Cloud::AWS.credToAcct(@config['credentials'])}) to #{peer_id} in account #{peer['account']}", details: peer
                 resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc_peering_connection(
                   vpc_id: @cloud_id,
                   peer_vpc_id: peer_id,
-                  peer_owner_id: peer['account']
+                  peer_owner_id: peer['account'],
+                  peer_region: peer['vpc']['region']
                 )
                 resp.vpc_peering_connection.vpc_peering_connection_id
               else
@@ -616,7 +618,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                 }
                 next if already_exists
 
-                MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}"
+                MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} in #{peer['vpc']['region']} from VPC #{@config['name']} in #{@config['region']}"
                 resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(my_route_config)
               } # MU::Cloud::AWS::VPC.listAllSubnetRouteTables
 
@@ -629,8 +631,8 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                   if ((!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or $MU_CFG['allow_invade_foreign_vpcs'])
                     MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}", MU::NOTICE
                     begin
-                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: peer['account']).accept_vpc_peering_connection(
-                        vpc_peering_connection_id: peering_id
+                      MU::Cloud::AWS.ec2(region: peer['vpc']['region'], credentials: peer['account']).accept_vpc_peering_connection(
+                        vpc_peering_connection_id: peering_id,
                       )
                       if peer['account'] != MU::Cloud::AWS.credToAcct(@config['credentials'])
                         # this seems to take a while across accounts
@@ -651,9 +653,9 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                         :vpc_peering_connection_id => peering_id
                       }
                       begin
-                        resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: peer['account']).create_route(peer_route_config)
+                        resp = MU::Cloud::AWS.ec2(region: peer['vpc']['region'], credentials: peer['account']).create_route(peer_route_config)
                       rescue Aws::EC2::Errors::RouteAlreadyExists => e
-                        rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: peer['account']).describe_route_tables(
+                        rtbdesc = MU::Cloud::AWS.ec2(region: peer['vpc']['region'], credentials: peer['account']).describe_route_tables(
                           route_table_ids: [rtb_id]
                         ).route_tables.first
                         rtbdesc.routes.each { |r|
