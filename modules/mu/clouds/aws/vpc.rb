@@ -786,9 +786,11 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
           end
 
           return nil if cloud_desc.is_default
-
+return nil if !["vpc-29531e4c", "vpc-03774ee70db6dd680"].include?(@cloud_id)
           bok['name'] = @cloud_id.sub(/^vpc-/, '') # blech
           bok['ip_block'] = cloud_desc.cidr_block
+
+MU.log @config['region'], MU::NOTICE, details: cloud_desc if @config['region'] == "us-east-2"
 
           if cloud_desc.tags and !cloud_desc.tags.empty?
             bok['tags'] = MU.structToHash(cloud_desc.tags)
@@ -800,6 +802,16 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                 bok['name'] = tag['value']
               end
             }
+          end
+
+          logs = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_flow_logs(filter: [{ "name" => "resource-id", "values" => [@cloud_id] }])
+          if logs and logs.flow_logs and !logs.flow_logs.empty?
+            bok['enable_traffic_logging'] = true
+            bok['traffic_type_to_log'] = logs.flow_logs.first.traffic_type.downcase
+            log_group_name = logs.flow_logs.first.log_group_name
+            if !log_group_name.match(/^[A-Z0-9\-]+-[A-Z0-9\-]+-\d{10}-[A-Z]{2}-/)
+              bok['log_group_name'] = log_group_name
+            end
           end
 
           rtbs = MU::Cloud::AWS::VPC.get_route_tables(vpc_ids: [@cloud_id], region: @config['region'], credentials: @credentials)
@@ -856,6 +868,7 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           if !@subnets.empty?
             bok['subnets'] = []
             @subnets.each { |s|
+MU.log @config['region'], MU::NOTICE, details:  s.cloud_desc if @config['region'] == "us-east-2"
               subnet = {
                 "ip_block" => s.cloud_desc.cidr_block,
                 "availability_zone" => s.cloud_desc.availability_zone,

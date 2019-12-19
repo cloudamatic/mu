@@ -35,22 +35,10 @@ module MU
               @mu_name
             end
 
-          tags = MU::MommaCat.listStandardTags
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each_pair { |name, value|
-              tags[name] = value
-            }
-          end
-          if @config['tags']
-            @config['tags'].each { |tag|
-              tags[tag['key']] = tag['value']
-            }
-          end
-
           MU.log "Creating log group #{@mu_name}"
           MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).create_log_group(
             log_group_name: @config["log_group_name"],
-            tags: tags
+            tags: @tags
           )
           @cloud_id = @mu_name
 
