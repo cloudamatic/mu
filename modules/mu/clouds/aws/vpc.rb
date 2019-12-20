@@ -516,6 +516,7 @@ module MU
                   next if skipme
                   peer['account'] = MU::Cloud::AWS.credToAcct(peer_obj.credentials)
                   peer['vpc']['id'] = peer_obj.cloud_id
+                  peer['vpc']['region'] ||= peer_obj.config['region']
                 end
               end
 
@@ -673,7 +674,7 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
                 end
 
                 if cnxn.status.code == "failed" or cnxn.status.code == "rejected" or cnxn.status.code == "expired" or cnxn.status.code == "deleted"
-                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
+                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@cloud_id} in #{@config['region']}) to #{peer_id} in #{peer['vpc']['region']} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
                   begin
                     MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).delete_vpc_peering_connection(
                       vpc_peering_connection_id: peering_id

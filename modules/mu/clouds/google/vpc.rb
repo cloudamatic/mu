@@ -55,7 +55,7 @@ module MU
             @config['subnets'].each { |subnet|
               subnetthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                subnet_name = subnet['name']
+                subnet_name = @config['name']+subnet['name']
 
                 subnet_mu_name = @config['scrub_mu_isms'] ? @cloud_id+subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
