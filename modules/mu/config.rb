@@ -722,7 +722,7 @@ return
 
     # Load up our YAML or JSON and parse it through ERB, optionally substituting
     # externally-supplied parameters.
-    def resolveConfig(path: @@config_path, param_pass: false)
+    def resolveConfig(path: @@config_path, param_pass: false, cloud: nil)
       config = nil
       @param_pass = param_pass
 
@@ -811,6 +811,9 @@ return
 
       begin
         config = JSON.parse(raw_json)
+        if @@parameters['cloud']
+          config['cloud'] ||= @@parameters['cloud'].to_s
+        end
         if param_pass and config.is_a?(Hash)
           config.keys.each { |key|
             if key != "parameters"
@@ -850,8 +853,9 @@ return
     # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
+    # @param cloud [String]: Sets a parameter named 'cloud', and insert it as the default cloud platform if not already declared
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: {}, updating: nil, default_credentials: nil)
+    def initialize(path, skipinitialupdates = false, params: {}, updating: nil, default_credentials: nil, cloud: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -890,6 +894,17 @@ return
           MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
         end
       }
+
+      if cloud and !@@parameters["cloud"]
+        if !MU::Cloud.availableClouds.include?(cloud)
+          ok = false
+          MU.log "Provider '#{cloud}' is not listed as an available cloud", MU::ERR, details: MU::Cloud.availableClouds
+        else
+          @@parameters["cloud"] = getTail("cloud", value: cloud, pseudo: true)
+          @@user_supplied_parameters["cloud"] = cloud
+          eval("$cloud='#{cloud}'") # support old-style $global parameter refs
+        end
+      end
       raise ValidationError if !ok
 
       # Run our input through the ERB renderer, a first pass just to extract
@@ -899,7 +914,7 @@ return
       # you can't specify parameters in an included file, because ERB is what's
       # doing the including, and parameters need to already be resolved so that
       # ERB can use them.
-      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true, cloud: cloud)
       if param_cfg.has_key?("parameters")
         param_cfg["parameters"].each { |param|
           if param.has_key?("default") and param["default"].nil?
@@ -955,7 +970,7 @@ return
       $parameters = @@parameters.dup
       $parameters.freeze
 
-      tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
+      tmp_cfg, raw_erb = resolveConfig(path: @@config_path, cloud: cloud)
 
       # Convert parameter entries that constitute whole config keys into
       # {MU::Config::Tail} objects.
