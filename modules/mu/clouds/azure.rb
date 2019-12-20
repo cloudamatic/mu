@@ -254,14 +254,14 @@ module MU
       # List visible Azure regions
       # @param credentials [String]: The credential set (subscription, effectively) in which to operate
       # return [Array<String>]
-      def self.listRegions(credentials: nil)
+      def self.listRegions(us_only = false, credentials: nil)
         cfg = credConfig(credentials)
         return nil if !cfg and !hosted?
         subscription = cfg['subscription']
         subscription ||= default_subscription()
 
         if @@regions.length() > 0 && subscription == default_subscription()
-          return @@regions
+          return us_only ? @@regions.reject { |r| !r.match(/us\d?$/) } : @@regions
         end
         
         begin
@@ -269,7 +269,9 @@ module MU
         rescue Exception => e
           MU.log e.inspect, MU::ERR, details: e.backtrace
           #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
-          return @@regions if @@regions and @@regions.size > 0
+          if @@regions and @@regions.size > 0
+            return us_only ? @@regions.reject { |r| !r.match(/us\d?$/) } : @@regions
+          end
           raise e
         end
 
@@ -277,7 +279,7 @@ module MU
           @@regions.push(region.name)
         end
 
-        return @@regions
+        return us_only ? @@regions.reject { |r| !r.match(/us\d?$/) } : @@regions
       end
 
       # List subscriptions visible to the given credentials
