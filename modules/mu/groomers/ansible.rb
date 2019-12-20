@@ -200,14 +200,14 @@ module MU
       # @param max_retries [Integer]: The maximum number of attempts at a successful run to make before giving up.
       # @param output [Boolean]: Display Ansible's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
-      def run(purpose: "Ansible run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
+      def run(purpose: "Ansible run", update_runlist: true, max_retries: 10, output: true, override_runlist: nil, reboot_first_fail: false, timeout: 1800)
         bootstrap
         pwfile = MU::Groomer::Ansible.vaultPasswordFile
         stashHostSSLCertSecret
 
         ssh_user = @server.config['ssh_user'] || "root"
 
-        cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
+        cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         retries = 0
         begin
