@@ -674,6 +674,7 @@ module MU
         # types may need to import.
         def self.condition_schema
           {
+            "type" => "array",
             "items" => {
               "properties" => {
                 "conditions" => {
@@ -725,15 +726,17 @@ module MU
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
             "policies" => self.condition_schema,
+            "import" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string",
+                "description" => "Can be a shorthand reference to a canned IAM policy like +AdministratorAccess+, or a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+"
+              }
+            },
             "strip_path" => {
               "type" => "boolean",
               "default" => false,
               "description" => "Normally we namespace IAM roles with a +path+ set to match our +deploy_id+; this disables that behavior. Temporary workaround for a bug in EKS/IAM integration."
-            },
-            "import" => {
-              "items" => {
-                "description" => "Can be a shorthand reference to a canned IAM policy like +AdministratorAccess+, or a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+"
-              }
             },
             "bare_policies" => {
               "type" => "boolean",

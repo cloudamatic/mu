@@ -377,7 +377,7 @@ module MU
               "type" => "string",
               "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user. AWS IAM does not distinguish between human user accounts and machine accounts."
             },
-            "policies" => MU::Cloud::AWS::Role.condition_schema,
+            "policies" => MU::Config::Role.schema["properties"]["policies"],
             "path" => {
               "type" => "string",
               "description" => "AWS IAM users can be namespaced with a path (ex: +/organization/unit/user+). If not specified, and if we do not see a matching existing user under +/+ with +use_if_exists+ set, we will prepend the deploy identifier to the path of users we create. Ex: +/IAMTESTS-DEV-2018112910-GR/myuser+.",

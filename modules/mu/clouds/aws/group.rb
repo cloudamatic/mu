@@ -161,16 +161,75 @@ module MU
         # Locate an existing group group.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching group group.
         def self.find(**args)
-          found = nil
-          begin
-            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_group(
-              group_name: args[:cloud_id]
-            )
-            found ||= {}
-            found[args[:cloud_id]] = resp
-          rescue Aws::IAM::Errors::NoSuchEntity
+          found = {}
+
+          if args[:cloud_id]
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_group(
+                group_name: args[:cloud_id]
+              )
+              found ||= {}
+              found[args[:cloud_id]] = resp
+            rescue Aws::IAM::Errors::NoSuchEntity
+            end
+          else
+            marker = nil
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_groups(marker: marker)
+              break if !resp or !resp.groups
+              marker = resp.marker
+
+              resp.groups.each { |g|
+                found[g.group_name] = g
+              }
+            end while marker
           end
+
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+          
+          bok["name"] = cloud_desc.group.group_name
+
+          if cloud_desc.group.path != "/"
+            bok["path"] = cloud_desc.group.path
+          end
+
+          if cloud_desc.users and cloud_desc.users.size > 0
+            bok["members"] = cloud_desc.users.map { |u| u.user_name }
+          end
+
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_group_policies(group_name: @cloud_id)
+          if resp and resp.policy_names
+            resp.policy_names.each { |pol_name|
+              pol = MU::Cloud::AWS.iam(credentials: @credentials).get_group_policy(group_name: @cloud_id, policy_name: pol_name)
+              pp pol
+            }
+          end
+
+
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_group_policies(group_name: @cloud_id)
+          if resp and resp.attached_policies
+            resp.attached_policies.each { |pol|
+            puts pol.policy_arn
+            }
+          end
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -179,6 +238,8 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "policies" => MU::Config::Role.schema["properties"]["policies"],
+            "import" => MU::Config::Role.schema["properties"]["import"],
             "unique_name" => {
               "type" => "boolean",
               "description" => "Instead of creating/updating a group with
