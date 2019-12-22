@@ -1,7 +1,7 @@
 # Stitch our simple resource type examples into a full stack.
 # clouds: Aws
 ---
-appname: superBoK
+appname: smoketest
 parameters:
   - name: complexity
     default: complex

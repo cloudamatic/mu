@@ -1,0 +1,8 @@
+# Windows Server 2012 R2
+---
+appname: smoketest
+us_only: true
+servers:
+- name: win2k12
+  platform: win2k12
+  size: m3.large

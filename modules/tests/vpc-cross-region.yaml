@@ -1,20 +1,20 @@
 # Tests a cross-regional VPC deploy with peering. Expects --cloud to have been
 # passed, otherwise this will blow up.
 ---
-appname: xregion
+appname: smoketest
 us_only: true
 vpcs:
-- name: vpc1<%= cloud.downcase %>
+- name: xregion1<%= cloud.downcase %>
   create_nat_gateway: true
   create_bastion: true
   region: <%= MU::Cloud.const_get(cloud).listRegions(true).first %>
   peers:
   - vpc:
-      name: vpc2<%= cloud.downcase %>
-- name: vpc2<%= cloud.downcase %>
+      name: xregion2<%= cloud.downcase %>
+- name: xregion2<%= cloud.downcase %>
   create_nat_gateway: true
   create_bastion: true
   region: <%= MU::Cloud.const_get(cloud).listRegions(true).last %>
   peers:
   - vpc:
-      name: vpc1<%= cloud.downcase %>
+      name: xregion1<%= cloud.downcase %>

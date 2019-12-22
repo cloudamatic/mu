@@ -1849,27 +1849,27 @@ $CONFIGURABLES
           # Ok, well neither of those worked, let's assume that filenames are
           # meaningful.
           if path.match(/\.(yaml|yml)$/i)
-            MU.log "Guessing that #{path} is YAML based on filename", MU::NOTICE
+            MU.log "Guessing that #{path} is YAML based on filename", MU::DEBUG
             return :yaml
           elsif path.match(/\.(json|jsn|js)$/i)
-            MU.log "Guessing that #{path} is JSON based on filename", MU::NOTICE
+            MU.log "Guessing that #{path} is JSON based on filename", MU::DEBUG
             return :json
           else
             # For real? Ok, let's try the dumbest possible method.
             dashes = raw.match(/\-/)
             braces = raw.match(/[{}]/)
             if dashes.size > braces.size
-              MU.log "Guessing that #{path} is YAML by... counting dashes.", MU::WARN
+              MU.log "Guessing that #{path} is YAML by... counting dashes.", MU::NOTICE
               return :yaml
             elsif braces.size > dashes.size
-              MU.log "Guessing that #{path} is JSON by... counting braces.", MU::WARN
+              MU.log "Guessing that #{path} is JSON by... counting braces.", MU::NOTICE
               return :json
             else
               raise "Unable to guess composition of #{path} by any means"
             end
           end
         end
-        MU.log "Guessing that #{path} is YAML based on parser", MU::NOTICE
+        MU.log "Guessing that #{path} is YAML based on parser", MU::DEBUG
         return :yaml
       end
       MU.log "Guessing that #{path} is JSON based on parser", MU::NOTICE
