@@ -2,7 +2,12 @@
 ---
 appname: smoketest
 us_only: true
+vpcs:
+- name: win2k12
 servers:
 - name: win2k12
   platform: win2k12
   size: m3.large
+  vpc:
+    name: win2k12
+    subnet_pref: private

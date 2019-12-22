@@ -109,7 +109,7 @@ results.keys.sort { |a, b|
     puts cmd+" failed:".light_red
     puts results[cmd]["output"].yellow
     puts "^ #{cmd}".light_red
-    failures << commands[cmd]["file"]+" on "+commands[cmd]["cloud"]
+    failures << commands[cmd]["file"]+" ("+commands[cmd]["cloud"]+")"
   else
     puts cmd+" passed".green
   end

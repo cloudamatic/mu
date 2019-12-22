@@ -1,0 +1,78 @@
+# This stresses the parser, including ERB meta-logic, parameters, includes, and
+# deprecated variable syntax. Also hits some esoteric AWS Autoscale features.
+# Lifted (with permission) from a client and scrubbed of their specifics.
+# clouds: AWS
+---
+appname: smoketest
+parameters:
+- name: instancesize
+  prettyname: "Instance Size"
+  default: <%= $environment == "prod" ? "t3.large" : "t3.small" %>
+<%= include("poolparams-include.inc") %>
+vpcs:
+- name: parsemess
+loadbalancers:
+<% $healthcheck_target = "HTTP:8000/foo/bar/baz" %>
+<%= include("elb-include.inc") %>
+server_pools:
+- name: svr
+  cloud: AWS
+  ssh_user: ec2-user
+  tags:
+    - key: Env
+      value: <%= env %>
+    - key: Application
+      value: <%= myAppName %>
+  termination_policies:
+  - "OldestInstance"
+<%= include("application_attributes.inc") %>
+  vpc:
+    name: parsemess
+    subnet_pref: all_private
+  wait_for_nodes: 2
+  min_size: 2
+<% if $environment == "prod" %>
+  max_size: 20
+<% else %>
+  max_size: 2
+  schedule:
+  - action_name: scale-down-over-night
+    recurrence: "30 6 * * *"
+    min_size: 1
+    max_size: 1
+  - action_name: scale-up-during-the-day
+    recurrence: "30 12 * * *"
+    min_size: 2
+    max_size: 2
+<% end %>
+<% $topic = "scale" %>
+<% $estimated_instance_warmup = 600 %>
+<% $target_value = 160 %>
+<%= include("auto_scaling.inc") %>
+  loadbalancers:
+  - concurrent-load-balancer: elb
+  ingress_rules:
+  - port: 22
+    hosts:
+    - 10.0.0.0/16
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  - port: 443
+    hosts:
+    - 0.0.0.0/0
+  - port: 8000
+    hosts:
+    - 10.0.0.0/10
+  - port: 8081
+    hosts:
+    - 10.0.0.0/10
+  basis:
+    launch_config:
+      name: bookserver
+      size: <%= instancesize %>
+      storage:
+      - device: /dev/xvdf
+        size: 100
+      iam_policies:
+        <%= include("iam-include.json") %>

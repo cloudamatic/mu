@@ -71,7 +71,6 @@ module MU
           "type" => "object",
           "title" => "loadbalancer",
           "description" => "Create Load Balancers",
-          "additionalProperties" => false,
           "required" => ["name", "listeners", "cloud"],
           "properties" => {
             "name" => {

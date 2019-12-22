@@ -1,0 +1,265 @@
+# clouds: Google
+---
+appname: smoketest
+folders:
+- display_name: massiveDataThing
+  name: massiveDataThing
+- display_name: largeDataThing
+  name: largeDataThing
+- display_name: CriticalAppNextGen
+  name: CriticalAppNextGen
+  parent:
+    type: folders
+    name: Prod
+- display_name: ov-stange-experiment-xk6
+  name: ov-stange-experiment-xk6
+  parent:
+    type: folders
+    name: Isolation
+- display_name: OneOffs
+  name: OneOffs
+- display_name: zz_Abandoned
+  name: zz_Abandoned
+- display_name: SmallOpDiv
+  name: SmallOpDiv
+- display_name: DevOps Prod
+  name: DevOps Prod
+  parent:
+    type: folders
+    name: DevOps
+- display_name: DatabaseAdmins
+  name: DatabaseAdmins
+- display_name: MediumApp
+  name: MediumApp
+- display_name: Shared-Services
+  name: Shared-Services
+  parent:
+    type: folders
+    name: Suspected unused
+- display_name: petProject
+  name: petProject
+- display_name: CriticalAppNextGen
+  name: CriticalAppNextGen
+- display_name: Isolation
+  name: Isolation
+- display_name: Systems Group
+  name: Systems Group
+- display_name: Prod
+  name: Prod
+  parent:
+    type: folders
+    name: Suspected unused
+- display_name: Dev
+  name: Dev
+  parent:
+    type: folders
+    name: Suspected unused
+- display_name: Suspected unused
+  name: Suspected unused
+  parent:
+    type: folders
+    name: Systems Group
+- display_name: Research
+  name: Research
+- display_name: External Partner
+  name: External Partner
+- display_name: DevOps Research
+  name: DevOps Research
+  parent:
+    type: folders
+    name: DevOps
+- display_name: DevOps
+  name: DevOps
+- display_name: Misc
+  name: Misc
+- display_name: DevOps Dev
+  name: DevOps Dev
+  parent:
+    type: folders
+    name: DevOps
+habitats:
+- name: admin
+  display_name: admin
+  parent:
+    type: folders
+    name: Systems Group
+- name: billing-reports
+  display_name: Billing Reports
+  parent:
+    type: folders
+    name: Suspected unused
+- name: massive-data-dev
+  display_name: massive-data-dev
+  parent:
+    type: folders
+    name: massiveDataThing
+- name: massive-data-prod
+  display_name: massive-data-prod
+  parent:
+    type: folders
+    name: massiveDataThing
+- name: cicd-dev
+  display_name: cicd-dev
+  parent:
+    type: folders
+    name: DevOps Dev
+- name: cicd-prod
+  display_name: cicd-prod
+  parent:
+    type: folders
+    name: DevOps Prod
+- name: controlled-access-dev
+  display_name: controlled-access-dev
+  parent:
+    type: folders
+    name: Suspected unused
+- name: controlled-access-prod
+  display_name: controlled-access-prod
+  parent:
+    type: folders
+    name: Suspected unused
+- name: devops-infra-services
+  display_name: devops-infra-services
+  parent:
+    type: folders
+    name: DevOps
+- name: external-user-test
+  display_name: external-user-test
+  parent:
+    type: folders
+    name: External Partner
+- name: genome2
+  display_name: genome2
+  parent:
+    type: folders
+    name: Misc
+- name: infra-services
+  display_name: infra-services
+  parent:
+    type: folders
+    name: Systems Group
+- name: analytics
+  display_name: analytics
+  parent:
+    type: folders
+    name: largeDataThing
+- name: network-host
+  display_name: network-host
+  parent:
+    type: folders
+    name: Systems Group
+- name: ops-dev
+  display_name: ops-dev
+  parent:
+    type: folders
+    name: Suspected unused
+- name: ops-prod
+  display_name: ops-prod
+  parent:
+    type: folders
+    name: Suspected unused
+- name: packer
+  display_name: Packer
+  parent:
+    type: folders
+    name: Systems Group
+- name: prod-devops-deployment
+  display_name: prod-devops-deployment
+  parent:
+    type: folders
+    name: DevOps Prod
+- name: critical-app-dev
+  display_name: critical-app-dev
+  parent:
+    type: folders
+    name: CriticalAppNextGen
+- name: critical-app-dev-testing
+  display_name: critical-app-dev-testing
+  parent:
+    type: folders
+    name: CriticalAppNextGen
+- name: critical-app-prod
+  display_name: critical-app-prod
+  parent:
+    type: folders
+    name: CriticalAppNextGen
+- name: research-billingtest
+  display_name: research-billingtest
+  parent:
+    type: folders
+    name: zz_Abandoned
+- name: research-blast
+  display_name: research-blast-pending-rdploy
+  parent:
+    type: folders
+    name: massiveDataThing
+- name: research-database-admins
+  display_name: research-database-admins
+  parent:
+    type: folders
+    name: DatabaseAdmins
+- name: research-cd
+  display_name: research-cd
+  parent:
+    type: folders
+    name: DevOps Research
+- name: research-openshift
+  display_name: research-openshift
+  parent:
+    type: folders
+    name: DevOps Research
+- name: research-gmaps
+  display_name: 'research-gmaps '
+  parent:
+    type: folders
+    name: Misc
+- name: research-oneoffs
+  display_name: research-oneoffs
+  parent:
+    type: folders
+    name: OneOffs
+- name: research-pgap-external
+  display_name: research-pgap-external
+  parent:
+    type: folders
+    name: petProject
+- name: research-pubchem
+  display_name: research-pubchem
+  parent:
+    type: folders
+    name: MediumApp
+- name: research-critical-app
+  display_name: research-critical-app
+  parent:
+    type: folders
+    name: CriticalAppNextGen
+- name: research-rna-seq-counts
+  display_name: research-rna-seq-counts
+  parent:
+    type: folders
+    name: Misc
+- name: research-dataload
+  display_name: research-dataload
+  parent:
+    type: folders
+    name: External Partner
+- name: sandbox-blast
+  display_name: sandbox-blast
+  parent:
+    type: folders
+    name: massiveDataThing
+- name: testing
+  display_name: testing
+  parent:
+    type: folders
+    name: Suspected unused
+- name: wafs
+  display_name: WAFs
+  parent:
+    type: folders
+    name: Systems Group
+- name: cloud-pipeline
+  display_name: cloud-pipeline
+  parent:
+    type: folders
+    name: External Partner

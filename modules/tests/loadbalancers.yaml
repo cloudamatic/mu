@@ -1,0 +1,58 @@
+# clouds: AWS, Google
+---
+appname: smoketest
+us_only: true
+vpcs:
+- name: lbvpc
+buckets:
+- name: lbbucket
+loadbalancers:
+- name: lb
+  private: true
+  global: true
+  vpc:
+    subnet_pref: all
+    name: lbvpc
+  idle_timeout: 360
+  cross_zone_unstickiness: false
+  ip_stickiness_policy:
+    map_proto: true
+    map_port: true
+  lb_cookie_stickiness_policy:
+    name: frackin-nonsense
+    timeout: 86400
+  access_log:
+    enabled: true
+    s3_bucket_name: lbbucket
+    emit_interval: 5
+    s3_bucket_prefix: smoketest
+  healthcheck:
+    target: "HTTP:80/"
+    timeout: 5
+    interval: 30
+    unhealthy-threshold: 2
+    healthy-threshold: 2
+  listeners:
+  - lb-port: 80
+    lb-protocol: TCP
+    instance-port: 8081
+    instance-protocol: HTTP
+# XXX an SSL test would be nice, but we'd have to guarantee a cert being available
+#  - lb-port: 443
+#    lb-protocol: TCP
+#    instance-port: 443
+#    instance-protocol: HTTPS
+#    ssl_certificate_name: "*.egt-labs.com"
+#    healthcheck:
+#      target: "SSL:443"
+#      timeout: 5
+#      interval: 30
+#      unhealthy-threshold: 2
+#      healthy-threshold: 2
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  - port: 443
+    hosts:
+    - 0.0.0.0/0

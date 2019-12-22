@@ -1,0 +1,32 @@
+# Exercise AWS Route53 functionality with a private DNS zone and a few
+# non-trivial records.
+# clouds: AWS
+---
+appname: smoketest
+vpcs:
+- name: r53
+dnszones: 
+- name: smokedomain
+  private: true
+  all_account_vpcs: true
+  vpcs:
+    - name: r53
+loadbalancers:
+- name: r53lb
+  vpc:
+    name: r53
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  healthcheck:
+   target: HTTP:80/heartbeat.php
+   timeout: 5
+   interval: 30
+   unhealthy-threshold: 2
+   healthy-threshold: 2
+  listeners:
+  - lb-port: 80
+    lb-protocol: HTTP
+    instance-port: 80
+    instance-protocol: HTTP
