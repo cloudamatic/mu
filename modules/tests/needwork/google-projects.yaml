@@ -1,3 +1,6 @@
+# XXX this doesn't work right now, least not with our Labs GCP credentials,
+# because Google broke Cloud Identity somehow so we effectively don't have an
+# Organization to develop/test with.
 # clouds: Google
 ---
 appname: smoketest

@@ -169,12 +169,6 @@ module MU
           )
         end
 
-        # Return the cloud descriptor for the Log Group
-        def cloud_desc
-          found = MU::Cloud::AWS::Log.find(cloud_id: @cloud_id)
-          found ? found.values.first : nil
-        end
-
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
@@ -209,15 +203,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          log_groups =
-            begin 
-              MU::Cloud::AWS.cloudwatchlogs(credentials: credentials, region: region).describe_log_groups.log_groups
-            # TO DO: Why is it returning UnknownOperationException instead of valid error?
-            rescue Aws::CloudWatchLogs::Errors::UnknownOperationException => e
-              MU.log e.inspect
-              []
-            end
-
+          log_groups = self.find(credentials: credentials, region: region).values
           if !log_groups.empty?
             log_groups.each{ |lg|
               if lg.log_group_name.match(MU.deploy_id)
@@ -253,22 +239,68 @@ module MU
         # Locate an existing log group.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching log group.
         def self.find(**args)
-          found = nil
+          found = {}
           if !args[:cloud_id].nil? and !args[:cloud_id].match(/^arn:/i)
-            found ||= {}
             found[args[:cloud_id]] = MU::Cloud::AWS::Log.getLogGroupByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
           else
-            resp = MU::Cloud::AWS.cloudwatchlogs(region: args[:region], credentials: args[:credentials]).describe_log_groups.log_groups.each { |group|
-              if group.arn == args[:cloud_id] or group.arn.sub(/:\*$/, "") == args[:cloud_id]
-                found ||= {}
-                found[group.log_group_name] = group
-                break
-              end
-            }
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.cloudwatchlogs(region: args[:region], credentials: args[:credentials]).describe_log_groups(next_token: next_token)
+              return found if resp.nil? or resp.log_groups.nil?
+
+              resp.log_groups.each { |group|
+                if group.arn == args[:cloud_id] or group.arn.sub(/:\*$/, "") == args[:cloud_id] or !args[:cloud_id]
+                  found[group.log_group_name] = group
+                  break if args[:cloud_id]
+                end
+              }
+              next_token = resp.next_token
+            end while next_token
           end
 
           found
         end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.log_group_name.sub(/.*?\/([^\/]+)$/, '\1')
+
+          if cloud_desc.metric_filter_count > 0
+            resp = MU::Cloud::AWS.cloudwatchlogs(region: @config['region'], credentials: @credentials).describe_metric_filters(
+              log_group_name: @cloud_id
+            )
+            resp.metric_filters.each { |filter|
+              bok["filters"] ||= []
+              bok["filters"] << {
+                "name" => filter.filter_name,
+                "search_pattern" => filter.filter_pattern,
+                "metric_name" => filter.metric_transformations.first.metric_name,
+                "namespace" => filter.metric_transformations.first.metric_namespace,
+                "value" => filter.metric_transformations.first.metric_value
+              }
+            }
+          end
+
+          if cloud_desc.retention_in_days
+            bok["retention_period"] = cloud_desc.retention_in_days
+          end
+
+          bok
+        end
+
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object

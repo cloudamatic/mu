@@ -114,6 +114,9 @@ module MU
       msg = "" if msg == nil
       msg = msg.to_s if !msg.is_a?(String) and msg.respond_to?(:to_s)
 
+      # wrapper for writing a log entry to multiple filehandles
+      # @param handles [Array<IO>]
+      # @param msgs [Array<String>]
       def write(handles = [], msgs = [])
         return if handles.nil? or msgs.nil?
         handles.each { |h|
