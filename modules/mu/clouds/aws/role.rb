@@ -516,24 +516,34 @@ module MU
                   JSON.parse(URI.decode(version.policy_version.document))
                 end
 
-                bok["policies"] ||= []
-# XXX conditions go here; need an example
-                doc["Statement"].each { |s|
-                  s["Resource"] = [s["Resource"]] if s["Resource"].is_a?(String)
-                  s["Action"] = [s["Action"]] if s["Action"].is_a?(String)
-                  bok["policies"] << {
-                    "name" => pol.policy_name+bok["policies"].size.to_s,
-                    "permissions" => s["Action"],
-                    "targets" => s["Resource"],
-                    "flag" => s["Effect"].downcase
-                  }
-                }
+                bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
               end
             }
             
           end
 
           bok
+        end
+
+        # Convert an IAM policy document to our own shorthand Basket of Kittens
+        # schema.
+        # @param doc [Hash]: The decoded IAM policy document
+        # @param policies [Array<Hash>]: Existing policy list to append to, if any
+        # @return [Array<Hash>]
+        def self.doc2MuPolicies(basename, doc, policies = [])
+          policies ||= []
+# XXX conditions go here too; need an example to reverse engineer
+          doc["Statement"].each { |s|
+            s["Resource"] = [s["Resource"]] if s["Resource"].is_a?(String)
+            s["Action"] = [s["Action"]] if s["Action"].is_a?(String)
+            policies << {
+              "name" => basename + "_" + policies.size.to_s,
+              "permissions" => s["Action"],
+              "targets" => s["Resource"],
+              "flag" => s["Effect"].downcase
+            }
+          }
+          policies
         end
 
         # Attach this role or group of loose policies to the specified entity.

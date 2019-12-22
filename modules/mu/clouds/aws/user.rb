@@ -283,18 +283,88 @@ module MU
         # Locate an existing IAM user
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching user group.
         def self.find(**args)
-          found = nil
+          found = {}
+
+          if args[:cloud_id]
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_user(user_name: args[:cloud_id])
+              if resp and resp.user
+                found[args[:cloud_id]] = resp.user
+              end
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
+          else
+            marker = nil
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_users(marker: marker)
+              break if !resp or !resp.users
+              marker = resp.marker
+
+              resp.users.each { |u|
+                found[u.user_name] = u
+              }
+            end while marker
+          end
+
+          found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.user_name
+
+          if cloud_desc.tags and cloud_desc.tags.size > 0
+            bok["tags"] = MU.structToHash(cloud_desc.tags, stringify_keys: true)
+          end
+
+          if cloud_desc.path != "/"
+            bok["path"] = cloud_desc.path
+          end
 
           begin
-            resp = MU::Cloud::AWS.iam.get_user(user_name: args[:cloud_id])
-            if resp and resp.user
-              found ||= {}
-              found[args[:cloud_id]] = resp.user
+            resp = MU::Cloud::AWS.iam(credentials: @credentials).get_login_profile(user_name: @cloud_id)
+            if resp and resp.login_profile
+              bok['create_console_password'] = true
+              if resp.login_profile.password_reset_required
+                bok['force_password_change'] = true
+              end
             end
           rescue ::Aws::IAM::Errors::NoSuchEntity
           end
 
-          found
+          begin
+            resp = MU::Cloud::AWS.iam(credentials: @credentials).list_access_keys(user_name: @cloud_id)
+            if resp and resp.access_key_metadata
+              bok['create_api_key'] = true
+            end
+          rescue ::Aws::IAM::Errors::NoSuchEntity
+          end
+
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_user_policies(user_name: @cloud_id)
+          if resp and resp.policy_names and resp.policy_names.size > 0
+            resp.policy_names.each { |pol_name|
+              pol = MU::Cloud::AWS.iam(credentials: @credentials).get_user_policy(user_name: @cloud_id, policy_name: pol_name)
+              doc = JSON.parse(URI.decode(pol.policy_document))
+              bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
+            }
+          end
+
+          MU.log @cloud_id, MU::NOTICE, details: resp
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -307,6 +377,7 @@ module MU
               "type" => "string",
               "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user. AWS IAM does not distinguish between human user accounts and machine accounts."
             },
+            "policies" => MU::Cloud::AWS::Role.condition_schema,
             "path" => {
               "type" => "string",
               "description" => "AWS IAM users can be namespaced with a path (ex: +/organization/unit/user+). If not specified, and if we do not see a matching existing user under +/+ with +use_if_exists+ set, we will prepend the deploy identifier to the path of users we create. Ex: +/IAMTESTS-DEV-2018112910-GR/myuser+.",
