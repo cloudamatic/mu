@@ -15,7 +15,7 @@
 
 require 'colorize'
 require 'optimist'
-bindir = File.realpath(File.expand_path(File.dirname(__FILE__)+"/../../bin/"))
+bindir = File.realpath(File.expand_path(File.dirname(__FILE__)))
 require bindir+"/mu-load-config.rb"
 require 'mu'
 
@@ -28,7 +28,7 @@ Usage:
   opt :full, "Actually run deploys, instead of --dryrun", :require => false, :default => false
 end
 
-dir = File.realpath(File.expand_path(File.dirname(__FILE__)))
+dir = File.realpath(File.expand_path(bindir+"/../modules/tests"))
 Dir.chdir(dir)
 
 files = Dir.glob("*.yaml", base: dir)

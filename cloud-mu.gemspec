@@ -31,7 +31,7 @@ EOF
   s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Zach Rowe"]
   s.email       = 'eGTLabs@eglobaltech.com'
   s.files       = build_file_list(whereami)
-  s.executables = Dir.entries(whereami+"/bin").reject { |f| File.directory?(f) } + [whereami+"/modules/tests/run"]
+  s.executables = Dir.entries(whereami+"/bin").reject { |f| File.directory?(f) }
   s.homepage    =
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
