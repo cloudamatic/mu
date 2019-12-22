@@ -159,19 +159,15 @@ Docker Build:
 
 Parser Test With Gem:
   stage: Smoke Tests
-#  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
-#  image: chef/chefdk::4.5
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
   before_script:
     - apt-get -qq update
-    - apt-get -qq -y install dnsutils git
     - myip="$(dig +short myip.opendns.com @resolver1.opendns.com)"
     - mu-configure -n --aws-access-key="${AWS_ACCESS_KEY_ID}" --aws-access-secret="${AWS_SECRET_ACCESS_KEY}" --azure-directory-id="${AZURE_DIRECTORY_ID}" --azure-client-id="${AZURE_CLIENT_ID}" --azure-client-secret="${AZURE_CLIENT_SECRET}" --azure-subscription="${AZURE_SUBSCIPTION_ID}" --google-credentials-encoded="${GOOGLE_CREDS_ENCODED}" --mu-admin-email="egt-labs-dev@eglobaltech.com" --public-address=$myip --google-region=us-east4 --aws-region=us-east-1 --azure-region=eastus
   script:
-#    - apt-get -qq install git libyajl-dev libffi-dev libyajl2 -y
-    - cd modules
-    - bundle install
-    - cd tests
-    - ruby run
+    - apt-get -qq install git libyajl-dev libffi-dev libyajl2 -y
+    - cd modules/tests
+    - ./run
   only:
     - master
     - development
