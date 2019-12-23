@@ -360,7 +360,7 @@ module MU
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
-      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil)
+      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil, omit_fields: [])
         parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
         desc ||= "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource"
         schema = {
@@ -407,6 +407,12 @@ module MU
         }
         if !["folders", "habitats"].include?(type)
           schema["properties"]["habitat"] = MU::Config::Habitat.reference
+        end
+
+        if omit_fields
+          omit_fields.each { |f|
+            schema["properties"].delete(f)
+          }
         end
 
         if !type.nil?

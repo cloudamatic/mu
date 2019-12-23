@@ -353,16 +353,36 @@ module MU
           rescue ::Aws::IAM::Errors::NoSuchEntity
           end
 
+          # Grab and assimilate any inline policies attached to this user
           resp = MU::Cloud::AWS.iam(credentials: @credentials).list_user_policies(user_name: @cloud_id)
           if resp and resp.policy_names and resp.policy_names.size > 0
             resp.policy_names.each { |pol_name|
               pol = MU::Cloud::AWS.iam(credentials: @credentials).get_user_policy(user_name: @cloud_id, policy_name: pol_name)
               doc = JSON.parse(URI.decode(pol.policy_document))
-              bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
+              bok["inline_policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
             }
           end
 
-          MU.log @cloud_id, MU::NOTICE, details: resp
+          # Grab and reference any managed policies attached to this user
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_user_policies(user_name: @cloud_id)
+          if resp and resp.attached_policies
+            resp.attached_policies.each { |pol|
+              bok["attachable_policies"] ||= []
+              if pol.policy_arn.match(/arn:aws(?:-us-gov)?:iam::aws:policy\//)
+                bok["attachable_policies"] << MU::Config::Ref.get(
+                  id: pol.policy_name,
+                  cloud: "AWS"
+                )
+              else
+                bok["attachable_policies"] << MU::Config::Ref.get(
+                  id: pol.policy_arn,
+                  name: pol.policy_name,
+                  cloud: "AWS",
+                  type: "roles"
+                )
+              end
+            }
+          end
 
           bok
         end
@@ -372,12 +392,18 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          polschema = MU::Config::Role.schema["properties"]["policies"]
+          polschema["conditions"] = MU::Cloud::AWS::Role.condition_schema
           schema = {
+            "inline_policies" => polschema,
+            "attachable_policies" => {
+              "type" => "array",
+              "items" => MU::Config::Ref.schema(type: "roles", desc: "Reference to a managed policy, which can either refer to an existing managed policy or a sibling +roles+ object which has {bare_policies} set.", omit_fields: ["region", "tag"])
+            },
             "name" => {
               "type" => "string",
               "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user. AWS IAM does not distinguish between human user accounts and machine accounts."
             },
-            "policies" => MU::Config::Role.schema["properties"]["policies"],
             "path" => {
               "type" => "string",
               "description" => "AWS IAM users can be namespaced with a path (ex: +/organization/unit/user+). If not specified, and if we do not see a matching existing user under +/+ with +use_if_exists+ set, we will prepend the deploy identifier to the path of users we create. Ex: +/IAMTESTS-DEV-2018112910-GR/myuser+.",
@@ -397,7 +423,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
               "default" => false,
               "description" => "Generate a password for this user, for use logging into the AWS Console. It will be shared via Scratchpad for one-time retrieval."
             },
-            "iam_policies" => {
+            "raw_policies" => {
               "type" => "array",
               "items" => {
                 "description" => "A key (name) with a value that is an Amazon-compatible policy document. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",

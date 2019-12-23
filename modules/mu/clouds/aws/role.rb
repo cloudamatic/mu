@@ -22,6 +22,14 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+
+          if @cloud_id and (!cloud_desc["role"] or cloud_desc["role"].empty?)
+            @config['bare_policies'] = true
+            if @config['name'].match(/^arn:/) and cloud_desc['policies'].size == 1
+              @config['name'] = cloud_desc['policies'].first.policy_name
+            end
+          end
+
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -178,13 +186,29 @@ module MU
         def cloud_desc
           desc = {}
           if @config['bare_policies']
-            desc["policies"] = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policies(
-              path_prefix: "/"+MU.deploy_id+"/"
-            ).policies
-            desc["policies"].reject! { |p|
-              !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
-            }
+            pol_desc = MU::Cloud::AWS::Role.find(credentials: @credentials, cloud_id: @cloud_id).values.first
+            if pol_desc
+              desc['policies'] = [pol_desc]
+              return desc
+            end
+
+            if @deploy.deploy_id
+              desc["policies"] = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policies(
+                path_prefix: "/"+@deploy.deploy_id+"/"
+              ).policies
+              desc["policies"].reject! { |p|
+                !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
+              }
+            end
           else
+            if @cloud_id.match(/^arn:aws(:?-us-gov)?:[^:]*:[^:]*:\d*:policy\//)
+              pol_desc = MU::Cloud::AWS::Role.find(credentials: @credentials, cloud_id: @cloud_id).values.first
+              if pol_desc
+                desc['policies'] = [pol_desc]
+                return desc
+              end
+            end
+begin
             desc['role'] = MU::Cloud::AWS::Role.find(credentials: @credentials, cloud_id: @cloud_id).values.first
             desc['role'] ||= MU::Cloud::AWS::Role.find(credentials: @credentials, cloud_id: @mu_name).values.first
             MU::Cloud::AWS.iam(credentials: @config['credentials']).list_attached_role_policies(
@@ -195,7 +219,9 @@ module MU
                 policy_arn: p.policy_arn
               ).policy
             }
-
+rescue ::Aws::IAM::Errors::ValidationError => e
+MU.log @cloud_id+" "+@mu_name, MU::WARN, details: e.inspect
+end
           end
           desc['cloud_id'] ||= @cloud_id
 
@@ -409,12 +435,27 @@ module MU
           found = {}
 
           if args[:cloud_id]
-            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_role(
-              role_name: args[:cloud_id]
-            )
-            if resp and resp.role
-              found[args[:cloud_id]] = resp.role
+
+            begin
+              # managed policies get fetched by ARN, roles by plain name. Ok!
+              if args[:cloud_id].match(/^arn:/)
+                resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_policy(
+                  policy_arn: args[:cloud_id]
+                )
+                if resp and resp.policy
+                  found[args[:cloud_id]] = resp.policy
+                end
+              else
+                resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_role(
+                  role_name: args[:cloud_id]
+                )
+                if resp and resp.role
+                  found[args[:cloud_id]] = resp.role
+                end
+              end
+            rescue ::Aws::IAM::Errors::NoSuchEntity
             end
+            
           else
             marker = nil
             begin
@@ -424,6 +465,18 @@ module MU
               break if !resp or !resp.roles
               resp.roles.each { |role|
                 found[role.role_name] = role
+              }
+              marker = resp.marker
+            end while marker
+
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_policies(
+                scope: "Local",
+                marker: marker
+              )
+              break if !resp or !resp.policies
+              resp.policies.each { |pol|
+                found[pol.arn] = pol
               }
               marker = resp.marker
             end while marker
@@ -442,15 +495,56 @@ module MU
             "cloud_id" => @cloud_id
           }
 
-          if !cloud_desc or !cloud_desc['role']
+          if !cloud_desc or (!@config['bare_policies'] and !cloud_desc['role'])
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
 
           desc = cloud_desc['role']
+          if desc
+            bok["name"] = desc.role_name
+          else
+            desc = cloud_desc['policies']
+          end
+
           policies = cloud_desc['policies']
 
-          bok["name"] = desc.role_name
+          if policies and policies.size > 0
+            if @config['bare_policies']
+              bok['name'] = policies.first.policy_name
+              bok['bare_policies'] = true
+            end
+
+            policies.each { |pol|
+              if pol.arn.match(/^arn:aws(?:-us-gov)?:iam::aws:policy\/.*?([^\/]+)$/)
+                bok["import"] ||= []
+                bok["import"] << Regexp.last_match[1]
+              else
+                doc = begin
+                  resp = MU::Cloud::AWS.iam(credentials: @credentials).get_role_policy(
+                    role_name: @cloud_id,
+                    policy_name: pol.policy_name
+                  )
+                  if resp and resp.policy_document
+                    JSON.parse(URI.decode(resp.policy_document))
+                  end
+                rescue ::Aws::IAM::Errors::NoSuchEntity, ::Aws::IAM::Errors::ValidationError
+                  resp = MU::Cloud::AWS.iam(credentials: @credentials).get_policy(
+                    policy_arn: pol.arn
+                  )
+                  version = MU::Cloud::AWS.iam(credentials: @credentials).get_policy_version(
+                    policy_arn: pol.arn,
+                    version_id: resp.policy.default_version_id
+                  )
+                  JSON.parse(URI.decode(version.policy_version.document))
+                end
+
+                bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
+              end
+            }
+
+            return bok if @config['bare_policies']
+          end
           
           if desc.tags and desc.tags.size > 0
             bok["tags"] = MU.structToHash(desc.tags, stringify_keys: true)
@@ -490,36 +584,25 @@ module MU
             }
           end
 
-          if policies and policies.size > 0
-            policies.each { |pol|
-              if pol.arn.match(/^arn:aws(?:-us-gov)?:iam::aws:policy\/.*?([^\/]+)$/)
-                bok["import"] ||= []
-                bok["import"] << Regexp.last_match[1]
+          # Grab and reference any managed policies attached to this role
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_role_policies(role_name: @cloud_id)
+          if resp and resp.attached_policies
+            resp.attached_policies.each { |pol|
+              bok["attachable_policies"] ||= []
+              if pol.policy_arn.match(/arn:aws(?:-us-gov)?:iam::aws:policy\//)
+                bok["attachable_policies"] << MU::Config::Ref.get(
+                  id: pol.policy_name,
+                  cloud: "AWS"
+                )
               else
-                doc = begin
-# XXX attachable and attachments => other entities as Refs oh god
-                  resp = MU::Cloud::AWS.iam(credentials: @credentials).get_role_policy(
-                    role_name: @cloud_id,
-                    policy_name: pol.policy_name
-                  )
-                  if resp and resp.policy_document
-                    JSON.parse(URI.decode(resp.policy_document))
-                  end
-                rescue ::Aws::IAM::Errors::NoSuchEntity
-                  resp = MU::Cloud::AWS.iam(credentials: @credentials).get_policy(
-                    policy_arn: pol.arn
-                  )
-                  version = MU::Cloud::AWS.iam(credentials: @credentials).get_policy_version(
-                    policy_arn: pol.arn,
-                    version_id: resp.policy.default_version_id
-                  )
-                  JSON.parse(URI.decode(version.policy_version.document))
-                end
-
-                bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
+                bok["attachable_policies"] << MU::Config::Ref.get(
+                  id: pol.policy_arn,
+                  name: pol.policy_name,
+                  cloud: "AWS",
+                  type: "roles"
+                )
               end
             }
-            
           end
 
           bok
@@ -534,13 +617,30 @@ module MU
           policies ||= []
 # XXX conditions go here too; need an example to reverse engineer
           doc["Statement"].each { |s|
+            if !s["Action"]
+              MU.log "Statement in policy document for #{basename} didn't have an Action field", MU::WARN, details: doc
+              next
+            end
             s["Resource"] = [s["Resource"]] if s["Resource"].is_a?(String)
             s["Action"] = [s["Action"]] if s["Action"].is_a?(String)
             policies << {
-              "name" => basename + "_" + policies.size.to_s,
+              "name" => basename + (doc["Statement"].size > 1 ? "_"+policies.size.to_s : ""),
               "permissions" => s["Action"],
-              "targets" => s["Resource"],
-              "flag" => s["Effect"].downcase
+              "flag" => s["Effect"].downcase,
+              "targets" => s["Resource"].map { |r|
+                if r.match(/^arn:aws(-us-gov)?:([^:]+):.*?:([^:]*)$/)
+# XXX which cases even count for blind references to sibling resources?
+                  type = if Regexp.last_match[1] == "s3"
+                    "bucket"
+                  elsif Regexp.last_match[1]
+                    MU.log "Service #{Regexp.last_match[1]} to type...", MU::WARN, details: r
+                    nil
+                  end
+                end
+                {
+                  "identifier" => r
+                }
+              }
             }
           }
           policies
@@ -721,7 +821,6 @@ module MU
             end
           }.map { |t| MU::Cloud.resource_types[t][:cfg_name] }.sort
 
-
           schema = {
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
@@ -730,8 +829,12 @@ module MU
               "type" => "array",
               "items" => {
                 "type" => "string",
-                "description" => "Can be a shorthand reference to a canned IAM policy like +AdministratorAccess+, or a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+"
+                "description" => "DEPRECATED, use {attachable_policies} instead. A shorthand reference to a canned IAM policy like +AdministratorAccess+, a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+."
               }
+            },
+            "attachable_policies" => {
+              "type" => "array",
+              "items" => MU::Config::Ref.schema(type: "roles", desc: "Reference to a managed policy, which can either refer to an existing managed policy or a sibling +roles+ object which has {bare_policies} set.", omit_fields: ["region", "tag"])
             },
             "strip_path" => {
               "type" => "boolean",
@@ -814,7 +917,7 @@ module MU
             }
           end
 
-          if role["bare_policies"] and (!role["iam_policies"] or role["iam_policies"].empty?)
+          if role["bare_policies"] and (!role["iam_policies"] or role["iam_policies"].empty?) and (!role["policies"] or role["policies"].empty?)
             MU.log "IAM role #{role['name']} has bare_policies set, but no iam_policies specified", MU::ERR
             ok = false
           end
