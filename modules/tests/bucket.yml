@@ -1,0 +1,14 @@
+# clouds: AWS, Google
+---
+appname: smoketest
+buckets:
+- name: bucket
+  policies:
+  - name: testpermissions
+    grant_to:
+    - identifier: egt.gcp.sandbox@gmail.com
+    targets: # XXX this is redundant except for path:
+    - type: bucket
+      identifier: bucket
+  web: true
+  versioning: true

@@ -1,0 +1,17 @@
+# clouds: AWS
+---
+appname: smoketest
+vpcs:
+- name: efs
+storage_pools:
+- name: efs
+  mount_points:
+  - name: mountpoint
+    directory: /efs
+    vpc:
+      name: efs
+      subnet_pref: all_private
+    ingress_rules:
+    - port: 2049
+      hosts:
+      - 0.0.0.0/0

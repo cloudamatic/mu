@@ -23,7 +23,6 @@ module MU
         {
           "type" => "object",
           "required" => ["name"],
-          "additionalProperties" => false,
           "description" => "Create Virtual Private Clouds with custom public or private subnets.",
           "properties" => {
             "name" => {"type" => "string"},
@@ -533,6 +532,7 @@ module MU
             }
             bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples somehow
             bastion['credentials'] = vpc['credentials']
+            bastion['region'] = vpc['region']
             bastion['ingress_rules'] ||= []
             ["tcp", "udp", "icmp"].each { |proto|
               bastion['ingress_rules'] << {

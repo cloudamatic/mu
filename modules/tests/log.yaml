@@ -1,0 +1,11 @@
+# clouds: AWS
+---
+appname: smoketest
+logs:
+- name: watchme
+  filters:
+  - name: myfilter
+    metric_name: LogMetrics/myfilter
+    namespace: ok
+    search_pattern: failed
+    value: "1"

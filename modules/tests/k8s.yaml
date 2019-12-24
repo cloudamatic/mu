@@ -1,0 +1,61 @@
+# Build a Kubernetes cluster on the relevant cloud provider service
+# (EKS/Fargate, AKS, GKE).
+---
+appname: smoketest
+parameters:
+- name: image
+  default: "nginx:1.8"
+  description: The name/URL of a Docker image to deploy in our sample application. Typically the name of a DockerHub container.
+- name: appname
+  default: nginx
+  description: The name to assign the Kubernetes application we'll deploy.
+vpcs:
+- name: k8s
+container_clusters: 
+- name: k8s
+  flavor: Kubernetes
+  instance_count: 2
+  disk_size_gb: 50
+  instance_type: Standard_DS1_v2
+  kubernetes:
+    max_pods: 31
+  min_size: 1
+  max_size: 2
+  dns_prefix: "demo"
+  ingress_rules:
+  - port: 80
+    comment: meep
+  vpc:
+    vpc_name: k8s
+    subnet_pref: all_private
+  kubernetes_resources:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: <%= appname %>
+    spec:
+      type: LoadBalancer
+      ports:
+      - port: 80
+        name: http
+      selector:
+        app: <%= appname %>
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: <%= appname %>
+    spec:
+      selector:
+        matchLabels:
+          app: <%= appname %>
+      replicas: 2
+      template:
+        metadata:
+          labels:
+            app: <%= appname %>
+        spec:
+          containers:
+          - name: <%= appname %>
+            image: nginx:1.8
+            ports:
+            - containerPort: 80

@@ -31,7 +31,7 @@ module MU
           "name" => {"type" => "string"},
           "runtime" => {
             "type" => "string",
-            "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 java8 python2.7 python3.6 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x}
+            "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 nodejs10.x nodejs12.x java8 java11 python2.7 python3.6 python3.7 python3.8 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x ruby2.5 provided}
           },
           "region" => MU::Config.region_primitive,
           "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
@@ -130,7 +130,10 @@ module MU
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(function, configurator)
         ok = true
-        if function['code']['zip_file']
+        if !function['code']
+          ok = false
+        end
+        if function['code'] and function['code']['zip_file']
           if !File.readable?(function['code']['zip_file'])
             MU.log "Can't read deployment package #{function['code']['zip_file']}", MU::ERR
             ok = false

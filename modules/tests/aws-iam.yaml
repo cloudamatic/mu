@@ -1,0 +1,108 @@
+# clouds: AWS
+---
+appname: smoketest
+roles:
+- name: somerole
+  can_assume:
+  - entity_id: ec2.amazonaws.com
+    entity_type: service
+  import:
+  - AmazonLexReadOnly
+  - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+  policies:
+  - name: a_basic_policy
+    permissions:
+    - ec2:CreateSnapshot
+    targets:
+    - identifier: thing1
+      type: user
+  iam_policies:
+  - CloudWatch_Logs:
+      Version: '2012-10-17'
+      Statement:
+      - Sid: Stmt1406256819000
+        Effect: Allow
+        Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:DeleteRetentionPolicy
+        - logs:DescribeLogGroups
+        - logs:DescribeLogStreams
+        - logs:DescribeMetricFilters
+        - logs:GetLogEvents
+        - logs:PutLogEvents
+        - logs:PutMetricFilter
+        - logs:PutRetentionPolicy
+        - logs:TestMetricFilter
+        Resource:
+        - "*"
+  - Snapshots_and_Tags:
+      Version: '2012-10-17'
+      Statement:
+      - Sid: Stmt1385828567000
+        Effect: Allow
+        Action:
+        - ec2:CreateSnapshot
+        - ec2:DeleteSnapshot
+        - ec2:DescribeSnapshotAttribute
+        - ec2:DescribeSnapshots
+        - ec2:DescribeTags
+        - ec2:DescribeInstanceAttribute
+        - ec2:DescribeInstanceStatus
+        - ec2:DescribeInstances
+        - ec2:CreateTags
+        - ec2:DescribeVolumes
+        - ec2:DescribeVolumeAttribute
+        - ec2:DescribeVolumeStatus
+        - ec2:ModifySnapshotAttribute
+        Resource: "*"
+- name: somepolicies
+  bare_policies: true
+  iam_policies:
+  - AllowCertListing:
+      Version: '2012-10-17'
+      Statement:
+      - Effect: Allow
+        Action: acm:ListCertificates
+        Resource: "*"
+users:
+- name: thing1
+  tags:
+  - key: thisisatag
+    value: thisisatagvalue
+  groups:
+  - developers
+  - impliedgroup
+  - declaredawsgroup
+  create_console_password: true
+  create_api_key: true
+  raw_policies:
+  - Thing1CertListing:
+      Version: '2012-10-17'
+      Statement:
+      - Effect: Allow
+        Action: acm:ListCertificates
+        Resource: "*"
+groups:
+- name: admin
+  members:
+  - thing1
+- name: declaredgroup
+  purge_extra_members: true
+  members:
+  - john.stange@eglobaltech.com
+  raw_policies:
+  - S3_List_Get_Objects:
+      Version: '2012-10-17'
+      Statement:
+      - Effect: Allow
+        Action:
+        - s3:GetObject
+        - s3:ListBucket
+        - s3:ListAllMyBuckets
+        Resource:
+        - "*"
+vpcs:
+- name: flowlogtest
+  enable_traffic_logging: true
+  ip_block: "10.78.0.0/16"

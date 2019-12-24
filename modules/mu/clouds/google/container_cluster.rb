@@ -1058,7 +1058,7 @@ module MU
             )
             cluster['dependencies'] << {
               "type" => "user",
-              "name" => cluster["name"]
+              "name" => user["name"]
             }
           end
 

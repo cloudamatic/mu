@@ -1,0 +1,36 @@
+["S3Permissions": {
+  "Statement": [
+    {
+      "Resource": [
+        "arn:aws:s3:::dts-self-configuration",
+        "arn:aws:s3:::dts-self-configuration/*"
+      ],
+      "Action": [
+        "s3:GetBucketAcl",
+        "s3:GetObject",
+        "s3:GetObjectAcl",
+        "s3:ListBucket",
+        "s3:ListAllMyBuckets"
+      ],
+      "Effect": "Allow",
+      "Sid": "Stmt1444200186001"
+    }
+  ],
+  "Version": "2012-10-17"
+},
+"CloudWatchPermissions": {
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:*"
+      ]
+    }
+  ]
+}]

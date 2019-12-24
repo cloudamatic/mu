@@ -55,7 +55,7 @@ module MU
             @config['subnets'].each { |subnet|
               subnetthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                subnet_name = subnet['name']
+                subnet_name = @config['name']+subnet['name']
 
                 subnet_mu_name = @config['scrub_mu_isms'] ? @cloud_id+subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
@@ -146,7 +146,6 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-
           rtb = @config['route_tables'].first # there's only ever one
 
           rtb['routes'].each { |route|
@@ -325,7 +324,8 @@ end
               if !@config.nil? and @config.has_key?("subnets")
                 @config['subnets'].each { |subnet|
 #                  subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
-                  subnet['mu_name'] ||= @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
+                  subnet_name = @config['name']+subnet['name']
+                  subnet['mu_name'] ||= @config['scrub_mu_isms'] ? @cloud_id+subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
                   subnet['region'] = @config['region']
                   found.each { |desc|
                     if desc.ip_cidr_range == subnet["ip_block"]
@@ -382,6 +382,10 @@ end
         # @param nat_tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
         # @param nat_ip [String]: An IP address associated with the NAT instance.
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
+          if nat_name
+            svr_obj = @deploy.findLitterMate(name: nat_name, type: "servers")
+            return svr_obj if svr_obj
+          end
 
           deploy_id = nil
           nat_name = nat_name.to_s if !nat_name.nil? and nat_name.class.to_s == "MU::Config::Tail"
@@ -912,16 +916,17 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               if route['gateway'] == "#NAT"
                 # theoretically our upstream validation should have inserted
                 # a NAT/bastion host we can use
-                nat = configurator.haveLitterMate?(vpc['name']+"-natstion", "servers")
-                if vpc['virtual_name']
-                  nat ||= configurator.haveLitterMate?(vpc['virtual_name']+"-natstion", "servers")
+                nat = if vpc['virtual_name']
+                  configurator.haveLitterMate?(vpc['virtual_name']+"-natstion", "servers")
+                else
+                  configurator.haveLitterMate?(vpc['name']+"-natstion", "servers")
                 end
 
                 if !nat
                   MU.log "Google VPC #{vpc['name']} declared a #NAT route, but I don't see an upstream NAT host I can use. Do I even have public subnets?", MU::ERR
                   ok = false
                 else
-                  route['nat_host_name'] = vpc['name']+"-natstion"
+                  route['nat_host_name'] = nat['name']
                   route['priority'] = 100
                 end
               end

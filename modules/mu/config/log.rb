@@ -28,6 +28,8 @@ module MU
             "name" => {
               "type" => "string"
             },
+            "tags" => MU::Config.tags_primitive,
+            "optional_tags" => MU::Config.optional_tags_primitive,
             "region" => MU::Config.region_primitive,
           }
         }
