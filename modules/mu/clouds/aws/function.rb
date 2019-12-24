@@ -328,7 +328,7 @@ module MU
           bok['timeout'] = cloud_desc.timeout
 
           function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
-MU.log @cloud_id, MU::NOTICE, details: function
+
           if function.code.repository_type == "S3"
             bok['code'] = {}
             function.code.location.match(/^https:\/\/([^\.]+)\..*?\/([^?]+).*?(?:versionId=([^&]+))?/)
@@ -343,7 +343,9 @@ MU.log @cloud_id, MU::NOTICE, details: function
           end
 
           if function.tags
-            bok['tags'] = function.tags
+            bok['tags'] = function.tags.keys.map { |k|
+              { "key" => k, "value" => function.tags[k] }
+            }
           end
 
           if function.configuration.vpc_config and
@@ -381,7 +383,18 @@ MU.log @cloud_id, MU::NOTICE, details: function
             }
           end
 
-# XXX iam_role, triggers, permissions
+          if function.configuration.role
+            shortname = function.configuration.role.sub(/.*?role\/([^\/]+)$/, '\1')
+MU.log shortname, MU::NOTICE, details: function.configuration.role
+            bok['role'] = MU::Config::Ref.get(
+              id: shortname,
+              name: shortname,
+              cloud: "AWS",
+              type: "roles"
+            )
+          end
+#MU.log @cloud_id, MU::NOTICE, details: function
+# XXX triggers, permissions
 
           bok
         end
@@ -395,11 +408,12 @@ MU.log @cloud_id, MU::NOTICE, details: function
           schema = {
             "iam_role" => {
               "type" => "string",
-              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."
+              "description" => "Deprecated, +role+ is now preferred. The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."
             },
+            "role" => MU::Config::Ref.schema(type: "roles", desc: "A sibling {MU::Config::BasketofKittens::roles} entry or the id of an existing IAM role to assign to this Lambda function.", omit_fields: ["region", "tag"]),
             "permissions" => {
               "type" => "array",
-              "description" => "if `iam_role` is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
+              "description" => "If +role+ is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
               "default" => ["basic"],
               "items" => {
                 "type" => "string",

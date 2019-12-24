@@ -398,7 +398,7 @@ module MU
             "inline_policies" => polschema,
             "attachable_policies" => {
               "type" => "array",
-              "items" => MU::Config::Ref.schema(type: "roles", desc: "Reference to a managed policy, which can either refer to an existing managed policy or a sibling +roles+ object which has {bare_policies} set.", omit_fields: ["region", "tag"])
+              "items" => MU::Config::Ref.schema(type: "roles", desc: "Reference to a managed policy, which can either refer to an existing managed policy or a sibling {MU::Config::BasketofKittens::roles} object which has +bare_policies+ set.", omit_fields: ["region", "tag"])
             },
             "name" => {
               "type" => "string",

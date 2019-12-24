@@ -76,7 +76,7 @@ users:
   - declaredawsgroup
   create_console_password: true
   create_api_key: true
-  iam_policies:
+  raw_policies:
   - Thing1CertListing:
       Version: '2012-10-17'
       Statement:
@@ -91,7 +91,7 @@ groups:
   purge_extra_members: true
   members:
   - john.stange@eglobaltech.com
-  iam_policies:
+  raw_policies:
   - S3_List_Get_Objects:
       Version: '2012-10-17'
       Statement:
