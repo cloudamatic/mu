@@ -802,7 +802,11 @@ retry
           vaults_to_clean.each { |vault|
             MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
             MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-            ::Chef::Knife.run(['vault', 'remove', vault['vault'], vault['item'], "--search", "name:#{node}"]) if !noop
+            begin
+              ::Chef::Knife.run(['vault', 'remove', vault['vault'], vault['item'], "--search", "name:#{node}"]) if !noop
+            rescue Exception => e
+              MU.log "Error removing vault access for #{node} from #{vault['vault']} #{vault['item']}", MU::ERR, details: e.inspect
+            end
             MU::MommaCat.unlock("vault-#{vault['vault']}")
           }
         end
