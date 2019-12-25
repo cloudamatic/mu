@@ -2070,7 +2070,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               if params and params[:flags] and params[:flags]["project"]
                 in_msg += " project "+params[:flags]["project"]
               end
-              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN
+              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN, details: e.backtrace
             end
           }
           MU::MommaCat.unlockAll
