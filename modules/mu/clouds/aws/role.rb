@@ -125,10 +125,11 @@ module MU
             end
 
             if @config['raw_policies']
-              count = 0
               @config['raw_policies'].each { |policy|
-                policy["Version"] ||= "2012-10-17"
-                policy_name = @mu_name + (@config['raw_policies'].size > 1 ? " "+count.to_s : "")
+                policy.values.each { |p|
+                  p["Version"] ||= "2012-10-17"
+                }
+                policy_name = @mu_name+"-"+policy.keys.first.upcase
 
                 arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
                 resp = begin
@@ -161,11 +162,10 @@ module MU
                   MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy(
                     policy_name: policy_name,
                     path: "/"+@deploy.deploy_id+"/",
-                    policy_document: JSON.generate(policy),
+                    policy_document: JSON.generate(policy.values.first),
                     description: "Generated from inline policy document for Mu role #{@mu_name}"
                   )
                 end
-                count += 1
               }
             end
           end
@@ -543,7 +543,7 @@ end
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
-return nil if @cloud_id != "arn:aws:iam::616552976502:policy/restrict_by_vpc_test"
+
           desc = cloud_desc['role']
           if desc
             bok["name"] = desc.role_name
@@ -1056,6 +1056,7 @@ return nil if @cloud_id != "arn:aws:iam::616552976502:policy/restrict_by_vpc_tes
           iam_policies = []
 
           if policies
+            name = nil
             doc = {
               "Version" => "2012-10-17",
               "Statement" => []
@@ -1068,6 +1069,7 @@ return nil if @cloud_id != "arn:aws:iam::616552976502:policy/restrict_by_vpc_tes
                 "Action" => [],
                 "Resource" => []
               }
+              name ||= statement["Sid"]
               policy["permissions"].each { |perm|
                 statement["Action"] << perm
               }
@@ -1128,7 +1130,7 @@ return nil if @cloud_id != "arn:aws:iam::616552976502:policy/restrict_by_vpc_tes
               end
               doc["Statement"] << statement
             }
-            return [doc]
+            return [ { name => doc} ]
           end
 
           []
