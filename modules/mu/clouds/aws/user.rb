@@ -106,14 +106,19 @@ module MU
             end
           end
 
+          # Create these if necessary, then append them to the list of
+          # attachable_policies
           if @config['raw_policies']
-             @dependencies["role"].each_pair { |rolename, roleobj|
-               roleobj.cloudobj.bindTo("user", @cloud_id)
-             }
+            pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+              @config['raw_policies'],
+              deploy: @deploy,
+              credentials: @credentials
+            )
+            @config['attachable_policies'] ||= []
+            @config['attachable_policies'].concat(pol_arns.map { |a| { "id" => a } })
           end
 
           if @config['attachable_policies']
-            MU.log "Attaching #{@config['attachable_policies'].size.to_s} #{@config['attachable_policies'].size > 1 ? "policies" : "policy"} to role #{@mu_name}", MU::NOTICE
             configured_policies = @config['attachable_policies'].map { |p|
               id = if p.is_a?(MU::Config::Ref)
                 p.cloud_id
@@ -485,20 +490,6 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(user, configurator)
           ok = true
-
-          if user['raw_policies'] and user['raw_policies'].size > 0
-            roledesc = {
-              "name" => user["name"]+"role",
-              "bare_policies" => true,
-              "iam_policies" => user['iam_policies'].dup
-            }
-            configurator.insertKitten(roledesc, "roles")
-            user["dependencies"] ||= []
-            user["dependencies"] << {
-              "type" => "role",
-              "name" => user["name"]+"role"
-            }
-          end
 
           # If we're attaching some managed policies, make sure all of the ones
           # that should already exist do indeed exist

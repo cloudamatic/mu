@@ -124,49 +124,13 @@ module MU
               }
             end
 
+            # XXX not sure we're binding these sanely, validate that
             if @config['raw_policies']
-              @config['raw_policies'].each { |policy|
-                policy.values.each { |p|
-                  p["Version"] ||= "2012-10-17"
-                }
-                policy_name = @mu_name+"-"+policy.keys.first.upcase
-
-                arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":policy/#{@deploy.deploy_id}/#{policy_name}"
-                resp = begin
-                  desc = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
-
-                  version = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy_version(
-                    policy_arn: arn,
-                    version_id: desc.policy.default_version_id
-                  )
-
-                  if version.policy_version.document != URI.encode(JSON.generate(policy.values.first))#, /[^a-z0-9\-]/i)
-                    # Special exception- we don't want to overwrite extra rules
-                    # in MuSecrets policies, because our siblings might have 
-                    # (will have) injected those and they should stay.
-                    if policy.size == 1 and policy["MuSecrets"]
-                      ext = JSON.parse(URI.decode(version.policy_version.document))
-                      if (ext["Statement"][0]["Resource"] & policy["MuSecrets"]["Statement"][0]["Resource"]).sort == policy["MuSecrets"]["Statement"][0]["Resource"].sort
-                        next
-                      end
-                    end
-                    MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy
-                    update_policy(arn, policy.values.first)
-                    MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(policy_arn: arn)
-                  else
-                    desc
-                  end
-
-                rescue Aws::IAM::Errors::NoSuchEntity => e
-                  MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
-                  MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy(
-                    policy_name: policy_name,
-                    path: "/"+@deploy.deploy_id+"/",
-                    policy_document: JSON.generate(policy.values.first),
-                    description: "Generated from inline policy document for Mu role #{@mu_name}"
-                  )
-                end
-              }
+              pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+                @config['raw_policies'],
+                deploy: @deploy,
+                credentials: @credentials
+              )
             end
           end
 
@@ -176,6 +140,58 @@ module MU
           end
         end
 
+        # Take some AWS policy documents and turn them into policies
+        # @param raw_policies [Array<Hash>]
+        # @param deploy [MU::MommaCat]
+        # @param credentials [String]
+        # @return [Array<String>]
+        def self.manageRawPolicies(raw_policies, deploy: MU.mommacat, credentials: nil)
+          arns = []
+          raw_policies.each { |policy|
+            policy.values.each { |p|
+              p["Version"] ||= "2012-10-17"
+            }
+            policy_name = deploy.getResourceName(policy.keys.first.upcase)
+
+            arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(credentials)+":policy/#{deploy.deploy_id}/#{policy_name}"
+            resp = begin
+              desc = MU::Cloud::AWS.iam(credentials: credentials).get_policy(policy_arn: arn)
+
+              version = MU::Cloud::AWS.iam(credentials: credentials).get_policy_version(
+                policy_arn: arn,
+                version_id: desc.policy.default_version_id
+              )
+
+              if version.policy_version.document != URI.encode(JSON.generate(policy.values.first))#, /[^a-z0-9\-]/i)
+                # Special exception- we don't want to overwrite extra rules
+                # in MuSecrets policies, because our siblings might have 
+                # (will have) injected those and they should stay.
+                if policy.size == 1 and policy["MuSecrets"]
+                  ext = JSON.parse(URI.decode(version.policy_version.document))
+                  if (ext["Statement"][0]["Resource"] & policy["MuSecrets"]["Statement"][0]["Resource"]).sort == policy["MuSecrets"]["Statement"][0]["Resource"].sort
+                    next
+                  end
+                end
+                MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy
+                update_policy(arn, policy.values.first)
+                MU::Cloud::AWS.iam(credentials: credentials).get_policy(policy_arn: arn)
+              else
+                desc
+              end
+
+            rescue Aws::IAM::Errors::NoSuchEntity => e
+              MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
+              MU::Cloud::AWS.iam(credentials: credentials).create_policy(
+                policy_name: policy_name,
+                path: "/"+deploy.deploy_id+"/",
+                policy_document: JSON.generate(policy.values.first),
+                description: "Raw policy for #{deploy.deploy_id}"
+              )
+            end
+            arns << resp.policy.arn
+          }
+          arns
+        end
 
         # Canonical Amazon Resource Number for this resource
         # @return [String]
@@ -968,6 +984,41 @@ end
           [toplevel_required, schema]
         end
 
+        # Verify that managed policies from +attachable_policies+ actually
+        # exist.
+        # @param attachables [Array<Hash>]
+        # @param credentials [String]
+        # @param region [String]
+        def self.validateAttachablePolicies(attachables, credentials: nil, region: MU.curRegion)
+          ok = true
+          return ok if !attachables
+
+          attachables.each { |ref|
+            next if !ref["id"]
+# XXX search our account too
+            arn = if !ref["id"].match(/^arn:/i)
+              "arn:"+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+ref["id"]
+            else
+              ref["id"]
+            end
+            subpaths = ["service-role", "aws-service-role", "job-function"]
+            begin
+              MU::Cloud::AWS.iam(credentials: credentials).get_policy(policy_arn: arn)
+            rescue Aws::IAM::Errors::NoSuchEntity => e
+              if subpaths.size > 0
+                arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+":iam::aws:policy/#{subpaths.shift}/"+ref["id"]
+                retried = true
+                retry
+              end
+              MU.log "No such canned AWS IAM policy '#{arn}'", MU::ERR
+              ok = false
+            end
+            ref["id"] = arn
+          }
+
+          ok
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.
         # @param role [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -988,28 +1039,11 @@ end
           # If we're attaching some managed policies, make sure all of the ones
           # that should already exist do indeed exist
           if role['attachable_policies']
-            role['attachable_policies'].each { |ref|
-              next if !ref["id"]
-# XXX search our account too
-              arn = if !ref["id"].match(/^arn:/i)
-                "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+ref["id"]
-              else
-                ref["id"]
-              end
-              subpaths = ["service-role", "aws-service-role", "job-function"]
-              begin
-                MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: arn)
-              rescue Aws::IAM::Errors::NoSuchEntity => e
-                if subpaths.size > 0
-                  arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/#{subpaths.shift}/"+ref["id"]
-                  retried = true
-                  retry
-                end
-                MU.log "No such canned AWS IAM policy '#{arn}'", MU::ERR
-                ok = false
-              end
-              ref["id"] = arn
-            }
+            ok = false if !self.validateAttachablePolicies(
+              role['attachable_policies'],
+              credentials: role['credentials'],
+              region: role['region']
+            )
           end
 
           if role['iam_policies'] and !role['iam_policies'].empty?
@@ -1214,18 +1248,25 @@ end
 
         # Update a policy, handling deletion of old versions as needed
         def update_policy(arn, doc)
+          MU::Cloud::AWS::Role.update_policy(arn, doc, credentials: @credentials)
+        end
+
+        # Update a policy, handling deletion of old versions as needed
+        def self.update_policy(arn, doc, credentials: nil)
+# XXX this is just blindly replacing identical versions, when it should check
+# and guard
           begin
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_policy_version(
+            MU::Cloud::AWS.iam(credentials: credentials).create_policy_version(
               policy_arn: arn,
               set_as_default: true,
               policy_document: JSON.generate(doc)
             )
           rescue Aws::IAM::Errors::LimitExceeded => e
-            delete_version = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policy_versions(
+            delete_version = MU::Cloud::AWS.iam(credentials: credentials).list_policy_versions(
               policy_arn: arn,
             ).versions.last.version_id
             MU.log "Purging oldest version (#{delete_version}) of IAM policy #{arn}", MU::NOTICE
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).delete_policy_version(
+            MU::Cloud::AWS.iam(credentials: credentials).delete_policy_version(
               policy_arn: arn,
               version_id: delete_version
             )
