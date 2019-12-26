@@ -413,7 +413,6 @@ module MU
 
         have_public = false
         have_private = false
-        existing_peers = []
 
         using_default_cidr = false
         if !vpc['ip_block']
@@ -423,11 +422,13 @@ module MU
             configurator.existing_deploy.original_config['vpcs'].each { |v|
               if v['name'] == vpc['name']
                 vpc['ip_block'] = v['ip_block']
-                existing_peers = v['peers']
+                vpc['peers'] ||= []
+                vpc['peers'].concat(v['peers'])
                 break
               elsif v['virtual_name'] == vpc['name']
                 vpc['ip_block'] = v['parent_block']
-                existing_peers = v['peers']
+                vpc['peers'] ||= []
+                vpc['peers'].concat(v['peers'])
                 break
               end
             }
@@ -494,12 +495,14 @@ module MU
           can_peer = false
           already_peered = false
           if MU.myCloud == vpc["cloud"] and MU.myVPCObj
-            existing_peers.each { |peer|
-              if peer["vpc"]["id"] == MU.myVPC
-                already_peered = true
-                break
-              end
-            }
+            if vpc['peers']
+              vpc['peers'].each { |peer|
+                if peer["vpc"]["id"] == MU.myVPC
+                  already_peered = true
+                  break
+                end
+              }
+            end
             if !already_peered
               peer_blocks.concat(MU.myVPCObj.routes)
               begin

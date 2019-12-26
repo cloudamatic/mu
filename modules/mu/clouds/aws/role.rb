@@ -35,8 +35,8 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          if @config['iam_policies']
-            @config['iam_policies'].each { |policy|
+          if @config['raw_policies']
+            @config['raw_policies'].each { |policy|
               policy.values.each { |p|
                 p["Version"] ||= "2012-10-17"
               }
@@ -69,8 +69,8 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['policies']
-            @config['iam_policies'] ||= []
-            @config['iam_policies'].concat(convert_policies_to_iam)
+            @config['raw_policies'] ||= []
+            @config['raw_policies'].concat(convert_policies_to_iam)
           end
 
           if !@config['bare_policies']
@@ -88,19 +88,28 @@ module MU
           end
 
 
-          if @config['iam_policies'] or @config['import']
+          if @config['raw_policies'] or @config['attachable_policies']
             attached_policies = []
             configured_policies = []
 
-            if @config['iam_policies']
-              configured_policies = @config['iam_policies'].map { |p|
+            if @config['raw_policies']
+              configured_policies = @config['raw_policies'].map { |p|
                 @mu_name+"-"+p.keys.first.upcase
               }
             end
 
-            if @config['import']
-              MU.log "Attaching canned #{@config['import'].size > 1 ? "policies" : "policy"} #{@config['import'].join(", ")} to role #{@mu_name}", MU::NOTICE
-              configured_policies.concat(@config['import'].map { |p| p.gsub(/.*?\/([^:\/]+)$/, '\1') })
+            if @config['attachable_policies']
+              MU.log "Attaching #{@config['attachable_policies'].size.to_s} #{@config['attachable_policies'].size > 1 ? "policies" : "policy"} to role #{@mu_name}", MU::NOTICE
+              configured_policies.concat(@config['attachable_policies'].map { |p|
+                id = if p.is_a?(MU::Config::Ref)
+                  p.cloud_id
+                else
+                  p = MU::Config::Ref.get(p)
+                  p.kitten
+                  p.cloud_id
+                end
+                id.gsub(/.*?\/([^:\/]+)$/, '\1')
+              })
             end
 
             if !@config['bare_policies']
@@ -115,8 +124,8 @@ module MU
               }
             end
 
-            if @config['iam_policies']
-              @config['iam_policies'].each { |policy|
+            if @config['raw_policies']
+              @config['raw_policies'].each { |policy|
                 policy.values.each { |p|
                   p["Version"] ||= "2012-10-17"
                 }
@@ -163,7 +172,7 @@ module MU
           end
 
           if !@config['bare_policies'] and
-             (@config['iam_policies'] or @config['import'])
+             (@config['raw_policies'] or @config['attachable_policies'])
             bindTo("role", @mu_name)
           end
         end
@@ -186,19 +195,26 @@ module MU
         def cloud_desc
           desc = {}
           if @config['bare_policies']
-            pol_desc = MU::Cloud::AWS::Role.find(credentials: @credentials, cloud_id: @cloud_id).values.first
-            if pol_desc
-              desc['policies'] = [pol_desc]
-              return desc
+            if @cloud_id
+              pol_desc = MU::Cloud::AWS::Role.find(credentials: @credentials, cloud_id: @cloud_id).values.first
+              if pol_desc
+                desc['policies'] = [pol_desc]
+                return desc
+              end
             end
 
-            if @deploy.deploy_id
+            if @deploy and @deploy.deploy_id
               desc["policies"] = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_policies(
                 path_prefix: "/"+@deploy.deploy_id+"/"
               ).policies
               desc["policies"].reject! { |p|
                 !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
               }
+              # this is quasi-wrong because we can be mulitple cloud is, but
+              # we can't really set this type to has_multiples because that's
+              # just how managed policies work not anything else, goddammit
+              # AWS why can't you just bundle everything in roles
+              @cloud_id ||= desc["policies"].first.arn
             end
           else
             if @cloud_id.match(/^arn:aws(:?-us-gov)?:[^:]*:[^:]*:\d*:policy\//)
@@ -381,17 +397,34 @@ end
           deleteme = []
           roles = MU::Cloud::AWS::Role.find(credentials: credentials).values
           roles.each { |r|
-            deleteme << r if r.path.match(/^\/#{Regexp.quote(MU.deploy_id)}/)
+            next if !r.respond_to?(:role_name)
+            if r.path.match(/^\/#{Regexp.quote(MU.deploy_id)}/)
+              deleteme << r
+              next
+            end
+            # For some dumb reason, the list output that .find gets doesn't
+            # include the tags, so we need to fetch each role individually to
+            # check tags. Hardly seems efficient.
+            desc = MU::Cloud::AWS.iam(credentials: credentials).get_role(role_name: r.role_name)
+            if desc.role and desc.role.tags and desc.role.tags
+              desc.role.tags.each { |t|
+                if t.key == "MU-ID" and t.value == MU.deploy_id
+                  deleteme << r
+                  break
+                end
+              }
+            end
           }
-#          deleteme.concat(resp.roles) if resp and resp.roles
 
           if flags and flags["known"]
             roles = MU::Cloud::AWS::Role.find(credentials: credentials).values
             roles.each { |r|
+              next if !r.respond_to?(:role_name)
               deleteme << r if flags["known"].include?(r.role_name)
             }
             deleteme.uniq!
           end
+          deleteme.reject! { |r| r.class.name == "Aws::IAM::Types::Policy" }
 
           if deleteme.size > 0
             deleteme.each { |r|
@@ -824,12 +857,12 @@ end
           schema = {
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
-            "policies" => self.condition_schema,
+            "policies" => MU::Cloud::AWS::Role.condition_schema,
             "import" => {
               "type" => "array",
               "items" => {
                 "type" => "string",
-                "description" => "DEPRECATED, use {attachable_policies} instead. A shorthand reference to a canned IAM policy like +AdministratorAccess+, a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+."
+                "description" => "DEPRECATED, use +attachable_policies+ instead. A shorthand reference to a canned IAM policy like +AdministratorAccess+, a full ARN like +arn:aws:iam::aws:policy/AmazonESCognitoAccess+."
               }
             },
             "attachable_policies" => {
@@ -876,11 +909,18 @@ end
                 }
               }
             },
+            "raw_policies" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Amazon-compatible policy documents, as YAML objects if your Basket of Kittens is written YAML, or JSON objects if in JSON. Note that +policies+ is considerably easier to use, and is recommended. For more on the raw AWS policy format, see https://docs.aws.amazon.com/IAM/latest/RoleGuide/access_policies_examples.html for example policies.",
+              }
+            },
             "iam_policies" => {
               "type" => "array",
               "items" => {
                 "type" => "object",
-                "description" => "A key (name) with a value that is a raw Amazon-compatible policy document. This is not the recommended method for granting permissions- we suggest listing +roles+ for the user instead. See https://docs.aws.amazon.com/IAM/latest/RoleGuide/access_policies_examples.html for example policies.",
+                "description" => "DEPRECATED, use +raw_policies+ or +policies+ instead."
               }
             }
           }
@@ -894,31 +934,50 @@ end
         def self.validateConfig(role, configurator)
           ok = true
 
+          # munge things declared with the deprecated import keyword into
+          # attachable_policies where they belong
           if role['import']
+            role['attachable_policies'] ||= []
             role['import'].each { |policy|
-              arn = if !policy.match(/^arn:/i)
-                "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+              role['attachable_policies'] << { "id" => policy }
+            }
+            role.delete("import")
+          end
+
+          # If we're attaching some managed policies, make sure all of the ones
+          # that should already exist do indeed exist
+          if role['attachable_policies']
+            role['attachable_policies'].each { |ref|
+              next if !ref["id"]
+# XXX search our account too
+              arn = if !ref["id"].match(/^arn:/i)
+                "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+ref["id"]
               else
-                policy
+                ref["id"]
               end
               subpaths = ["service-role", "aws-service-role", "job-function"]
               begin
                 MU::Cloud::AWS.iam(credentials: role['credentials']).get_policy(policy_arn: arn)
               rescue Aws::IAM::Errors::NoSuchEntity => e
                 if subpaths.size > 0
-                  arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/#{subpaths.shift}/"+policy
+                  arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(role["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/#{subpaths.shift}/"+ref["id"]
                   retried = true
                   retry
                 end
                 MU.log "No such canned AWS IAM policy '#{arn}'", MU::ERR
                 ok = false
               end
-              policy = arn
+              ref["id"] = arn
             }
           end
 
-          if role["bare_policies"] and (!role["iam_policies"] or role["iam_policies"].empty?) and (!role["policies"] or role["policies"].empty?)
-            MU.log "IAM role #{role['name']} has bare_policies set, but no iam_policies specified", MU::ERR
+          if role['iam_policies'] and !role['iam_policies'].empty?
+            role['raw_policies'] = Marshal.load(Marshal.dump(role['iam_policies']))
+            role.delete('iam_policies')
+          end
+
+          if role["bare_policies"] and (!role["raw_policies"] or role["raw_policies"].empty?) and (!role["policies"] or role["policies"].empty?)
+            MU.log "IAM role #{role['name']} has bare_policies set, but no policies or raw_policies were specified", MU::ERR
             ok = false
           end
 
@@ -952,8 +1011,10 @@ end
         # @return [Array<Hash>]
         def self.genPolicyDocument(policies, deploy_obj: nil)
           iam_policies = []
+
           if policies
             policies.each { |policy|
+              policy["flag"] ||= "Allow"
               doc = {
                 "Version" => "2012-10-17",
                 "Statement" => [

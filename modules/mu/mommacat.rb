@@ -1745,6 +1745,7 @@ end
             if (name.nil? or sib_class == name.to_s or virtual_name == name.to_s) and
                 (cloud_id.nil? or cloud_id.to_s == data_cloud_id) and
                 (credentials.nil? or data.credentials.nil? or credentials.to_s == data.credentials.to_s)
+              MU.log indent+"OUTER MATCH PASSED, NEED !created_only (#{created_only.to_s}) or !data_cloud_id.nil? (#{data_cloud_id})", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
               if !created_only or !data_cloud_id.nil?
                 MU.log indent+"SINGLE MATCH findLitterMate(#{argstring})", loglevel, details: [data.mu_name, data_cloud_id, data.config.keys]
                 matches << data

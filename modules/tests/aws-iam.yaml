@@ -105,4 +105,3 @@ groups:
 vpcs:
 - name: flowlogtest
   enable_traffic_logging: true
-  ip_block: "10.78.0.0/16"
