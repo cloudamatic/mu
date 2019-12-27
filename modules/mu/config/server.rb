@@ -310,8 +310,15 @@ module MU
               "description" => "Wait for DNS record to propagate in DNS Zone.",
               "default" => true,
           },
-          "loadbalancers" => MU::Config::LoadBalancer.reference,
-          "add_firewall_rules" => MU::Config::FirewallRule.reference,
+          "loadbalancers" => {
+            "type" => "array",
+            "minItems" => 1,
+            "items" => MU::Config::LoadBalancer.reference
+          },
+          "add_firewall_rules" => {
+            "type" => "array",
+            "items" => MU::Config::FirewallRule.reference,
+          },
           "static_ip" => static_ip_primitive,
           "src_dst_check" => {
               "type" => "boolean",

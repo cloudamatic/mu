@@ -41,7 +41,10 @@ module MU
                 "description" => "The number of cache nodes in a cache cluster (memcached), or the number of cache clusters in a cache group (redis)",
                 "default" => 1
             },
-            "add_firewall_rules" => MU::Config::FirewallRule.reference,
+            "add_firewall_rules" => {
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.reference,
+            },
             "ingress_rules" => {
               "type" => "array",
               "items" => MU::Config::FirewallRule.ruleschema

@@ -96,10 +96,7 @@ module MU
           { "rule_id" => "id" },
           { "rule_name" => "name" }
         ]
-        {
-          "type" => "array",
-          "items" => MU::Config::Ref.schema(schema_aliases, type: "firewall_rules")
-        }
+        MU::Config::Ref.schema(schema_aliases, type: "firewall_rules")
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
