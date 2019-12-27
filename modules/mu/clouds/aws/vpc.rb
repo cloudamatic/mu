@@ -778,7 +778,8 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
-            "cloud_id" => @cloud_id
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
           }
 
           if !cloud_desc
@@ -792,15 +793,9 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
           bok['ip_block'] = cloud_desc.cidr_block
 
           if cloud_desc.tags and !cloud_desc.tags.empty?
-            bok['tags'] = MU.structToHash(cloud_desc.tags)
-            bok['tags'].each { |tag| # see if we can find a better name
-              if tag['key'] == "Name"
-                bok['name'] = tag['value']
-                break
-              elsif tag['key'] == "aws:cloudformation:logical-id"
-                bok['name'] = tag['value']
-              end
-            }
+            bok['tags'] = MU.structToHash(cloud_desc.tags, stringify_keys: true)
+            realname = MU::Adoption.tagsToName(bok['tags'])
+            bok['name'] = realname if realname
           end
 
 # XXX dhcpopts

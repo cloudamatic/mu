@@ -267,6 +267,8 @@ module MU
 
           if cloud_desc.tags and !cloud_desc.tags.empty?
             bok['tags'] = MU.structToHash(cloud_desc.tags, stringify_keys: true)
+            realname = MU::Adoption.tagsToName(bok['tags'])
+            bok['name'] = realname if realname
           end
 
           if cloud_desc.ip_permissions

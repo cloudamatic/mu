@@ -530,7 +530,7 @@ module MU
                   "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
                 }
               elsif !configurator.updating
-                MU.log "#{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
+                MU.log "#{vpc['name']} CIDR block #{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
               end
             end
           end

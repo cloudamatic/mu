@@ -125,6 +125,37 @@ module MU
       MU.log "Scraping complete"
     end
 
+    # Given a list of BoK style tags, try to reverse-engineer the correct
+    # Basket of Kittens shorthand name of the resource that owns them. Mostly
+    # this infers from Mu-style tagging, but we'll add a couple cases for
+    # special cloud provider cases.
+    # @param tags [Array<Hash>]
+    # return [String]
+    def self.tagsToName(tags = [])
+      tags.each { |tag|
+        if tag['key'] == "aws:cloudformation:logical-id"
+          return tag['value']
+        end
+      }
+      muid = nil
+      tags.each { |tag|
+        if tag['key'] == "MU-ID" or tag['key'] == "mu-id"
+          muid = tag['value']
+          break
+        end
+      }
+      tags.each { |tag|
+        if tag['key'] == "Name"
+          if muid and tag['value'].match(/^#{Regexp.quote(muid)}-(.*)/)
+            return Regexp.last_match[1].downcase
+          else
+            return tag['value']
+          end
+        end
+      }
+      nil
+    end
+
     # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
     # cloud objects.
     # @return [Hash]
@@ -231,6 +262,8 @@ module MU
                     kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['parent'].id
                   elsif kitten_cfg['project']
                     kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['project']
+                  elsif kitten_cfg['region']
+                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['region']
                   elsif kitten_cfg['cloud_id']
                     kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
                   else

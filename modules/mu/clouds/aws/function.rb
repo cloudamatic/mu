@@ -347,6 +347,8 @@ module MU
             bok['tags'] = function.tags.keys.map { |k|
               { "key" => k, "value" => function.tags[k] }
             }
+            realname = MU::Adoption.tagsToName(bok['tags'])
+            bok['name'] = realname if realname
           end
 
           if function.configuration.vpc_config and
