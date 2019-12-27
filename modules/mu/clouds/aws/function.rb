@@ -313,7 +313,8 @@ module MU
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
-            "cloud_id" => @cloud_id
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
           }
 
           if !cloud_desc

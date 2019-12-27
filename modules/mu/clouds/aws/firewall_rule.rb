@@ -202,36 +202,125 @@ module MU
         # Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
         def self.find(**args)
+          found = {}
 
           if !args[:cloud_id].nil? and !args[:cloud_id].empty?
             begin
               resp = MU::Cloud::AWS.ec2(region: args[:region], credentials: args[:credentials]).describe_security_groups(group_ids: [args[:cloud_id]])
-              return {args[:cloud_id] => resp.data.security_groups.first}
+              found[args[:cloud_id]] = resp.data.security_groups.first
             rescue ArgumentError => e
               MU.log "Attempting to load #{args[:cloud_id]}: #{e.inspect}", MU::WARN, details: caller
-              return {}
+              return found
             rescue Aws::EC2::Errors::InvalidGroupNotFound => e
               MU.log "Attempting to load #{args[:cloud_id]}: #{e.inspect}", MU::DEBUG, details: caller
-              return {}
+              return found
             end
-          end
-
-          map = {}
-          if !args[:tag_key].nil? and !args[:tag_value].nil?
+          elsif !args[:tag_key].nil? and !args[:tag_value].nil?
             resp = MU::Cloud::AWS.ec2(region: args[:region], credentials: args[:credentials]).describe_security_groups(
-                filters: [
-                    {name: "tag:#{args[:tag_key]}", values: [args[:tag_value]]}
-                ]
+              filters: [
+                {name: "tag:#{args[:tag_key]}", values: [args[:tag_value]]}
+              ]
             )
             if !resp.nil?
               resp.data.security_groups.each { |sg|
-                map[sg.group_id] = sg
+                found[sg.group_id] = sg
               }
             end
+          else
+            resp = MU::Cloud::AWS.ec2(region: args[:region], credentials: args[:credentials]).describe_security_groups
+            resp.data.security_groups.each { |sg|
+              found[sg.group_id] = sg
+            }
           end
 
-          map
+          found
         end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          return nil if cloud_desc.group_name == "default"
+
+          bok["name"] = cloud_desc.group_name
+
+          if cloud_desc.vpc_id
+            bok['vpc'] = MU::Config::Ref.get(
+              id: cloud_desc.vpc_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              type: "vpcs",
+            )
+          end
+
+          if cloud_desc.tags and !cloud_desc.tags.empty?
+            bok['tags'] = MU.structToHash(cloud_desc.tags, stringify_keys: true)
+          end
+
+          if cloud_desc.ip_permissions
+            bok["rules"] ||= []
+            cloud_desc.ip_permissions.each { |r|
+              rule = {}
+              if r.from_port and r.to_port
+                if r.from_port == r.to_port
+                  rule["port"] = r.from_port
+                elsif !(r.from_port == 0 and r.to_port == 65535)
+                  rule["port_range"] = r.from_port.to_s+"-"+ r.to_port.to_s
+                end
+              end
+
+              if r.ip_ranges and r.ip_ranges.size > 0
+                rule["hosts"] = r.ip_ranges.map { |c| c.cidr_ip }
+                if r.ip_ranges.first.description
+                  rule["comment"] = r.ip_ranges.first.description
+                end
+              end
+
+              if r.ip_protocol =="-1"
+                rule["proto"] = "all"
+              else
+                rule["proto"] = r.ip_protocol
+              end
+
+              if !r.user_id_group_pairs.empty?
+                rule["sgs"] = []
+                # XXX These need to be Refs, I think, but that's a schema change
+                r.user_id_group_pairs.each { |g|
+                  if g.user_id != MU::Cloud::AWS.credToAcct(@credentials)
+                    MU.log "Security Group #{self.to_s} has a rule referencing another account (#{g.user_id}) and I don't know how to support that right now", MU::WARN
+                    next
+                  elsif g.vpc_peering_connection_id
+                    MU.log "Security Group #{self.to_s} has a rule referencing a peering connection (#{g.vpc_peering_connection_id}) and I don't know how to support that right now", MU::WARN
+                    next
+                  end
+                  rule['sgs'] << g.group_id
+                }
+                if rule['sgs'].include?(@cloud_id)
+                  bok['self_referencing'] = true
+                end
+              end
+
+              rule.delete("description") if rule["description"] == "Added by Mu"
+
+              bok["rules"] << rule
+            }
+          end
+
+          bok
+        end
+
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
