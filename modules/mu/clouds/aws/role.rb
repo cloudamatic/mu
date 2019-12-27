@@ -142,8 +142,9 @@ module MU
 
         # Take some AWS policy documents and turn them into policies
         # @param raw_policies [Array<Hash>]
-        # @param deploy [MU::MommaCat]
+        # @param basename [String]
         # @param credentials [String]
+        # @param path [String]
         # @return [Array<String>]
         def self.manageRawPolicies(raw_policies, basename: "", credentials: nil, path: "/"+MU.deploy_id)
           arns = []

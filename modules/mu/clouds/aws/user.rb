@@ -148,7 +148,18 @@ module MU
                 user_name: @cloud_id
               )
             }
+          end
 
+          if @config['inline_policies']
+            docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['inline_policies'], deploy_obj: @deploy)
+            docs.each { |doc|
+              MU.log "Putting user policy #{doc.keys.first} to user #{@cloud_id} "
+              MU::Cloud::AWS.iam(credentials: @credentials).put_user_policy(
+                policy_document: JSON.generate(doc.values.first),
+                policy_name: doc.keys.first,
+                user_name: @cloud_id
+              )
+            }
           end
 
         end
@@ -443,7 +454,8 @@ MU.log e.inspect, MU::ERR, details: policy
         def self.schema(config)
           toplevel_required = []
           polschema = MU::Config::Role.schema["properties"]["policies"]
-          polschema["conditions"] = MU::Cloud::AWS::Role.condition_schema
+          polschema.deep_merge!(MU::Cloud::AWS::Role.condition_schema)
+
           schema = {
             "inline_policies" => polschema,
             "attachable_policies" => {
