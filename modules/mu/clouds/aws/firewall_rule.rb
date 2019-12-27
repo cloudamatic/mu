@@ -145,11 +145,18 @@ module MU
           sgs = []
           hosts = [hosts] if hosts.is_a?(String)
           hosts.each { |h|
-            if h.match(/^sg-/)
-              sgs << h
-            end
+            sgs << h if h.match(/^sg-/)
           }
-          rule["sgs"] = sgs if sgs.size > 0
+          if sgs.size > 0
+            rule["firewall_rules"] ||= []
+            rule["firewall_rules"].concat(sgs.map { |s|
+              MU::Config::Ref.get(
+                id: s,
+                cloud: "AWS",
+                type: "firewall_rule"
+              )
+            })
+          end
           hosts = hosts - sgs
           rule["hosts"] = hosts if hosts.size > 0
 
@@ -253,6 +260,8 @@ module MU
           end
 
           return nil if cloud_desc.group_name == "default"
+          # XXX identify if we'd be created by the ingress_rules of another
+          # resource
 
           bok["name"] = cloud_desc.group_name
 
@@ -297,21 +306,30 @@ module MU
               end
 
               if !r.user_id_group_pairs.empty?
-                rule["sgs"] = []
-                # XXX These need to be Refs, I think, but that's a schema change
+                rule["firewall_rules"] = []
+                # XXX how do rules referencing LBs look from here? for us that
+                # really means references to a loadbalancer's primary SG
                 r.user_id_group_pairs.each { |g|
-                  if g.user_id != MU::Cloud::AWS.credToAcct(@credentials)
-                    MU.log "Security Group #{self.to_s} has a rule referencing another account (#{g.user_id}) and I don't know how to support that right now", MU::WARN
+                  if g.group_id == @cloud_id
+                    bok['self_referencing'] = true
                     next
-                  elsif g.vpc_peering_connection_id
+                  end
+
+                  rule['firewall_rules'] << MU::Config::Ref.get(
+                    cloud: "AWS",
+                    type: "firewall_rules",
+                    id: g.group_id,
+                    habitat: MU::Config::Ref.get(
+                      cloud: "AWS",
+                      type: "habitats",
+                      id: g.user_id,
+                    )
+                  )
+                  if g.vpc_peering_connection_id
                     MU.log "Security Group #{self.to_s} has a rule referencing a peering connection (#{g.vpc_peering_connection_id}) and I don't know how to support that right now", MU::WARN
                     next
                   end
-                  rule['sgs'] << g.group_id
                 }
-                if rule['sgs'].include?(@cloud_id)
-                  bok['self_referencing'] = true
-                end
               end
 
               rule.delete("description") if rule["description"] == "Added by Mu"
@@ -474,17 +492,25 @@ module MU
             "rules" => {
               "items" => {
                 "properties" => {
+                  "firewall_rules" => {
+                    "type" => "array",
+                    "items" => MU::Config::FirewallRule.reference
+                  },
                   "sgs" => {
                     "type" => "array",
                     "items" => {
-                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "description" => "DEPRECATED, use +firewall_rules+. Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
                       "type" => "string"
                     }
+                  },
+                  "loadbalancers" => {
+                    "type" => "array",
+                    "items" => MU::Config::LoadBalancer.reference
                   },
                   "lbs" => {
                     "type" => "array",
                     "items" => {
-                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "description" => "DEPRECATED, use +loadbalancers+. AWS Load Balancers which will have this rule applied to their traffic",
                       "type" => "string"
                     }
                   }
@@ -519,29 +545,88 @@ module MU
           acl['rules'] ||= {}
           acl['rules'].each { |rule|
             if !rule['sgs'].nil?
+              rule['firewall_rules'] ||= []
               rule['sgs'].each { |sg_name|
 	              if configurator.haveLitterMate?(sg_name, "firewall_rules") and sg_name != acl['name']
-  	              acl["dependencies"] << {
-    	              "type" => "firewall_rule",
-      	            "name" => sg_name,
-                    "no_create_wait" => true
-	                }
+                  rule['firewall_rules'] << MU::Config::Ref.get(
+                    type: "firewall_rule",
+                    name: sg_name,
+                    cloud: "AWS",
+                    region: acl['region']
+                  )
                 elsif sg_name == acl['name']
                   acl['self_referencing'] = true
-                  next
+                else
+                  rule['firewall_rules'] << MU::Config::Ref.get(
+                    type: "firewall_rule",
+                    id: sg_name,
+                    cloud: "AWS",
+                    region: acl['region']
+                  )
                 end
               }
             end
+            rule.delete("sgs")
+
             if !rule['lbs'].nil?
+              rule['loadbalancers'] ||= []
               rule['lbs'].each { |lb_name|
-                acl["dependencies"] << {
-                  "type" => "loadbalancer",
-                  "name" => lb_name,
-                  "phase" => "groom"
-                }
+	              if configurator.haveLitterMate?(lb_name, "loadbalancers")
+                  rule['loadbalancers'] << MU::Config::Ref.get(
+                    type: "loadbalancer",
+                    name: lb_name,
+                    cloud: "AWS",
+                    region: acl['region']
+                  )
+                else
+                  rule['loadbalancers'] << MU::Config::Ref.get(
+                    type: "loadbalancer",
+                    id: lb_name,
+                    cloud: "AWS",
+                    region: acl['region']
+                  )
+                end
+              }
+              rule.delete("lbs")
+            end
+
+            if rule['firewall_rules']
+              rule['firewall_rules'].each { |sg|
+                if sg.is_a?(MU::Config::Ref) and sg.name
+  	              acl["dependencies"] << {
+    	              "type" => "firewall_rule",
+      	            "name" => sg.name,
+                    "no_create_wait" => true
+	                }
+                elsif sg['name'] and !sg['deploy_id']
+  	              acl["dependencies"] << {
+    	              "type" => "firewall_rule",
+      	            "name" => sg['name'],
+                    "no_create_wait" => true
+	                }
+                end
+              }
+            end
+
+            if rule['loadbalancers']
+              rule['loadbalancers'].each { |lb|
+                if lb.is_a?(MU::Config::Ref) and lb.name
+  	              acl["dependencies"] << {
+    	              "type" => "loadbalancer",
+      	            "name" => lb.name,
+                    "phase" => "groom"
+	                }
+                elsif lb['name'] and !lb['deploy_id']
+  	              acl["dependencies"] << {
+                    "type" => "loadbalancer",
+                    "name" => lb['name'],
+                    "phase" => "groom"
+	                }
+                end
               }
             end
           }
+
           acl['dependencies'].uniq!
           ok
         end
@@ -736,8 +821,8 @@ module MU
               end
 
               if (!defined? rule['hosts'] or !rule['hosts'].is_a?(Array)) and
-                 (!defined? rule['sgs'] or !rule['sgs'].is_a?(Array)) and
-                 (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
+                 (!defined? rule['firewall_rules'] or !rule['firewall_rules'].is_a?(Array)) and
+                 (!defined? rule['loadbalancers'] or !rule['loadbalancers'].is_a?(Array))
                 rule['hosts'] = ["0.0.0.0/0"]
               end
               ec2_rule[:ip_ranges] = []
@@ -752,69 +837,50 @@ module MU
                 }
               end
 
-              if !rule['lbs'].nil?
-# XXX This is a dopey place for this, dependencies() should be doing our legwork
-                rule['lbs'].uniq!
-                rule['lbs'].each { |lb_name|
-# XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
-# is weak.
-# Try to find one by name in this deploy
+              if !rule['loadbalancers'].nil?
+                rule['loadbalancers'].uniq!
+                rule['loadbalancers'].each { |lb|
+                  lb_ref = MU::Config::Ref.get(lb)
 
-                  found = MU::MommaCat.findStray(
-                    "AWS",
-                    "loadbalancers",
-                    name: lb_name,
-                    deploy_id: @deploy.deploy_id
-                  )
-                  # Ok, let's try it with the name being an AWS identifier
-                  if found.nil? or found.size < 1
-                    found = MU::MommaCat.findStray(
-                      "AWS",
-                      "loadbalancers",
-                      cloud_id: lb_name,
-                      dummy_ok: true
-                    )
-                    if found.nil? or found.size < 1
-                      raise MuError, "Couldn't find a LoadBalancer with #{lb_name} for #{@mu_name}"
+                  if !lb_ref.kitten or !lb_ref.kitten.cloud_desc
+                    MU.log "Security Group #{@mu_name} failed to get cloud descriptor for referenced load balancer", MU::ERR, details: lb_ref
+                    next
+                  end
+
+                  lb_ref.kitten.cloud_desc.security_groups.each { |lb_sg|
+                    # XXX this probably has to infer things like region,
+                    # credentials, etc from the load balancer ref
+                    lb_sg_desc = MU::Cloud::AWS::FirewallRule.find(cloud_id: lb_sg)
+                    owner_id = if lb_sg_desc and lb_sg_desc.size == 1
+                      lb_sg_desc.values.first.owner_id
+                    else
+                      MU::Cloud::AWS.credToAcct(@credentials)
                     end
-                  end
-                  lb = found.first
-
-                  if !lb.nil? and !lb.cloud_desc.nil?
-                    lb.cloud_desc.security_groups.each { |lb_sg|
-                      ec2_rule[:user_id_group_pairs] << {
-                        user_id: MU::Cloud::AWS.credToAcct(@config['credentials']),
-                        group_id: lb_sg
-                      }
+                    ec2_rule[:user_id_group_pairs] << {
+                      user_id: owner_id,
+                      group_id: lb_sg,
+                      description: rule['comment']
                     }
-                  end
+                  }
                 }
               end
 
-              if !rule['sgs'].nil?
-                rule['sgs'].uniq!
-                rule['sgs'].each { |sg_name|
-                  dependencies # Make sure our cache is fresh
-                  sg = @deploy.findLitterMate(type: "firewall_rule", name: sg_name) if @deploy
-                  sg ||= if sg_name == @config['name']
-                    self
-                  elsif @dependencies.has_key?("firewall_rule") and
-                      @dependencies["firewall_rule"].has_key?(sg_name)
-                    @dependencies["firewall_rule"][sg_name]
-                  elsif sg_name.match(/^sg-/)
-                    found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy, dummy_ok: true)
-                    found_sgs.first if found_sgs
-                  end
+              if !rule['firewall_rules'].nil?
+                rule['firewall_rules'].uniq!
+                rule['firewall_rules'].each { |sg|
+                  sg_ref = MU::Config::Ref.get(sg)
 
-                  if sg.nil?
-                    raise MuError, "FirewallRule #{@config['name']} referenced security group '#{sg_name}' in a rule, but I can't find it anywhere!"
+                  if !sg_ref.kitten or !sg_ref.kitten.cloud_desc
+                    MU.log "Security Group #{@mu_name} failed to get cloud descriptor for referenced Security Group", MU::ERR, details: sg_ref
+                    next
                   end
 
                   ec2_rule[:user_id_group_pairs] << {
-                    user_id: MU.account_number,
-                    group_id: sg.cloud_id,
+                    user_id: sg_ref.kitten.cloud_desc.owner_id,
+                    group_id: sg_ref.cloud_id,
                     description: rule['comment']
                   }
+
                 }
               end
 

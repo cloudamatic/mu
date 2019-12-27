@@ -1027,6 +1027,7 @@ return
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
         if @config[type]
           @config[type].each { |k|
+            next if !k.is_a?(Hash)
             applyInheritedDefaults(k, type)
           }
         end
@@ -1495,7 +1496,7 @@ $CONFIGURABLES
           acl[param] = descriptor[param] if descriptor[param]
         }
         descriptor["add_firewall_rules"] ||= []
-        descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
+        descriptor["add_firewall_rules"] << {"name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
 
         acl = resolveIntraStackFirewallRefs(acl, delay_validation)
         ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: already_exists)
@@ -1528,13 +1529,14 @@ $CONFIGURABLES
       # Does it declare association with first-class firewall_rules?
       if !descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"].each { |acl_include|
-          if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
+          acl_include["name"] ||= acl_include["rule_name"]
+          if haveLitterMate?(acl_include["name"], "firewall_rules")
             descriptor["dependencies"] << {
               "type" => "firewall_rule",
-              "name" => acl_include["rule_name"]
+              "name" => acl_include["name"]
             }
           elsif acl_include["rule_name"]
-            MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+            MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
           end
         }
@@ -2180,6 +2182,7 @@ $CONFIGURABLES
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
     def applyInheritedDefaults(kitten, type)
+      return if !kitten.is_a?(Hash)
       kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
 
