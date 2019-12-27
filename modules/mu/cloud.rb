@@ -2048,13 +2048,14 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
 
         # Wrapper for the cleanup class method of underlying cloud object implementations.
         def self.cleanup(*flags)
-          ok = false
+          ok = true
           params = flags.first
           clouds = MU::Cloud.supportedClouds
           if params[:cloud]
             clouds = [params[:cloud]]
             params.delete(:cloud)
           end
+
           clouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
@@ -2076,6 +2077,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             end
           }
           MU::MommaCat.unlockAll
+
           ok
         end
 

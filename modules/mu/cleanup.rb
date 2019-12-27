@@ -439,6 +439,8 @@ module MU
 #                        rescue ::Seahorse::Client::NetworkingError => e
 #                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
 #                        end
+      else
+        true
       end
     end
   end #class

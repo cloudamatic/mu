@@ -219,7 +219,7 @@ module MU
                   end
                   begin
                     attachments.policy_groups.each { |g|
-                      MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                      MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(
                         group_name: g.group_name,
                         policy_arn: policy.arn
                       )
@@ -320,6 +320,14 @@ MU.log e.inspect, MU::ERR, details: policy
                     )
                   }
                 end
+
+                poldesc = MU::Cloud::AWS.iam(credentials: credentials).list_user_policies(user_name: u.user_name)
+                if poldesc and poldesc.policy_names and poldesc.policy_names.size > 0
+                  poldesc.policy_names.each { |pol_name|
+                    MU::Cloud::AWS.iam(credentials: credentials).delete_user_policy(user_name: u.user_name, policy_name: pol_name)
+                  }
+                end
+
                 attached_policies = MU::Cloud::AWS.iam(credentials: credentials).list_attached_user_policies(
                   user_name: u.user_name
                 ).attached_policies

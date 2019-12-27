@@ -202,6 +202,22 @@ module MU
                     group_name: g.group_name
                   )
                 }
+
+                poldesc = MU::Cloud::AWS.iam(credentials: credentials).list_group_policies(group_name: g.group_name)
+                if poldesc and poldesc.policy_names and poldesc.policy_names.size > 0
+                  poldesc.policy_names.each { |pol_name|
+                    MU::Cloud::AWS.iam(credentials: credentials).delete_group_policy(group_name: g.group_name, policy_name: pol_name)
+                  }
+                end
+
+                attached_policies = MU::Cloud::AWS.iam(credentials: credentials).list_attached_group_policies(
+                  group_name: g.group_name
+                ).attached_policies
+                attached_policies.each { |a|
+                  MU.log "Detaching IAM policy #{a.policy_arn} from group #{g.group_name}"
+                  MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(group_name: g.group_name, policy_arn: a.policy_arn)
+                }
+
                 MU::Cloud::AWS.iam(credentials: credentials).delete_group(
                   group_name: g.group_name
                 )
