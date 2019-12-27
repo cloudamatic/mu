@@ -85,11 +85,51 @@ module MU
             end
           end
 
-          if @config['iam_policies']
-             @dependencies["role"].each_pair { |rolename, roleobj|
-               roleobj.cloudobj.bindTo("group", @cloud_id)
-             }
+          # Create these if necessary, then append them to the list of
+          # attachable_policies
+          if @config['raw_policies']
+            pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+              @config['raw_policies'],
+              basename: @deploy.getResourceName(@config['name']),
+              credentials: @credentials
+            )
+            @config['attachable_policies'] ||= []
+            @config['attachable_policies'].concat(pol_arns.map { |a| { "id" => a } })
           end
+
+          if @config['attachable_policies']
+            configured_policies = @config['attachable_policies'].map { |p|
+              id = if p.is_a?(MU::Config::Ref)
+                p.cloud_id
+              else
+                p = MU::Config::Ref.get(p)
+                p.kitten
+                p.cloud_id
+              end
+            }
+
+            attached_policies = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_group_policies(
+              group_name: @cloud_id
+            ).attached_policies
+            attached_policies.each { |a|
+              if !configured_policies.include?(a.policy_arn)
+                MU.log "Removing IAM policy #{a.policy_arn} from group #{@mu_name}", MU::NOTICE
+                MU::Cloud::AWS::Role.purgePolicy(a.policy_arn, @credentials)
+              else
+                configured_policies.delete(a.policy_arn)
+              end
+            }
+
+            configured_policies.each { |policy_arn|
+              MU.log "Attaching #{policy_arn} to group #{@cloud_id}"
+              MU::Cloud::AWS.iam(credentials: @credentials).attach_group_policy(
+                policy_arn: policy_arn,
+                group_name: @cloud_id
+              )
+            }
+
+          end
+
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -288,18 +328,14 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-GROUP-FOO+. This parameter wil
         def self.validateConfig(group, configurator)
           ok = true
 
-          if group['iam_policies'] and group['iam_policies'].size > 0
-            roledesc = {
-              "name" => group["name"]+"role",
-              "bare_policies" => true,
-              "iam_policies" => group['iam_policies'].dup
-            }
-            configurator.insertKitten(roledesc, "roles")
-            group["dependencies"] ||= []
-            group["dependencies"] << {
-              "type" => "role",
-              "name" => group["name"]+"role"
-            }
+          # If we're attaching some managed policies, make sure all of the ones
+          # that should already exist do indeed exist
+          if group['attachable_policies']
+            ok = false if !MU::Cloud::AWS::Role.validateAttachablePolicies(
+              group['attachable_policies'],
+              credentials: group['credentials'],
+              region: group['region']
+            )
           end
 
           if !group['use_if_exists'] and group['unique_name'].nil?

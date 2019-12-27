@@ -111,7 +111,7 @@ module MU
           if @config['raw_policies']
             pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
               @config['raw_policies'],
-              deploy: @deploy,
+              basename: @deploy.getResourceName(@config['name']),
               credentials: @credentials
             )
             @config['attachable_policies'] ||= []

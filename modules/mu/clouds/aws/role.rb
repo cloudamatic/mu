@@ -128,7 +128,7 @@ module MU
             if @config['raw_policies']
               pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
                 @config['raw_policies'],
-                deploy: @deploy,
+                basename: @deploy.getResourceName(@config['name']),
                 credentials: @credentials
               )
             end
@@ -145,15 +145,15 @@ module MU
         # @param deploy [MU::MommaCat]
         # @param credentials [String]
         # @return [Array<String>]
-        def self.manageRawPolicies(raw_policies, deploy: MU.mommacat, credentials: nil)
+        def self.manageRawPolicies(raw_policies, basename: "", credentials: nil, path: "/"+MU.deploy_id)
           arns = []
           raw_policies.each { |policy|
             policy.values.each { |p|
               p["Version"] ||= "2012-10-17"
             }
-            policy_name = deploy.getResourceName(policy.keys.first.upcase)
+            policy_name = basename+"-"+policy.keys.first.upcase
 
-            arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(credentials)+":policy/#{deploy.deploy_id}/#{policy_name}"
+            arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(credentials)+":policy#{path}/#{policy_name}"
             resp = begin
               desc = MU::Cloud::AWS.iam(credentials: credentials).get_policy(policy_arn: arn)
 
@@ -162,17 +162,18 @@ module MU
                 version_id: desc.policy.default_version_id
               )
 
-              if version.policy_version.document != URI.encode(JSON.generate(policy.values.first))#, /[^a-z0-9\-]/i)
+              ext = JSON.parse(URI.decode(version.policy_version.document))
+              if ext != policy.values.first
                 # Special exception- we don't want to overwrite extra rules
                 # in MuSecrets policies, because our siblings might have 
                 # (will have) injected those and they should stay.
                 if policy.size == 1 and policy["MuSecrets"]
-                  ext = JSON.parse(URI.decode(version.policy_version.document))
                   if (ext["Statement"][0]["Resource"] & policy["MuSecrets"]["Statement"][0]["Resource"]).sort == policy["MuSecrets"]["Statement"][0]["Resource"].sort
                     next
                   end
                 end
                 MU.log "Updating IAM policy #{policy_name}", MU::NOTICE, details: policy
+                ext.diff(policy.values.first)
                 update_policy(arn, policy.values.first)
                 MU::Cloud::AWS.iam(credentials: credentials).get_policy(policy_arn: arn)
               else
@@ -183,9 +184,9 @@ module MU
               MU.log "Creating IAM policy #{policy_name}", details: policy.values.first
               MU::Cloud::AWS.iam(credentials: credentials).create_policy(
                 policy_name: policy_name,
-                path: "/"+deploy.deploy_id+"/",
+                path: path+"/",
                 policy_document: JSON.generate(policy.values.first),
-                description: "Raw policy for #{deploy.deploy_id}"
+                description: "Raw policy from #{basename}"
               )
             end
             arns << resp.policy.arn
