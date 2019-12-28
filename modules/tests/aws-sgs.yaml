@@ -10,7 +10,7 @@ loadbalancers:
   vpc:
     name: sgtest
   add_firewall_rules:
-  - name: referencable
+  - name: referenceable
   ingress_rules:
   - port: 8080
     hosts:
