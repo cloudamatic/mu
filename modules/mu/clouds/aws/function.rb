@@ -93,7 +93,7 @@ module MU
             sgs = []
             if @config['add_firewall_rules']
               @config['add_firewall_rules'].each { |sg|
-                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['rule_name'])
+                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['name'])
                 sgs << sg.cloud_id if sg and sg.cloud_id
               }
             end
@@ -456,7 +456,7 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
             acl["vpc"] = function['vpc'].dup if function['vpc']
             ok = false if !configurator.insertKitten(acl, "firewall_rules")
             function["add_firewall_rules"] = [] if function["add_firewall_rules"].nil?
-            function["add_firewall_rules"] << {"rule_name" => fwname}
+            function["add_firewall_rules"] << {"name" => fwname}
             function["permissions"] ||= []
             function["permissions"] << "network"
             function['dependencies'] ||= []

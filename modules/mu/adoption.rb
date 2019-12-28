@@ -149,7 +149,7 @@ module MU
           if muid and tag['value'].match(/^#{Regexp.quote(muid)}-(.*)/)
             return Regexp.last_match[1].downcase
           else
-            return tag['value']
+            return tag['value'].downcase
           end
         end
       }

@@ -1529,13 +1529,14 @@ $CONFIGURABLES
       # Does it declare association with first-class firewall_rules?
       if !descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"].each { |acl_include|
+          next if !acl_include["name"] and !acl_include["rule_name"]
           acl_include["name"] ||= acl_include["rule_name"]
           if haveLitterMate?(acl_include["name"], "firewall_rules")
             descriptor["dependencies"] << {
               "type" => "firewall_rule",
               "name" => acl_include["name"]
             }
-          elsif acl_include["rule_name"]
+          elsif acl_include["name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
           end

@@ -347,7 +347,7 @@ module MU
               acl["vpc"] = dom['vpc'].dup if dom['vpc']
               ok = false if !configurator.insertKitten(acl, "firewall_rules")
               dom["add_firewall_rules"] = [] if dom["add_firewall_rules"].nil?
-              dom["add_firewall_rules"] << {"rule_name" => fwname}
+              dom["add_firewall_rules"] << {"name" => fwname}
             end
           end
 

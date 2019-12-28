@@ -57,7 +57,7 @@ module MU
               sgs = []
               if target['add_firewall_rules']
                 target['add_firewall_rules'].each { |mount_sg|
-                  sg = @deploy.findLitterMate(type: "firewall_rule", name: mount_sg['rule_name'])
+                  sg = @deploy.findLitterMate(type: "firewall_rule", name: mount_sg['name'])
                   sgs << sg.cloud_id if sg
                 }
               end
@@ -501,7 +501,7 @@ module MU
                 acl["vpc"] = mp['vpc'].dup if mp['vpc']
                 ok = false if !configurator.insertKitten(acl, "firewall_rules")
                 mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
-                mp["add_firewall_rules"] << {"rule_name" => fwname}
+                mp["add_firewall_rules"] << {"name" => fwname}
               end
   
             }
