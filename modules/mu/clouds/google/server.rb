@@ -1341,9 +1341,11 @@ next if !create
             end
           end
 
+          project ||= MU::Cloud::Google.defaultProject(credentials)
+
           @@instance_type_cache[project] ||= {}
           @@instance_type_cache[project][region] ||= {}
-          types = (MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials))[project][region]
+          types = MU::Cloud::Google.listInstanceTypes(region, project: project, credentials: credentials)[project][region]
           realsize = size.dup
 
           if types and (realsize.nil? or !types.has_key?(realsize))
