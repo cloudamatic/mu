@@ -1253,6 +1253,7 @@ module MU
                 id: sg.group_id,
                 cloud: "AWS",
                 credentials: @credentials,
+                type: "firewall_rules",
                 region: @config['region']
               )
             }
