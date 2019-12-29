@@ -147,9 +147,21 @@ module MU
         end
 
         # Locate an existing alarm.
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching alarms
         def self.find(**args)
-          MU::Cloud::AWS::Alarm.getAlarmByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+          found = {}
+          if args[:cloud_id]
+            found[args[:cloud_id]] = MU::Cloud::AWS::Alarm.getAlarmByName(args[:cloud_id], region: args[:region], credentials: args[:credentials])
+          else
+            resp = MU::Cloud::AWS.cloudwatch(region: args[:region], credentials: args[:credentials]).describe_alarms
+            if resp and resp.metric_alarms
+              resp.metric_alarms.each { |a|
+                found[a.alarm_name] = a
+              }
+            end
+          end
+
+          found
         end
 
         # Create an alarm.
