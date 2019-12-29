@@ -307,6 +307,55 @@ module MU
 
     private
 
+    def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, siblings = nil, type: nil)
+      return if schema_chunk.nil?
+
+      if !conf_chunk.nil? and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
+        deletia = []
+        schema_chunk["properties"].each_pair { |key, subschema|
+          next if !conf_chunk[key]
+          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(key)
+
+          if subschema["default_if"]
+            subschema["default_if"].each { |cond|
+              if conf_chunk[cond["key_is"]] == cond["value_is"]
+                subschema["default"] = cond["set"]
+                break
+              end
+            }
+          end
+
+          if subschema["default"] and conf_chunk[key] == subschema["default"]
+            deletia << key
+          elsif ["array", "object"].include?(subschema["type"])
+            scrubSchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+          end
+        }
+        deletia.each { |key| conf_chunk.delete(key) }
+      elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)
+        conf_chunk.each { |item|
+          # this bit only happens at the top-level key for a resource type, in
+          # theory
+          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
+
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
+            toplevel_required, cloudschema = cloudclass.schema(self)
+
+            newschema = schema_chunk["items"].dup
+            newschema["properties"].merge!(cloudschema)
+            newschema
+          else
+            schema_chunk["items"].dup
+          end
+          next if ["array", "object"].include?(realschema["type"])
+
+          scrubSchemaDefaults(item, realschema, depth+1, conf_chunk, type: type)
+        }
+      end
+
+      conf_chunk
+    end
+
     # Recursively walk through a BoK hash, validate all {MU::Config::Ref}
     # objects, convert them to hashes, and pare them down to the minimal
     # representation (remove extraneous attributes that match the parent
@@ -353,6 +402,7 @@ module MU
             rescue Incomplete
             end
           }
+
           deploy.original_config[attrs[:cfg_plural]] = processed
           bok[attrs[:cfg_plural]] = processed
         end
@@ -393,6 +443,8 @@ module MU
           end
         }
       }
+
+      scrubSchemaDefaults(bok, MU::Config.schema)
 
       if save
         MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
