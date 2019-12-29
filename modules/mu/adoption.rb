@@ -30,7 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: true, diff: false, habitats: [])
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [])
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -386,8 +386,8 @@ module MU
       }
 
       if save
-#        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
-#        deploy.save!(force: true, origin: origin)
+        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
+        deploy.save!(force: true, origin: origin)
       end
 
       bok
@@ -496,7 +496,6 @@ module MU
         nocleanup: true,
         no_artifacts: !(@savedeploys),
         set_context_to_me: true,
-        no_artifacts: true,
         mu_user: MU.mu_user
       )
 

@@ -799,7 +799,8 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
           end
 
 # XXX dhcpopts
-# XXX bastions
+
+          bok['create_bastion'] = false # XXX figure out a way to detect this
 
           logs = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_flow_logs(filter: [{ "name" => "resource-id", "values" => [@cloud_id] }])
           if logs and logs.flow_logs and !logs.flow_logs.empty?
@@ -883,6 +884,7 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
               bok['subnets'] << subnet
             }
           end
+          bok['name'].gsub!(/[^a-zA-Z0-9_\-]+/, '_')
 
           bok
         end
@@ -1249,11 +1251,7 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
                 {
                   name: "vpc-id", 
                   values: vpc_ids
-                },
-                {
-                  name: "association.main", 
-                  values: ["true"]
-                },
+                }
               ]
             ).route_tables
           else
