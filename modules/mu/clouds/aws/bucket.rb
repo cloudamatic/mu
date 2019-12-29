@@ -270,12 +270,28 @@ puts path
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
           found = {}
+
           if args[:cloud_id]
             begin
               found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: true, credentials: args[:credentials], region: args[:region])
             rescue ::Aws::S3::Errors::NoSuchBucket
             end
+          else
+            resp = MU::Cloud::AWS.s3(credentials: args[:credentials], region: args[:region]).list_buckets
+            if resp and resp.buckets
+              resp.buckets.each { |b|
+                begin
+                  loc_resp = MU::Cloud::AWS.s3(credentials: args[:credentials], region: args[:region]).get_bucket_location(bucket: b.name)
+                  if !loc_resp or loc_resp.location_constraint != args[:region]
+                    next
+                  end
+                  found[b.name] = describe_bucket(b.name, minimal: true, credentials: args[:credentials], region: args[:region])
+                rescue Aws::S3::Errors::AccessDenied
+                end
+              }
+            end
           end
+
           found
         end
 
