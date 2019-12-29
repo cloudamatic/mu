@@ -347,6 +347,7 @@ module MU
               end
               if cred_cfg['default']
                 new_cfg.delete('credentials')
+                new_cfg.delete('habitat')
               end
               processed << new_cfg
             rescue Incomplete
@@ -436,13 +437,33 @@ module MU
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
         if parent and parent.config
           cred_cfg = MU::Cloud.const_get(parent.cloud).credConfig(parent.credentials)
+
           if parent.config['region'] == hashcfg['region'] or
              cred_cfg['region'] == hashcfg['region']
             hashcfg.delete("region")
           end
 
+          habitat_id = if cfg.habitat
+            if cfg.habitat.is_a?(MU::Config::Ref)
+              cfg.habitat.id
+            else
+              cfg.habitat['id']
+            end
+          else
+            nil
+          end
+
+          if habitat_id
+            if (parent.config['habitat'] and parent.config['habitat']['id'] == habitat_id) or
+               cred_cfg['account_number'] == habitat_id or # AWS
+               cred_cfg['project'] == habitat_id or # GCP
+               cred_cfg['subscription'] == habitat_id # Azure
+              hashcfg.delete('habitat') 
+            end
+          end
+
           if parent.config['credentials'] == hashcfg['credentials']
-            hashcfg.delete("region")
+            hashcfg.delete("credentials")
           end
         end
         cfg = hashcfg
