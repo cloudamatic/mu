@@ -285,7 +285,7 @@ module MU
         end
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
-        if !@original_config['scrub_mu_isms']
+        if !@original_config['scrub_mu_isms'] and !@no_artifacts
           credsets.each_pair { |cloud, creds|
             creds.uniq!
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
@@ -1673,13 +1673,17 @@ end
       # its shorthand sibling name, let's... call ourselves first to make sure
       # we're fishing for the right thing.
       if habitat
-        MU.log indent+"findLitterMate(#{argstring}): Attempting to resolve habitat name #{habitat}", loglevel
-        realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials, indent: indent+"  ")
-        if realhabitat and realhabitat.mu_name
-          MU.log indent+"findLitterMate: Resolved habitat name #{habitat} to #{realhabitat.mu_name}", loglevel, details: [realhabitat.mu_name, realhabitat.cloud_id, realhabitat.config.keys]
-          habitat = realhabitat.cloud_id
-        elsif debug
-          MU.log indent+"findLitterMate(#{argstring}): Failed to resolve habitat name #{habitat}", MU::WARN
+        if habitat.is_a?(MU::Config::Ref) and habitat.id
+          habitat = habitat.id
+        else
+          MU.log indent+"findLitterMate(#{argstring}): Attempting to resolve habitat name #{habitat}", loglevel
+          realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials, indent: indent+"  ")
+          if realhabitat and realhabitat.mu_name
+            MU.log indent+"findLitterMate: Resolved habitat name #{habitat} to #{realhabitat.mu_name}", loglevel, details: [realhabitat.mu_name, realhabitat.cloud_id, realhabitat.config.keys]
+            habitat = realhabitat.cloud_id
+          elsif debug
+            MU.log indent+"findLitterMate(#{argstring}): Failed to resolve habitat name #{habitat}", MU::WARN
+          end
         end
       end
 
@@ -1695,7 +1699,7 @@ end
         matches = []
 
         @kittens[type].each { |habitat_group, sib_classes|
-          next if habitat and habitat_group != habitat
+          next if habitat and habitat_group != habitat and !habitat_group.nil?
           sib_classes.each_pair { |sib_class, data|
           virtual_name = nil
 

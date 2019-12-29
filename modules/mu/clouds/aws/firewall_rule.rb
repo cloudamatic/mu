@@ -259,7 +259,12 @@ module MU
             return nil
           end
 
-          return nil if cloud_desc.group_name == "default"
+          # Ignore groups created/managed by AWS
+          if cloud_desc.group_name == "default" or
+             cloud_desc.group_name.match(/^AWS-OpsWorks-/)
+            return nil
+          end
+
           # XXX identify if we'd be created by the ingress_rules of another
           # resource
 
@@ -282,65 +287,82 @@ module MU
 
           if cloud_desc.ip_permissions
             bok["rules"] ||= []
-            cloud_desc.ip_permissions.each { |r|
-              rule = {}
-              if r.from_port and r.to_port
-                if r.from_port == r.to_port
-                  rule["port"] = r.from_port
-                elsif !(r.from_port == 0 and r.to_port == 65535)
-                  rule["port_range"] = r.from_port.to_s+"-"+ r.to_port.to_s
-                end
-              end
-
-              if r.ip_ranges and r.ip_ranges.size > 0
-                rule["hosts"] = r.ip_ranges.map { |c| c.cidr_ip }
-                if r.ip_ranges.first.description
-                  rule["comment"] = r.ip_ranges.first.description
-                end
-              end
-
-              if r.ip_protocol =="-1"
-                rule["proto"] = "all"
-              else
-                rule["proto"] = r.ip_protocol
-              end
-
-              if !r.user_id_group_pairs.empty?
-                rule["firewall_rules"] = []
-                # XXX how do rules referencing LBs look from here? for us that
-                # really means references to a loadbalancer's primary SG
-                r.user_id_group_pairs.each { |g|
-                  if g.group_id == @cloud_id
-                    bok['self_referencing'] = true
-                    next
-                  end
-
-                  rule['firewall_rules'] << MU::Config::Ref.get(
-                    cloud: "AWS",
-                    type: "firewall_rules",
-                    id: g.group_id,
-                    habitat: MU::Config::Ref.get(
-                      cloud: "AWS",
-                      type: "habitats",
-                      id: g.user_id,
-                    )
-                  )
-                  if g.vpc_peering_connection_id
-                    MU.log "Security Group #{self.to_s} has a rule referencing a peering connection (#{g.vpc_peering_connection_id}) and I don't know how to support that right now", MU::WARN
-                    next
-                  end
-                }
-              end
-
-              rule.delete("description") if rule["description"] == "Added by Mu"
-
-              bok["rules"] << rule
-            }
+            bok["rules"].concat(MU::Cloud::AWS::FirewallRule.rulesToBoK(cloud_desc.ip_permissions))
+            bok["rules"].concat(MU::Cloud::AWS::FirewallRule.rulesToBoK(cloud_desc.ip_permissions_egress, egress: true))
           end
 
           bok
         end
 
+        # Given a set of AWS Security Group rules, convert them back to our
+        # language.
+        def self.rulesToBoK(ip_permissions, egress: false)
+          rules = []
+
+          ip_permissions.each { |r|
+            rule = {}
+            if r.from_port and r.to_port
+              if r.from_port == r.to_port
+                rule["port"] = r.from_port
+              elsif !(r.from_port == 0 and r.to_port == 65535)
+                rule["port_range"] = r.from_port.to_s+"-"+ r.to_port.to_s
+              end
+            end
+
+            if r.ip_ranges and r.ip_ranges.size > 0
+              rule["hosts"] = r.ip_ranges.map { |c| c.cidr_ip }
+              if r.ip_ranges.first.description
+                rule["comment"] = r.ip_ranges.first.description
+              end
+            end
+
+            if r.ip_protocol =="-1"
+              rule["proto"] = "all"
+            else
+              rule["proto"] = r.ip_protocol
+            end
+
+            if !r.user_id_group_pairs.empty?
+              rule["firewall_rules"] = []
+              # XXX how do rules referencing LBs look from here? for us that
+              # really means references to a loadbalancer's primary SG
+              r.user_id_group_pairs.each { |g|
+                if g.group_id == @cloud_id
+                  bok['self_referencing'] = true
+                  next
+                end
+
+                rule['firewall_rules'] << MU::Config::Ref.get(
+                  cloud: "AWS",
+                  type: "firewall_rules",
+                  id: g.group_id,
+                  habitat: MU::Config::Ref.get(
+                    cloud: "AWS",
+                    type: "habitats",
+                    id: g.user_id,
+                  )
+                )
+                if g.vpc_peering_connection_id
+                  MU.log "Security Group #{self.to_s} has a rule referencing a peering connection (#{g.vpc_peering_connection_id}) and I don't know how to support that right now", MU::WARN
+                  next
+                end
+              }
+            end
+
+            rule.delete("comment") if rule["comment"] == "Added by Mu"
+
+            rule['egress'] = true if egress
+
+            # Don't bother with the default egress rule
+            if egress and rule['hosts'] == ["0.0.0.0/0"] and rule["proto"] == "all"
+              next
+            end
+
+            rules << rule
+          }
+
+          rules
+        end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
@@ -629,6 +651,36 @@ module MU
 
           acl['dependencies'].uniq!
           ok
+        end
+
+        # Look up all the network interfaces using one or more security groups
+        # @param sg_ids [Array<String>]
+        # @param credentials [String]
+        # @param region [String]
+        # @return [Hash]
+        def self.getAssociatedInterfaces(sg_ids, credentials: nil, region: MU.curRegion)
+          found = {}
+          resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_network_interfaces(
+            filters: [
+              {
+                name: "group-id",
+                values: sg_ids
+              }
+            ]
+          )
+          return found if !resp or !resp.network_interfaces
+
+          resp.network_interfaces.each { |iface|
+# It's not impossible to reverse-map to the resource that owns this, but most
+# of the time it'll be something we can't manage directly, so let's leave it be
+#MU.log iface.network_interface_id+": #{iface.attachment.instance_owner_id} (#{iface.attachment.attach_time})", MU::NOTICE, details: iface.description
+            iface.groups.each { |sg|
+              found[sg.group_id] ||= {}
+              found[sg.group_id][iface.network_interface_id] = iface
+            }
+          }
+
+          found
         end
 
         private

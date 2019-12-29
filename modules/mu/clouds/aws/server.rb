@@ -1169,9 +1169,7 @@ module MU
           bok.delete("image_id")
         end
 
-        # XXX get the AMI, and its snapshots, and skip those in this list
         if cloud_desc.block_device_mappings and !cloud_desc.block_device_mappings.empty?
-          bok['storage'] = []
           vol_map = {}
           MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_volumes(
             volume_ids: cloud_desc.block_device_mappings.map { |d| d.ebs.volume_id if d.ebs }
@@ -1198,6 +1196,7 @@ module MU
               end
               disk_desc["volume_type"] = vol_map[disk.ebs.volume_id].volume_type
             end
+            bok['storage'] ||= []
             bok['storage'] << disk_desc
           }
         end
@@ -1223,26 +1222,44 @@ module MU
               bok['add_private_ips'] ||= []
               bok['add_private_ips'] << priv_ip.private_ip_address
             end
-            if priv_ip.association and priv_ip.association.public_ip
-              # XXX is this always elastic? how can we tell?
+            if priv_ip.association and priv_ip.association.public_ip 
               bok['associate_public_ip'] = true
-              bok['static_ip'] = {
-                "assign_ip" => true,
-                "ip" => priv_ip.association.public_ip
-              }
+              if priv_ip.association.ip_owner_id != "amazon"
+                bok['static_ip'] = {
+                  "assign_ip" => true,
+                  "ip" => priv_ip.association.public_ip
+                }
+              end
             end
           }
 
-          int.groups.each { |sg|
-            bok['add_firewall_rules'] ||= []
-            bok['add_firewall_rules'] << {
-              id: sg.group_id,
-              cloud: "AWS",
-              credentials: @credentials,
-              region: @config['region']
+          if int.groups.size > 0
+
+            require 'mu/clouds/aws/firewall_rule'
+            ifaces = MU::Cloud::AWS::FirewallRule.getAssociatedInterfaces(int.groups.map { |sg| sg.group_id }, credentials: @credentials, region: @config['region'])
+            done_local_rules = false
+            int.groups.each { |sg|
+              if !done_local_rules and ifaces[sg.group_id].size == 1
+                sg_desc = MU::Cloud::AWS::FirewallRule.find(cloud_id: sg.group_id, credentials: @credentials, region: @config['region']).values.first
+                if sg_desc
+                  bok["ingress_rules"] = MU::Cloud::AWS::FirewallRule.rulesToBoK(sg_desc.ip_permissions)
+                  bok["ingress_rules"].concat(MU::Cloud::AWS::FirewallRule.rulesToBoK(sg_desc.ip_permissions_egress, egress: true))
+                  done_local_rules = true
+                  next
+                end
+              end
+              bok['add_firewall_rules'] ||= []
+              bok['add_firewall_rules'] << MU::Config::Ref.get(
+                id: sg.group_id,
+                cloud: "AWS",
+                credentials: @credentials,
+                region: @config['region']
+              )
             }
-          }
+          end
         }
+
+# XXX go get the got-damned instance profile
 
         bok
       end

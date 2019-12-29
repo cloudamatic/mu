@@ -386,8 +386,8 @@ module MU
       }
 
       if save
-        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
-        deploy.save!(force: true, origin: origin)
+#        MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
+#        deploy.save!(force: true, origin: origin)
       end
 
       bok
@@ -398,6 +398,7 @@ module MU
         hashcfg = cfg.to_h
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
+
           if littermate and littermate.config['name']
             hashcfg['name'] = littermate.config['name']
             hashcfg.delete("id") if hashcfg["name"]
@@ -495,6 +496,7 @@ module MU
         nocleanup: true,
         no_artifacts: !(@savedeploys),
         set_context_to_me: true,
+        no_artifacts: true,
         mu_user: MU.mu_user
       )
 
