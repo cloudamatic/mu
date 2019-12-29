@@ -339,10 +339,18 @@ module MU
             }
             obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
             begin
-              processed << resolveReferences(resource, deploy, obj)
+              new_cfg = resolveReferences(resource, deploy, obj)
+              new_cfg.delete("cloud_id")
+              cred_cfg = MU::Cloud.const_get(obj.cloud).credConfig(obj.credentials)
+              if cred_cfg['region'] == new_cfg['region']
+                new_cfg.delete('region')
+              end
+              if cred_cfg['default']
+                new_cfg.delete('credentials')
+              end
+              processed << new_cfg
             rescue Incomplete
             end
-            resource.delete("cloud_id")
           }
           deploy.original_config[attrs[:cfg_plural]] = processed
           bok[attrs[:cfg_plural]] = processed
@@ -426,6 +434,17 @@ module MU
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
+        if parent and parent.config
+          cred_cfg = MU::Cloud.const_get(parent.cloud).credConfig(parent.credentials)
+          if parent.config['region'] == hashcfg['region'] or
+             cred_cfg['region'] == hashcfg['region']
+            hashcfg.delete("region")
+          end
+
+          if parent.config['credentials'] == hashcfg['credentials']
+            hashcfg.delete("region")
+          end
+        end
         cfg = hashcfg
       elsif cfg.is_a?(Hash)
         deletia = []
