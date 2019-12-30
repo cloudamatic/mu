@@ -212,13 +212,26 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
           found = {}
+
           if args[:cloud_id]
             begin
               resp = MU::Cloud::AWS.dynamo(credentials: args[:credentials], region: args[:region]).describe_table(table_name: args[:cloud_id])
+              found[args[:cloud_id]] = resp.table if resp and resp.table
             rescue ::Aws::DynamoDB::Errors::ResourceNotFoundException
             end
-            found[args[:cloud_id]] = resp.table if resp and resp.table
+          else
+            resp = MU::Cloud::AWS.dynamo(credentials: args[:credentials], region: args[:region]).list_tables
+            if resp and resp.table_names
+              resp.table_names.each { |t|
+                begin
+                  resp = MU::Cloud::AWS.dynamo(credentials: args[:credentials], region: args[:region]).describe_table(table_name: t)
+                  found[t] = resp.table if resp and resp.table
+                rescue ::Aws::DynamoDB::Errors::ResourceNotFoundException
+                end
+              }
+            end
           end
+
           found
         end
 

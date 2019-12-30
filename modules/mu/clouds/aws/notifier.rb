@@ -94,11 +94,24 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching notifier.
         def self.find(**args)
           found = {}
+
           if args[:cloud_id]
             arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
             desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
             found[args[:cloud_id]] = desc if desc
+          else
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).list_topics(next_token: next_token)
+              if resp and resp.topics
+                resp.topics.each { |t|
+                  found[t.topic_arn.sub(/.*?:([^:]+)$/, '\1')] =  MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: t.topic_arn).attributes
+                }
+              end
+              next_token = resp.next_token
+            end while next_token
           end
+
           found
         end
 
