@@ -1497,6 +1497,7 @@ $CONFIGURABLES
         }
         descriptor["add_firewall_rules"] ||= []
         descriptor["add_firewall_rules"] << {"name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
+        descriptor["add_firewall_rules"].uniq!
 
         acl = resolveIntraStackFirewallRefs(acl, delay_validation)
         ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: already_exists)
