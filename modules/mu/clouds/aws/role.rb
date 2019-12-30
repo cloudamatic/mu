@@ -110,6 +110,8 @@ module MU
                 end
                 id.gsub(/.*?\/([^:\/]+)$/, '\1')
               })
+              configured_policies.each { |pol|
+              }
             end
 
             if !@config['bare_policies']
@@ -739,7 +741,7 @@ end
 
         # Attach this role or group of loose policies to the specified entity.
         # @param entitytype [String]: The type of entity (user, group or role for policies; instance_profile for roles)
-        def bindTo(entitytype, entityname)
+        def bindTo(entitytype, entityname, policies = [])
           if entitytype == "instance_profile"
             begin
               resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_instance_profile(
@@ -764,11 +766,15 @@ end
               !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
             }
 
-            if @config['import']
-              @config['import'].each { |policy|
-                if !policy.match(/^arn:/i)
-                  p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+            if @config['attachable_policies']
+              @config['attachable_policies'].each { |policy_hash|
+                policy = policy_hash["id"]
+                p_arn = if !policy.match(/^arn:/i)
+                  "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+                else
+                  policy
                 end
+
                 subpaths = ["service-role", "aws-service-role", "job-function"]
                 begin
                   mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(

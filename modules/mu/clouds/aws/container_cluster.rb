@@ -23,6 +23,15 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+          if @cloud_id and args[:from_cloud_desc]
+            if args[:from_cloud_desc].class.name == "Aws::ECS::Types::Cluster"
+              @config['flavor'] = "ECS"
+# XXX but we need to tell when it's Fargate
+            elsif args[:from_cloud_desc].class.name == "Aws::EKS::Types::Cluster"
+# XXX but we need to tell when it's Fargate
+              @config['flavor'] = "EKS"
+            end
+          end
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -733,12 +742,12 @@ MU.log c.name, MU::NOTICE, details: t
           if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
-              name: @mu_name
+              name: @cloud_id
             )
             resp.cluster
           else
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_clusters(
-              clusters: [@mu_name]
+              clusters: [@cloud_id]
             )
             resp.clusters.first
           end
@@ -998,12 +1007,55 @@ MU.log c.name, MU::NOTICE, details: t
           end
         end
 
-        # Locate an existing container_clusters.
+        # Locate an existing container_cluster.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching container_clusters.
         def self.find(**args)
-          resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).list_clusters
-          resp = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).list_clusters
-# XXX uh, this ain't complete
+          found = {}
+
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: [args[:cloud_id]])
+            if resp.clusters and resp.clusters.size > 0
+              found[args[:cloud_id]] = resp.clusters.first
+            end
+
+            # XXX name collision is possible here
+            if found.size == 0
+              desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: args[:cloud_id])
+              found[args[:cloud_id]] = desc.cluster if desc and desc.cluster
+            end
+          else
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).list_clusters(next_token: next_token)
+              if resp and resp.cluster_arns and resp.cluster_arns.size > 0
+                names = resp.cluster_arns.map { |a| a.sub(/.*?:cluster\//, '') }
+                descs = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: names)
+                if descs and descs.clusters
+                  descs.clusters.each { |c|
+                    found[c.cluster_name] = c
+                  }
+                end
+              end
+            end while next_token
+
+            # XXX name collision is possible here
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).list_clusters(next_token: next_token)
+              if resp and resp.clusters
+                resp.clusters.each { |c|
+                puts c
+                  desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: c)
+                  found[c] = desc.cluster if desc and desc.cluster
+                }
+                next_token = resp.next_token
+              end
+            rescue Aws::EKS::Errors::AccessDeniedException
+              # not all regions support EKS
+            end while next_token
+          end
+
+          found
         end
 
         # Cloud-specific configuration properties.
@@ -1741,9 +1793,6 @@ MU.log c.name, MU::NOTICE, details: t
                             "logs:DescribeLogStreams",
                             "logs:PutLogEvents"
                           ],
-                          "import" => [
-                            ""
-                          ],
                           "targets" => [
                             {
                               "type" => "log",
@@ -1781,7 +1830,9 @@ MU.log c.name, MU::NOTICE, details: t
               "can_assume" => [
                 { "entity_id" => "eks-fargate-pods.amazonaws.com", "entity_type" => "service" }
               ],
-              "import" => ["AmazonEKSFargatePodExecutionRolePolicy"]
+              "attachable_policies" => [
+                { "id" => "AmazonEKSFargatePodExecutionRolePolicy" }
+              ]
             }
             role["tags"] = cluster["tags"] if !cluster["tags"].nil?
             role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
@@ -1929,7 +1980,10 @@ MU.log c.name, MU::NOTICE, details: t
               "can_assume" => [
                 { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
               ],
-              "import" => ["AmazonEKSServicePolicy", "AmazonEKSClusterPolicy"]
+              "attachable_policies" => [
+                { "id" => "AmazonEKSServicePolicy" },
+                { "id" => "AmazonEKSClusterPolicy" }
+              ]
             }
             role["tags"] = cluster["tags"] if !cluster["tags"].nil?
             role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?

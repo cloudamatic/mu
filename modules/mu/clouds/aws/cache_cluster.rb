@@ -41,26 +41,29 @@ module MU
         # Locate an existing Cache Cluster or Cache Clusters and return an array containing matching AWS resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching Cache Clusters.
         def self.find(**args)
-          map = {}
+          found = {}
+
           if args[:cloud_id]
             cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(args[:cloud_id], region: args[:region], credentials: args[:credentials])
-            map[args[:cloud_id]] = cache_cluster if cache_cluster
+            found[args[:cloud_id]] = cache_cluster if cache_cluster
           end
 
-          if args[:tag_value]
-            MU::Cloud::AWS.elasticache(region: args[:region], credentials: args[:credentials]).describe_cache_clusters.cache_clusters.each { |cc|
+          MU::Cloud::AWS.elasticache(region: args[:region], credentials: args[:credentials]).describe_cache_clusters.cache_clusters.each { |cc|
+            if args[:tag_value]
               resp = MU::Cloud::AWS.elasticache(region: args[:region], credentials: args[:credentials]).list_tags_for_resource(
-                  resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: args[:region], credentials: args[:credentials])
+                resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: args[:region], credentials: args[:credentials])
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
                 resp.tag_list.each { |tag|
-                    map[cc.cache_cluster_id] = cc if tag.key == args[:tag_key] and tag.value == args[:tag_value]
+                  found[cc.cache_cluster_id] = cc if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                 }
               end
-            }
-          end
+            else
+              found[cc.cache_cluster_id] = cc
+            end
+          }
 
-          return map
+          return found
         end
 
         # Construct an Amazon Resource Name for an AWS resource.
