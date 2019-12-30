@@ -256,19 +256,24 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         end
 
         # Locate an existing API.
-        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching API.
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching APIs.
         def self.find(**args)
+          found = {}
+
           if args[:cloud_id]
-            return MU::Cloud::AWS.apig(region: args[:region], credentials: args[:credentials]).get_rest_api(
+            found[args[:cloud_id]] = MU::Cloud::AWS.apig(region: args[:region], credentials: args[:credentials]).get_rest_api(
               rest_api_id: args[:cloud_id]
             )
+          else
+            resp = MU::Cloud::AWS.apig(region: args[:region], credentials: args[:credentials]).get_rest_apis
+            if resp and resp.items
+              resp.items.each { |api|
+                found[api.id] = api
+              }
+            end
           end
-#          resp = MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_apis
-#          if resp and resp.items
-#            resp.items.each { |api|
-#            }
-#          end
-          nil
+
+          found
         end
 
         # Cloud-specific configuration properties.
