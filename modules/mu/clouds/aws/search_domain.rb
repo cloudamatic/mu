@@ -22,6 +22,9 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+          if @cloud_id and !@config['domain_name']
+            @config['domain_name'] = @cloud_id
+          end
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -67,7 +70,7 @@ module MU
               domain_name: @deploydata['domain_name']
             ).domain_status
           else
-            raise MuError "#{@mu_name} can't find its official Elasticsearch domain name!"
+            raise MuError, "#{@mu_name} can't find its official Elasticsearch domain name!"
           end
         end
 
@@ -153,22 +156,28 @@ module MU
         # Locate an existing search_domain.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching search_domain.
         def self.find(**args)
-          if args[:cloud_id]
-            # Annoyingly, we might expect one of several possible artifacts,
-            # since AWS couldn't decide what the real identifier of these
-            # things should be
-            list = MU::Cloud::AWS.elasticsearch(region: args[:region], credentials: args[:credentials]).list_domain_names
-            if list and list.domain_names and list.domain_names.size > 0
-              descs = MU::Cloud::AWS.elasticsearch(region: args[:region], credentials: args[:credentials]).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
-              descs.domain_status_list.each { |domain|
-                return domain if domain.arn == cloud_id
-                return domain if domain.domain_name == cloud_id
-                return domain if domain.domain_id == cloud_id
-              }
-            end
+          found = {}
+
+          # Annoyingly, we might expect one of several possible artifacts,
+          # since AWS couldn't decide what the real identifier of these
+          # things should be
+          list = MU::Cloud::AWS.elasticsearch(region: args[:region], credentials: args[:credentials]).list_domain_names
+          if list and list.domain_names and list.domain_names.size > 0
+            descs = MU::Cloud::AWS.elasticsearch(region: args[:region], credentials: args[:credentials]).describe_elasticsearch_domains(domain_names: list.domain_names.map { |d| d.domain_name } )
+            descs.domain_status_list.each { |domain|
+              if args[:cloud_id]
+                if [domain.arn, domain.domain_name, domain.domain_id].include?(args[:cloud_id])
+                  found[args[:cloud_id]] = domain
+                  return found
+                end
+              else
+                found[domain.domain_name] = domain
+              end
+            }
           end
+
           # TODO consider a search by tags
-          nil
+          found
         end
 
         # Cloud-specific configuration properties.

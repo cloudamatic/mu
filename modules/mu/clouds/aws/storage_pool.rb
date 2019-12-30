@@ -106,16 +106,14 @@ module MU
         # Locate an existing storage pool and return an array containing matching AWS resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching storage pool
         def self.find(**args)
-          map = {}
+          found = {}
+
           if args[:cloud_id]
-            storge_pool = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems(
+            resp = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems(
               file_system_id: args[:cloud_id]
             ).file_systems.first
-            
-            map[cloud_id] = storge_pool if storge_pool
-          end
-
-          if tag_value
+            found[args[:cloud_id]] = resp if resp
+          elsif args[:tag_value]
             storage_pools = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems.file_systems
           
             if !storage_pools.empty?
@@ -133,14 +131,21 @@ module MU
                 }
                 
                 if value == args[:tag_value]
-                  map[pool.file_system_id] = pool
+                  found[pool.file_system_id] = pool
                   break
                 end
               }
             end
+          else
+            resp = MU::Cloud::AWS.efs(region: args[:region], credentials: args[:credentials]).describe_file_systems
+            if resp and resp.file_systems
+              resp.file_systems.each { |fs|
+                found[fs.file_system_id] = fs
+              }
+            end
           end
 
-          return map
+          return found
         end
 
         # Add our standard tag set to an Amazon EFS File System.
