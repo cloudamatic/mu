@@ -73,6 +73,7 @@ commands.keys.each { |cmd|
 
   threads << Thread.new(cmd) { |cmd_thr|
     results[cmd_thr] = {}
+    puts %Q{#{cmd_thr} 2>&1}
     results[cmd_thr]["output"] = %x{#{cmd_thr} 2>&1}
     if $?.exitstatus != 0
       results[cmd_thr]["status"] = false
@@ -83,7 +84,7 @@ commands.keys.each { |cmd|
     end
     if $opts[:full] and results[cmd_thr]["output"].match(/deploy - Deployment id: .*? \((.*?)\)/)
       deploy_id = Regexp.last_match[1]
-      results[cmd_thr]["output"] += %x{mu-cleanup #{deploy_id} --skipsnapshots --cloud #{commands[cmd]["cloud"]}}
+      results[cmd_thr]["output"] += %x{mu-cleanup #{deploy_id} --skipsnapshots}
       if $?.exitstatus != 0
         results[cmd_thr]["status"] = false
       end

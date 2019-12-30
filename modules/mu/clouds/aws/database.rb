@@ -162,30 +162,32 @@ module MU
           cloud_desc.db_instance_arn
         end
 
-
         # Locate an existing Database or Databases and return an array containing matching AWS resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching Databases
         def self.find(**args)
-          map = {}
+          found = {}
+
           if args[:cloud_id]
             resp = MU::Cloud::AWS::Database.getDatabaseById(args[:cloud_id], region: args[:region], credentials: args[:credentials])
-            map[args[:cloud_id]] = resp if resp
-          end
-
-          if args[:tag_value]
+            found[args[:cloud_id]] = resp if resp
+          elsif args[:tag_value]
             MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
               resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
                   resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: args[:region], credentials: args[:credentials])
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
                 resp.tag_list.each { |tag|
-                  map[db.db_instance_identifier] = db if tag.key == args[:tag_key] and tag.value == args[:tag_value]
+                  found[db.db_instance_identifier] = db if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                 }
               end
             }
+          else
+            MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
+              found[db.db_instance_identifier] = db
+            }
           end
 
-          return map
+          return found
         end
 
         # Construct an Amazon Resource Name for an RDS resource. The RDS API is
