@@ -33,7 +33,7 @@ module MU
         def create
 
           begin
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).get_user(user_name: @mu_name, path: @config['path'])
+            MU::Cloud::AWS.iam(credentials: @credentials).get_user(user_name: @mu_name, path: @config['path'])
             if !@config['use_if_exists']
               raise MuError, "IAM user #{@mu_name} already exists and use_if_exists is false"
             end
@@ -41,7 +41,7 @@ module MU
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
             MU.log "Creating IAM user #{@config['path']}/#{@mu_name}"
             tags = get_tag_params
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_user(
+            MU::Cloud::AWS.iam(credentials: @credentials).create_user(
               user_name: @mu_name,
               path: @config['path'],
               tags: tags
@@ -52,7 +52,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_user_tags(user_name: @mu_name)
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_user_tags(user_name: @mu_name)
 
           ext_tags = resp.tags.map { |t| t.to_h }
           tag_param = get_tag_params(true)
@@ -60,7 +60,7 @@ module MU
 
           if tag_param.size > 0
             MU.log "Updating tags on IAM user #{@mu_name}", MU::NOTICE, details: tag_param
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).tag_user(user_name: @mu_name, tags: tag_param)
+            MU::Cloud::AWS.iam(credentials: @credentials).tag_user(user_name: @mu_name, tags: tag_param)
           end
           # Note: We don't delete tags, because we often share user accounts
           # managed outside of Mu. We have no way of know what tags might come
@@ -69,12 +69,12 @@ module MU
 
           if @config['create_console_password']
             begin
-              MU::Cloud::AWS.iam(credentials: @config['credentials']).get_login_profile(user_name: @mu_name)
+              MU::Cloud::AWS.iam(credentials: @credentials).get_login_profile(user_name: @mu_name)
             rescue Aws::IAM::Errors::NoSuchEntity
               pw = Password.pronounceable(12..14)
               retries = 0
               begin
-                MU::Cloud::AWS.iam(credentials: @config['credentials']).create_login_profile(
+                MU::Cloud::AWS.iam(credentials: @credentials).create_login_profile(
                   user_name: @mu_name,
                   password: pw
                 )
@@ -94,11 +94,11 @@ module MU
           end
 
           if @config['create_api_keys']
-            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_access_keys(
+            resp = MU::Cloud::AWS.iam(credentials: @credentials).list_access_keys(
               user_name: @mu_name
             )
             if resp.access_key_metadata.size == 0
-              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).create_access_key(
+              resp = MU::Cloud::AWS.iam(credentials: @credentials).create_access_key(
                 user_name: @mu_name
               )
               scratchitem = MU::Master.storeScratchPadSecret("AWS Access Key and Secret for user #{@mu_name}:\nKEY: #{resp.access_key.access_key_id}\nSECRET: #{resp.access_key.secret_access_key}")
@@ -106,18 +106,69 @@ module MU
             end
           end
 
-          if @config['iam_policies']
-             @dependencies["role"].each_pair { |rolename, roleobj|
-               roleobj.cloudobj.bindTo("user", @cloud_id)
-             }
+          # Create these if necessary, then append them to the list of
+          # attachable_policies
+          if @config['raw_policies']
+            pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+              @config['raw_policies'],
+              basename: @deploy.getResourceName(@config['name']),
+              credentials: @credentials
+            )
+            @config['attachable_policies'] ||= []
+            @config['attachable_policies'].concat(pol_arns.map { |a| { "id" => a } })
           end
+
+          if @config['attachable_policies']
+            configured_policies = @config['attachable_policies'].map { |p|
+              id = if p.is_a?(MU::Config::Ref)
+                p.cloud_id
+              else
+                p = MU::Config::Ref.get(p)
+                p.kitten
+                p.cloud_id
+              end
+            }
+
+            attached_policies = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_user_policies(
+              user_name: @cloud_id
+            ).attached_policies
+            attached_policies.each { |a|
+              if !configured_policies.include?(a.policy_arn)
+                MU.log "Removing IAM policy #{a.policy_arn} from user #{@mu_name}", MU::NOTICE
+                MU::Cloud::AWS::Role.purgePolicy(a.policy_arn, @credentials)
+              else
+                configured_policies.delete(a.policy_arn)
+              end
+            }
+
+            configured_policies.each { |policy_arn|
+              MU.log "Attaching #{policy_arn} to user #{@cloud_id}"
+              MU::Cloud::AWS.iam(credentials: @credentials).attach_user_policy(
+                policy_arn: policy_arn,
+                user_name: @cloud_id
+              )
+            }
+          end
+
+          if @config['inline_policies']
+            docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['inline_policies'], deploy_obj: @deploy)
+            docs.each { |doc|
+              MU.log "Putting user policy #{doc.keys.first} to user #{@cloud_id} "
+              MU::Cloud::AWS.iam(credentials: @credentials).put_user_policy(
+                policy_document: JSON.generate(doc.values.first),
+                policy_name: doc.keys.first,
+                user_name: @cloud_id
+              )
+            }
+          end
+
         end
 
 
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          descriptor = MU.structToHash(MU::Cloud::AWS.iam(credentials: @config['credentials']).get_user(user_name: @mu_name).user)
+          descriptor = MU.structToHash(MU::Cloud::AWS.iam(credentials: @credentials).get_user(user_name: @mu_name).user)
           descriptor["cloud_id"] = @mu_name
           descriptor
         end
@@ -168,7 +219,7 @@ module MU
                   end
                   begin
                     attachments.policy_groups.each { |g|
-                      MU::Cloud::AWS.iam(credentials: credentials).detach_role_policy(
+                      MU::Cloud::AWS.iam(credentials: credentials).detach_group_policy(
                         group_name: g.group_name,
                         policy_arn: policy.arn
                       )
@@ -206,6 +257,8 @@ module MU
                   }
                   retry
                 rescue ::Aws::IAM::Errors::NoSuchEntity
+rescue Exception => e
+MU.log e.inspect, MU::ERR, details: policy
                 end
               end
             }
@@ -267,6 +320,22 @@ module MU
                     )
                   }
                 end
+
+                poldesc = MU::Cloud::AWS.iam(credentials: credentials).list_user_policies(user_name: u.user_name)
+                if poldesc and poldesc.policy_names and poldesc.policy_names.size > 0
+                  poldesc.policy_names.each { |pol_name|
+                    MU::Cloud::AWS.iam(credentials: credentials).delete_user_policy(user_name: u.user_name, policy_name: pol_name)
+                  }
+                end
+
+                attached_policies = MU::Cloud::AWS.iam(credentials: credentials).list_attached_user_policies(
+                  user_name: u.user_name
+                ).attached_policies
+                attached_policies.each { |a|
+                  MU.log "Detaching IAM policy #{a.policy_arn} from user #{u.user_name}"
+                  MU::Cloud::AWS.iam(credentials: credentials).detach_user_policy(user_name: u.user_name, policy_arn: a.policy_arn)
+                }
+
                 MU::Cloud::AWS.iam(credentials: credentials).delete_user(user_name: u.user_name)
               end
             end
@@ -283,18 +352,108 @@ module MU
         # Locate an existing IAM user
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching user group.
         def self.find(**args)
-          found = nil
+          found = {}
+
+          if args[:cloud_id]
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_user(user_name: args[:cloud_id])
+              if resp and resp.user
+                found[args[:cloud_id]] = resp.user
+              end
+            rescue ::Aws::IAM::Errors::NoSuchEntity
+            end
+          else
+            marker = nil
+            begin
+              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_users(marker: marker)
+              break if !resp or !resp.users
+              marker = resp.marker
+
+              resp.users.each { |u|
+                found[u.user_name] = u
+              }
+            end while marker
+          end
+
+          found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @credentials,
+            "cloud_id" => @cloud_id
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.user_name
+
+          if cloud_desc.tags and cloud_desc.tags.size > 0
+            bok["tags"] = MU.structToHash(cloud_desc.tags, stringify_keys: true)
+          end
+
+          if cloud_desc.path != "/"
+            bok["path"] = cloud_desc.path
+          end
 
           begin
-            resp = MU::Cloud::AWS.iam.get_user(user_name: args[:cloud_id])
-            if resp and resp.user
-              found ||= {}
-              found[args[:cloud_id]] = resp.user
+            resp = MU::Cloud::AWS.iam(credentials: @credentials).get_login_profile(user_name: @cloud_id)
+            if resp and resp.login_profile
+              bok['create_console_password'] = true
+              if resp.login_profile.password_reset_required
+                bok['force_password_change'] = true
+              end
             end
           rescue ::Aws::IAM::Errors::NoSuchEntity
           end
 
-          found
+          begin
+            resp = MU::Cloud::AWS.iam(credentials: @credentials).list_access_keys(user_name: @cloud_id)
+            if resp and resp.access_key_metadata
+              bok['create_api_key'] = true
+            end
+          rescue ::Aws::IAM::Errors::NoSuchEntity
+          end
+
+          # Grab and assimilate any inline policies attached to this user
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_user_policies(user_name: @cloud_id)
+          if resp and resp.policy_names and resp.policy_names.size > 0
+            resp.policy_names.each { |pol_name|
+              pol = MU::Cloud::AWS.iam(credentials: @credentials).get_user_policy(user_name: @cloud_id, policy_name: pol_name)
+              doc = JSON.parse(URI.decode(pol.policy_document))
+              bok["inline_policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
+            }
+          end
+
+          # Grab and reference any managed policies attached to this user
+          resp = MU::Cloud::AWS.iam(credentials: @credentials).list_attached_user_policies(user_name: @cloud_id)
+          if resp and resp.attached_policies
+            resp.attached_policies.each { |pol|
+              bok["attachable_policies"] ||= []
+              if pol.policy_arn.match(/arn:aws(?:-us-gov)?:iam::aws:policy\//)
+                bok["attachable_policies"] << MU::Config::Ref.get(
+                  id: pol.policy_name,
+                  cloud: "AWS"
+                )
+              else
+                bok["attachable_policies"] << MU::Config::Ref.get(
+                  id: pol.policy_arn,
+                  name: pol.policy_name,
+                  cloud: "AWS",
+                  type: "roles"
+                )
+              end
+            }
+          end
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -302,7 +461,22 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          polschema = MU::Config::Role.schema["properties"]["policies"]
+          polschema.deep_merge!(MU::Cloud::AWS::Role.condition_schema)
+
           schema = {
+            "inline_policies" => polschema,
+            "attachable_policies" => {
+              "type" => "array",
+              "items" => MU::Config::Ref.schema(type: "roles", desc: "Reference to a managed policy, which can either refer to an existing managed policy or a sibling {MU::Config::BasketofKittens::roles} object which has +bare_policies+ set.", omit_fields: ["region", "tag"])
+            },
+            "raw_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "A key (name) with a value that is an Amazon-compatible policy document. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",
+                "type" => "object"
+              }
+            },
             "name" => {
               "type" => "string",
               "description" => "A plain IAM user. If the user already exists, we will operate on that existing user. Otherwise, we will attempt to create a new user. AWS IAM does not distinguish between human user accounts and machine accounts."
@@ -325,13 +499,6 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
               "type" => "boolean",
               "default" => false,
               "description" => "Generate a password for this user, for use logging into the AWS Console. It will be shared via Scratchpad for one-time retrieval."
-            },
-            "iam_policies" => {
-              "type" => "array",
-              "items" => {
-                "description" => "A key (name) with a value that is an Amazon-compatible policy document. See https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_examples.html for example policies.",
-                "type" => "object"
-              }
             }
           }
           [toplevel_required, schema]
@@ -344,18 +511,14 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
         def self.validateConfig(user, configurator)
           ok = true
 
-          if user['iam_policies'] and user['iam_policies'].size > 0
-            roledesc = {
-              "name" => user["name"]+"role",
-              "bare_policies" => true,
-              "iam_policies" => user['iam_policies'].dup
-            }
-            configurator.insertKitten(roledesc, "roles")
-            user["dependencies"] ||= []
-            user["dependencies"] << {
-              "type" => "role",
-              "name" => user["name"]+"role"
-            }
+          # If we're attaching some managed policies, make sure all of the ones
+          # that should already exist do indeed exist
+          if user['attachable_policies']
+            ok = false if !MU::Cloud::AWS::Role.validateAttachablePolicies(
+              user['attachable_policies'],
+              credentials: user['credentials'],
+              region: user['region']
+            )
           end
 
           if user['groups']

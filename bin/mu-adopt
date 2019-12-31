@@ -44,7 +44,7 @@ $opt = Optimist::options do
   opt :billing, "Force-set this billing entity on created resources, instead of copying from the live resources", :required => false, :type => :string
   opt :sources, "One or more sets of credentials to use when importing resources. By default we will search and import from all sets of available credentials for each cloud provider specified with --clouds", :required => false, :type => :strings
   opt :credentials, "Override the 'credentials' value in our generated Baskets of Kittens to target a single, specific account. Our default behavior is to set each resource to deploy into the account from which it was sourced.", :required => false, :type => :string
-  opt :savedeploys, "Generate actual deployment metadata in #{MU.dataDir}/deployments, as though the resources we found were created with mu-deploy. If we are generating more than one configuration, and a resource needs to reference another resource (e.g. to declare a VPC in which to reside), this will allow us to reference them as virtual resource, rather than by raw cloud identifier.", :required => false, :type => :boolean
+  opt :savedeploys, "Generate actual deployment metadata in #{MU.dataDir}/deployments, as though the resources we found were created with mu-deploy. If we are generating more than one configuration, and a resource needs to reference another resource (e.g. to declare a VPC in which to reside), this will allow us to reference them as virtual resource, rather than by raw cloud identifier.", :required => false, :type => :boolean, :default => false
   opt :diff, "List the differences between what we find and an existing, saved deploy from a previous run, if one exists.", :required => false, :type => :boolean
   opt :grouping, "Methods for grouping found resources into separate Baskets.\n\n"+MU::Adoption::GROUPMODES.keys.map { |g| "* "+g.to_s+": "+MU::Adoption::GROUPMODES[g] }.join("\n")+"\n\n", :required => false, :type => :string, :default => "logical"
   opt :habitats, "Limit scope of research searching to the named accounts/projects/subscriptions, instead of search all habitats visible to our credentials.", :required => false, :type => :strings
@@ -59,8 +59,8 @@ if !$opt[:appname] or !app_pattern.match($opt[:appname])
   exit 1
 end
 
-if !$opt[:savedeploys_given]
-  $opt[:savedeploys] = !$opt[:diff]
+if $opt[:diff]
+  $opt[:savedeploys] = false
 end
 
 types = []

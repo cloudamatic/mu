@@ -30,7 +30,10 @@ module MU
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET + MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
-            "add_firewall_rules" => MU::Config::FirewallRule.reference,
+            "add_firewall_rules" => {
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.reference,
+            },
             "ingress_rules" => {
               "type" => "array",
               "items" => MU::Config::FirewallRule.ruleschema

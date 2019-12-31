@@ -285,7 +285,7 @@ module MU
         end
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
-        if !@original_config['scrub_mu_isms']
+        if !@original_config['scrub_mu_isms'] and !@no_artifacts
           credsets.each_pair { |cloud, creds|
             creds.uniq!
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
@@ -661,9 +661,9 @@ module MU
     # @param max_length [Integer]: The maximum length of the resulting resource name.
     # @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
     # @param scrub_mu_isms [Boolean]: Don't bother with generating names specific to this deployment. Used to generate generic CloudFormation templates, amongst other purposes.
-    # @param allowed_chars [Regexp]: A pattern of characters that are legal for this resource name, such as +/[a-zA-Z0-9-]/+
+    # @param disallowed_chars [Regexp]: A pattern of characters that are illegal for this resource name, such as +/[^a-zA-Z0-9-]/+
     # @return [String]: A full name string for this resource
-    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], allowed_chars: nil)
+    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], disallowed_chars: nil)
       if name.nil?
         raise MuError, "Got no argument to MU::MommaCat.getResourceName"
       end
@@ -686,9 +686,9 @@ module MU
         basename = @appname.upcase + "-" + @environment.upcase + name.upcase
       end
 
-      subchar = if allowed_chars
-        if !"-".match(allowed_chars)
-          if "_".match(allowed_chars)
+      subchar = if disallowed_chars
+        if "-".match(disallowed_chars)
+          if !"_".match(disallowed_chars)
             "_"
           else
             ""
@@ -698,7 +698,10 @@ module MU
         end
       end
 
-      basename.gsub!(allowed_chars, subchar) if allowed_chars
+      if disallowed_chars
+        basename.gsub!(disallowed_chars, subchar) if disallowed_chars
+      end
+      attempts = 0
       begin
         if (basename.length + reserved) > max_length
           MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
@@ -711,7 +714,7 @@ module MU
             basename.slice!((max_length-(reserved+3))..basename.length)
             basename.sub!(/-$/, "")
             basename = basename + "-" + @seed.upcase
-            basename.gsub!(allowed_chars, subchar) if allowed_chars
+            basename.gsub!(disallowed_chars, subchar) if disallowed_chars
           else
             # If we have to strip anything, assume we've lost uniqueness and
             # will have to compensate with #genUniquenessString.
@@ -719,9 +722,11 @@ module MU
             reserved = 4
             basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
             basename = basename + "-" + @seed.upcase + "-" + name.upcase
-            basename.gsub!(allowed_chars, subchar) if allowed_chars
+            basename.gsub!(disallowed_chars, subchar) if disallowed_chars
           end
         end
+        attempts += 1
+        raise MuError, "Failed to generate a reasonable name getResourceName(#{name}, max_length: #{max_length.to_s}, need_unique_string: #{need_unique_string.to_s}, use_unique_string: #{use_unique_string.to_s}, reuse_unique_string: #{reuse_unique_string.to_s}, scrub_mu_isms: #{scrub_mu_isms.to_s}, disallowed_chars: #{disallowed_chars})" if attempts > 10
       end while (basename.length + reserved) > max_length
 
       # Finally, apply our short random differentiator, if it's needed.
@@ -746,7 +751,7 @@ module MU
       else
         muname = basename
       end
-      muname.gsub!(allowed_chars, subchar) if allowed_chars
+      muname.gsub!(disallowed_chars, subchar) if disallowed_chars
 
       return muname
     end
@@ -1668,13 +1673,17 @@ end
       # its shorthand sibling name, let's... call ourselves first to make sure
       # we're fishing for the right thing.
       if habitat
-        MU.log indent+"findLitterMate(#{argstring}): Attempting to resolve habitat name #{habitat}", loglevel
-        realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials, indent: indent+"  ")
-        if realhabitat and realhabitat.mu_name
-          MU.log indent+"findLitterMate: Resolved habitat name #{habitat} to #{realhabitat.mu_name}", loglevel, details: [realhabitat.mu_name, realhabitat.cloud_id, realhabitat.config.keys]
-          habitat = realhabitat.cloud_id
-        elsif debug
-          MU.log indent+"findLitterMate(#{argstring}): Failed to resolve habitat name #{habitat}", MU::WARN
+        if habitat.is_a?(MU::Config::Ref) and habitat.id
+          habitat = habitat.id
+        else
+          MU.log indent+"findLitterMate(#{argstring}): Attempting to resolve habitat name #{habitat}", loglevel
+          realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials, indent: indent+"  ")
+          if realhabitat and realhabitat.mu_name
+            MU.log indent+"findLitterMate: Resolved habitat name #{habitat} to #{realhabitat.mu_name}", loglevel, details: [realhabitat.mu_name, realhabitat.cloud_id, realhabitat.config.keys]
+            habitat = realhabitat.cloud_id
+          elsif debug
+            MU.log indent+"findLitterMate(#{argstring}): Failed to resolve habitat name #{habitat}", MU::WARN
+          end
         end
       end
 
@@ -1690,7 +1699,7 @@ end
         matches = []
 
         @kittens[type].each { |habitat_group, sib_classes|
-          next if habitat and habitat_group != habitat
+          next if habitat and habitat_group != habitat and !habitat_group.nil?
           sib_classes.each_pair { |sib_class, data|
           virtual_name = nil
 
@@ -1740,6 +1749,7 @@ end
             if (name.nil? or sib_class == name.to_s or virtual_name == name.to_s) and
                 (cloud_id.nil? or cloud_id.to_s == data_cloud_id) and
                 (credentials.nil? or data.credentials.nil? or credentials.to_s == data.credentials.to_s)
+              MU.log indent+"OUTER MATCH PASSED, NEED !created_only (#{created_only.to_s}) or !data_cloud_id.nil? (#{data_cloud_id})", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
               if !created_only or !data_cloud_id.nil?
                 MU.log indent+"SINGLE MATCH findLitterMate(#{argstring})", loglevel, details: [data.mu_name, data_cloud_id, data.config.keys]
                 matches << data

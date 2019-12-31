@@ -1,0 +1,205 @@
+# clouds: AWS
+---
+appname: smoketest
+roles:
+- name: somerole
+  can_assume:
+  - entity_id: ec2.amazonaws.com
+    entity_type: service
+  import:
+  - AmazonLexReadOnly
+  - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+  policies:
+  - name: a_basic_policy
+    permissions:
+    - ec2:CreateSnapshot
+    targets:
+    - identifier: thing1
+      type: user
+  iam_policies:
+  - CloudWatch_Logs:
+      Version: '2012-10-17'
+      Statement:
+      - Sid: Stmt1406256819000
+        Effect: Allow
+        Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:DeleteRetentionPolicy
+        - logs:DescribeLogGroups
+        - logs:DescribeLogStreams
+        - logs:DescribeMetricFilters
+        - logs:GetLogEvents
+        - logs:PutLogEvents
+        - logs:PutMetricFilter
+        - logs:PutRetentionPolicy
+        - logs:TestMetricFilter
+        Resource:
+        - "*"
+  - Snapshots_and_Tags:
+      Version: '2012-10-17'
+      Statement:
+      - Sid: Stmt1385828567000
+        Effect: Allow
+        Action:
+        - ec2:CreateSnapshot
+        - ec2:DeleteSnapshot
+        - ec2:DescribeSnapshotAttribute
+        - ec2:DescribeSnapshots
+        - ec2:DescribeTags
+        - ec2:DescribeInstanceAttribute
+        - ec2:DescribeInstanceStatus
+        - ec2:DescribeInstances
+        - ec2:CreateTags
+        - ec2:DescribeVolumes
+        - ec2:DescribeVolumeAttribute
+        - ec2:DescribeVolumeStatus
+        - ec2:ModifySnapshotAttribute
+        Resource: "*"
+- name: somepolicies
+  bare_policies: true
+  iam_policies:
+  - AllowCertListing:
+      Version: '2012-10-17'
+      Statement:
+      - Effect: Allow
+        Action: acm:ListCertificates
+        Resource: "*"
+- name: assume_condition_test
+  can_assume:
+  - assume_method: web
+    conditions:
+    - comparison: StringEquals
+      variable: cognito-identity.amazonaws.com:aud
+      values:
+      - us-east-1:1aba9203-4b68-4bf3-b8ac-06c0335bec6f
+    entity_type: federated
+    entity_id: cognito-identity.amazonaws.com
+  attachable_policies:
+  - id: AmazonDynamoDBReadOnlyAccess
+  - id: AmazonS3ReadOnlyAccess
+# XXX this one will fail if someone ever deletes the VPC or account specified;
+# need our implementation to look up Refs here so we can specify VPCs, etc
+# dynamically. Also logic like this is so hard to use we should provide a
+# shortcut for it.
+- name: restrict_by_vpc_test
+  bare_policies: true
+  policies:
+  - name: restrict_by_vpc_test_0
+    permissions:
+    - ec2:Describe*
+    - ec2:CreateKeyPair
+    - ec2:CreateSecurityGroup
+    - iam:GetInstanceProfile
+    - iam:ListInstanceProfiles
+    flag: allow
+    targets:
+    - identifier: "*"
+  - name: restrict_by_vpc_test_1
+    permissions:
+    - ec2:RebootInstances
+    - ec2:StopInstances
+    - ec2:TerminateInstances
+    - ec2:StartInstances
+    - ec2:AttachVolume
+    - ec2:DetachVolume
+    flag: allow
+    targets:
+    - identifier: arn:aws:ec2:us-east-1:616552976502:instance/*
+    conditions:
+    - comparison: StringEquals
+      variable: ec2:InstanceProfile
+      values:
+      - arn:aws:iam::616552976502:instance-profile/test_role_delete_me
+  - name: restrict_by_vpc_test_2
+    permissions:
+    - ec2:RunInstances
+    flag: allow
+    targets:
+    - identifier: arn:aws:ec2:us-east-1:616552976502:instance/*
+    conditions:
+    - comparison: StringEquals
+      variable: ec2:InstanceProfile
+      values:
+      - arn:aws:iam::616552976502:instance-profile/test_role_delete_me
+  - name: restrict_by_vpc_test_3
+    permissions:
+    - ec2:RunInstances
+    flag: allow
+    targets:
+    - identifier: arn:aws:ec2:us-east-1:616552976502:subnet/*
+    conditions:
+    - comparison: StringEquals
+      variable: ec2:vpc
+      values:
+      - arn:aws:ec2:us-east-1:616552976502:vpc/vpc-29531e4c
+  - name: restrict_by_vpc_test_4
+    permissions:
+    - ec2:RunInstances
+    flag: allow
+    targets:
+    - identifier: arn:aws:ec2:us-east-1:616552976502:volume/*
+    - identifier: arn:aws:ec2:us-east-1::image/*
+    - identifier: arn:aws:ec2:us-east-1::snapshot/*
+    - identifier: arn:aws:ec2:us-east-1:616552976502:network-interface/*
+    - identifier: arn:aws:ec2:us-east-1:616552976502:key-pair/*
+    - identifier: arn:aws:ec2:us-east-1:616552976502:security-group/*
+  - name: restrict_by_vpc_test_5
+    permissions:
+    - ec2:DeleteNetworkAcl
+    - ec2:DeleteNetworkAclEntry
+    - ec2:DeleteRoute
+    - ec2:DeleteRouteTable
+    - ec2:AuthorizeSecurityGroupEgress
+    - ec2:AuthorizeSecurityGroupIngress
+    - ec2:RevokeSecurityGroupEgress
+    - ec2:RevokeSecurityGroupIngress
+    - ec2:DeleteSecurityGroup
+    flag: allow
+    targets:
+    - identifier: "*"
+    conditions:
+    - comparison: StringEquals
+      variable: ec2:vpc
+      values:
+      - arn:aws:ec2:us-east-1:616552976502:vpc/vpc-29531e4c
+users:
+- name: thing1
+  tags:
+  - key: thisisatag
+    value: thisisatagvalue
+  groups:
+  - developers
+  - impliedgroup
+  - declaredawsgroup
+  create_console_password: true
+  create_api_key: true
+  raw_policies:
+  - Thing1CertListing:
+      Version: '2012-10-17'
+      Statement:
+      - Effect: Allow
+        Action: acm:ListCertificates
+        Resource: "*"
+groups:
+- name: admin
+  members:
+  - thing1
+- name: declaredgroup
+  purge_extra_members: true
+  members:
+  - john.stange@eglobaltech.com
+  raw_policies:
+  - S3_List_Get_Objects:
+      Version: '2012-10-17'
+      Statement:
+      - Effect: Allow
+        Action:
+        - s3:GetObject
+        - s3:ListBucket
+        - s3:ListAllMyBuckets
+        Resource:
+        - "*"
+vpcs:
+- name: flowlogtest
+  enable_traffic_logging: true

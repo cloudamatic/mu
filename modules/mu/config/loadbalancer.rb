@@ -71,7 +71,6 @@ module MU
           "type" => "object",
           "title" => "loadbalancer",
           "description" => "Create Load Balancers",
-          "additionalProperties" => false,
           "required" => ["name", "listeners", "cloud"],
           "properties" => {
             "name" => {
@@ -94,7 +93,10 @@ module MU
             },
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
-            "add_firewall_rules" => MU::Config::FirewallRule.reference,
+            "add_firewall_rules" => {
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.reference,
+            },
             "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
             "dns_sync_wait" => {
                 "type" => "boolean",
@@ -372,27 +374,11 @@ module MU
       # Schema block for other resources to use when referencing a sibling LoadBalancer
       # @return [Hash]
       def self.reference
-        {
-          "type" => "array",
-          "minItems" => 1,
-          "items" => {
-            "type" => "object",
-            "minProperties" => 1,
-            "maxProperties" => 1,
-            "additionalProperties" => false,
-            "description" => "One or more Load Balancers with which this instance should register.",
-            "properties" => {
-                "concurrent_load_balancer" => {
-                    "type" => "string",
-                    "description" => "The name of a MU loadbalancer object, which should also defined in this stack. This will be added as a dependency."
-                },
-                "existing_load_balancer" => {
-                    "type" => "string",
-                    "description" => "The DNS name of an existing Elastic Load Balancer. Must be in the same region as this deployment."
-                }
-            }
-          }
-        }
+        schema_aliases = [
+          { "concurrent_load_balancer" => "name" },
+          { "existing_load_balancer" => "id" }
+        ]
+        MU::Config::Ref.schema(schema_aliases, type: "loadbalancers")
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.

@@ -25,6 +25,11 @@ default["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
+
+# We use key/value tags like sensible people, but Chef expects an array and
+# flattens the whole mess out, hence the weird form here.
+default['nagios']['exclude_tag_host'] = [ [ "nomonitor", true ] ]
+
 default['nagios']['sysadmin_email'] = $MU_CFG['mu_admin_email']
 default['nagios']['ssl_cert_file'] = $MU_CFG['ssl']['cert']
 default['nagios']['ssl_cert_key'] = $MU_CFG['ssl']['key']

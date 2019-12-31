@@ -1,0 +1,122 @@
+#!/usr/local/ruby-current/bin/ruby
+# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+require 'colorize'
+require 'optimist'
+bindir = File.realpath(File.expand_path(File.dirname(__FILE__)))
+require bindir+"/mu-load-config.rb"
+require 'mu'
+
+$opts = Optimist::options do
+  banner <<-EOS
+Usage:
+#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-j] [-p parameter=value] /path/to/stack/config.[json|yaml] [-u deploy_id [-l]] [-r deploy_id]
+  EOS
+  opt :max_threads, "Environment to set on creation.", :require => false, :default => 3, :type => :integer
+  opt :full, "Actually run deploys, instead of --dryrun", :require => false, :default => false
+end
+
+dir = File.realpath(File.expand_path(bindir+"/../modules/tests"))
+Dir.chdir(dir)
+
+files = Dir.glob("*.yaml", base: dir)
+files.concat(Dir.glob("*.yml", base: dir))
+baseclouds = MU::Cloud.supportedClouds.reject { |c| c == "CloudFormation" }
+
+commands = {}
+
+files.each { |f|
+  clouds = baseclouds.dup
+  File.open(dir+"/"+f).readlines.each { |l|
+    l.chomp!
+    next if !l.match(/^\s*#\s*clouds: (.*)/)
+    clouds = []
+    cloudstr = Regexp.last_match[1]
+    cloudstr.split(/\s*,\s*/).each { |c|
+      baseclouds.each { |cloud|
+        if cloud.match(/^#{Regexp.quote(c)}$/i)
+          clouds << cloud
+        end
+      }
+    }
+    break
+  }
+  clouds.each { |cloud|
+    commands["mu-deploy #{f} --cloud #{cloud} #{$opts[:full] ? "" : "--dryrun"}"] = { "file" => f, "cloud" => cloud }
+  }
+}
+
+puts "Running #{commands.size.to_s.bold} #{$opts[:full] ? "full deploy" : "parse"} tests from #{files.size.to_s.bold} Baskets of Kittens across #{baseclouds.size.to_s.bold} clouds"
+
+threads = []
+results = {}
+commands.keys.each { |cmd|
+  if threads.size >= $opts[:max_threads]
+    begin
+      threads.each { |t| t.join(0.1) }
+      threads.reject! { |t| t.nil? or !t.status }
+      sleep 1 if threads.size >= $opts[:max_threads]
+    end while threads.size >= $opts[:max_threads]
+  end
+
+  threads << Thread.new(cmd) { |cmd_thr|
+    results[cmd_thr] = {}
+    puts %Q{#{cmd_thr} 2>&1}
+    results[cmd_thr]["output"] = %x{#{cmd_thr} 2>&1}
+    if $?.exitstatus != 0
+      results[cmd_thr]["status"] = false
+      print ".".light_red
+    else
+      results[cmd_thr]["status"] = true
+      print ".".green
+    end
+    if $opts[:full] and results[cmd_thr]["output"].match(/deploy - Deployment id: .*? \((.*?)\)/)
+      deploy_id = Regexp.last_match[1]
+      results[cmd_thr]["output"] += %x{mu-cleanup #{deploy_id} --skipsnapshots}
+      if $?.exitstatus != 0
+        results[cmd_thr]["status"] = false
+      end
+    end
+  }
+}
+threads.each { |t|
+  t.join
+}
+puts ""
+
+failures = []
+results.keys.sort { |a, b|
+      if results[b]["status"] and !results[a]["status"]
+        1
+      elsif !results[b]["status"] and results[a]["status"]
+        -1
+      else
+        0
+      end
+    }.each { |cmd|
+  if !results[cmd]["status"]
+    puts cmd+" failed:".light_red
+    puts results[cmd]["output"].yellow
+    puts "^ #{cmd}".light_red
+    failures << commands[cmd]["file"]+" ("+commands[cmd]["cloud"]+")"
+  else
+    puts cmd+" passed".green
+  end
+}
+
+if failures.size > 0
+  puts "\n#{failures.size.to_s.bold} failure#{failures.size == 1 ? "" : "s"} in "+failures.uniq.map { |f| f.light_red }.join(", ")
+  exit 1
+end

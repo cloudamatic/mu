@@ -25,6 +25,15 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+
+          if args[:from_cloud_desc]
+            if args[:from_cloud_desc].class.name == "Aws::ElasticLoadBalancing::Types::LoadBalancerDescription"
+              @config['classic'] = true
+            else
+              @config['classic'] = false
+            end
+          end
+
           @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
           @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
         end
@@ -188,7 +197,7 @@ module MU
             if @config['targetgroups']
               MU.log "Configuring target groups and health checks check for ELB #{@mu_name}", details: @config['healthcheck']
               @config['targetgroups'].each { |tg|
-                tg_name = @deploy.getResourceName(tg["name"], max_length: 32, allowed_chars: /[A-Za-z0-9-]/)
+                tg_name = @deploy.getResourceName(tg["name"], max_length: 32, disallowed_chars: /[^A-Za-z0-9-]/)
                 tg_descriptor = {
                   :name => tg_name,
                   :protocol => tg['proto'],
@@ -861,10 +870,16 @@ module MU
           list = {}
           arn2name = {}
           resp = nil
-          if classic
-            resp = MU::Cloud::AWS.elb(region: args[:region], credentials: args[:credentials]).describe_load_balancers().load_balancer_descriptions
-          else
-            resp = MU::Cloud::AWS.elb2(region: args[:region], credentials: args[:credentials]).describe_load_balancers().load_balancers
+          if args[:flags].has_key?('classic') 
+            if args[:flags]['classic']
+              resp = MU::Cloud::AWS.elb(region: args[:region], credentials: args[:credentials]).describe_load_balancers().load_balancer_descriptions
+            else
+              resp = MU::Cloud::AWS.elb2(region: args[:region], credentials: args[:credentials]).describe_load_balancers().load_balancers
+            end
+          elsif args[:cloud_id].nil? and args[:tag_value].nil?
+            matches = find(region: args[:region], credentials: args[:credentials], flags: { "classic" => true } )
+            matches.merge!(find(region: args[:region], credentials: args[:credentials], flags: { "classic" => false } ))
+            return matches
           end
 
           resp.each { |lb|
@@ -874,6 +889,8 @@ module MU
               matches[args[:cloud_id]] = lb
             end
           }
+
+          return list if args[:tag_value].nil? and args[:cloud_id].nil?
 
           return matches if matches.size > 0
 

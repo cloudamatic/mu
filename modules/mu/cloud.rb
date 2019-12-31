@@ -2048,12 +2048,14 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
 
         # Wrapper for the cleanup class method of underlying cloud object implementations.
         def self.cleanup(*flags)
+          ok = true
           params = flags.first
           clouds = MU::Cloud.supportedClouds
           if params[:cloud]
             clouds = [params[:cloud]]
             params.delete(:cloud)
           end
+
           clouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
@@ -2070,10 +2072,13 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               if params and params[:flags] and params[:flags]["project"]
                 in_msg += " project "+params[:flags]["project"]
               end
-              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN
+              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN, details: e.backtrace
+              ok = false
             end
           }
           MU::MommaCat.unlockAll
+
+          ok
         end
 
         # A hook that is always called just before each instance method is

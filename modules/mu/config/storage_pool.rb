@@ -57,7 +57,10 @@ module MU
                     "default" => "/efs"
                   },
                   "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
-                  "add_firewall_rules" => MU::Config::FirewallRule.reference,
+                  "add_firewall_rules" => {
+                    "type" => "array",
+                    "items" => MU::Config::FirewallRule.reference,
+                  },
                   "ingress_rules" => {
                     "type" => "array",
                     "description" => "Firewall rules to apply to our mountpoints",

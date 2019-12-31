@@ -23,12 +23,22 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
+          if @cloud_id and args[:from_cloud_desc]
+            if args[:from_cloud_desc].class.name == "Aws::ECS::Types::Cluster"
+              @config['flavor'] = "ECS"
+# XXX but we need to tell when it's Fargate
+            elsif args[:from_cloud_desc].class.name == "Aws::EKS::Types::Cluster"
+# XXX but we need to tell when it's Fargate
+              @config['flavor'] = "EKS"
+            end
+          end
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          if @config['flavor'] == "EKS"
+          if @config['flavor'] == "EKS" or
+             (@config['flavor'] == "Fargate" and !@config['containers'])
             subnet_ids = []
             @config["vpc"]["subnets"].each { |subnet|
               subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
@@ -36,7 +46,7 @@ module MU
               subnet_ids << subnet_obj.cloud_id
             }
 
-            role_arn = @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").cloudobj.arn
+            role_arn = @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").arn
 
             security_groups = []
             if @dependencies.has_key?("firewall_rule")
@@ -139,10 +149,13 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
+          serverpool = if ['EKS', 'ECS'].include?(@config['flavor'])
+            @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
+          end
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
-          if @config['flavor'] == "EKS"
+          if @config['flavor'] == "EKS" or
+             (@config['flavor'] == "Fargate" and !@config['containers'])
             # This will be needed if a loadbalancer has never been created in
             # this account; EKS applications might want one, but will fail in
             # confusing ways if this hasn't been done.
@@ -171,32 +184,92 @@ module MU
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
             MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])
 
+            if @config['flavor'] == "Fargate"
+              fargate_subnets = []
+              @config["vpc"]["subnets"].each { |subnet|
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+                next if !subnet_obj.private?
+                fargate_subnets << subnet_obj.cloud_id
+              }
+              podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
+              poolnum = 0
+              poolthreads =[]
+              @config['kubernetes_pools'].each { |selectors|
+                profname = @mu_name+"-"+poolnum.to_s
+                poolnum += 1
+                desc = {
+                  :fargate_profile_name => profname,
+                  :cluster_name => @mu_name,
+                  :pod_execution_role_arn => podrole_arn,
+                  :selectors => selectors,
+                  :subnets => fargate_subnets.sort,
+                  :tags => @tags
+                }
+                begin
+                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                    cluster_name: @mu_name,
+                    fargate_profile_name: profname
+                  )
+                  if resp and resp.fargate_profile
+                    old_desc = MU.structToHash(resp.fargate_profile, stringify_keys: true)
+                    new_desc = MU.structToHash(desc, stringify_keys: true)
+                    ["created_at", "status", "fargate_profile_arn"].each { |k|
+                      old_desc.delete(k)
+                    }
+                    old_desc["subnets"].sort!
+                    if !old_desc.eql?(new_desc)
+                      MU.log "Deleting Fargate profile #{profname} in order to apply changes", MU::WARN, details: desc 
+                      MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profname, @mu_name, @config['region'], @credentials)
+                    else
+                      next
+                    end
+                  end
+                rescue Aws::EKS::Errors::ResourceNotFoundException
+                  # This is just fine!
+                end
+                MU.log "Creating EKS Fargate profile #{profname}", details: desc
+                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
+                begin
+                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                    cluster_name: @mu_name,
+                    fargate_profile_name: profname
+                  )
+                  sleep 1 if resp.fargate_profile.status == "CREATING"
+                end while resp.fargate_profile.status == "CREATING"
+                MU.log "Creation of EKS Fargate profile #{profname} complete"
+              }
+            end
+
             me = cloud_desc
             @endpoint = me.endpoint
             @cacert = me.certificate_authority.data
             @cluster = @mu_name
-            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
-            @worker_role_arn = resp.role.arn
+            if @config['flavor'] != "Fargate"
+              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
+              @worker_role_arn = resp.role.arn
+            end
             kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
-            eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
             gitlab_helper = @deploy.deploy_dir+"/gitlab-eks-helper-#{@config['name']}.sh"
             
             File.open(kube_conf, "w"){ |k|
               k.puts kube.result(binding)
             }
-            File.open(eks_auth, "w"){ |k|
-              k.puts configmap.result(binding)
-            }
             gitlab = ERB.new(File.read(MU.myRoot+"/extras/gitlab-eks-helper.sh.erb"))
             File.open(gitlab_helper, "w"){ |k|
               k.puts gitlab.result(binding)
             }
-            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
 
-            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
-            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
+            if @config['flavor'] != "Fargate"
+              eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
+              File.open(eks_auth, "w"){ |k|
+                k.puts configmap.result(binding)
+              }
+              authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
+              MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
-            %x{#{authmap_cmd}}
+              %x{#{authmap_cmd}}
+            end
 
 # and this one
             admin_user_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
@@ -666,14 +739,15 @@ MU.log c.name, MU::NOTICE, details: t
         # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
         # @return [OpenStruct]
         def cloud_desc
-          if @config['flavor'] == "EKS"
+          if @config['flavor'] == "EKS" or
+             (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
-              name: @mu_name
+              name: @cloud_id
             )
             resp.cluster
           else
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_clusters(
-              clusters: [@mu_name]
+              clusters: [@cloud_id]
             )
             resp.clusters.first
           end
@@ -697,6 +771,7 @@ MU.log c.name, MU::NOTICE, details: t
           deploy_struct["region"] = @config['region']
           if @config['flavor'] == "EKS"
             deploy_struct["max_pods"] = @config['kubernetes']['max_pods'].to_s
+# XXX if FargateKS, get the Fargate Profile artifact
           end
           return deploy_struct
         end
@@ -873,6 +948,17 @@ MU.log c.name, MU::NOTICE, details: t
                   name: cluster
                 ).cluster
 
+                profiles = MU::Cloud::AWS.eks(region: region, credentials: credentials).list_fargate_profiles(
+                  cluster_name: cluster
+                )
+                if profiles and profiles.fargate_profile_names
+                  profiles.fargate_profile_names.each { |profile|
+                    MU.log "Deleting Fargate EKS profile #{profile}"
+                    next if noop
+                    MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profile, cluster, region, credentials)
+                  }
+                end
+
                 untag = []
                 untag << desc.resources_vpc_config.vpc_id
                 subnets = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_subnets(
@@ -921,12 +1007,55 @@ MU.log c.name, MU::NOTICE, details: t
           end
         end
 
-        # Locate an existing container_clusters.
+        # Locate an existing container_cluster.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching container_clusters.
         def self.find(**args)
-          resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).list_clusters
-          resp = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).list_clusters
-# XXX uh, this ain't complete
+          found = {}
+
+          if args[:cloud_id]
+            resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: [args[:cloud_id]])
+            if resp.clusters and resp.clusters.size > 0
+              found[args[:cloud_id]] = resp.clusters.first
+            end
+
+            # XXX name collision is possible here
+            if found.size == 0
+              desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: args[:cloud_id])
+              found[args[:cloud_id]] = desc.cluster if desc and desc.cluster
+            end
+          else
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).list_clusters(next_token: next_token)
+              if resp and resp.cluster_arns and resp.cluster_arns.size > 0
+                names = resp.cluster_arns.map { |a| a.sub(/.*?:cluster\//, '') }
+                descs = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: names)
+                if descs and descs.clusters
+                  descs.clusters.each { |c|
+                    found[c.cluster_name] = c
+                  }
+                end
+              end
+            end while next_token
+
+            # XXX name collision is possible here
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).list_clusters(next_token: next_token)
+              if resp and resp.clusters
+                resp.clusters.each { |c|
+                puts c
+                  desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: c)
+                  found[c] = desc.cluster if desc and desc.cluster
+                }
+                next_token = resp.next_token
+              end
+            rescue Aws::EKS::Errors::AccessDeniedException
+              # not all regions support EKS
+            end while next_token
+          end
+
+          found
         end
 
         # Cloud-specific configuration properties.
@@ -940,7 +1069,39 @@ MU.log c.name, MU::NOTICE, details: t
               "enum" => ["ECS", "EKS", "Fargate", "Kubernetes"],
               "type" => "string",
               "description" => "The AWS container platform to deploy",
-              "default" => "ECS"
+              "default" => "Fargate"
+            },
+            "kubernetes_pools" => {
+              "default" => [
+                [
+                  {
+                    "namespace" => "default"
+                  },
+                  {
+                    "namespace" => "gitlab-managed-apps"
+                  }
+                ]
+              ],
+              "type" => "array",
+              "description" => "Fargate Kubernetes worker pools, with namespace/label selectors for targeting pods. Specifying multiple pools will create and attach multiple Fargate Profiles to this EKS cluster. Our default behavior is to create one pool (one Fargate Profile) that will match any pod and deploy it to the +default+ namespace.",
+              "items" => {
+                "type" => "array",
+                "items" => {
+                  "type" => "object",
+                  "description" => "A namespace/label selector for a Fargate EKS Profile. See also https://docs.aws.amazon.com/cli/latest/reference/eks/create-fargate-profile.html",
+                  "properties" => {
+                    "namespace" => {
+                      "type" => "string",
+                      "default" => "default",
+                      "description" => "The Kubernetes namespace into which pods matching our labels should be deployed."
+                    },
+                    "labels" => {
+                      "type" => "object",
+                      "description" => "Key/value pairs of Kubernetes labels, which a pod must have in order to be deployed to this pool. A pod must match all labels."
+                    }
+                  }
+                }
+              }
             },
             "kubernetes" => {
               "default" => { "version" => "latest" }
@@ -1632,9 +1793,6 @@ MU.log c.name, MU::NOTICE, details: t
                             "logs:DescribeLogStreams",
                             "logs:PutLogEvents"
                           ],
-                          "import" => [
-                            ""
-                          ],
                           "targets" => [
                             {
                               "type" => "log",
@@ -1657,6 +1815,32 @@ MU.log c.name, MU::NOTICE, details: t
                 end
                 c['role'] ||= { 'name' => rolename }
               end
+            }
+          end
+
+          if cluster['flavor'] == "Fargate" and !cluster['containers']
+
+            if !cluster['kubernetes'] and !cluster['kubernetes_resources']
+              MU.log "Fargate requested without ECS-specific parameters, will build an EKS (Kubernetes) cluster", MU::NOTICE
+            end
+            role = {
+              "name" => cluster["name"]+"pods",
+              "credentials" => cluster["credentials"],
+              "cloud" => "AWS",
+              "can_assume" => [
+                { "entity_id" => "eks-fargate-pods.amazonaws.com", "entity_type" => "service" }
+              ],
+              "attachable_policies" => [
+                { "id" => "AmazonEKSFargatePodExecutionRolePolicy" }
+              ]
+            }
+            role["tags"] = cluster["tags"] if !cluster["tags"].nil?
+            role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
+            configurator.insertKitten(role, "roles")
+            cluster['dependencies'] << {
+              "type" => "role",
+              "name" => cluster["name"]+"pods",
+              "phase" => "groom"
             }
           end
 
@@ -1785,29 +1969,71 @@ MU.log c.name, MU::NOTICE, details: t
               }
             end
 
-            if cluster["flavor"] == "EKS"
-              role = {
-                "name" => cluster["name"]+"controlplane",
-                "credentials" => cluster["credentials"],
-                "cloud" => "AWS",
-                "can_assume" => [
-                  { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
-                ],
-                "import" => ["AmazonEKSServicePolicy", "AmazonEKSClusterPolicy"]
+          end
 
-              }
-              role["tags"] = cluster["tags"] if !cluster["tags"].nil?
-              role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
-              configurator.insertKitten(role, "roles")
-              cluster['dependencies'] << {
-                "type" => "role",
-                "name" => cluster["name"]+"controlplane",
-                "phase" => "groom"
-              }
-            end
+          if cluster["flavor"] == "EKS" or
+             (cluster['flavor'] == "Fargate" and !cluster['containers'])
+            role = {
+              "name" => cluster["name"]+"controlplane",
+              "credentials" => cluster["credentials"],
+              "cloud" => "AWS",
+              "can_assume" => [
+                { "entity_id" => "eks.amazonaws.com", "entity_type" => "service" }
+              ],
+              "attachable_policies" => [
+                { "id" => "AmazonEKSServicePolicy" },
+                { "id" => "AmazonEKSClusterPolicy" }
+              ]
+            }
+            role["tags"] = cluster["tags"] if !cluster["tags"].nil?
+            role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
+            configurator.insertKitten(role, "roles")
+            cluster['dependencies'] << {
+              "type" => "role",
+              "name" => cluster["name"]+"controlplane",
+              "phase" => "groom"
+            }
           end
 
           ok
+        end
+
+        private
+
+        def self.purge_fargate_profile(profile, cluster, region, credentials)
+          check = begin
+            MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(
+              cluster_name: cluster,
+              fargate_profile_name: profile
+            )
+          rescue Aws::EKS::Errors::ResourceNotFoundException
+            return
+          rescue Aws::EKS::Errors::ResourceInUseException
+            sleep 10
+            retry
+          end
+          sleep 5
+          retries = 0
+          begin
+            begin
+            check = MU::Cloud::AWS.eks(region: region, credentials: credentials).describe_fargate_profile(
+              cluster_name: cluster,
+              fargate_profile_name: profile
+            )
+            rescue Aws::EKS::Errors::ResourceNotFoundException
+              break
+            end
+
+            if check.fargate_profile.status != "DELETING"
+              MU.log "Failed to delete Fargate EKS profile #{profile}", MU::ERR, details: check
+              break
+            end
+            if retries > 0 and (retries % 3) == 0
+              MU.log "Waiting for Fargate EKS profile #{profile} to delete (status #{check.fargate_profile.status})", MU::NOTICE
+            end
+            sleep 30
+            retries += 1
+          end while retries < 40
         end
 
       end

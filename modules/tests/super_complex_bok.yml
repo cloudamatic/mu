@@ -1,6 +1,9 @@
+# Stitch our complex resource type examples into a full stack.
+# clouds: aws
 ---
-appname: superBoK
+appname: smoketest
 parameters:
+
   - name: complexity
     default: complex
   - name: vpc_name

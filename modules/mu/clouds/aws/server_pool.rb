@@ -446,18 +446,86 @@ module MU
         # Locate an existing ServerPool or ServerPools and return an array containing matching AWS resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
         def self.find(**args)
-          found = []
+          found = {}
+
           if args[:cloud_id]
             resp = MU::Cloud::AWS.autoscale(region: args[:region], credentials: args[:credentials]).describe_auto_scaling_groups({
               auto_scaling_group_names: [
                 args[:cloud_id]
               ], 
             })
-            return resp.auto_scaling_groups
+            resp.auto_scaling_groups.each { |asg|
+              found[asg.auto_scaling_group_name] = asg
+            }
+          elsif args[:instance_id]
+            # try to reverse map from an instance id to an autoscale group
+            resp = MU::Cloud::AWS.autoscale(region: args[:region], credentials: args[:credentials]).describe_auto_scaling_instances(instance_ids: [args[:instance_id]])
+            if resp and resp.auto_scaling_instances
+              asg_names = resp.auto_scaling_instances.map { |g|
+                g.auto_scaling_group_name
+              }.uniq
+              asg_names.each { |asg_name|
+                found.merge!(find(cloud_id: asg_name, credentials: args[:credentials], region: args[:region]))
+              }
+            end
+          else
+            next_token = nil
+            begin
+              resp = MU::Cloud::AWS.autoscale(region: args[:region], credentials: args[:credentials]).describe_auto_scaling_groups
+              next_token = resp.next_token
+              resp.auto_scaling_groups.each { |asg|
+                found[asg.auto_scaling_group_name] = asg
+              }
+            end while next_token
           end
+
 # TODO implement the tag-based search
           return found
         end
+
+      # Reverse-map our cloud description into a runnable config hash.
+      # We assume that any values we have in +@config+ are placeholders, and
+      # calculate our own accordingly based on what's live in the cloud.
+      def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        bok = {
+          "cloud" => "AWS",
+          "credentials" => @config['credentials'],
+          "cloud_id" => @cloud_id,
+          "region" => @config['region']
+        }
+
+        if !cloud_desc
+          MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+          return nil
+        end
+
+        if cloud_desc.tags and !cloud_desc.tags.empty?
+          cloud_desc.tags.each { |tag|
+            bok['tags'] ||= []
+            bok['tags'] << { "key" => tag.key, "value" => tag.value }
+          }
+          realname = MU::Adoption.tagsToName(bok['tags'])
+          if realname
+            bok['name'] = realname
+            bok['name'].gsub!(/[^a-zA-Z0-9_\-]/, "_")
+          end
+        end
+        bok['name'] ||= @cloud_id
+
+#        if cloud_desc.vpc_id
+#          bok['vpc'] = MU::Config::Ref.get(
+#            id: cloud_desc.vpc_id,
+#            cloud: "AWS",
+#            credentials: @credentials,
+#            type: "vpcs",
+#          )
+#        end
+
+        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+
+        bok
+      end
+
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object

@@ -427,7 +427,10 @@ end
   gem_package bundler_path do
     gem_binary gembin
     package_name "bundler"
-    action :upgrade if rubydir == "/usr/local/ruby-current"
+    if rubydir == "/usr/local/ruby-current" or File.exists?(bundler_path)
+      action :upgrade
+      ignore_failure true
+    end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
   execute "#{bundler_path} install" do

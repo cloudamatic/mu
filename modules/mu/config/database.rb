@@ -42,7 +42,10 @@ module MU
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => MU::Config.optional_tags_primitive,
             "alarms" => MU::Config::Alarm.inline,
-            "add_firewall_rules" => MU::Config::FirewallRule.reference,
+            "add_firewall_rules" => {
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.reference,
+            },
             "read_replica_of" => reference,
             "ingress_rules" => {
               "type" => "array",

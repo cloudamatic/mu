@@ -157,45 +157,57 @@ module MU
         def self.find(**args)
           args[:flags] ||= {}
           args[:flags]['account'] ||= MU.account_number
-          return nil if !args[:cloud_id]
+          found = {}
 
           # If it's a URL, make sure it's good
           begin
-            if args[:cloud_id].match(/^https?:/i)
-              resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_attributes(
-                queue_url: args[:cloud_id],
-                attribute_names: ["All"]
-              )
-              if resp and resp.attributes
-                desc = resp.attributes.dup
-                desc["Url"] = args[:cloud_id]
-                return desc
+            if args[:cloud_id]
+              if args[:cloud_id].match(/^https?:/i)
+                resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_attributes(
+                  queue_url: args[:cloud_id],
+                  attribute_names: ["All"]
+                )
+                if resp and resp.attributes
+                  desc = resp.attributes.dup
+                  desc["Url"] = args[:cloud_id]
+                  found[args[:cloud_id]] = desc
+                  return found
+                end
+              else
+                # If it's a plain queue name, resolve it to a URL
+                resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_url(
+                  queue_name: args[:cloud_id],
+                  queue_owner_aws_account_id: args[:flags]['account']
+                )
+                args[:cloud_id] = resp.queue_url if resp and resp.queue_url
               end
-            else
-              # If it's a plain queue name, resolve it to a URL
-              resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_url(
-                queue_name: args[:cloud_id],
-                queue_owner_aws_account_id: args[:flags]['account']
-              )
-              args[:cloud_id] = resp.queue_url if resp and resp.queue_url
             end
           rescue ::Aws::SQS::Errors::NonExistentQueue => e
           end
 
           # Go fetch its attributes
-          if args[:cloud_id]
-            resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_attributes(
-              queue_url: args[:cloud_id],
-              attribute_names: ["All"]
-            )
-            if resp and resp.attributes
-              desc = resp.attributes.dup
-              desc["Url"] = args[:cloud_id]
-              return desc
-            end
+          fetch = if args[:cloud_id]
+            [args[:cloud_id]]
+          else
+            resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).list_queues
+            resp.queue_urls
           end
 
-          nil
+          if fetch
+            fetch.each { |url|
+              resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_attributes(
+                queue_url: url,
+                attribute_names: ["All"]
+              )
+              if resp and resp.attributes
+                desc = resp.attributes.dup
+                desc["Url"] = url
+                found[url] = desc
+              end
+            }
+          end
+
+          found
         end
 
         # Cloud-specific configuration properties.

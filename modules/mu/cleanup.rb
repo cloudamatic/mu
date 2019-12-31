@@ -108,6 +108,7 @@ module MU
         deleted_nodes = 0
         cloudthreads = []
         keyname = "deploy-#{MU.deploy_id}"
+        had_failures = false
 
         creds.each_pair { |provider, credsets_outer|
           cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets_inner|
@@ -202,7 +203,9 @@ module MU
                         end
 
                         begin
-                          self.call_cleanup(t, credset, cloud, flags, r)
+                          if !self.call_cleanup(t, credset, cloud, flags, r)
+                            had_failures = true
+                          end
                         rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
                           next
                         end
@@ -247,7 +250,9 @@ module MU
                 "onlycloud" => @onlycloud,
                 "skipsnapshots" => @skipsnapshots
               }
-              self.call_cleanup(t, credset, provider, flags, nil)
+              if !self.call_cleanup(t, credset, provider, flags, nil)
+                had_failures = true
+              end
             }
           }
         }
@@ -298,6 +303,11 @@ module MU
           }
         rescue LoadError
         end
+      end
+
+      if had_failures
+        MU.log "Had cleanup failures, exiting", MU::ERR
+        exit 1
       end
 
       if !@onlycloud and !@noop and @mommacat
@@ -429,6 +439,8 @@ module MU
 #                        rescue ::Seahorse::Client::NetworkingError => e
 #                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
 #                        end
+      else
+        true
       end
     end
   end #class

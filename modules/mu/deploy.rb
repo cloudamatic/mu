@@ -131,6 +131,7 @@ module MU
         MU.setVar("appname", @appname.upcase)
         MU.setVar("environment", @environment.upcase)
         MU.setVar("timestamp", @timestamp)
+        MU.setVar("mommacat", @mommacat)
         MU.setVar("seed", seed)
         MU.setVar("handle", MU::MommaCat.generateHandle(seed))
 
@@ -620,8 +621,7 @@ MESSAGE_END
               if myservice['#MUOBJECT'].nil?
                 if @mommacat
                   ext_obj = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_plural, name: myservice['name'], credentials: myservice['credentials'], created_only: true, return_all: false)
-                  if @updating
-                    raise MuError, "Failed to findLitterMate(type: #{myservice["#MU_CLOUDCLASS"].cfg_plural}, name: #{myservice['name']}, credentials: #{myservice['credentials']}, created_only: true, return_all: false) in deploy #{@mommacat.deploy_id}" if !ext_obj
+                  if @updating and ext_obj
                     ext_obj.config!(myservice)
                   end
                   myservice['#MUOBJECT'] = ext_obj

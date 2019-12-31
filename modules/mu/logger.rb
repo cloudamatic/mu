@@ -69,7 +69,8 @@ module MU
             html: @html,
             verbosity: @verbosity,
             handle: @handle,
-            color: @color
+            color: @color,
+            deploy: MU.mommacat
     )
       verbosity ||= @verbosity
       return if verbosity == MU::Logger::SILENT
@@ -113,7 +114,26 @@ module MU
       msg = "" if msg == nil
       msg = msg.to_s if !msg.is_a?(String) and msg.respond_to?(:to_s)
 
+      # wrapper for writing a log entry to multiple filehandles
+      # @param handles [Array<IO>]
+      # @param msgs [Array<String>]
+      def write(handles = [], msgs = [])
+        return if handles.nil? or msgs.nil?
+        handles.each { |h|
+          msgs.each { |m|
+            h.puts m
+          }
+        }
+      end
+
       @@log_semaphere.synchronize {
+        handles = [handle]
+        extra_logfile = if deploy and deploy.deploy_dir and Dir.exist?(deploy.deploy_dir)
+          File.open(deploy.deploy_dir+"/log", "a")
+        end
+        handles << extra_logfile if extra_logfile
+        msgs = []
+
         case level
           when SUMMARY
             @summary << msg
@@ -123,11 +143,11 @@ module MU
                 html_out "#{time} - #{caller_name} - #{msg}", "orange"
                 html_out "&nbsp;#{details}" if details
               elsif color
-                handle.puts "#{time} - #{caller_name} - #{msg}".yellow.on_black
-                handle.puts "#{details}".white.on_black if details
+                msgs << "#{time} - #{caller_name} - #{msg}".yellow.on_black
+                msgs << "#{details}".white.on_black if details
               else
-                handle.puts "#{time} - #{caller_name} - #{msg}"
-                handle.puts "#{details}" if details
+                msgs << "#{time} - #{caller_name} - #{msg}"
+                msgs << "#{details}" if details
               end
               Syslog.log(Syslog::LOG_DEBUG, msg.gsub(/%/, ''))
               Syslog.log(Syslog::LOG_DEBUG, details.gsub(/%/, '')) if details
@@ -137,17 +157,17 @@ module MU
               if @html
                 html_out "#{time} - #{caller_name} - #{msg}", "green"
               elsif color
-                handle.puts "#{time} - #{caller_name} - #{msg}".green.on_black
+                msgs << "#{time} - #{caller_name} - #{msg}".green.on_black
               else
-                handle.puts "#{time} - #{caller_name} - #{msg}"
+                msgs << "#{time} - #{caller_name} - #{msg}"
               end
               if verbosity >= MU::Logger::LOUD
                 if @html
                   html_out "&nbsp;#{details}"
                 elsif color
-                  handle.puts "#{details}".white.on_black if details
+                  msgs << "#{details}".white.on_black if details
                 else
-                  handle.puts "#{details}" if details
+                  msgs << "#{details}" if details
                 end
               end
               Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
@@ -157,17 +177,17 @@ module MU
             if @html
               html_out "#{time} - #{caller_name} - #{msg}", "yellow"
             elsif color
-              handle.puts "#{time} - #{caller_name} - #{msg}".yellow.on_black
+              msgs << "#{time} - #{caller_name} - #{msg}".yellow.on_black
             else
-              handle.puts "#{time} - #{caller_name} - #{msg}"
+              msgs << "#{time} - #{caller_name} - #{msg}"
             end
             if verbosity >= MU::Logger::QUIET
               if @html
                 html_out "#{caller_name} - #{msg}"
               elsif color
-                handle.puts "#{details}".white.on_black if details
+                msgs << "#{details}".white.on_black if details
               else
-                handle.puts "#{details}" if details
+                msgs << "#{details}" if details
               end
             end
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
@@ -176,17 +196,17 @@ module MU
             if @html
               html_out "#{time} - #{caller_name} - #{msg}", "orange"
             elsif color
-              handle.puts "#{time} - #{caller_name} - #{msg}".light_red.on_black
+              msgs << "#{time} - #{caller_name} - #{msg}".light_red.on_black
             else
-              handle.puts "#{time} - #{caller_name} - #{msg}"
+              msgs << "#{time} - #{caller_name} - #{msg}"
             end
             if verbosity >= MU::Logger::SILENT
               if @html
                 html_out "#{caller_name} - #{msg}"
               elsif color
-                handle.puts "#{details}".white.on_black if details
+                msgs << "#{details}".white.on_black if details
               else
-                handle.puts "#{details}" if details
+                msgs << "#{details}" if details
               end
             end
             Syslog.log(Syslog::LOG_WARNING, msg.gsub(/%/, ''))
@@ -196,11 +216,11 @@ module MU
               html_out "#{time} - #{caller_name} - #{msg}", "red"
               html_out "&nbsp;#{details}" if details
             elsif color
-              handle.puts "#{time} - #{caller_name} - #{msg}".red.on_black
-              handle.puts "#{details}".white.on_black if details
+              msgs << "#{time} - #{caller_name} - #{msg}".red.on_black
+              msgs << "#{details}".white.on_black if details
             else
-              handle.puts "#{time} - #{caller_name} - #{msg}"
-              handle.puts "#{details}" if details
+              msgs << "#{time} - #{caller_name} - #{msg}"
+              msgs << "#{details}" if details
             end
             Syslog.log(Syslog::LOG_ERR, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_ERR, details.gsub(/%/, '')) if details
@@ -209,15 +229,18 @@ module MU
               html_out "#{time} - #{caller_name} - #{msg}"
               html_out "&nbsp;#{details}" if details
             elsif color
-              handle.puts "#{time} - #{caller_name} - #{msg}".white.on_black
-              handle.puts "#{details}".white.on_black if details
+              msgs << "#{time} - #{caller_name} - #{msg}".white.on_black
+              msgs << "#{details}".white.on_black if details
             else
-              handle.puts "#{time} - #{caller_name} - #{msg}"
-              handle.puts "#{details}" if details
+              msgs << "#{time} - #{caller_name} - #{msg}"
+              msgs << "#{details}" if details
             end
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
         end
+        write(handles, msgs)
+
+        extra_logfile.close if extra_logfile
       }
 
     end

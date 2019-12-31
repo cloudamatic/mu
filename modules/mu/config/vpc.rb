@@ -23,7 +23,6 @@ module MU
         {
           "type" => "object",
           "required" => ["name"],
-          "additionalProperties" => false,
           "description" => "Create Virtual Private Clouds with custom public or private subnets.",
           "properties" => {
             "name" => {"type" => "string"},
@@ -423,9 +422,13 @@ module MU
             configurator.existing_deploy.original_config['vpcs'].each { |v|
               if v['name'] == vpc['name']
                 vpc['ip_block'] = v['ip_block']
+                vpc['peers'] ||= []
+                vpc['peers'].concat(v['peers'])
                 break
               elsif v['virtual_name'] == vpc['name']
                 vpc['ip_block'] = v['parent_block']
+                vpc['peers'] ||= []
+                vpc['peers'].concat(v['peers'])
                 break
               end
             }
@@ -490,42 +493,52 @@ module MU
 
           # See if we'll be able to create peering connections
           can_peer = false
+          already_peered = false
           if MU.myCloud == vpc["cloud"] and MU.myVPCObj
-            peer_blocks.concat(MU.myVPCObj.routes)
-            begin
-              can_peer = true
-              peer_blocks.each { |cidr|
-                cidr_obj = NetAddr::IPv4Net.parse(cidr)
-                if my_cidr.rel(cidr_obj) != nil
-                  can_peer = false
+            if vpc['peers']
+              vpc['peers'].each { |peer|
+                if peer["vpc"]["id"] == MU.myVPC
+                  already_peered = true
+                  break
                 end
               }
-              if !can_peer and using_default_cidr
-                my_cidr = my_cidr.next_sib
-                my_cidr = nil if my_cidr.to_s.match(/^10\.255\./)
+            end
+            if !already_peered
+              peer_blocks.concat(MU.myVPCObj.routes)
+              begin
+                can_peer = true
+                peer_blocks.each { |cidr|
+                  cidr_obj = NetAddr::IPv4Net.parse(cidr)
+                  if my_cidr.rel(cidr_obj) != nil
+                    can_peer = false
+                  end
+                }
+                if !can_peer and using_default_cidr
+                  my_cidr = my_cidr.next_sib
+                  my_cidr = nil if my_cidr.to_s.match(/^10\.255\./)
+                end
+              end while !can_peer and using_default_cidr and !my_cidr.nil?
+              if !my_cidr.nil? and vpc['ip_block'] != my_cidr.to_s
+                vpc['ip_block'] = my_cidr.to_s
               end
-            end while !can_peer and using_default_cidr and !my_cidr.nil?
-            if !my_cidr.nil? and vpc['ip_block'] != my_cidr.to_s
-              vpc['ip_block'] = my_cidr.to_s
-            end
-            if using_default_cidr
-              MU.log "Defaulting address range for VPC #{vpc['name']} to #{vpc['ip_block']}", MU::NOTICE
-            end
-            if can_peer
-              vpc['peers'] ||= []
-              vpc['peers'] << {
-                "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
-              }
-            elsif !configurator.updating
-              MU.log "#{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
+              if using_default_cidr
+                MU.log "Defaulting address range for VPC #{vpc['name']} to #{vpc['ip_block']}", MU::NOTICE
+              end
+              if can_peer
+                vpc['peers'] ||= []
+                vpc['peers'] << {
+                  "vpc" => { "id" => MU.myVPC, "type" => "vpcs" }
+                }
+              elsif !configurator.updating
+                MU.log "#{vpc['name']} CIDR block #{vpc['ip_block']} overlaps with existing routes, will not be able to peer with Master's VPC", MU::WARN
+              end
             end
           end
-
 
           # Feeling that, generate a generic bastion/NAT host to do the job.
           # Clouds that don't have some kind of native NAT gateway can also
           # leverage this host to honor "gateway" => "#NAT" situations.
-          if !can_peer and have_public and vpc["create_bastion"]
+          if !can_peer and !already_peered and have_public and vpc["create_bastion"]
             serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
             bastion = serverclass.genericNAT.dup
             bastion["groomer_variables"] = {
@@ -533,6 +546,7 @@ module MU
             }
             bastion['name'] = vpc['name']+"-natstion" # XXX account for multiples somehow
             bastion['credentials'] = vpc['credentials']
+            bastion['region'] = vpc['region']
             bastion['ingress_rules'] ||= []
             ["tcp", "udp", "icmp"].each { |proto|
               bastion['ingress_rules'] << {

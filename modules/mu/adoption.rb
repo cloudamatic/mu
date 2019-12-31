@@ -30,7 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: true, diff: false, habitats: [])
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [])
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -123,6 +123,37 @@ module MU
         MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
       end
       MU.log "Scraping complete"
+    end
+
+    # Given a list of BoK style tags, try to reverse-engineer the correct
+    # Basket of Kittens shorthand name of the resource that owns them. Mostly
+    # this infers from Mu-style tagging, but we'll add a couple cases for
+    # special cloud provider cases.
+    # @param tags [Array<Hash>]
+    # return [String]
+    def self.tagsToName(tags = [])
+      tags.each { |tag|
+        if tag['key'] == "aws:cloudformation:logical-id"
+          return tag['value']
+        end
+      }
+      muid = nil
+      tags.each { |tag|
+        if tag['key'] == "MU-ID" or tag['key'] == "mu-id"
+          muid = tag['value']
+          break
+        end
+      }
+      tags.each { |tag|
+        if tag['key'] == "Name"
+          if muid and tag['value'].match(/^#{Regexp.quote(muid)}-(.*)/)
+            return Regexp.last_match[1].downcase
+          else
+            return tag['value'].downcase
+          end
+        end
+      }
+      nil
     end
 
     # Generate a {MU::Config} (Basket of Kittens) hash using our discovered
@@ -231,6 +262,8 @@ module MU
                     kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['parent'].id
                   elsif kitten_cfg['project']
                     kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['project']
+                  elsif kitten_cfg['region']
+                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['region']
                   elsif kitten_cfg['cloud_id']
                     kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
                   else
@@ -274,6 +307,55 @@ module MU
 
     private
 
+    def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, siblings = nil, type: nil)
+      return if schema_chunk.nil?
+
+      if !conf_chunk.nil? and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
+        deletia = []
+        schema_chunk["properties"].each_pair { |key, subschema|
+          next if !conf_chunk[key]
+          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(key)
+
+          if subschema["default_if"]
+            subschema["default_if"].each { |cond|
+              if conf_chunk[cond["key_is"]] == cond["value_is"]
+                subschema["default"] = cond["set"]
+                break
+              end
+            }
+          end
+
+          if subschema["default"] and conf_chunk[key] == subschema["default"]
+            deletia << key
+          elsif ["array", "object"].include?(subschema["type"])
+            scrubSchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+          end
+        }
+        deletia.each { |key| conf_chunk.delete(key) }
+      elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)
+        conf_chunk.each { |item|
+          # this bit only happens at the top-level key for a resource type, in
+          # theory
+          realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
+
+            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
+            toplevel_required, cloudschema = cloudclass.schema(self)
+
+            newschema = schema_chunk["items"].dup
+            newschema["properties"].merge!(cloudschema)
+            newschema
+          else
+            schema_chunk["items"].dup
+          end
+          next if ["array", "object"].include?(realschema["type"])
+
+          scrubSchemaDefaults(item, realschema, depth+1, conf_chunk, type: type)
+        }
+      end
+
+      conf_chunk
+    end
+
     # Recursively walk through a BoK hash, validate all {MU::Config::Ref}
     # objects, convert them to hashes, and pare them down to the minimal
     # representation (remove extraneous attributes that match the parent
@@ -306,11 +388,21 @@ module MU
             }
             obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
             begin
-              processed << resolveReferences(resource, deploy, obj)
+              new_cfg = resolveReferences(resource, deploy, obj)
+              new_cfg.delete("cloud_id")
+              cred_cfg = MU::Cloud.const_get(obj.cloud).credConfig(obj.credentials)
+              if cred_cfg['region'] == new_cfg['region']
+                new_cfg.delete('region')
+              end
+              if cred_cfg['default']
+                new_cfg.delete('credentials')
+                new_cfg.delete('habitat')
+              end
+              processed << new_cfg
             rescue Incomplete
             end
-            resource.delete("cloud_id")
           }
+
           deploy.original_config[attrs[:cfg_plural]] = processed
           bok[attrs[:cfg_plural]] = processed
         end
@@ -352,6 +444,8 @@ module MU
         }
       }
 
+      scrubSchemaDefaults(bok, MU::Config.schema)
+
       if save
         MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
         deploy.save!(force: true, origin: origin)
@@ -365,6 +459,7 @@ module MU
         hashcfg = cfg.to_h
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
+
           if littermate and littermate.config['name']
             hashcfg['name'] = littermate.config['name']
             hashcfg.delete("id") if hashcfg["name"]
@@ -392,6 +487,37 @@ module MU
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
+        if parent and parent.config
+          cred_cfg = MU::Cloud.const_get(parent.cloud).credConfig(parent.credentials)
+
+          if parent.config['region'] == hashcfg['region'] or
+             cred_cfg['region'] == hashcfg['region']
+            hashcfg.delete("region")
+          end
+
+          habitat_id = if cfg.habitat
+            if cfg.habitat.is_a?(MU::Config::Ref)
+              cfg.habitat.id
+            else
+              cfg.habitat['id']
+            end
+          else
+            nil
+          end
+
+          if habitat_id
+            if (parent.config['habitat'] and parent.config['habitat']['id'] == habitat_id) or
+               cred_cfg['account_number'] == habitat_id or # AWS
+               cred_cfg['project'] == habitat_id or # GCP
+               cred_cfg['subscription'] == habitat_id # Azure
+              hashcfg.delete('habitat') 
+            end
+          end
+
+          if parent.config['credentials'] == hashcfg['credentials']
+            hashcfg.delete("credentials")
+          end
+        end
         cfg = hashcfg
       elsif cfg.is_a?(Hash)
         deletia = []

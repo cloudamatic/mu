@@ -360,7 +360,7 @@ module MU
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
-      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil)
+      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil, omit_fields: [])
         parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
         desc ||= "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource"
         schema = {
@@ -407,6 +407,12 @@ module MU
         }
         if !["folders", "habitats"].include?(type)
           schema["properties"]["habitat"] = MU::Config::Habitat.reference
+        end
+
+        if omit_fields
+          omit_fields.each { |f|
+            schema["properties"].delete(f)
+          }
         end
 
         if !type.nil?
@@ -722,7 +728,7 @@ return
 
     # Load up our YAML or JSON and parse it through ERB, optionally substituting
     # externally-supplied parameters.
-    def resolveConfig(path: @@config_path, param_pass: false)
+    def resolveConfig(path: @@config_path, param_pass: false, cloud: nil)
       config = nil
       @param_pass = param_pass
 
@@ -811,6 +817,9 @@ return
 
       begin
         config = JSON.parse(raw_json)
+        if @@parameters['cloud']
+          config['cloud'] ||= @@parameters['cloud'].to_s
+        end
         if param_pass and config.is_a?(Hash)
           config.keys.each { |key|
             if key != "parameters"
@@ -850,8 +859,9 @@ return
     # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
     # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
     # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
+    # @param cloud [String]: Sets a parameter named 'cloud', and insert it as the default cloud platform if not already declared
     # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: {}, updating: nil, default_credentials: nil)
+    def initialize(path, skipinitialupdates = false, params: {}, updating: nil, default_credentials: nil, cloud: nil)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
       $myRoot.freeze
@@ -890,6 +900,17 @@ return
           MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
         end
       }
+
+      if cloud and !@@parameters["cloud"]
+        if !MU::Cloud.availableClouds.include?(cloud)
+          ok = false
+          MU.log "Provider '#{cloud}' is not listed as an available cloud", MU::ERR, details: MU::Cloud.availableClouds
+        else
+          @@parameters["cloud"] = getTail("cloud", value: cloud, pseudo: true)
+          @@user_supplied_parameters["cloud"] = cloud
+          eval("$cloud='#{cloud}'") # support old-style $global parameter refs
+        end
+      end
       raise ValidationError if !ok
 
       # Run our input through the ERB renderer, a first pass just to extract
@@ -899,7 +920,7 @@ return
       # you can't specify parameters in an included file, because ERB is what's
       # doing the including, and parameters need to already be resolved so that
       # ERB can use them.
-      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true, cloud: cloud)
       if param_cfg.has_key?("parameters")
         param_cfg["parameters"].each { |param|
           if param.has_key?("default") and param["default"].nil?
@@ -955,7 +976,7 @@ return
       $parameters = @@parameters.dup
       $parameters.freeze
 
-      tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
+      tmp_cfg, raw_erb = resolveConfig(path: @@config_path, cloud: cloud)
 
       # Convert parameter entries that constitute whole config keys into
       # {MU::Config::Tail} objects.
@@ -1006,6 +1027,7 @@ return
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
         if @config[type]
           @config[type].each { |k|
+            next if !k.is_a?(Hash)
             applyInheritedDefaults(k, type)
           }
         end
@@ -1474,7 +1496,8 @@ $CONFIGURABLES
           acl[param] = descriptor[param] if descriptor[param]
         }
         descriptor["add_firewall_rules"] ||= []
-        descriptor["add_firewall_rules"] << {"rule_name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
+        descriptor["add_firewall_rules"] << {"name" => fwname, "type" => "firewall_rules" } # XXX why the duck is there a type argument required here?
+        descriptor["add_firewall_rules"].uniq!
 
         acl = resolveIntraStackFirewallRefs(acl, delay_validation)
         ok = false if !insertKitten(acl, "firewall_rules", delay_validation, overwrite: already_exists)
@@ -1507,13 +1530,15 @@ $CONFIGURABLES
       # Does it declare association with first-class firewall_rules?
       if !descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"].each { |acl_include|
-          if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
+          next if !acl_include["name"] and !acl_include["rule_name"]
+          acl_include["name"] ||= acl_include["rule_name"]
+          if haveLitterMate?(acl_include["name"], "firewall_rules")
             descriptor["dependencies"] << {
               "type" => "firewall_rule",
-              "name" => acl_include["rule_name"]
+              "name" => acl_include["name"]
             }
-          elsif acl_include["rule_name"]
-            MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+          elsif acl_include["name"]
+            MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
           end
         }
@@ -1834,27 +1859,27 @@ $CONFIGURABLES
           # Ok, well neither of those worked, let's assume that filenames are
           # meaningful.
           if path.match(/\.(yaml|yml)$/i)
-            MU.log "Guessing that #{path} is YAML based on filename", MU::NOTICE
+            MU.log "Guessing that #{path} is YAML based on filename", MU::DEBUG
             return :yaml
           elsif path.match(/\.(json|jsn|js)$/i)
-            MU.log "Guessing that #{path} is JSON based on filename", MU::NOTICE
+            MU.log "Guessing that #{path} is JSON based on filename", MU::DEBUG
             return :json
           else
             # For real? Ok, let's try the dumbest possible method.
             dashes = raw.match(/\-/)
             braces = raw.match(/[{}]/)
             if dashes.size > braces.size
-              MU.log "Guessing that #{path} is YAML by... counting dashes.", MU::WARN
+              MU.log "Guessing that #{path} is YAML by... counting dashes.", MU::NOTICE
               return :yaml
             elsif braces.size > dashes.size
-              MU.log "Guessing that #{path} is JSON by... counting braces.", MU::WARN
+              MU.log "Guessing that #{path} is JSON by... counting braces.", MU::NOTICE
               return :json
             else
               raise "Unable to guess composition of #{path} by any means"
             end
           end
         end
-        MU.log "Guessing that #{path} is YAML based on parser", MU::NOTICE
+        MU.log "Guessing that #{path} is YAML based on parser", MU::DEBUG
         return :yaml
       end
       MU.log "Guessing that #{path} is JSON based on parser", MU::NOTICE
@@ -2159,6 +2184,7 @@ $CONFIGURABLES
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
     def applyInheritedDefaults(kitten, type)
+      return if !kitten.is_a?(Hash)
       kitten['cloud'] ||= @config['cloud']
       kitten['cloud'] ||= MU::Config.defaultCloud
 

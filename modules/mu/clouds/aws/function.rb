@@ -93,7 +93,7 @@ module MU
             sgs = []
             if @config['add_firewall_rules']
               @config['add_firewall_rules'].each { |sg|
-                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['rule_name'])
+                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['name'])
                 sgs << sg.cloud_id if sg and sg.cloud_id
               }
             end
@@ -115,7 +115,6 @@ module MU
             end
             raise e
           end
-
 
           @cloud_id = resp.function_name
         end
@@ -296,20 +295,112 @@ module MU
         def self.find(**args)
           matches = {}
 
-          if !args[:cloud_id].nil?
-            all_functions = MU::Cloud::AWS.lambda(region: args[:region], credentials: args[:credentials]).list_functions
-            all_functions.functions.each do |x|
-              if x.function_name == args[:cloud_id]
-                matches[x.function_name] = x
-                break
-              end
+          all_functions = MU::Cloud::AWS.lambda(region: args[:region], credentials: args[:credentials]).list_functions
+          all_functions.functions.each do |x|
+            if !args[:cloud_id] or x.function_name == args[:cloud_id]
+              matches[x.function_name] = x
+              break if args[:cloud_id]
             end
           end
 
           return matches
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
 
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.function_name
+          bok['handler'] = cloud_desc.handler
+          bok['memory'] = cloud_desc.memory_size
+          bok['runtime'] = cloud_desc.runtime
+          bok['timeout'] = cloud_desc.timeout
+
+          function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
+
+          if function.code.repository_type == "S3"
+            bok['code'] = {}
+            function.code.location.match(/^https:\/\/([^\.]+)\..*?\/([^?]+).*?(?:versionId=([^&]+))?/)
+            bok['code']['s3_bucket'] = Regexp.last_match[1]
+            bok['code']['s3_key'] = Regexp.last_match[2]
+            if Regexp.last_match[3]
+              bok['code']['s3_version'] = Regexp.last_match[3]
+            end
+          else
+            MU.log "Don't know how to declare code block for Lambda function #{@cloud_id}", MU::ERR, details: function.code
+            return nil
+          end
+
+          if function.tags
+            bok['tags'] = function.tags.keys.map { |k|
+              { "key" => k, "value" => function.tags[k] }
+            }
+            realname = MU::Adoption.tagsToName(bok['tags'])
+            bok['name'] = realname if realname
+          end
+
+          if function.configuration.vpc_config and
+             function.configuration.vpc_config.vpc_id and
+             !function.configuration.vpc_config.vpc_id.empty?
+            bok['vpc'] = MU::Config::Ref.get(
+              id: function.configuration.vpc_config.vpc_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              type: "vpcs",
+              subnets: function.configuration.vpc_config.subnet_ids.map { |s| { "subnet_id" => s } }
+            )
+            if !function.configuration.vpc_config.security_group_ids.empty?
+              bok['add_firewall_rules'] = []
+              function.configuration.vpc_config.security_group_ids.each { |fw|
+                bok['add_firewall_rules'] << MU::Config::Ref.get(
+                  id: fw,
+                  cloud: "AWS",
+                  credentials: @credentials,
+                  type: "firewall_rules"
+                )
+              }
+            end
+          end
+
+          if function.configuration.environment and
+             function.configuration.environment.variables and
+             !function.configuration.environment.variables.empty?
+            bok['environment_variable'] = []
+            function.configuration.environment.variables.each_pair { |k, v|
+              bok['environment_variable'] << {
+                "key" => k,
+                "value" => v
+              }
+            }
+          end
+
+          if function.configuration.role
+            shortname = function.configuration.role.sub(/.*?role\/([^\/]+)$/, '\1')
+MU.log shortname, MU::NOTICE, details: function.configuration.role
+            bok['role'] = MU::Config::Ref.get(
+              id: shortname,
+              name: shortname,
+              cloud: "AWS",
+              type: "roles"
+            )
+          end
+#MU.log @cloud_id, MU::NOTICE, details: function
+# XXX triggers, permissions
+
+          bok
+        end
 
 
         # Cloud-specific configuration properties.
@@ -320,11 +411,12 @@ module MU
           schema = {
             "iam_role" => {
               "type" => "string",
-              "description" => "The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."
+              "description" => "Deprecated, +role+ is now preferred. The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."
             },
+            "role" => MU::Config::Ref.schema(type: "roles", desc: "A sibling {MU::Config::BasketofKittens::roles} entry or the id of an existing IAM role to assign to this Lambda function.", omit_fields: ["region", "tag"]),
             "permissions" => {
               "type" => "array",
-              "description" => "if `iam_role` is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
+              "description" => "If +role+ is unspecified, we will create a default execution role for our function, and add one or more permissions to it.",
               "default" => ["basic"],
               "items" => {
                 "type" => "string",
@@ -364,7 +456,7 @@ module MU
             acl["vpc"] = function['vpc'].dup if function['vpc']
             ok = false if !configurator.insertKitten(acl, "firewall_rules")
             function["add_firewall_rules"] = [] if function["add_firewall_rules"].nil?
-            function["add_firewall_rules"] << {"rule_name" => fwname}
+            function["add_firewall_rules"] << {"name" => fwname}
             function["permissions"] ||= []
             function["permissions"] << "network"
             function['dependencies'] ||= []
