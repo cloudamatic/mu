@@ -100,7 +100,6 @@ module MU
                                         configurator,
                                         dflt_region: pool['region'],
                                         credentials: pool['credentials'],
-                                        is_sibling: true,
                                         sibling_vpcs: [siblingvpc])
                   ok = false
                 end

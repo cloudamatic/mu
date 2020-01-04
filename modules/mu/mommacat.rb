@@ -416,7 +416,7 @@ module MU
       seen << @original_config['cloud'] if @original_config['cloud']
       MU::Cloud.resource_types.values.each { |attrs|
         type = attrs[:cfg_plural]
-        if @original_config.has_key?(type)
+        if @original_config[type]
           @original_config[type].each { |resource|
             seen << resource['cloud'] if resource['cloud']
           }
@@ -436,7 +436,7 @@ module MU
 #      defaultcloud = @original_config['cloud']
       MU::Cloud.resource_types.values.each { |attrs|
         type = attrs[:cfg_plural]
-        if @original_config.has_key?(type)
+        if @original_config[type]
           @original_config[type].each { |resource|
             if resource['credentials']
               seen << resource['credentials']
@@ -466,7 +466,7 @@ module MU
       regions << @original_config['region'] if @original_config['region']
       MU::Cloud.resource_types.each_pair { |res_type, attrs|
         type = attrs[:cfg_plural]
-        if @original_config.has_key?(type)
+        if @original_config[type]
           @original_config[type].each { |resource|
             if resource['cloud']
               cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])

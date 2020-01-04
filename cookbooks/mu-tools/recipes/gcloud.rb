@@ -40,6 +40,7 @@ if platform_family?("rhel") or platform_family?("amazon")
     bash "install gcloud-cli" do
       cwd "/opt"
       code <<-EOH
+        rm -rf /opt/google-cloud-sdk/
         tar -xzf #{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz
         if [ -f /opt/rh/python27/root/usr/bin/python ];then
           if [ ! -f /etc/ld.so.conf.d/python27.conf ];then
