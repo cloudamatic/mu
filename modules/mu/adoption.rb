@@ -388,6 +388,7 @@ module MU
             }
             obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
             begin
+              raise Incomplete if obj.nil?
               new_cfg = resolveReferences(resource, deploy, obj)
               new_cfg.delete("cloud_id")
               cred_cfg = MU::Cloud.const_get(obj.cloud).credConfig(obj.credentials)

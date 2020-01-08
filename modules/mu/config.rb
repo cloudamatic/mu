@@ -1656,7 +1656,7 @@ $CONFIGURABLES
         end
       end
 
-      descriptor["dependencies"].uniq!
+      descriptor["dependencies"].uniq! if descriptor["dependencies"]
 
       @kittencfg_semaphore.synchronize {
         @kittens[cfg_plural] << descriptor if append
