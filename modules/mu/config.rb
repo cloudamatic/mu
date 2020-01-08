@@ -348,7 +348,7 @@ module MU
           @deploy_id = @mommacat.deploy_id
         end
 
-        kitten if @mommacat # try to populate the actual cloud object for this
+        kitten(shallow: true) if @mommacat # try to populate the actual cloud object for this
       end
 
       # Comparison operator
@@ -476,7 +476,7 @@ module MU
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
-      def kitten(mommacat = @mommacat)
+      def kitten(mommacat = @mommacat, shallow: false)
         return nil if !@cloud or !@type
 
         if @obj
@@ -509,7 +509,7 @@ end
           end
         end
 
-        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id))
+        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id)) and !shallow
 
           begin
             hab_arg = if @habitat.nil?

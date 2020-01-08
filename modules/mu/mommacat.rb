@@ -364,7 +364,7 @@ module MU
                   MU::Config::Ref.get(orig_cfg['vpc'])
                 end
                 orig_cfg['vpc'].delete('mommacat')
-                orig_cfg['vpc'] = ref if ref.kitten
+                orig_cfg['vpc'] = ref if ref.kitten(shallow: true)
               end
 
               begin

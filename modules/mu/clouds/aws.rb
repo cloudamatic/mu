@@ -1362,6 +1362,7 @@ module MU
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
+          require "aws-sdk-core"
 
           retries = 0
           begin
