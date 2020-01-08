@@ -357,14 +357,9 @@ module MU
           name.match(/\b\d+@cloudbuild\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@containerregistry\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@container-analysis\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-bigquerydatatransfer\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-cloudasset\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-cloudiot\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-cloudscheduler\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@compute-system\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@container-engine-robot\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-admin-robot\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-containerscanning\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gc[pf]-admin-robot\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@dataflow-service-producer-prod\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@dataproc-accounts\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@endpoints-portal\.iam\.gserviceaccount\.com$/) or
@@ -372,9 +367,8 @@ module MU
           name.match(/\bservice-\d+@cloud-redis\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@firebase-rules\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@cloud-tpu\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-vpcaccess\.iam\.gserviceaccount\.com$/) or
-          name.match(/\bservice-\d+@gcp-sa-websecurityscanner\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@sourcerepo-service-accounts\.iam\.gserviceaccount\.com$/) or
+          name.match(/\bservice-\d+@gcp-sa-[^\.]+\.iam\.gserviceaccount\.com$/) or
           name.match(/\bp\d+\-\d+@gcp-sa-logging\.iam\.gserviceaccount\.com$/)
         end
 
@@ -409,12 +403,13 @@ module MU
             MU.log "FAILED TO FIND CLOUD DESCRIPTOR FOR #{self}", MU::ERR, details: @config
             return nil
           end
-
           bok['name'] = @config['name']
           bok['cloud_id'] = @cloud_id
           bok['type'] = @config['type']
           bok['type'] ||= "service"
+
           if bok['type'] == "service"
+            bok['name'].gsub!(/@.*/, '')
             bok['project'] = @project_id
             keys = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(@cloud_id)
 
@@ -532,8 +527,8 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
           # Deal with these name alias fields, here for the convenience of your
           # easily confused english-centric type of person
-          user['given_name'] ||= user['first_name']
-          user['family_name'] ||= user['last_name']
+          user['given_name'] ||= user['first_name'] if user['first_name']
+          user['family_name'] ||= user['last_name'] if user['last_name']
           user.delete("first_name")
           user.delete("last_name")
 
