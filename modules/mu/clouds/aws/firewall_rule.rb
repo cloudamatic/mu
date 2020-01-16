@@ -507,7 +507,6 @@ module MU
                   ).security_groups
                   if default_resp and default_resp.size == 1
                     default_sg = default_resp.first.group_id
-puts default_sg
                     eni_resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
                       filters: [ {name: "group-id", values: [sg.group_id]} ]
                     )

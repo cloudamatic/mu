@@ -35,6 +35,8 @@ module MU
 
           # TODO guard this crap so we don't touch it if there are no changes
           @config['methods'].each { |m|
+            m["auth"] ||= m["iam_role"] ? "AWS_IAM" : "NONE"
+
             method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
 
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(

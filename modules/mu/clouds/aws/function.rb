@@ -97,8 +97,11 @@ module MU
                 sgs << sg.cloud_id if sg and sg.cloud_id
               }
             end
+            if !@vpc
+              raise MuError, "Function #{@config['name']} had a VPC configured, but none was loaded"
+            end
             lambda_properties[:vpc_config] = {
-              :subnet_ids => @config['vpc']['subnets'].map { |s| s["subnet_id"] },
+              :subnet_ids => @vpc.subnets.map { |s| s.cloud_id },
               :security_group_ids => sgs
             }
           end

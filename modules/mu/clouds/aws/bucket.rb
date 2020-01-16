@@ -92,6 +92,12 @@ module MU
           current = cloud_desc
 
           if @config['policies']
+            @config['policies'].each { |pol|
+              pol['grant_to'] ||= [
+                { "id" => "*" }
+              ]
+            }
+
             policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy)
             policy_docs.each { |doc|
               MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: doc.values.first
