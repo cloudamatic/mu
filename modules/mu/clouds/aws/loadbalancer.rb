@@ -598,6 +598,7 @@ module MU
         # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
         def registerNode(instance_id, targetgroups: nil)
           if @config['classic'] or !@config.has_key?("classic")
+            MU.log "Registering #{instance_id} to ELB #{@cloud_id}"
             MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).register_instances_with_load_balancer(
               load_balancer_name: @cloud_id,
               instances: [
@@ -608,11 +609,12 @@ module MU
             if targetgroups.nil? or !targetgroups.is_a?(Array) or targetgroups.size == 0
               if @targetgroups.nil?
                 cloud_desc
-                return
+                return if @targetgroups.nil?
               end
               targetgroups = @targetgroups.keys
             end
             targetgroups.each { |tg|
+              MU.log "Registering #{instance_id} to Target Group #{tg}"
               MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).register_targets(
                 target_group_arn: @targetgroups[tg].target_group_arn,
                 targets: [
