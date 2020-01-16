@@ -1924,12 +1924,12 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
 
         # Remove all network interfaces associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param filters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
+        def self.purge_interfaces(noop = false, filters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
-            filters: tagfilters
+            filters: filters
           )
           ifaces = resp.data.network_interfaces
 
@@ -1942,6 +1942,8 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
                 tried_lbs = false
                 begin
                   MU::Cloud::AWS.ec2(credentials: credentials, region: region).detach_network_interface(attachment_id: iface.attachment.attachment_id) if !noop
+                rescue Aws::EC2::Errors::OperationNotPermitted => e
+                  MU.log e.message, MU::WARN, details: iface
                 rescue Aws::EC2::Errors::InvalidAttachmentIDNotFound => e
                   # suits me just fine
                 rescue Aws::EC2::Errors::AuthFailure => e

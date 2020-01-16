@@ -495,6 +495,38 @@ module MU
             rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
               if retries < 10
                 MU.log "EC2 Security Group #{sg.group_name} is still in use, waiting...", MU::NOTICE
+                # try to get out from under loose network interfaces with which
+                # we're associated
+                if sg.vpc_id
+                  # get the default SG for this VPC
+                  default_resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
+                    filters: [
+                      { name: "group-name", values: ["default"] },
+                      { name: "vpc-id", values: [sg.vpc_id] }
+                    ]
+                  ).security_groups
+                  if default_resp and default_resp.size == 1
+                    default_sg = default_resp.first.group_id
+puts default_sg
+                    eni_resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
+                      filters: [ {name: "group-id", values: [sg.group_id]} ]
+                    )
+                    if eni_resp and eni_resp.data and
+                       eni_resp.data.network_interfaces
+                      eni_resp.data.network_interfaces.each { |iface|
+                        iface_groups = iface.groups.map { |sg| sg.group_id }
+                        iface_groups.delete(sg.group_id)
+                        iface_groups << default_sg if iface_groups.empty?
+                        MU.log "Attempting to remove #{sg.group_id} from ENI #{iface.network_interface_id}"
+                        MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                          network_interface_id: iface.network_interface_id,
+                          groups: iface_groups
+                        )
+                      }
+                    end
+                  end
+                end
+
                 sleep 10
                 retries = retries + 1
                 retry
