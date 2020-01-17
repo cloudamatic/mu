@@ -1924,24 +1924,46 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
 
         # Remove all network interfaces associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param filters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
+        def self.purge_interfaces(noop = false, filters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
-            filters: tagfilters
+            filters: filters
           )
           ifaces = resp.data.network_interfaces
 
           return if ifaces.nil? or ifaces.size == 0
 
           ifaces.each { |iface|
+            if iface.vpc_id
+              default_sg_resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
+                filters: [
+                  { name: "group-name", values: ["default"] },
+                  { name: "vpc-id", values: [iface.vpc_id] }
+                ]
+              ).security_groups
+              if default_sg_resp and default_sg_resp.size == 1
+                default_sg = default_sg_resp.first.group_id
+                if iface.groups.size != 1 or
+                   iface.groups.first.group_id != default_sg
+                  MU.log "Removing extra security groups from ENI #{iface.network_interface_id}"
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                    network_interface_id: iface.network_interface_id,
+                    groups: [default_sg]
+                  )
+                end
+              end
+            end
             begin
               if iface.attachment and iface.attachment.status == "attached"
                 MU.log "Detaching Network Interface #{iface.network_interface_id} from #{iface.attachment.instance_owner_id}"
                 tried_lbs = false
                 begin
                   MU::Cloud::AWS.ec2(credentials: credentials, region: region).detach_network_interface(attachment_id: iface.attachment.attachment_id) if !noop
+                rescue Aws::EC2::Errors::OperationNotPermitted => e
+                  MU.log "Can't detach #{iface.network_interface_id}: #{e.message}", MU::WARN, details: iface.attachment
+                  next
                 rescue Aws::EC2::Errors::InvalidAttachmentIDNotFound => e
                   # suits me just fine
                 rescue Aws::EC2::Errors::AuthFailure => e
@@ -1997,6 +2019,9 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
               if retries < 19
                 loglevel = (retries > 0 and (retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
                 MU.log "#{e.message} (retry #{retries.to_s}/20)", loglevel
+                if loglevel == MU::NOTICE
+                  MU::Cloud::AWS::VPC.purge_interfaces(noop, [{name: "subnet-id", values: [subnet.subnet_id]}], region: region, credentials: credentials)
+                end
                 sleep 30
                 retries = retries + 1
                 retry

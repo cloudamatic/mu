@@ -764,7 +764,7 @@ module MU
           # extra interfaces to accomodate.
           if !@config['vpc']['subnets'].nil? and @config['basis'].nil?
             device_index = 1
-            @vpc.subnets { |s|
+            @vpc.subnets.each { |s|
               subnet_id = s.cloud_id
               MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
               iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
