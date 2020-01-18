@@ -133,8 +133,31 @@ module MU
         # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
           args[:project] ||= args[:habitat]
+          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          location = args[:region] || args[:availability_zone] || "-"
 
           found = {}
+
+          if args[:cloud_id]
+            resp = begin
+              MU::Cloud::Google.function(credentials: args[:credentials]).get_project_location_function(args[:cloud_id])
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden:/)
+            end
+            found[args[:cloud_id]] = resp if resp
+          else
+            resp = begin
+              MU::Cloud::Google.function(credentials: args[:credentials]).list_project_location_functions("projects/#{args[:project]}/locations/#{location}")
+            rescue ::Google::Apis::ClientError => e
+              raise e if !e.message.match(/forbidden:/)
+            end
+
+            if resp and resp.functions and !resp.functions.empty?
+              resp.functions.each { |f|
+                found[f.name.sub(/.*?\/projects\//, 'projects/')] = f
+              }
+            end
+          end
 
           found
         end
@@ -147,6 +170,12 @@ module MU
             "cloud" => "Google",
             "credentials" => @config['credentials']
           }
+
+          bok["name"] = @cloud_id.gsub(/.*\/([^\/]+)$/, '\1')
+          bok["runtime"] = cloud_desc.runtime
+          bok["memory"] = cloud_desc.available_memory_mb
+          bok["handler"] = cloud_desc.entry_point
+          bok["timeout"] = cloud_desc.timeout.gsub(/[^\d]/, '').to_i
 
           bok
         end
