@@ -18,6 +18,8 @@ module MU
       # Creates an Google project as configured in {MU::Config::BasketofKittens::functions}
       class Function < MU::Cloud::Function
 
+        require 'zip'
+
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
@@ -49,12 +51,12 @@ module MU
           desc = {
             name: location+"/functions/"+@mu_name.downcase,
             runtime: @config['runtime'],
-#            timeout: @config['timeout'].to_s+"s",
-#            entry_point: @config['handler'],
-#            description: @deploy.deploy_id,
-#            service_account_email: sa.kitten.cloud_desc.email,
-#            labels: labels,
-#            available_memory_mb: @config['memory']
+            timeout: @config['timeout'].to_s+"s",
+            entry_point: @config['handler'],
+            #description: @deploy.deploy_id,
+            service_account_email: sa.kitten.cloud_desc.email,
+            #labels: labels,
+            available_memory_mb: @config['memory']
           }
 
           if @config['environment_variable']
@@ -63,7 +65,7 @@ module MU
               desc[:environment_variables][var["key"].to_s] = var["value"].to_s
             }
           end
-
+# XXX filenames: main.py for Python, index.js/function.js for Node
           if @config['code']['gs_url']
             desc[:source_archive_url] = @config['code']['gs_url']
           else
@@ -182,12 +184,6 @@ module MU
           ok = true
           function['project'] ||= MU::Cloud::Google.defaultProject(function['credentials'])
           function['region'] ||= MU::Cloud::Google.myRegion(function['credentials'])
-
-          if !function['code'] or (!function['code']['zip_file'] and !function['code']['gs_url'])
-            MU.log "Must specify a code source in Cloud Function #{function['name']}", MU::ERR
-            ok = false
-          end
-
           if function['runtime'] == "python"
             function['runtime'] = "python37"
           elsif function['runtime'] == "go"
@@ -196,9 +192,39 @@ module MU
             function['runtime'] = "nodejs8"
           end
 
+          if !function['code'] or (!function['code']['zip_file'] and !function['code']['gs_url'])
+            MU.log "Must specify a code source in Cloud Function #{function['name']}", MU::ERR
+            ok = false
+          elsif function['code']['zip_file']
+            z = Zip::File.open(function['code']['zip_file'])
+            if function['runtime'].match(/^python/)
+              begin
+                z.get_entry("main.py")
+              rescue Errno::ENOENT
+                MU.log function['code']['zip_file']+" does not contain main.py, required for runtime #{function['runtime']}", MU::ERR
+                ok = false
+              end
+            elsif function['runtime'].match(/^nodejs/)
+              begin
+                z.get_entry("index.js")
+              rescue Errno::ENOENT
+                begin
+                  z.get_entry("function.js")
+                rescue
+                  MU.log function['code']['zip_file']+" does not contain function.js or index.js, at least one must be present for runtime #{function['runtime']}", MU::ERR
+                  ok = false
+                end
+              end
+            end
+          end
+
+
+
           if function['service_account']
-            function['service_account']['cloud'] = "Google"
-            function['service_account']['habitat'] ||= function['project']
+            if !function['service_account'].is_a?(MU::Config::Ref)
+              function['service_account']['cloud'] = "Google"
+              function['service_account']['habitat'] ||= function['project']
+            end
             found = MU::Config::Ref.get(function['service_account'])
             if found.id and !found.kitten
               MU.log "Cloud Function #{function['name']} failed to locate service account #{function['service_account']} in project #{function['project']}", MU::ERR
