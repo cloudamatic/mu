@@ -410,8 +410,29 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          toplevel_required = []
+          toplevel_required = ["runtime"]
           schema = {
+            "runtime" => {
+              "type" => "string",
+              "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 nodejs10.x nodejs12.x java8 java11 python2.7 python3.6 python3.7 python3.8 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x ruby2.5 provided},
+            },
+            "code" => {
+              "type" => "object",  
+              "properties" => {  
+                "s3_bucket" => {
+                  "type" => "string",
+                  "description" => "An S3 bucket where the deployment package can be found. Must be used in conjunction with s3_key."
+                }, 
+                "s3_key" => {
+                  "type" => "string",
+                  "description" => "Key in s3_bucket where the deployment package can be found. Must be used in conjunction with s3_bucket."
+                }, 
+                "s3_object_version" => {
+                  "type" => "string",
+                  "description" => "Specify an S3 object version for the deployment package, instead of the current default"
+                }, 
+              }
+            },
             "iam_role" => {
               "type" => "string",
               "description" => "Deprecated, +role+ is now preferred. The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."

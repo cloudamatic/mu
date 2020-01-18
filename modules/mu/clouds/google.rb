@@ -951,6 +951,19 @@ MU.log e.message, MU::WARN, details: e.inspect
         end
       end
 
+      # Google's Cloud Function Service API
+      # @param subclass [<Google::Apis::CloudfunctionsV1>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
+      def self.function(subclass = nil, credentials: nil)
+        require 'google/apis/cloudfunctions_v1'
+
+        if subclass.nil?
+          @@function_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudfunctionsV1::CloudFunctionsService", scopes: ['cloud-platform'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
+          return @@function_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("CloudfunctionsV1").const_get(subclass)
+        end
+      end
+
       # Retrieve the domains, if any, which these credentials can manage via
       # GSuite or Cloud Identity.
       # @param credentials [String]
@@ -1237,7 +1250,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
-                  consumer_id: "project:"+project
+                  consumer_id: "project:"+project.gsub(/^projects\/([^\/]+)\/.*/, '\1')
                 )
                 # XXX dumbass way to get this string
                 if e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
@@ -1248,12 +1261,12 @@ MU.log e.message, MU::WARN, details: e.inspect
                     retries += 1
                     @@enable_semaphores[project].synchronize {
                       MU.setLogging(MU::Logger::NORMAL)
-                      MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                      MU.log "Attempting to enable #{svc_name} in project #{project.gsub(/^projects\/([^\/]+)\/.*/, '\1')}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
                       MU.setLogging(save_verbosity)
                       begin
                         MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
                       rescue ::Google::Apis::ClientError => e
-                        MU.log "Error enabling #{svc_name} in #{project} for #{method_sym.to_s}: "+ e.message, MU::ERR, details: enable_obj
+                        MU.log "Error enabling #{svc_name} in #{project.gsub(/^projects\/([^\/]+)\/.*/, '\1')} for #{method_sym.to_s}: "+ e.message, MU::ERR, details: enable_obj
                         raise e
                       end
                     }
@@ -1483,6 +1496,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       @@firestore_api = {}
       @@admin_directory_api = {}
       @@billing_api = {}
+      @@function_api = {}
     end
   end
 end
