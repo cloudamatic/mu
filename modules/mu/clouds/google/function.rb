@@ -172,9 +172,8 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
           func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
 
           MU.log "Creating Cloud Function #{@mu_name} in #{location}", details: func_obj
-          pp MU::Cloud::Google.function(credentials: @credentials).create_project_location_function(location, func_obj)
-
-          raise MuError, "we out"
+          resp = MU::Cloud::Google.function(credentials: @credentials).create_project_location_function(location, func_obj)
+          @cloud_id = resp.name
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -184,7 +183,7 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
         # Return the metadata for this project's configuration
         # @return [Hash]
         def notify
-        {}
+          MU.structToHash(cloud_desc)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -206,6 +205,23 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          clusters = []
+
+          # Make sure we catch regional *and* zone functions
+          found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["project"])
+          found.each_pair { |cloud_id, desc|
+            if (desc.description and desc.description = MU.deploy_id) or
+               (desc.labels and desc.labels["mu-id"] = MU.deploy_id.downcase) or
+               flags["known"] and flags["known"].include?(cloud_id)
+              MU.log "Deleting Cloud Function #{desc.name}"
+              if !noop
+                MU::Cloud::Google.function(credentials: credentials).delete_project_location_function(cloud_id)
+              end
+            end
+          }
+
         end
 
         # Locate an existing project
@@ -284,6 +300,12 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
           [toplevel_required, schema]
         end
 
+        # Upload a zipfile to our admin Cloud Storage bucket, for use by
+        # Cloud Functions
+        # @param zipfile [String]: Source file
+        # @param filename [String]: Target filename
+        # @param credentials [String]
+        # @return [String]: The Cloud Storage URL to the result
         def self.uploadPackage(zipfile, filename, credentials: nil)
           bucket = MU::Cloud::Google.adminBucketName(credentials)
           obj_obj = MU::Cloud::Google.storage(:Object).new(
@@ -296,8 +318,8 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
             upload_source: zipfile
           )
           return "gs://#{bucket}/#{filename}"
-# XXX this is the canonical, correct way to do this, but it doesn't work:
-# Anonymous caller does not have storage.objects.create access to gcf-upload-us-east4-9068f7a1-7c08-4daa-8b83-d26e098e9c44/bcddc43c-f74d-46c0-bfdd-c215829a23f2.zip.
+# XXX this is the canonical, correct way to do this, but it doesn't work.
+# "Anonymous caller does not have storage.objects.create access to gcf-upload-us-east4-9068f7a1-7c08-4daa-8b83-d26e098e9c44/bcddc43c-f74d-46c0-bfdd-c215829a23f2.zip."
 #
 #          upload_obj = MU::Cloud::Google.function(credentials: credentials).generate_function_upload_url(location, MU::Cloud::Google.function(:GenerateUploadUrlRequest).new)
 #          MU.log "Uploading #{zipfile} to #{upload_obj.upload_url}"
@@ -310,7 +332,6 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
 #          http.set_debug_output($stdout)
 #          resp = http.request(req)
 #          upload_obj.upload_url
-
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::function}, bare and unvalidated.
