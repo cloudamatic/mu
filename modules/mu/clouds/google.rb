@@ -345,7 +345,7 @@ module MU
             bucket: adminBucketName(credentials),
             name: name
           )
-          ebs_key = MU::Cloud::Google.storage(credentials: credentials).insert_object(
+          MU::Cloud::Google.storage(credentials: credentials).insert_object(
             adminBucketName(credentials),
             objectobj,
             upload_source: f.path
@@ -364,6 +364,21 @@ module MU
         return if !cfg or !cfg['project']
         flags["project"] ||= cfg['project']
         name = deploy_id+"-secret"
+        resp = MU::Cloud::Google.storage(credentials: credentials).list_objects(
+          adminBucketName(credentials),
+          prefix: deploy_id
+        )
+        if resp and resp.items
+          resp.items.each { |obj|
+            MU.log "Deleting gs://#{adminBucketName(credentials)}/#{obj.name}"
+            if !noop
+              MU::Cloud::Google.storage(credentials: credentials).delete_object(
+                adminBucketName(credentials),
+                obj.name
+              )
+            end
+          }
+        end
       end
 
       # Grant access to appropriate Cloud Storage objects in our log/secret bucket for a deploy member.
@@ -392,7 +407,7 @@ module MU
             entity: "user-"+acct
           )
 
-          [name, "log_vol_ebs_key"].each { |obj|
+          [name].each { |obj|
             MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{adminBucketName(credentials)}"
 
             MU::Cloud::Google.storage(credentials: credentials).insert_object_access_control(
