@@ -1360,6 +1360,14 @@ MU.log e.message, MU::WARN, details: e.inspect
                         retval.self_link.sub(/.*?\/projects\//, 'projects/')
                       )
                       retval = resp
+                    elsif retval.class.name.match(/::Cloudfunctions[^:]*::/)
+                      resp = MU::Cloud::Google.function(credentials: @credentials).get_operation(
+                        retval.name
+                      )
+                      retval = resp
+                      if retval.error
+                        raise MuError, retval.error.message
+                      end
                     else
                       pp retval
                       raise MuError, "I NEED TO IMPLEMENT AN OPERATION HANDLER FOR #{retval.class.name}"
@@ -1382,10 +1390,15 @@ MU.log e.message, MU::WARN, details: e.inspect
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
               had_been_found = false
-              if method_sym.to_s.match(/^(insert|create)_/) and retval.target_link
-#                service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
+              if method_sym.to_s.match(/^(insert|create)_/)
                 get_method = method_sym.to_s.gsub(/^(insert|create_disk|create)_/, "get_").to_sym
-                cloud_id = retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
+                cloud_id = if retval.respond_to?(:target_link)
+                  retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
+                elsif retval.respond_to?(:metadata) and retval.metadata["target"]
+                  retval.metadata["target"]
+                else
+                  arguments[0] # if we're lucky
+                end
                 faked_args = arguments.dup
                 faked_args.pop
                 if get_method == :get_snapshot
@@ -1396,6 +1409,8 @@ MU.log e.message, MU::WARN, details: e.inspect
                 if get_method == :get_project_location_cluster
                   faked_args[0] = faked_args[0]+"/clusters/"+faked_args[1]
                   faked_args.pop
+                elsif get_method == :get_project_location_function
+                  faked_args = [cloud_id]
                 end
                 actual_resource = @api.method(get_method).call(*faked_args)
 #if method_sym == :insert_instance

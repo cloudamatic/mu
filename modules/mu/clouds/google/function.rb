@@ -18,7 +18,85 @@ module MU
       # Creates an Google project as configured in {MU::Config::BasketofKittens::functions}
       class Function < MU::Cloud::Function
 
+        HELLO_WORLDS = {
+          "nodejs" => {
+            "index.json" => %Q{
+/**
+ * Responds to any HTTP request.
+ *
+ * @param {!express:Request} req HTTP request context.
+ * @param {!express:Response} res HTTP response context.
+ */
+exports.hello_world = (req, res) => {
+  let message = req.query.message || req.body.message || 'Hello World!';
+  res.status(200).send(message);
+};
+},
+          "package.json" => %Q{
+{
+  "name": "sample-http",
+  "version": "0.0.1"
+}
+}
+          },
+          "python" => {
+            "main.py" => %Q{
+def hello_world(request):
+    """Responds to any HTTP request.
+    Args:
+        request (flask.Request): HTTP request object.
+    Returns:
+        The response text or any set of values that can be turned into a
+        Response object using
+        `make_response <http://flask.pocoo.org/docs/1.0/api/#flask.Flask.make_response>`.
+    """
+    request_json = request.get_json()
+    if request.args and 'message' in request.args:
+        return request.args.get('message')
+    elif request_json and 'message' in request_json:
+        return request_json['message']
+    else:
+        return f'Hello World!'
+},
+            "requirements.txt" => "# put your modules here\n"
+          },
+          "go" => {
+            "function.go" => %Q{
+// Package p contains an HTTP Cloud Function.
+package p
+
+import (
+  "encoding/json"
+  "fmt"
+  "html"
+  "net/http"
+)
+
+// HelloWorld prints the JSON encoded "message" field in the body
+// of the request or "Hello, World!" if there isn't one.
+func hello_world(w http.ResponseWriter, r *http.Request) {
+  var d struct {
+    Message string `json:"message"`
+  }
+  if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+    fmt.Fprint(w, "Hello World!")
+    return
+  }
+  if d.Message == "" {
+    fmt.Fprint(w, "Hello World!")
+    return
+  }
+  fmt.Fprint(w, html.EscapeString(d.Message))
+}
+},
+          "go.mod" => %Q{
+module example.com/cloudfunction
+}
+          }
+        }
+
         require 'zip'
+        require 'tmpdir'
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
@@ -52,12 +130,17 @@ module MU
             name: location+"/functions/"+@mu_name.downcase,
             runtime: @config['runtime'],
             timeout: @config['timeout'].to_s+"s",
-            entry_point: @config['handler'],
-            #description: @deploy.deploy_id,
+            entry_point: "hello_world",
+            description: @deploy.deploy_id,
             service_account_email: sa.kitten.cloud_desc.email,
-            #labels: labels,
+            labels: labels,
             available_memory_mb: @config['memory']
           }
+
+desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
+#desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
+#  event_type:
+#)
 
           if @config['environment_variable']
             @config['environment_variable'].each { |var|
@@ -65,35 +148,31 @@ module MU
               desc[:environment_variables][var["key"].to_s] = var["value"].to_s
             }
           end
-# XXX filenames: main.py for Python, index.js/function.js for Node
-          if @config['code']['gs_url']
-            desc[:source_archive_url] = @config['code']['gs_url']
-          else
-            upload_obj = MU::Cloud::Google.function(credentials: @credentials).generate_function_upload_url(location, MU::Cloud::Google.function(:GenerateUploadUrlRequest).new)
 
-            MU.log "Uploading #{@config['code']['zip_file']} to #{upload_obj.upload_url}"
-            uri = URI(upload_obj.upload_url)
-            req = Net::HTTP::Put.new(uri)
-#            req.body = File.read(@config['code']['zip_file'], mode: "rb")
-            req.set_content_type("application/zip")
-            req["x-goog-content-length-range"] = "0,104857600"
-            pp uri
-            pp req
-            http = Net::HTTP.new(uri.hostname, uri.port)
-            http.set_debug_output($stdout)
-            begin
-              resp = http.request(req, File.read(@config['code']['zip_file'], mode: "rb"))
-            rescue EOFError => e
-              MU.log e.message, MU::ERR
+          hello_code = nil
+          HELLO_WORLDS.each_pair { |runtime, code|
+            if @config['runtime'].match(/^#{Regexp.quote(runtime)}/)
+              hello_code = code
+              break
             end
-            desc[:source_upload_url] = upload_obj.upload_url
-          end
+          }
+
+          Dir.mktmpdir(@mu_name) { |dir|
+            hello_code.each_pair { |file, contents|
+              f = File.open(dir+"/"+file, "w")
+              f.puts contents
+              f.close
+              Zip::File.open(dir+"/function.zip", Zip::File::CREATE) { |z|
+                z.add(file, dir+"/"+file)
+              }
+            }
+            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: nil)
+          }
 
           func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
 
-
-          MU.log "Creating Cloud Function #{@mu_name} in #{location}", MU::NOTICE, details: func_obj
-          MU::Cloud::Google.function(credentials: @credentials).create_project_location_function(location, func_obj)
+          MU.log "Creating Cloud Function #{@mu_name} in #{location}", details: func_obj
+          pp MU::Cloud::Google.function(credentials: @credentials).create_project_location_function(location, func_obj)
 
           raise MuError, "we out"
         end
@@ -205,6 +284,35 @@ module MU
           [toplevel_required, schema]
         end
 
+        def self.uploadPackage(zipfile, filename, credentials: nil)
+          bucket = MU::Cloud::Google.adminBucketName(credentials)
+          obj_obj = MU::Cloud::Google.storage(:Object).new(
+            content_type: "application/zip",
+            name: filename
+          )
+          MU::Cloud::Google.storage(credentials: credentials).insert_object(
+            bucket,
+            obj_obj,
+            upload_source: zipfile
+          )
+          return "gs://#{bucket}/#{filename}"
+# XXX this is the canonical, correct way to do this, but it doesn't work:
+# Anonymous caller does not have storage.objects.create access to gcf-upload-us-east4-9068f7a1-7c08-4daa-8b83-d26e098e9c44/bcddc43c-f74d-46c0-bfdd-c215829a23f2.zip.
+#
+#          upload_obj = MU::Cloud::Google.function(credentials: credentials).generate_function_upload_url(location, MU::Cloud::Google.function(:GenerateUploadUrlRequest).new)
+#          MU.log "Uploading #{zipfile} to #{upload_obj.upload_url}"
+#          uri = URI(upload_obj.upload_url)
+#          req = Net::HTTP::Put.new(uri.path, { "Content-Type" => "application/zip", "x-goog-content-length-range" => "0,104857600"})
+#req["Content-Length"] = nil
+#          req.body = File.read(zipfile, mode: "rb")
+#          pp req
+#          http = Net::HTTP.new(uri.hostname, uri.port)
+#          http.set_debug_output($stdout)
+#          resp = http.request(req)
+#          upload_obj.upload_url
+
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::function}, bare and unvalidated.
         # @param function [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -220,6 +328,11 @@ module MU
           elsif function['runtime'] == "nodejs"
             function['runtime'] = "nodejs8"
           end
+
+          HELLO_WORLDS.each_pair { |runtime, code|
+            if function['runtime'].match(/^#{Regexp.quote(runtime)}/)
+            end
+          }
 
           if !function['code'] or (!function['code']['zip_file'] and !function['code']['gs_url'])
             MU.log "Must specify a code source in Cloud Function #{function['name']}", MU::ERR
