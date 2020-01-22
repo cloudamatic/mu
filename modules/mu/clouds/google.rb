@@ -1364,6 +1364,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                       resp = MU::Cloud::Google.function(credentials: @credentials).get_operation(
                         retval.name
                       )
+                      pp resp
                       retval = resp
                       if retval.error
                         raise MuError, retval.error.message
@@ -1390,8 +1391,8 @@ MU.log e.message, MU::WARN, details: e.inspect
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
               had_been_found = false
-              if method_sym.to_s.match(/^(insert|create)_/)
-                get_method = method_sym.to_s.gsub(/^(insert|create_disk|create)_/, "get_").to_sym
+              if method_sym.to_s.match(/^(insert|create|patch)_/)
+                get_method = method_sym.to_s.gsub(/^(insert|patch|create_disk|create)_/, "get_").to_sym
                 cloud_id = if retval.respond_to?(:target_link)
                   retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
                 elsif retval.respond_to?(:metadata) and retval.metadata["target"]

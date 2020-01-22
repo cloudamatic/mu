@@ -20,7 +20,7 @@ module MU
 
         HELLO_WORLDS = {
           "nodejs" => {
-            "index.json" => %Q{
+            "index.js" => %Q{
 /**
  * Responds to any HTTP request.
  *
@@ -166,7 +166,7 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
                 z.add(file, dir+"/"+file)
               }
             }
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: nil)
+            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: @credentials)
           }
 
           func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
@@ -178,6 +178,111 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          pp cloud_desc
+          desc = {}
+
+          if cloud_desc.runtime != @config['runtime']
+            desc[:runtime] = @config['runtime']
+          end
+          if cloud_desc.timeout != @config['timeout'].to_s+"s"
+            desc[:timeout] = @config['timeout'].to_s+"s"
+          end
+          if cloud_desc.entry_point != @config['handler']
+            desc[:entry_point] = @config['handler']
+          end
+          if cloud_desc.available_memory_mb != @config['memory']
+            desc[:available_memory_mb] = @config['memory']
+          end
+          if @config['environment_variable']
+            @config['environment_variable'].each { |var|
+              if !desc[:environment_variables] or
+                 !cloud_desc.environment_variables or
+                 cloud_desc.environment_variables[var["key"].to_s] != var["value"].to_s
+                desc[:environment_variables] ||= {}
+                desc[:environment_variables][var["key"].to_s] = var["value"].to_s
+              end
+            }
+          end
+
+          current = if cloud_desc.source_archive_url
+            cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
+            bucket = Regexp.last_match[1]
+            path = Regexp.last_match[2]
+            current = nil
+            Dir.mktmpdir(@mu_name+"-current") { |dir|
+              MU::Cloud::Google.storage(credentials: @credentials).get_object(bucket, path, download_dest: dir+"/current.zip")
+              current = File.read("#{dir}/current.zip")
+            }
+            current
+          elsif cloud_desc.source_upload_url
+            resp = MU::Cloud::Google.function(credentials: @credentials).generate_function_download_url(
+              @cloud_id
+            )
+            if resp and resp.download_url
+              Dir.mktmpdir(@mu_name+"-current") { |dir|
+                f = File.open(dir+"/current.zip", "wb")
+                f.write Net::HTTP.get(URI(resp.download_url))
+                f.close
+                current = File.read("#{dir}/current.zip")
+              }
+            end
+          end
+
+          new = if @config['code']['zip_file']
+            File.read(@config['code']['zip_file'])
+          elsif @config['code']['gs_url']
+            @config['code']['gs_url'].match(/^gs:\/\/([^\/]+)\/(.*)/)
+            bucket = Regexp.last_match[1]
+            path = Regexp.last_match[2]
+            Dir.mktmpdir(@mu_name+"-new") { |dir|
+              MU::Cloud::Google.storage(credentials: @credentials).get_object(bucket, path, download_dest: dir+"/new.zip")
+              File.read(dir+"/new.zip")
+            }
+          end
+          if @config['code']['gs_url'] and
+             (@config['code']['gs_url'] != cloud_desc.source_archive_url or
+             current != new)
+            desc[:source_archive_url] = @config['code']['gs_url']
+          elsif @config['code']['zip_file'] and current != new
+            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+          end
+
+# XXX triggers
+
+          if desc.size > 0
+            # A trigger must always be specified, apparently
+            if !desc[:https_trigger] and !desc[:event_trigger]
+              if cloud_desc.https_trigger
+                desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
+              else
+                desc[:event_trigger] = cloud_desc.event_trigger
+              end
+            end
+            func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
+            MU.log "Updating Cloud Function #{@mu_name}", MU::NOTICE, details: func_obj
+            begin
+              MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
+                @cloud_id, 
+                func_obj
+              )
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Error updating Cloud Function #{@mu_name}.", MU::ERR
+              if desc[:source_archive_url]
+                main_file = nil
+                HELLO_WORLDS.each_pair { |runtime, code|
+                  if @config['runtime'].match(/^#{Regexp.quote(runtime)}/)
+                    main_file = code.keys.first
+                    break
+                  end
+                }
+                MU.log "Verify that the specified code is compatible with the #{@config['runtime']} runtime and has an entry point named #{@config['handler']} in #{main_file}", MU::ERR, details: @config['code']
+              end
+            end
+          end
+
+#            service_account_email: sa.kitten.cloud_desc.email,
+#            labels: labels,
+
         end
 
         # Return the metadata for this project's configuration
@@ -349,11 +454,7 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
           elsif function['runtime'] == "nodejs"
             function['runtime'] = "nodejs8"
           end
-
-          HELLO_WORLDS.each_pair { |runtime, code|
-            if function['runtime'].match(/^#{Regexp.quote(runtime)}/)
-            end
-          }
+# XXX list_project_locations
 
           if !function['code'] or (!function['code']['zip_file'] and !function['code']['gs_url'])
             MU.log "Must specify a code source in Cloud Function #{function['name']}", MU::ERR
