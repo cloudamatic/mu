@@ -18,6 +18,9 @@ module MU
       # Creates an Google project as configured in {MU::Config::BasketofKittens::functions}
       class Function < MU::Cloud::Function
 
+        require 'zip'
+        require 'tmpdir'
+
         HELLO_WORLDS = {
           "nodejs" => {
             "index.js" => %Q{
@@ -94,9 +97,6 @@ module example.com/cloudfunction
 }
           }
         }
-
-        require 'zip'
-        require 'tmpdir'
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
@@ -368,14 +368,32 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
         def toKitten(rootparent: nil, billing: nil, habitats: nil)
           bok = {
             "cloud" => "Google",
-            "credentials" => @config['credentials']
+            "cloud_id" => @cloud_id,
+            "credentials" => @credentials,
+            "project" => @project
           }
-
-          bok["name"] = @cloud_id.gsub(/.*\/([^\/]+)$/, '\1')
+pp cloud_desc
+          @cloud_id.match(/^projects\/([^\/]+)\/locations\/([^\/]+)\/functions\/(.*)/)
+          bok["project"] ||= Regexp.last_match[1]
+          bok["region"] = Regexp.last_match[2]
+          bok["name"] = Regexp.last_match[3]
           bok["runtime"] = cloud_desc.runtime
           bok["memory"] = cloud_desc.available_memory_mb
           bok["handler"] = cloud_desc.entry_point
           bok["timeout"] = cloud_desc.timeout.gsub(/[^\d]/, '').to_i
+
+          if cloud_desc.environment_variables and cloud_desc.environment_variables.size > 0
+            bok['environment_variable'] = cloud_desc.environment_variables.keys.map { |k| { "key" => k, "value" => cloud_desc.environment_variables[k] } }
+          end
+          if cloud_desc.labels and cloud_desc.labels.size > 0
+            bok['tags'] = cloud_desc.labels.keys.map { |k| { "key" => k, "value" => cloud_desc.labels[k] } }
+          end
+
+          codefile = bok["project"]+"_"+bok["region"]+"_"+bok["name"]+".zip"
+          MU::Cloud::Google::Function.downloadPackage(@cloud_id, codefile, credentials: @config['credentials'])
+          bok['code'] = {
+            'zip_file' => codefile
+          }
 
           bok
         end
@@ -387,6 +405,25 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
         def self.schema(config)
           toplevel_required = ["runtime"]
           schema = {
+            "triggers" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Trigger for Cloud Function",
+                "required" => ["event", "resource"],
+                "additionalProperties" => false,
+                "properties" => {
+                  "event" => {
+                    "type" => "string",
+                    "description" => "The type of event to observe. For example: +providers/cloud.storage/eventTypes/object.change+ and +providers/cloud.pubsub/eventTypes/topic.publish+. Event types match pattern +providers//eventTypes/.*+"
+                  },
+                  "resource" => {
+                    "type" => "string",
+                    "description" => "The resource(s) from which to observe events, for example, +projects/_/buckets/myBucket+. Not all syntactically correct values are accepted by all services."
+                  }
+                }
+              }
+            },
             "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
             "runtime" => {
               "type" => "string",
@@ -403,6 +440,35 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
             }
           }
           [toplevel_required, schema]
+        end
+
+        # Upload a zipfile to our admin Cloud Storage bucket, for use by
+        # Cloud Functions
+        # @param function_id [String]: The cloud_id of the Function, in the format ++
+        # @param zipfile [String]: Target filename
+        # @param credentials [String]
+        def self.downloadPackage(function_id, zipfile, credentials: nil)
+          cloud_desc = MU::Cloud::Google::Function.find(cloud_id: function_id, credentials: credentials).values.first
+          if !cloud_desc
+            raise MuError, "Couldn't find Cloud Function #{function_id}"
+          end
+          
+          if cloud_desc.source_archive_url
+            cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
+            bucket = Regexp.last_match[1]
+            path = Regexp.last_match[2]
+            current = nil
+            MU::Cloud::Google.storage(credentials: credentials).get_object(bucket, path, download_dest: zipfile)
+          elsif cloud_desc.source_upload_url
+            resp = MU::Cloud::Google.function(credentials: credentials).generate_function_download_url(
+              function_id
+            )
+            if resp and resp.download_url
+              f = File.open(zipfile, "wb")
+              f.write Net::HTTP.get(URI(resp.download_url))
+              f.close
+            end
+          end
         end
 
         # Upload a zipfile to our admin Cloud Storage bucket, for use by

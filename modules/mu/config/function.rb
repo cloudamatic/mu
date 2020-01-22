@@ -57,26 +57,6 @@ module MU
             "description" => "Memory to allocation for function, in MB. The value must be a multiple of 64 MB."
           },
           "dependencies" => MU::Config.dependencies_primitive,
-          "triggers" => {
-            "type" => "array",
-            "items" => {
-              "type" => "object",
-              "description" => "Trigger for lambda function",
-              "required" => ["service"],
-              "additionalProperties" => false,
-              "properties" => {
-                "service" => {
-                  "type" => "string",
-                  "enum" => %w{apigateway events s3 sns sqs dynamodb kinesis ses cognito alexa iot},
-                  "description" => "The name of the AWS service that will trigger this function"
-                },
-                "name" => {
-                  "type" => "string",
-                  "description" => "The name of the API Gateway, Cloudwatch Event, or other event trigger object"
-                }
-              }
-            }
-          },
           "code" => {
             "type" => "object",  
             "description" => "Zipped deployment package to upload to our function.", 

@@ -412,6 +412,26 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
         def self.schema(config)
           toplevel_required = ["runtime"]
           schema = {
+            "triggers" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Trigger for lambda function",
+                "required" => ["service"],
+                "additionalProperties" => false,
+                "properties" => {
+                  "service" => {
+                    "type" => "string",
+                    "enum" => %w{apigateway events s3 sns sqs dynamodb kinesis ses cognito alexa iot},
+                    "description" => "The name of the AWS service that will trigger this function"
+                  },
+                  "name" => {
+                    "type" => "string",
+                    "description" => "The name of the API Gateway, Cloudwatch Event, or other event trigger object"
+                  }
+                }
+              }
+            },
             "runtime" => {
               "type" => "string",
               "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 nodejs10.x nodejs12.x java8 java11 python2.7 python3.6 python3.7 python3.8 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x ruby2.5 provided},
