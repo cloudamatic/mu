@@ -61,4 +61,5 @@ EOF
   s.add_runtime_dependency 'azure_sdk', "~> 0.37"
   s.add_runtime_dependency 'rack', "~> 2.0"
   s.add_runtime_dependency 'thin', "~> 1.7"
+  s.add_runtime_dependency 'zip', "~> 2.0"
 end
