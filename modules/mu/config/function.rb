@@ -31,6 +31,13 @@ module MU
           "name" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
           "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
+          "triggers" => {
+            "type" => "array",
+            "items" => {
+              "type" => "object",
+              "description" => "Triggers which will cause this function to be invoked."
+            }
+          },
           "handler" => {
             "type" => "string",
             "description" => "The function within your code that is should be called to begin execution. For Node.js, it is the module-name.export value in your function. For Java, it can be package.class-name::handler or package.class-name. For more information, see https://docs.aws.amazon.com/lambda/latest/dg/java-programming-model-handler-types.html"

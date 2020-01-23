@@ -15,12 +15,13 @@
 module MU
   class Cloud
     class Google
-      # Creates an Google project as configured in {MU::Config::BasketofKittens::functions}
+      # Creates a Google Cloud Function as configured in {MU::Config::BasketofKittens::functions}
       class Function < MU::Cloud::Function
 
         require 'zip'
         require 'tmpdir'
 
+        # Known-good code blobs to upload when initially creating functions
         HELLO_WORLDS = {
           "nodejs" => {
             "index.js" => %Q{
@@ -415,7 +416,7 @@ pp cloud_desc
                 "properties" => {
                   "event" => {
                     "type" => "string",
-                    "description" => "The type of event to observe. For example: +providers/cloud.storage/eventTypes/object.change+ and +providers/cloud.pubsub/eventTypes/topic.publish+. Event types match pattern +providers//eventTypes/.*+"
+                    "description" => "The type of event to observe, such as +providers/cloud.storage/eventTypes/object.change+ or +providers/cloud.pubsub/eventTypes/topic.publish+. Event types match pattern +providers//eventTypes/.*+"
                   },
                   "resource" => {
                     "type" => "string",
@@ -505,7 +506,7 @@ pp cloud_desc
 #          upload_obj.upload_url
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::function}, bare and unvalidated.
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::functions}, bare and unvalidated.
         # @param function [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise

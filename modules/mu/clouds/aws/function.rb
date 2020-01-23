@@ -418,7 +418,6 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
                 "type" => "object",
                 "description" => "Trigger for lambda function",
                 "required" => ["service"],
-                "additionalProperties" => false,
                 "properties" => {
                   "service" => {
                     "type" => "string",
