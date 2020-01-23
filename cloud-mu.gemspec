@@ -54,7 +54,7 @@ EOF
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
   s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
   s.add_runtime_dependency 'googleauth', "~> 0.6"
-  s.add_runtime_dependency 'google-api-client', "~> 0.30.8"
+  s.add_runtime_dependency 'google-api-client', "~> 0.36.4"
   s.add_runtime_dependency 'rubocop', '~> 0.58'
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
