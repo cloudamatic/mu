@@ -138,10 +138,15 @@ module example.com/cloudfunction
             available_memory_mb: @config['memory']
           }
 
-desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
-#desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
-#  event_type:
-#)
+          if @config['triggers']
+            desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
+              event_type: @config['triggers'].first['event'],
+              resource: @config['triggers'].first['resource']
+            )
+          else
+            desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
+          end
+
 
           if @config['environment_variable']
             @config['environment_variable'].each { |var|
@@ -204,6 +209,16 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
               end
             }
           end
+          if @config['triggers']
+            if !cloud_desc.event_trigger or
+               cloud_desc.event_trigger.event_type != @config['triggers'].first['event'] or
+               cloud_desc.event_trigger.resource != @config['triggers'].first['resource']
+              desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
+                event_type: @config['triggers'].first['event'],
+                resource: @config['triggers'].first['resource']
+              )
+            end
+          end
 
           current = if cloud_desc.source_archive_url
             cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
@@ -247,8 +262,6 @@ desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
           elsif @config['code']['zip_file'] and current != new
             desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
           end
-
-# XXX triggers
 
           if desc.size > 0
             # A trigger must always be specified, apparently
@@ -388,6 +401,15 @@ pp cloud_desc
           end
           if cloud_desc.labels and cloud_desc.labels.size > 0
             bok['tags'] = cloud_desc.labels.keys.map { |k| { "key" => k, "value" => cloud_desc.labels[k] } }
+          end
+
+          if cloud_desc.event_trigger
+            bok['triggers'] = [
+              {
+                "event" => cloud_desc.event_trigger.event_type,
+                "resource" => cloud_desc.event_trigger.resource
+              }
+            ]
           end
 
           codefile = bok["project"]+"_"+bok["region"]+"_"+bok["name"]+".zip"
