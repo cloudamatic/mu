@@ -329,14 +329,12 @@ module example.com/cloudfunction
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
-          clusters = []
-
           # Make sure we catch regional *and* zone functions
           found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["project"])
           found.each_pair { |cloud_id, desc|
             if (desc.description and desc.description = MU.deploy_id) or
                (desc.labels and desc.labels["mu-id"] = MU.deploy_id.downcase) or
-               flags["known"] and flags["known"].include?(cloud_id)
+               (flags["known"] and flags["known"].include?(cloud_id))
               MU.log "Deleting Cloud Function #{desc.name}"
               if !noop
                 MU::Cloud::Google.function(credentials: credentials).delete_project_location_function(cloud_id)
