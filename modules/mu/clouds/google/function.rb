@@ -131,7 +131,8 @@ module example.com/cloudfunction
             name: location+"/functions/"+@mu_name.downcase,
             runtime: @config['runtime'],
             timeout: @config['timeout'].to_s+"s",
-            entry_point: "hello_world",
+#            entry_point: "hello_world",
+            entry_point: @config['handler'],
             description: @deploy.deploy_id,
             service_account_email: sa.kitten.cloud_desc.email,
             labels: labels,
@@ -155,25 +156,30 @@ module example.com/cloudfunction
             }
           end
 
-          hello_code = nil
-          HELLO_WORLDS.each_pair { |runtime, code|
-            if @config['runtime'].match(/^#{Regexp.quote(runtime)}/)
-              hello_code = code
-              break
-            end
-          }
+#          hello_code = nil
+#          HELLO_WORLDS.each_pair { |runtime, code|
+#            if @config['runtime'].match(/^#{Regexp.quote(runtime)}/)
+#              hello_code = code
+#              break
+#            end
+#          }
+          if @config['code']['gs_url']
+            desc[:source_archive_url] = @config['code']['gs_url']
+          elsif @config['code']['zip_file']
+            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+          end
 
-          Dir.mktmpdir(@mu_name) { |dir|
-            hello_code.each_pair { |file, contents|
-              f = File.open(dir+"/"+file, "w")
-              f.puts contents
-              f.close
-              Zip::File.open(dir+"/function.zip", Zip::File::CREATE) { |z|
-                z.add(file, dir+"/"+file)
-              }
-            }
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: @credentials)
-          }
+#          Dir.mktmpdir(@mu_name) { |dir|
+#            hello_code.each_pair { |file, contents|
+#              f = File.open(dir+"/"+file, "w")
+#              f.puts contents
+#              f.close
+#              Zip::File.open(dir+"/function.zip", Zip::File::CREATE) { |z|
+#                z.add(file, dir+"/"+file)
+#              }
+#            }
+#            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: @credentials)
+#          }
 
           func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
 
@@ -184,8 +190,15 @@ module example.com/cloudfunction
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          pp cloud_desc
           desc = {}
+          labels = Hash[@tags.keys.map { |k|
+            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
+          labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
+
+          if cloud_desc.labels != labels
+            desc[:labels] = labels
+          end
 
           if cloud_desc.runtime != @config['runtime']
             desc[:runtime] = @config['runtime']
@@ -201,8 +214,7 @@ module example.com/cloudfunction
           end
           if @config['environment_variable']
             @config['environment_variable'].each { |var|
-              if !desc[:environment_variables] or
-                 !cloud_desc.environment_variables or
+              if !cloud_desc.environment_variables or
                  cloud_desc.environment_variables[var["key"].to_s] != var["value"].to_s
                 desc[:environment_variables] ||= {}
                 desc[:environment_variables][var["key"].to_s] = var["value"].to_s
@@ -220,30 +232,12 @@ module example.com/cloudfunction
             end
           end
 
-          current = if cloud_desc.source_archive_url
-            cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
-            bucket = Regexp.last_match[1]
-            path = Regexp.last_match[2]
-            current = nil
-            Dir.mktmpdir(@mu_name+"-current") { |dir|
-              MU::Cloud::Google.storage(credentials: @credentials).get_object(bucket, path, download_dest: dir+"/current.zip")
-              current = File.read("#{dir}/current.zip")
-            }
-            current
-          elsif cloud_desc.source_upload_url
-            resp = MU::Cloud::Google.function(credentials: @credentials).generate_function_download_url(
-              @cloud_id
-            )
-            if resp and resp.download_url
-              Dir.mktmpdir(@mu_name+"-current") { |dir|
-                f = File.open(dir+"/current.zip", "wb")
-                f.write Net::HTTP.get(URI(resp.download_url))
-                f.close
-                current = File.read("#{dir}/current.zip")
-              }
-            end
-          end
+          current = Dir.mktmpdir(@mu_name+"-current") { |dir|
+            MU::Cloud::Google::Function.downloadPackage(@cloud_id, dir+"/current.zip", credentials: @credentials)
+            File.read("#{dir}/current.zip")
+          }
 
+          source_url = nil
           new = if @config['code']['zip_file']
             File.read(@config['code']['zip_file'])
           elsif @config['code']['gs_url']
@@ -264,7 +258,8 @@ module example.com/cloudfunction
           end
 
           if desc.size > 0
-            # A trigger must always be specified, apparently
+            # A trigger and some code must always be specified, apparently. The
+            # endpoint hangs indefinitely if either is missing. Charming.
             if !desc[:https_trigger] and !desc[:event_trigger]
               if cloud_desc.https_trigger
                 desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
@@ -272,6 +267,14 @@ module example.com/cloudfunction
                 desc[:event_trigger] = cloud_desc.event_trigger
               end
             end
+            if !desc[:source_archive_url] and !desc[:source_upload_url]
+              if cloud_desc.source_archive_url
+                desc[:source_archive_url] = cloud_desc.source_archive_url
+              else
+                desc[:source_upload_url] = cloud_desc.source_upload_url
+              end
+            end
+
             func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
             MU.log "Updating Cloud Function #{@mu_name}", MU::NOTICE, details: func_obj
             begin

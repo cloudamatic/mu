@@ -1364,8 +1364,8 @@ MU.log e.message, MU::WARN, details: e.inspect
                       resp = MU::Cloud::Google.function(credentials: @credentials).get_operation(
                         retval.name
                       )
-                      pp resp
                       retval = resp
+#MU.log method_sym.to_s, MU::WARN, details: retval
                       if retval.error
                         raise MuError, retval.error.message
                       end
