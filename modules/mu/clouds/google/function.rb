@@ -354,7 +354,7 @@ module example.com/cloudfunction
                (flags["known"] and flags["known"].include?(cloud_id))
               MU.log "Deleting Cloud Function #{desc.name}"
               if !noop
-#                MU::Cloud::Google.function(credentials: credentials).delete_project_location_function(cloud_id)
+                MU::Cloud::Google.function(credentials: credentials).delete_project_location_function(cloud_id)
               end
             end
           }
