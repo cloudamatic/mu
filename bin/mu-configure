@@ -1469,3 +1469,10 @@ if !$NOOP
     puts "source #{HOMEDIR}/.bashrc".bold
   end
 end
+
+if $IN_GEM
+  ansible_exec_path = MU::Cloud::Groomer.ansibleExecDir
+  if !ansible_exec_path or ansible_exec_path.empty?
+    puts "No Ansible executables found. Will not be able to groom servers!".red
+  end
+end
