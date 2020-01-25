@@ -117,13 +117,20 @@ module example.com/cloudfunction
           sa = nil
           retries = 0
           begin
-            sa = MU::Config::Ref.get(@config['service_account'])
-            if !sa or !sa.kitten or !sa.kitten.cloud_desc
+            sa_ref = MU::Config::Ref.get(@config['service_account'])
+            sa = @deploy.findLitterMate(name: sa_ref.name, type: "users")
+            if !sa or !sa.cloud_desc
               sleep 10
             end
-          end while !sa or !sa.kitten or !sa.kitten.cloud_desc and retries < 5
+          rescue ::Google::Apis::ClientError => e
+            if e.message.match(/notFound:/)
+              sleep 10
+              retries += 1
+              retry
+            end
+          end while !sa or !sa.cloud_desc and retries < 5
 
-          if !sa or !sa.kitten or !sa.kitten.cloud_desc
+          if !sa or !sa.cloud_desc
             raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
           end
 
@@ -134,10 +141,21 @@ module example.com/cloudfunction
 #            entry_point: "hello_world",
             entry_point: @config['handler'],
             description: @deploy.deploy_id,
-            service_account_email: sa.kitten.cloud_desc.email,
+            service_account_email: sa.cloud_desc.email,
             labels: labels,
             available_memory_mb: @config['memory']
           }
+
+          # XXX This network argument is deprecated in favor of using VPC
+          # Connectors. Which would be fine, except there's no API support for
+          # interacting with VPC Connectors. Can't create them, can't list them,
+          # can't do anything except pass their ids into Cloud Functions or 
+          # AppEngine and hope for the best.
+          if @config['vpc_connector']
+            desc[:vpc_connector] = @config['vpc_connector']
+          elsif @vpc
+            desc[:network] = @vpc.url.sub(/^.*?\/projects\//, 'projects/')
+          end
 
           if @config['triggers']
             desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
@@ -182,7 +200,6 @@ module example.com/cloudfunction
 #          }
 
           func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
-
           MU.log "Creating Cloud Function #{@mu_name} in #{location}", details: func_obj
           resp = MU::Cloud::Google.function(credentials: @credentials).create_project_location_function(location, func_obj)
           @cloud_id = resp.name
@@ -332,12 +349,12 @@ module example.com/cloudfunction
           # Make sure we catch regional *and* zone functions
           found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["project"])
           found.each_pair { |cloud_id, desc|
-            if (desc.description and desc.description = MU.deploy_id) or
-               (desc.labels and desc.labels["mu-id"] = MU.deploy_id.downcase) or
+            if (desc.description and desc.description == MU.deploy_id) or
+               (desc.labels and desc.labels["mu-id"] == MU.deploy_id.downcase) or
                (flags["known"] and flags["known"].include?(cloud_id))
               MU.log "Deleting Cloud Function #{desc.name}"
               if !noop
-                MU::Cloud::Google.function(credentials: credentials).delete_project_location_function(cloud_id)
+#                MU::Cloud::Google.function(credentials: credentials).delete_project_location_function(cloud_id)
               end
             end
           }
@@ -387,7 +404,7 @@ module example.com/cloudfunction
             "credentials" => @credentials,
             "project" => @project
           }
-pp cloud_desc
+
           @cloud_id.match(/^projects\/([^\/]+)\/locations\/([^\/]+)\/functions\/(.*)/)
           bok["project"] ||= Regexp.last_match[1]
           bok["region"] = Regexp.last_match[2]
@@ -396,6 +413,27 @@ pp cloud_desc
           bok["memory"] = cloud_desc.available_memory_mb
           bok["handler"] = cloud_desc.entry_point
           bok["timeout"] = cloud_desc.timeout.gsub(/[^\d]/, '').to_i
+
+          if cloud_desc.vpc_connector
+            bok["vpc_connector"] = cloud_desc.vpc_connector
+          elsif cloud_desc.network
+            cloud_desc.network.match(/^projects\/(.*?)\/.*?\/networks\/([^\/]+)(?:$|\/)/)
+            vpc_proj = Regexp.last_match[1]
+            vpc_id = Regexp.last_match[2]
+  
+            bok['vpc'] = MU::Config::Ref.get(
+              id: vpc_id,
+              cloud: "Google",
+              habitat: MU::Config::Ref.get(
+                id: vpc_proj,
+                cloud: "Google",
+                credentials: @credentials,
+                type: "habitats"
+              ),
+              credentials: @credentials,
+              type: "vpcs"
+            )
+          end
 
           if cloud_desc.environment_variables and cloud_desc.environment_variables.size > 0
             bok['environment_variable'] = cloud_desc.environment_variables.keys.map { |k| { "key" => k, "value" => cloud_desc.environment_variables[k] } }
@@ -452,6 +490,10 @@ pp cloud_desc
             "runtime" => {
               "type" => "string",
               "enum" => %w{nodejs go python nodejs8 nodejs10 python37 go111 go113},
+            },
+            "vpc_connector" => {
+              "type" => "string",
+              "description" => "+DEPRECATED+ VPC Connector to attach, of the form +projects/my-project/locations/some-region/connectors/my-connector+. This option will be removed once proper google-cloud-sdk support for VPC Connectors becomes available, at which point we will piggyback on the normal +vpc+ stanza and resolve connectors as needed."
             },
             "code" => {
               "type" => "object",  
@@ -571,8 +613,6 @@ pp cloud_desc
               end
             end
           end
-
-
 
           if function['service_account']
             if !function['service_account'].is_a?(MU::Config::Ref)
