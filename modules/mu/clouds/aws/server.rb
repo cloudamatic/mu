@@ -942,6 +942,8 @@ module MU
         # we're done.
         if MU.inGem?
           MU.log "Deploying from a gem, not grooming"
+          MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
+          MU::MommaCat.unlock(instance.instance_id+"-groom")
 
           return true
         elsif @groomer.haveBootstrapped?
