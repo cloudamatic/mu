@@ -40,7 +40,7 @@ module MU
     # @param verbosity [Integer]: Debug level for MU.log output
     # @param web [Boolean]: Generate web-friendly output.
     # @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
-    # @param region [Array<String>]: Operate only on these regions
+    # @param regions [Array<String>]: Operate only on these regions
     # @param habitats [Array<String>]: Operate only on these accounts/projects/subscriptions
     # @return [void]
     def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil, credsets: nil, regions: nil, habitats: nil)
