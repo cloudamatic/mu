@@ -2235,7 +2235,7 @@ module MU
 
           if ips.size > 0 and !onlycloud
             known_hosts_files = [Etc.getpwuid(Process.uid).dir+"/.ssh/known_hosts"]
-            if Etc.getpwuid(Process.uid).name == "root"
+            if Etc.getpwuid(Process.uid).name == "root" and !MU.inGem?
               begin
                 known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
               rescue ArgumentError

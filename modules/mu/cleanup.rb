@@ -94,8 +94,8 @@ module MU
       if !@skipcloud
         creds = {}
         MU::Cloud.availableClouds.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
           if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
-            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds[cloud] ||= {}
             cloudclass.listCredentials.each { |credset|
               next if credsets and credsets.size > 0 and !credsets.include?(credset)
@@ -103,6 +103,11 @@ module MU
               MU.log "Will scan #{cloud} with credentials #{credset}"
               creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
             }
+          else
+            if cloudclass.hosted?
+              creds[cloud] ||= {}
+              creds[cloud]["#default"] = cloudclass.listRegions
+            end
           end
         }
 
@@ -141,7 +146,9 @@ module MU
                   Thread.abort_on_exception = false
                   MU.setVar("curRegion", r)
                   projects = []
-                  if $MU_CFG[cloud.downcase][credset]["project"]
+                  if $MU_CFG and $MU_CFG[cloud.downcase] and
+                     $MU_CFG[cloud.downcase][credset] and
+                     $MU_CFG[cloud.downcase][credset]["project"]
 # XXX GCP credential schema needs an array for projects
                     projects << $MU_CFG[cloud.downcase][credset]["project"]
                   end
