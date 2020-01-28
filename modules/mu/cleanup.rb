@@ -90,6 +90,7 @@ module MU
 
       regionsused = @mommacat.regionsUsed if @mommacat
       credsused = @mommacat.credsUsed if @mommacat
+      habitatsused = @mommacat.habitatsUsed if @mommacat
 
       if !@skipcloud
         creds = {}
@@ -172,10 +173,13 @@ module MU
                   # CloudFormation sometimes fails internally.
                   projectthreads = []
                   projects.each { |project|
-                    next if !habitatclass.isLive?(project, credset)
                     if habitats and !habitats.empty? and project != ""
                       next if !habitats.include?(project)
                     end
+                    if habitatsused and !habitatsused.empty? and project != ""
+                      next if !habitatsused.include?(project)
+                    end
+                    next if !habitatclass.isLive?(project, credset)
 
                     projectthreads << Thread.new {
                       MU.dupGlobals(parent_thread_id)

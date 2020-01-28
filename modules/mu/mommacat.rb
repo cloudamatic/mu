@@ -455,6 +455,46 @@ module MU
       seen.uniq
     end
 
+    # List the accounts/projects/subscriptions used by each resource in our
+    # deploy.
+    # @return [Array<String>]
+    def habitatsUsed
+      return [] if !@original_config
+      habitats = []
+      habitats << @original_config['project'] if @original_config['project']
+      if @original_config['habitat']
+        hab_ref = MU::Config::Ref.get(@original_config['habitat'])
+        if hab_ref and hab_ref.id
+          habitats << hab_ref.id
+        end
+      end
+
+      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+        type = attrs[:cfg_plural]
+        if @original_config[type]
+          @original_config[type].each { |resource|
+            if resource['project']
+              habitats << resource['project']
+            elsif resource['habitat']
+              hab_ref = MU::Config::Ref.get(resource['habitat'])
+              if hab_ref and hab_ref.id
+                habitats << hab_ref.id
+              end
+            elsif resource['cloud']
+              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
+              # XXX this should be a general method implemented by each cloud
+              # provider
+              if resource['cloud'] == "Google"
+                habitats << cloudclass.defaultProject(resource['credentials'])
+              end
+            end
+          }
+        end
+      }
+
+      habitats.uniq!
+    end
+
     # List the regions used by each resource in our deploy. This will just be
     # a flat list of strings with no regard to which region belongs with what
     # cloud provider- things mostly use this as a lookup table so they can
@@ -472,7 +512,7 @@ module MU
               cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
               resclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud']).const_get(res_type.to_s)
               if resclass.isGlobal?
-                regions.concat(cloudclass.listRegions)
+# XXX why was I doing this, urgh
                 next
               elsif !resource['region']
                 regions << cloudclass.myRegion
