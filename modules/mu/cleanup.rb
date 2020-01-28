@@ -146,15 +146,19 @@ module MU
                   Thread.abort_on_exception = false
                   MU.setVar("curRegion", r)
                   projects = []
-                  if $MU_CFG and $MU_CFG[cloud.downcase] and
-                     $MU_CFG[cloud.downcase][credset] and
-                     $MU_CFG[cloud.downcase][credset]["project"]
+                  if habitats
+                    projects = habitats
+                  else
+                    if $MU_CFG and $MU_CFG[cloud.downcase] and
+                       $MU_CFG[cloud.downcase][credset] and
+                       $MU_CFG[cloud.downcase][credset]["project"]
 # XXX GCP credential schema needs an array for projects
-                    projects << $MU_CFG[cloud.downcase][credset]["project"]
-                  end
-                  begin
-                    projects.concat(cloudclass.listProjects(credset))
-                  rescue NoMethodError
+                      projects << $MU_CFG[cloud.downcase][credset]["project"]
+                    end
+                    begin
+                      projects.concat(cloudclass.listProjects(credset))
+                    rescue NoMethodError
+                    end
                   end
 
                   if projects == []
