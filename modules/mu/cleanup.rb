@@ -40,8 +40,10 @@ module MU
     # @param verbosity [Integer]: Debug level for MU.log output
     # @param web [Boolean]: Generate web-friendly output.
     # @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
+    # @param regions [Array<String>]: Operate only on these regions
+    # @param habitats [Array<String>]: Operate only on these accounts/projects/subscriptions
     # @return [void]
-    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil, credsets: nil, regions: nil)
+    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil, credsets: nil, regions: nil, habitats: nil)
       MU.setLogging(verbosity, web)
       @noop = noop
       @skipsnapshots = skipsnapshots
@@ -92,8 +94,8 @@ module MU
       if !@skipcloud
         creds = {}
         MU::Cloud.availableClouds.each { |cloud|
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
           if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
-            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
             creds[cloud] ||= {}
             cloudclass.listCredentials.each { |credset|
               next if credsets and credsets.size > 0 and !credsets.include?(credset)
@@ -101,6 +103,11 @@ module MU
               MU.log "Will scan #{cloud} with credentials #{credset}"
               creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
             }
+          else
+            if cloudclass.hosted?
+              creds[cloud] ||= {}
+              creds[cloud]["#default"] = cloudclass.listRegions
+            end
           end
         }
 
@@ -139,13 +146,19 @@ module MU
                   Thread.abort_on_exception = false
                   MU.setVar("curRegion", r)
                   projects = []
-                  if $MU_CFG[cloud.downcase][credset]["project"]
+                  if habitats
+                    projects = habitats
+                  else
+                    if $MU_CFG and $MU_CFG[cloud.downcase] and
+                       $MU_CFG[cloud.downcase][credset] and
+                       $MU_CFG[cloud.downcase][credset]["project"]
 # XXX GCP credential schema needs an array for projects
-                    projects << $MU_CFG[cloud.downcase][credset]["project"]
-                  end
-                  begin
-                    projects.concat(cloudclass.listProjects(credset))
-                  rescue NoMethodError
+                      projects << $MU_CFG[cloud.downcase][credset]["project"]
+                    end
+                    begin
+                      projects.concat(cloudclass.listProjects(credset))
+                    rescue NoMethodError
+                    end
                   end
 
                   if projects == []
@@ -160,6 +173,9 @@ module MU
                   projectthreads = []
                   projects.each { |project|
                     next if !habitatclass.isLive?(project, credset)
+                    if habitats and !habitats.empty? and project != ""
+                      next if !habitats.include?(project)
+                    end
 
                     projectthreads << Thread.new {
                       MU.dupGlobals(parent_thread_id)

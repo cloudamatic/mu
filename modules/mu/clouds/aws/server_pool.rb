@@ -1409,7 +1409,7 @@ module MU
                 found = false
                 @deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
                   if lb_name == lb['concurrent_load_balancer']
-                    lbs << deployed_lb["awsname"]
+                    lbs << deployed_lb["awsname"] # XXX check for classic
                     if deployed_lb.has_key?("targetgroups")
                       deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
                         tg_arns << tg_arn
@@ -1423,8 +1423,9 @@ module MU
             }
             if tg_arns.size > 0
               asg_options[:target_group_arns] = tg_arns
-            else
-              asg_options[:load_balancer_names] = lbs
+            end
+            if lbs.size > 0
+#              asg_options[:load_balancer_names] = lbs
             end
           end
           asg_options[:termination_policies] = @config["termination_policies"] if @config["termination_policies"]

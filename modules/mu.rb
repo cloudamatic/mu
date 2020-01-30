@@ -644,7 +644,10 @@ module MU
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
       hostname = IO.readlines("/etc/hostname")[0].gsub /\n/, ''
 
-      @@mu_public_ip = File.open('/etc/hosts').grep(/.*#{hostname}.*/).first.match(/^\d+\.\d+\.\d+\.\d+/)[0]
+      hostlines = File.open('/etc/hosts').grep(/.*#{hostname}.*/)
+      if hostlines and !hostlines.empty?
+        @@mu_public_ip = hostlines.first.match(/^\d+\.\d+\.\d+\.\d+/)[0]
+      end
     else
       @@mu_public_ip = @@mu_public_addr
     end

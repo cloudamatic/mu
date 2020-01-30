@@ -45,6 +45,7 @@ Usage:
   opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
   opt :credentials, "Restrict to operating on a subset of available credential sets, instead of all that we know about.", :require => false, :default => credentials, :type => :strings
   opt :regions, "Restrict to operating on a subset of available regions, instead of all that we know about.", :require => false, :type => :strings
+  opt :habitats, "Restrict to operating on the named accounts/projects/subscriptions, instead of search all habitats visible to our credentials.", :required => false, :type => :strings
   opt :quiet, "Display minimal output.", :require => false, :default => false, :type => :boolean
 end
 verbosity = MU::Logger::NORMAL
@@ -77,5 +78,6 @@ MU::Cleanup.run(
   skipcloud: $opts[:skipcloud],
   ignoremaster: $opts[:ignoremaster],
   credsets: $opts[:credentials],
-  regions: $opts[:regions]
+  regions: $opts[:regions],
+  habitats: $opts[:habitats]
 )

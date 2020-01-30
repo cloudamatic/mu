@@ -345,7 +345,7 @@ module MU
             bucket: adminBucketName(credentials),
             name: name
           )
-          ebs_key = MU::Cloud::Google.storage(credentials: credentials).insert_object(
+          MU::Cloud::Google.storage(credentials: credentials).insert_object(
             adminBucketName(credentials),
             objectobj,
             upload_source: f.path
@@ -364,6 +364,21 @@ module MU
         return if !cfg or !cfg['project']
         flags["project"] ||= cfg['project']
         name = deploy_id+"-secret"
+        resp = MU::Cloud::Google.storage(credentials: credentials).list_objects(
+          adminBucketName(credentials),
+          prefix: deploy_id
+        )
+        if resp and resp.items
+          resp.items.each { |obj|
+            MU.log "Deleting gs://#{adminBucketName(credentials)}/#{obj.name}"
+            if !noop
+              MU::Cloud::Google.storage(credentials: credentials).delete_object(
+                adminBucketName(credentials),
+                obj.name
+              )
+            end
+          }
+        end
       end
 
       # Grant access to appropriate Cloud Storage objects in our log/secret bucket for a deploy member.
@@ -392,7 +407,7 @@ module MU
             entity: "user-"+acct
           )
 
-          [name, "log_vol_ebs_key"].each { |obj|
+          [name].each { |obj|
             MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{adminBucketName(credentials)}"
 
             MU::Cloud::Google.storage(credentials: credentials).insert_object_access_control(
@@ -951,6 +966,19 @@ MU.log e.message, MU::WARN, details: e.inspect
         end
       end
 
+      # Google's Cloud Function Service API
+      # @param subclass [<Google::Apis::CloudfunctionsV1>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
+      def self.function(subclass = nil, credentials: nil)
+        require 'google/apis/cloudfunctions_v1'
+
+        if subclass.nil?
+          @@function_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "CloudfunctionsV1::CloudFunctionsService", scopes: ['cloud-platform'], credentials: credentials, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'])
+          return @@function_api[credentials]
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("CloudfunctionsV1").const_get(subclass)
+        end
+      end
+
       # Retrieve the domains, if any, which these credentials can manage via
       # GSuite or Cloud Identity.
       # @param credentials [String]
@@ -1237,7 +1265,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 
                 @@enable_semaphores[project] ||= Mutex.new
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
-                  consumer_id: "project:"+project
+                  consumer_id: "project:"+project.gsub(/^projects\/([^\/]+)\/.*/, '\1')
                 )
                 # XXX dumbass way to get this string
                 if e.message.match(/by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
@@ -1248,12 +1276,12 @@ MU.log e.message, MU::WARN, details: e.inspect
                     retries += 1
                     @@enable_semaphores[project].synchronize {
                       MU.setLogging(MU::Logger::NORMAL)
-                      MU.log "Attempting to enable #{svc_name} in project #{project}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
+                      MU.log "Attempting to enable #{svc_name} in project #{project.gsub(/^projects\/([^\/]+)\/.*/, '\1')}; will retry #{method_sym.to_s} in #{(wait_time/retries).to_s}s (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE
                       MU.setLogging(save_verbosity)
                       begin
                         MU::Cloud::Google.service_manager(credentials: @credentials).enable_service(svc_name, enable_obj)
                       rescue ::Google::Apis::ClientError => e
-                        MU.log "Error enabling #{svc_name} in #{project} for #{method_sym.to_s}: "+ e.message, MU::ERR, details: enable_obj
+                        MU.log "Error enabling #{svc_name} in #{project.gsub(/^projects\/([^\/]+)\/.*/, '\1')} for #{method_sym.to_s}: "+ e.message, MU::ERR, details: enable_obj
                         raise e
                       end
                     }
@@ -1332,6 +1360,15 @@ MU.log e.message, MU::WARN, details: e.inspect
                         retval.self_link.sub(/.*?\/projects\//, 'projects/')
                       )
                       retval = resp
+                    elsif retval.class.name.match(/::Cloudfunctions[^:]*::/)
+                      resp = MU::Cloud::Google.function(credentials: @credentials).get_operation(
+                        retval.name
+                      )
+                      retval = resp
+#MU.log method_sym.to_s, MU::WARN, details: retval
+                      if retval.error
+                        raise MuError, retval.error.message
+                      end
                     else
                       pp retval
                       raise MuError, "I NEED TO IMPLEMENT AN OPERATION HANDLER FOR #{retval.class.name}"
@@ -1354,10 +1391,15 @@ MU.log e.message, MU::WARN, details: e.inspect
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
               had_been_found = false
-              if method_sym.to_s.match(/^(insert|create)_/) and retval.target_link
-#                service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
-                get_method = method_sym.to_s.gsub(/^(insert|create_disk|create)_/, "get_").to_sym
-                cloud_id = retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
+              if method_sym.to_s.match(/^(insert|create|patch)_/)
+                get_method = method_sym.to_s.gsub(/^(insert|patch|create_disk|create)_/, "get_").to_sym
+                cloud_id = if retval.respond_to?(:target_link)
+                  retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
+                elsif retval.respond_to?(:metadata) and retval.metadata["target"]
+                  retval.metadata["target"]
+                else
+                  arguments[0] # if we're lucky
+                end
                 faked_args = arguments.dup
                 faked_args.pop
                 if get_method == :get_snapshot
@@ -1368,6 +1410,8 @@ MU.log e.message, MU::WARN, details: e.inspect
                 if get_method == :get_project_location_cluster
                   faked_args[0] = faked_args[0]+"/clusters/"+faked_args[1]
                   faked_args.pop
+                elsif get_method == :get_project_location_function
+                  faked_args = [cloud_id]
                 end
                 actual_resource = @api.method(get_method).call(*faked_args)
 #if method_sym == :insert_instance
@@ -1483,6 +1527,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       @@firestore_api = {}
       @@admin_directory_api = {}
       @@billing_api = {}
+      @@function_api = {}
     end
   end
 end

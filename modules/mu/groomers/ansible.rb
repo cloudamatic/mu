@@ -441,11 +441,13 @@ module MU
         end
 
         # Hook up any Ansible roles listed in our platform repos
-        $MU_CFG['repos'].each { |repo|
-          repo.match(/\/([^\/]+?)(\.git)?$/)
-          shortname = Regexp.last_match(1)
-          repodirs << MU.dataDir + "/" + shortname
-        }
+        if $MU_CFG and $MU_CFG['repos']
+          $MU_CFG['repos'].each { |repo|
+            repo.match(/\/([^\/]+?)(\.git)?$/)
+            shortname = Regexp.last_match(1)
+            repodirs << MU.dataDir + "/" + shortname
+          }
+        end
 
         repodirs.each { |repodir|
           ["roles", "ansible/roles"].each { |subdir|

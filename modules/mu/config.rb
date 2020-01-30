@@ -2548,7 +2548,8 @@ $CONFIGURABLES
                     example += "#      #{cfg_plural}:\n"
                     firstline = true
                     erb.result(binding).split(/\n/).each { |l|
-                      l.sub!(/#.*/, "")
+                      l.chomp!
+                      l.sub!(/#.*/, "") if !l.match(/#(?:INTERNET|NAT|DENY)/)
                       next if l.empty? or l.match(/^\s+$/)
                       if firstline
                         l = "- "+l

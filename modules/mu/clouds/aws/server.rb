@@ -756,7 +756,7 @@ module MU
 
           nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
           if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
-            raise MuError, "#{node} is in a private subnet (#{subnet}), but has no NAT host configured, and I have no other route to it"
+            raise MuError, "#{node} is in a private subnet (#{subnet}), but has no bastion host configured, and I have no other route to it"
           end
 
           # If we've asked for additional subnets (and this @config is not a
@@ -764,7 +764,7 @@ module MU
           # extra interfaces to accomodate.
           if !@config['vpc']['subnets'].nil? and @config['basis'].nil?
             device_index = 1
-            @vpc.subnets { |s|
+            @vpc.subnets.each { |s|
               subnet_id = s.cloud_id
               MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
               iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
@@ -942,6 +942,8 @@ module MU
         # we're done.
         if MU.inGem?
           MU.log "Deploying from a gem, not grooming"
+          MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
+          MU::MommaCat.unlock(instance.instance_id+"-groom")
 
           return true
         elsif @groomer.haveBootstrapped?
@@ -2233,8 +2235,12 @@ module MU
 
           if ips.size > 0 and !onlycloud
             known_hosts_files = [Etc.getpwuid(Process.uid).dir+"/.ssh/known_hosts"]
-            if Etc.getpwuid(Process.uid).name == "root"
-              known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
+            if Etc.getpwuid(Process.uid).name == "root" and !MU.inGem?
+              begin
+                known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
+              rescue ArgumentError
+                # we're in a non-nagios environment and that's ok
+              end
             end
             known_hosts_files.each { |known_hosts|
               next if !File.exist?(known_hosts)

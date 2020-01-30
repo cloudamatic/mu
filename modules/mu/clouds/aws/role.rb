@@ -1126,6 +1126,7 @@ end
               if policy["grant_to"] # XXX factor this with target, they're too similar
                 statement["Principal"] ||= []
                 policy["grant_to"].each { |grantee|
+                  grantee["identifier"] ||= grantee["id"]
                   if grantee["type"] and deploy_obj
                     sibling = deploy_obj.findLitterMate(
                       name: grantee["identifier"],
@@ -1147,6 +1148,7 @@ end
               end
               if policy["targets"]
                 policy["targets"].each { |target|
+                  target["identifier"] ||= target["id"]
                   if target["type"] and deploy_obj
                     sibling = deploy_obj.findLitterMate(
                       name: target["identifier"],
@@ -1154,7 +1156,7 @@ end
                     )
                     if sibling
                       id = sibling.cloudobj.arn
-                      id.sub!(/:([^:]+)$/, ":"+target["path"]) if target["path"]
+                      id.sub!(/:([^:]+)$/, ":"+'\1'+target["path"]) if target["path"]
                       statement["Resource"] << id
                       if id.match(/:log-group:/)
                         stream_id = id.sub(/:([^:]+)$/, ":log-stream:*")

@@ -97,8 +97,11 @@ module MU
                 sgs << sg.cloud_id if sg and sg.cloud_id
               }
             end
+            if !@vpc
+              raise MuError, "Function #{@config['name']} had a VPC configured, but none was loaded"
+            end
             lambda_properties[:vpc_config] = {
-              :subnet_ids => @config['vpc']['subnets'].map { |s| s["subnet_id"] },
+              :subnet_ids => @vpc.subnets.map { |s| s.cloud_id },
               :security_group_ids => sgs
             }
           end
@@ -407,8 +410,48 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          toplevel_required = []
+          toplevel_required = ["runtime"]
           schema = {
+            "triggers" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Trigger for lambda function",
+                "required" => ["service"],
+                "properties" => {
+                  "service" => {
+                    "type" => "string",
+                    "enum" => %w{apigateway events s3 sns sqs dynamodb kinesis ses cognito alexa iot},
+                    "description" => "The name of the AWS service that will trigger this function"
+                  },
+                  "name" => {
+                    "type" => "string",
+                    "description" => "The name of the API Gateway, Cloudwatch Event, or other event trigger object"
+                  }
+                }
+              }
+            },
+            "runtime" => {
+              "type" => "string",
+              "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 nodejs10.x nodejs12.x java8 java11 python2.7 python3.6 python3.7 python3.8 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x ruby2.5 provided},
+            },
+            "code" => {
+              "type" => "object",  
+              "properties" => {  
+                "s3_bucket" => {
+                  "type" => "string",
+                  "description" => "An S3 bucket where the deployment package can be found. Must be used in conjunction with s3_key."
+                }, 
+                "s3_key" => {
+                  "type" => "string",
+                  "description" => "Key in s3_bucket where the deployment package can be found. Must be used in conjunction with s3_bucket."
+                }, 
+                "s3_object_version" => {
+                  "type" => "string",
+                  "description" => "Specify an S3 object version for the deployment package, instead of the current default"
+                }, 
+              }
+            },
             "iam_role" => {
               "type" => "string",
               "description" => "Deprecated, +role+ is now preferred. The name of an IAM role for our Lambda function to assume. Can refer to an existing IAM role, or a sibling 'role' resource in Mu. If not specified, will create a default role with permissions listed in `permissions` (and if none are listed, we will set `AWSLambdaBasicExecutionRole`)."

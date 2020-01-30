@@ -241,7 +241,7 @@ end
             )
             resp[args[:cloud_id]] = vpc if !vpc.nil?
             rescue ::Google::Apis::ClientError => e
-              MU.log "Do not have permissions to retrieve VPC #{args[:cloud_id]} in project #{args[:project]}", MU::WARN, details: caller
+              MU.log "VPC #{args[:cloud_id]} in project #{args[:project]} does not exist, or I do not have permission to view it", MU::WARN
             end
           else # XXX other criteria
             vpcs = begin
