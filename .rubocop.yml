@@ -4,9 +4,9 @@ Layout:
   Enabled: false
 
 # Yeah, we do these. Wanna fight?
-Metrics/LineLength:
+Layout/LineLength:
   Enabled: false
-Lint/StringConversionInInterpolation:
+Lint/RedundantStringCoercion:
   Enabled: false
 Lint/Loop:
   Enabled: false
@@ -19,6 +19,8 @@ Lint/LiteralAsCondition:
 Lint/EnsureReturn:
   Enabled: false
 Lint/EmptyEnsure:
+  Enabled: false
+Lint/SuppressedException:
   Enabled: false
 
 # Complaining about these will get you mocked

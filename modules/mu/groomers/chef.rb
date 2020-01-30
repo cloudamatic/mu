@@ -184,13 +184,13 @@ module MU
         if !item.nil?
           begin
             loaded = ::ChefVault::Item.load(vault, item)
-          rescue ::ChefVault::Exceptions::KeysNotFound => e
+          rescue ::ChefVault::Exceptions::KeysNotFound
             raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist? Chef user: #{MU.chef_user}"
           end
         else
           # If we didn't ask for a particular item, list what we have.
           begin
-            loaded = ::Chef::DataBag.load(vault).keys.select { |k, v| !k.match(/_keys$/) }
+            loaded = ::Chef::DataBag.load(vault).keys.select { |k| !k.match(/_keys$/) }
           rescue Net::HTTPServerException
             raise MuNoSuchSecret, "Failed to retrieve Vault #{vault}"
           end
@@ -258,7 +258,6 @@ module MU
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
-        pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
           MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
@@ -300,7 +299,7 @@ module MU
               cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
             Timeout::timeout(timeout) {
-              retval = ssh.exec!(cmd) { |ch, stream, data|
+              ssh.exec!(cmd) { |_ch, _stream, data|
                 extra_logfile = if Dir.exist?(@server.deploy.deploy_dir)
                   File.open(@server.deploy.deploy_dir+"/log", "a")
                 end
@@ -380,7 +379,7 @@ module MU
             sleep 30
           end
           retry
-        rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError, WinRM::WinRMError, MU::MuError => e
+        rescue SystemExit, Timeout::Error, MU::Cloud::BootstrapTempFail, Net::HTTPServerException, HTTPClient::ConnectTimeoutError, WinRM::WinRMError, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, Net::SSH::Exception, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ECONNREFUSED, Errno::EPIPE, SocketError, IOError => e
           begin
             ssh.close if !ssh.nil?
           rescue Net::SSH::Exception, IOError => e
@@ -404,7 +403,7 @@ module MU
               begin
                 preClean(true) # drop any Chef install that's not ours
                 @server.reboot # try gently rebooting the thing
-              rescue Exception => e # it's ok to fail here (and to ignore failure)
+              rescue StandardError => e # it's ok to fail here (and to ignore failure)
                 MU.log "preclean err #{e.inspect}", MU::ERR
               end
               reboot_first_fail = false
@@ -429,7 +428,7 @@ module MU
             @server.deploy.sendAdminSlack("Chef run '#{purpose}' failed on `#{@server.mu_name}` :crying_cat_face:", msg: e.message)
             raise MU::Groomer::RunError, "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times, last error was: #{e.message}"
           end
-        rescue Exception => e
+        rescue StandardError => e
           @server.deploy.sendAdminSlack("Chef run '#{purpose}' failed on `#{@server.mu_name}` :crying_cat_face:", msg: e.inspect)
           raise MU::Groomer::RunError, "Caught unexpected #{e.inspect} on #{@server.mu_name} in @groomer.run at #{e.backtrace[0]}"
 
@@ -443,8 +442,8 @@ module MU
       def splunkVaultInit
         self.class.loadChefLib
         begin
-          loaded = ::ChefVault::Item.load("splunk", "admin_user")
-        rescue ::ChefVault::Exceptions::KeysNotFound => e
+          ::ChefVault::Item.load("splunk", "admin_user")
+        rescue ::ChefVault::Exceptions::KeysNotFound
           pw = Password.pronounceable(12..14)
           creds = {
             "username" => "admin",
@@ -550,7 +549,7 @@ module MU
             winrm = @server.getWinRMSession(1, 30, winrm_retries: 2)
             pp winrm.run(cmd)
             return
-          rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail, MU::MuError => e
+          rescue SystemExit, Timeout::Error, MU::Cloud::BootstrapTempFail, MU::MuError, Net::HTTPServerException, HTTPClient::ConnectTimeoutError, WinRM::WinRMError, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, Net::SSH::Exception, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ECONNREFUSED, Errno::EPIPE, SocketError, IOError
             MU.log "WinRM failure attempting Chef upgrade on #{@server.mu_name}, will fall back to ssh", MU::WARN
             cmd = %Q{powershell.exe -inputformat none -noprofile "#{cmd}"}
           end
@@ -558,7 +557,7 @@ module MU
 
         MU.log "Attempting Chef upgrade via ssh on #{@server.mu_name}", MU::NOTICE, details: cmd
         ssh = @server.getSSHSession(1)
-        retval = ssh.exec!(cmd) { |ch, stream, data|
+        ssh.exec!(cmd) { |_ch, _stream, data|
           puts data
         }
       end
@@ -580,7 +579,7 @@ module MU
           @config['cleaned_chef'] = true
         end
 
-        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
+        _nat_ssh_key, _nat_ssh_user, _nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
@@ -593,11 +592,12 @@ module MU
           json_attribs['skipinitialupdates'] = @config['skipinitialupdates']
         end
 
-        if !@config['vault_access'].nil?
-          vault_access = @config['vault_access']
-        else
-          vault_access = []
-        end
+# XXX this seems to break Knife Bootstrap
+#        vault_access = if !@config['vault_access'].nil?
+#          @config['vault_access']
+#        else
+#          []
+#        end
 
         @server.windows? ? max_retries = 25 : max_retries = 10
         @server.windows? ? timeout = 1800 : timeout = 300
@@ -658,7 +658,7 @@ module MU
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
           ::Chef::Node.load(@server.mu_name)
-        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail, Net::SSH::Exception, Net::SSH::ConnectionTimeout => e
+        rescue SystemExit, Timeout::Error, MU::Cloud::BootstrapTempFail, Net::HTTPServerException, HTTPClient::ConnectTimeoutError, WinRM::WinRMError, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, Net::SSH::Exception, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ECONNREFUSED, Errno::EPIPE, SocketError, IOError => e
           if retries < max_retries
             retries += 1
             # Bad Chef installs are possible culprits of bootstrap failures, so
@@ -671,7 +671,7 @@ module MU
                !@config['forced_preclean']
               begin
                 preClean(false) # it's ok for this to fail
-              rescue Exception => e
+              rescue StandardError => e
               end
               MU::Groomer::Chef.cleanup(@server.mu_name, nodeonly: true)
               @config['forced_preclean'] = true
@@ -683,7 +683,7 @@ module MU
           else
             raise MuError, "#{@server.mu_name}: Knife Bootstrap failed too many times with #{e.inspect}"
           end
-        rescue Exception => e
+        rescue StandardError => e
 MU.log e.inspect, MU::ERR, details: e.backtrace
 sleep 10*retries
 retry
@@ -785,7 +785,7 @@ retry
             chef_node.save
           end
           return chef_node['deployment']
-        rescue Net::HTTPServerException => e
+        rescue Net::HTTPServerException
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
         end
       end
@@ -804,7 +804,7 @@ retry
             MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
             begin
               ::Chef::Knife.run(['vault', 'remove', vault['vault'], vault['item'], "--search", "name:#{node}"]) if !noop
-            rescue Exception => e
+            rescue StandardError => e
               MU.log "Error removing vault access for #{node} from #{vault['vault']} #{vault['item']}", MU::ERR, details: e.inspect
             end
             MU::MommaCat.unlock("vault-#{vault['vault']}")
@@ -858,7 +858,7 @@ retry
                   ::Chef::Knife.run(['vault', 'refresh', vault['vault'], vault['item']])
                 end
               end
-            rescue JSON::ParserError => e
+            rescue JSON::ParserError
               MU.log "Error parsing JSON from data bag #{vault['vault']} #{vault['item']}_keys, skipping vault client cleanse", MU::WARN
             end
           end
@@ -887,7 +887,7 @@ retry
         MU.log "Granting #{host} access to #{vault} #{item}"
         begin
           ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{host}"])
-        rescue Exception => e
+        rescue StandardError => e
           MU.log e.inspect, MU::ERR, details: caller
         end
         MU::MommaCat.unlock("vault-#{vault}", true)
@@ -898,7 +898,7 @@ retry
       # Save common Mu attributes to this node's Chef node structure.
       def saveChefMetadata
         self.class.loadChefLib
-        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
+        @server.getSSHConfig # why though
         MU.log "Saving #{@server.mu_name} Chef artifacts"
 
         begin
@@ -998,7 +998,7 @@ retry
           deploy = MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
           @config['dependencies'].each{ |dep|
             if dep['type'] == "database" && deploy.deployment.has_key?("databases") && deploy.deployment["databases"].has_key?(dep['name'])
-                deploy.deployment["databases"][dep['name']].each { |name, database|
+                deploy.deployment["databases"][dep['name']].values.each { |database|
                 grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
               }
             end
@@ -1030,6 +1030,7 @@ retry
         end
         return [exitstatus, output]
       end
+      private_class_method :knifeCmd
 
       def knifeCmd(cmd, showoutput = false)
         self.class.knifeCmd(cmd, showoutput)
@@ -1063,9 +1064,11 @@ retry
         if multiple.size == 0
           multiple = [rl_entry]
         end
-        multiple.each { |entry|
+        multiple.map! { |entry|
           if !entry.match(/^role|recipe\[/)
-            entry = "#{type}[#{entry}]"
+            "#{type}[#{entry}]"
+          else
+            entry
           end
         }
 
@@ -1110,8 +1113,8 @@ retry
           MU.log("Adding #{rl_string} to Chef run_list of #{@server.mu_name}")
           MU.log("Running #{query}", MU::DEBUG)
           output=%x{#{query}}
-            # XXX rescue Exception is bad style
-        rescue Exception => e
+            # XXX rescue StandardError is bad style
+        rescue StandardError => e
           raise MuError, "FAIL: #{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} \"#{rl_string}\": #{e.message} (output was #{output})"
         end
       end

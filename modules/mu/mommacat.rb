@@ -393,7 +393,7 @@ module MU
                   end
                   attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
                 end
-              rescue Exception => e
+              rescue StandardError => e
                 if e.class != MU::Cloud::MuCloudResourceNotImplemented
                   MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
                 end
@@ -469,7 +469,7 @@ module MU
         end
       end
 
-      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+      MU::Cloud.resource_types.values.each { |attrs|
         type = attrs[:cfg_plural]
         if @original_config[type]
           @original_config[type].each { |resource|
@@ -967,7 +967,7 @@ module MU
         MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
 
         kitten.groom
-      rescue Exception => e
+      rescue StandardError => e
         MU::MommaCat.unlockAll
         if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exist?(deploy_dir+"/.cleanup."+cloud_id) and !File.exist?(deploy_dir+"/.cleanup")
           MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
@@ -1227,7 +1227,7 @@ module MU
                       server.destroy
                       deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
                       deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
-                    rescue Exception => e
+                    rescue StandardError => e
                       MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
                       next
                     end
@@ -1309,7 +1309,7 @@ module MU
     ) 
       start = Time.now
       callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, dummy_ok: #{dummy_ok.to_s}, flags: #{flags.to_s}) from #{caller[0]}"
-      callstack = caller.dup
+#      callstack = caller.dup
 
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
       shortclass, _cfg_name, cfg_plural, classname, _attrs = MU::Cloud.getResourceNames(type)
@@ -1536,15 +1536,9 @@ module MU
                 regions.each { |reg| region_threads << Thread.new(reg) { |r|
                   MU.log "findStray: Searching #{r} in #{p} (#{region_threads.size.to_s} region threads running) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
                   MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-begin
                   found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
                   MU.log "findStray: #{found ? found.size.to_s : "nil"} results - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-rescue Exception => e
-MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
-pp e.backtrace
-MU.log "#{callstr}", MU::WARN, details: callstack
-exit
-end
+
                   if found
                     desc_semaphore.synchronize {
                       cloud_descs[p][r] = found
@@ -1680,7 +1674,7 @@ end
             }
           end
         }
-      rescue Exception => e
+      rescue StandardError => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
       MU.log "findStray: returning #{matches ? matches.size.to_s : "0"} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
@@ -2008,7 +2002,6 @@ end
           File.open(knownhosts, File::CREAT|File::RDWR, 0600) { |f|
             f.flock(File::LOCK_EX)
             newlines = Array.new
-            delete_block = false
             f.readlines.each { |line|
               next if line.match(/^#{Regexp.quote(ip)} /)
               newlines << line
@@ -2466,7 +2459,7 @@ MESSAGE_END
                 }
               }
             end
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "#{e.inspect} while generating Nagios SSH config in #{deploy_id}", MU::ERR, details: e.backtrace
           end
         }
@@ -3081,6 +3074,7 @@ MESSAGE_END
       }
     end
 
+
     ###########################################################################
     ###########################################################################
     def self.deploy_dir(deploy_id)
@@ -3094,6 +3088,8 @@ MESSAGE_END
       path = path+"/"+deploy_id
       return path
     end
+    private_class_method :deploy_dir
+
 
     def self.deploy_exists?(deploy_id)
       if deploy_id.nil? or deploy_id.empty?
@@ -3107,6 +3103,7 @@ MESSAGE_END
       deploy_path = File.expand_path(path+"/"+deploy_id)
       return Dir.exist?(deploy_path)
     end
+    private_class_method :deploy_exists?
 
 
     def createDeployKey
@@ -3114,6 +3111,7 @@ MESSAGE_END
       MU.log "Generated deploy key for #{MU.deploy_id}", MU::DEBUG, details: key.public_key.export
       return [key.export, key.public_key.export]
     end
+
 
     # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
     # @return [Hash,Array<Hash>]
@@ -3249,54 +3247,71 @@ MESSAGE_END
 
       return matches
     end
+    private_class_method :getResourceMetadata
+
+    ###########################################################################
+    ###########################################################################
+    def setThreadContextToMe
+      ["appname", "environment", "timestamp", "seed", "handle"].each { |var|
+        @deployment[var] ||= instance_variable_get("@#{var}".to_sym)
+        if @deployment[var]
+          if var != "handle"
+            MU.setVar(var, @deployment[var].upcase)
+          else
+            MU.setVar(var, @deployment[var])
+          end
+        else
+          MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
+        end
+      }
+    end
+
+    ###########################################################################
+    ###########################################################################
+    def loadDeployFromCache(set_context_to_me = true)
+      return false if !File.size?(deploy_dir+"/deployment.json")
+
+      deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
+      MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
+      # deploy.flock(File::LOCK_EX)
+      begin
+        Timeout::timeout(90) {deploy.flock(File::LOCK_EX)}
+      rescue Timeout::Error
+        raise MuError, "Timed out trying to get an exclusive lock on #{deploy_dir}/deployment.json"
+      end
+
+      begin
+        @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
+      rescue JSON::ParserError => e
+        MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR, details: e.message
+      end
+
+      deploy.flock(File::LOCK_UN)
+      deploy.close
+
+      setThreadContextToMe if set_context_to_me
+
+      @timestamp = @deployment['timestamp']
+      @seed = @deployment['seed']
+      @appname = @deployment['appname']
+      @handle = @deployment['handle']
+
+      true
+    end
 
     ###########################################################################
     ###########################################################################
     def loadDeploy(deployment_json_only = false, set_context_to_me: true)
       MU::MommaCat.deploy_struct_semaphore.synchronize {
-        if File.size?(deploy_dir+"/deployment.json")
-          deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
-          MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
-          # deploy.flock(File::LOCK_EX)
-          begin
-            Timeout::timeout(90) {deploy.flock(File::LOCK_EX)}
-          rescue Timeout::Error
-            raise MuError, "Timed out trying to get an exclusive lock on #{deploy_dir}/deployment.json"
-          end
+        success = loadDeployFromCache(set_context_to_me)
 
-          begin
-            @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
-          rescue JSON::ParserError => e
-            MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR, details: e.message
-          end
+        return if deployment_json_only and success
 
-          deploy.flock(File::LOCK_UN)
-          deploy.close
-          if set_context_to_me
-            ["appname", "environment", "timestamp", "seed", "handle"].each { |var|
-              @deployment[var] ||= instance_variable_get("@#{var}".to_sym)
-              if @deployment[var]
-                if var != "handle"
-                  MU.setVar(var, @deployment[var].upcase)
-                else
-                  MU.setVar(var, @deployment[var])
-                end
-              else
-                MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
-              end
-            }
-          end
-          @timestamp = @deployment['timestamp']
-          @seed = @deployment['seed']
-          @appname = @deployment['appname']
-          @handle = @deployment['handle']
-
-          return if deployment_json_only
-        end
         if File.exist?(deploy_dir+"/private_key")
           @private_key = File.read("#{deploy_dir}/private_key")
           @public_key = File.read("#{deploy_dir}/public_key")
         end
+
         if File.exist?(deploy_dir+"/basket_of_kittens.json")
           begin
             @original_config = JSON.parse(File.read("#{deploy_dir}/basket_of_kittens.json"))

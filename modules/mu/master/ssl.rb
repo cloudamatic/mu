@@ -90,7 +90,7 @@ module MU
 
         begin
           csr = OpenSSL::X509::Request.new File.read csr_path
-        rescue Exception => e
+        rescue StandardError => e
           MU.log e.message, MU::ERR, details: File.read(csr_path)
           raise e
         end
@@ -224,6 +224,7 @@ puts cn_str
 
       private
 
+      private_class_method :toPfx
       def self.toPfx(certfile, keyfile, pfxfile)
         cacert = getCert("Mu_CA", ca: true).first
         cert = OpenSSL::X509::Certificate.new(File.read(certfile))
@@ -235,6 +236,7 @@ puts cn_str
         pfx
       end
 
+      private_class_method :formatSANS
       def self.formatSANS(sans)
         sans.map { |s|
           if s.match(/^\d+\.\d+\.\d+\.\d+$/)

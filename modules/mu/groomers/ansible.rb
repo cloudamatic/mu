@@ -174,7 +174,6 @@ module MU
           raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
-        data = nil
         if item
           itempath = dir+"/"+item
           if !File.exist?(itempath)
@@ -191,7 +190,7 @@ module MU
 
       # see {MU::Groomer::Ansible.deleteSecret}
       def deleteSecret(vault: nil, item: nil)
-        self.class.deleteSecret(vault: vault, item: nil)
+        self.class.deleteSecret(vault: vault, item: item)
       end
 
       # Invoke the Ansible client on the node at the other end of a provided SSH
@@ -207,14 +206,24 @@ module MU
 
         ssh_user = @server.config['ssh_user'] || "root"
 
+# XXX honor override_runlist
+# XXX honor update_runlist
+# XXX honor output
+
         cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         retries = 0
         begin
           MU.log cmd
-          raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}" if !system(cmd)
-        rescue MU::Groomer::RunError => e
+          Timeout::timeout(timeout) {
+            raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}" if !system(cmd)
+          }
+        rescue Timeout::Error, MU::Groomer::RunError => e
           if retries < max_retries
+            if reboot_first_fail and e.class.name == "MU::Groomer::RunError"
+              @server.reboot
+              reboot_first_fail = false
+            end
             sleep 30
             retries += 1
             MU.log "Failed Ansible run, will retry (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE, details: cmd
@@ -316,14 +325,15 @@ module MU
 
       # Expunge Ansible resources associated with a node.
       # @param node [String]: The Mu name of the node in question.
-      # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
+      # @param _vaults_to_clean [Array<Hash>]: Dummy argument, part of this method's interface but not used by the Ansible layer
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
-      # @param nodeonly [Boolean]: Just delete the node and its keys, but leave other artifacts
-      def self.cleanup(node, vaults_to_clean = [], noop = false, nodeonly: false)
+      def self.cleanup(node, _vaults_to_clean = [], noop = false)
         deploy = MU::MommaCat.new(MU.deploy_id)
         inventory = Inventory.new(deploy)
-        ansible_path = deploy.deploy_dir+"/ansible"
-        inventory.remove(node)
+#        ansible_path = deploy.deploy_dir+"/ansible"
+        if !noop
+          inventory.remove(node)
+        end
       end
 
       # List the Ansible vaults, if any, owned by the specified Mu user
@@ -344,8 +354,7 @@ module MU
       # the results to +STDOUT+.
       # @param name [String]: The variable name to use for the string's YAML key
       # @param string [String]: The string to encrypt
-      # @param for_user [String]: Encrypt using the Vault password of the specified Mu user
-      def self.encryptString(name, string, for_user = nil)
+      def self.encryptString(name, string)
         pwfile = vaultPasswordFile
         cmd = %Q{#{ansibleExecDir}/ansible-vault}
         if !system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
@@ -375,6 +384,7 @@ module MU
         end
         path
       end
+      private_class_method :ansibleExecDir
 
       # Get the +.vault_pw+ file for the appropriate user. If it doesn't exist,
       # generate one.
@@ -390,6 +400,7 @@ module MU
         }
         pwfile
       end
+      private_class_method :vaultPasswordFile
 
       # Figure out where our main stash of secrets is, and make sure it exists
       def secret_dir
@@ -403,6 +414,7 @@ module MU
 
         path
       end
+      private_class_method :secret_dir
 
       # Make an effort to distinguish an Ansible role from other sorts of
       # artifacts, since 'roles' is an awfully generic name for a directory.
@@ -543,7 +555,7 @@ module MU
         def haveNode?(name)
           lock
           read
-          @inv.each_pair { |group, nodes|
+          @inv.values.each { |nodes|
             if nodes.include?(name)
               unlock
               return true
@@ -574,7 +586,7 @@ module MU
         def remove(name)
           lock
           read
-          @inv.each_pair { |group, nodes|
+          @inv.each_pair { |_group, nodes|
             nodes.delete(name)
           }
           save!

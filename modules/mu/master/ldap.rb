@@ -360,7 +360,7 @@ module MU
       # @param stamp [Integer]: The MS-style timestamp, e.g. 130838184558490696
       # @return [Time]
       def self.convertMicrosoftTime(stamp)
-        ms_epoch = DateTime.new(1601,1,1).strftime("%Q").to_i
+#        ms_epoch = DateTime.new(1601,1,1).strftime("%Q").to_i
         unixtime = (stamp.to_i/10000) + DateTime.new(1601,1,1).strftime("%Q").to_i
         Time.at(unixtime/1000)
       end
@@ -629,7 +629,7 @@ module MU
         return true if !require_group
 
         shortuser = username.sub(/\@.*/, "")
-        user = findUsers(search = [shortuser], exact: true)
+        user = findUsers([shortuser], exact: true)
         if user[shortuser]["memberOf"].is_a?(Array)
           user[shortuser]["memberOf"].each { |group|
             shortname = group.sub(/^CN=(.*?),.*/, '\1')
@@ -945,7 +945,7 @@ module MU
               cur_users[user]['realname'] = name
             end
             if disable
-              user_props = findUsers([user], exact: true)
+              findUsers([user], exact: true)
               MU.log "Disabling #{user}", MU::WARN
               conn.replace_attribute(user_dn, :userAccountControl, AD_PW_ATTRS['disable'].to_i.to_s(2))
             elsif enable
