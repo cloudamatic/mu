@@ -206,7 +206,7 @@ module MU
           @scraped.each_pair { |type, resources|
             res_class = begin
               MU::Cloud.loadCloudType(cloud, type)
-            rescue MU::Cloud::MuCloudResourceNotImplemented => e
+            rescue MU::Cloud::MuCloudResourceNotImplemented
               # XXX I don't think this can actually happen
               next
             end
@@ -217,8 +217,8 @@ module MU
             class_semaphore = Mutex.new
 
             Thread.abort_on_exception = true
-            resources.each_pair { |cloud_id_thr, obj_thr|
-              threads << Thread.new(cloud_id_thr, obj_thr) { |cloud_id, obj|
+            resources.values.each { |obj_thr|
+              threads << Thread.new(obj_thr) { |obj|
 
                 kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)
                 if kitten_cfg
@@ -307,14 +307,14 @@ module MU
 
     private
 
-    def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, siblings = nil, type: nil)
+    def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, type: nil)
       return if schema_chunk.nil?
 
       if !conf_chunk.nil? and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
         deletia = []
         schema_chunk["properties"].each_pair { |key, subschema|
           next if !conf_chunk[key]
-          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(key)
+          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
 
           if subschema["default_if"]
             subschema["default_if"].each { |cond|
@@ -328,7 +328,7 @@ module MU
           if subschema["default"] and conf_chunk[key] == subschema["default"]
             deletia << key
           elsif ["array", "object"].include?(subschema["type"])
-            scrubSchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass)
+            scrubSchemaDefaults(conf_chunk[key], subschema, depth+1, type: shortclass)
           end
         }
         deletia.each { |key| conf_chunk.delete(key) }
@@ -339,7 +339,7 @@ module MU
           realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
-            toplevel_required, cloudschema = cloudclass.schema(self)
+            _toplevel_required, cloudschema = cloudclass.schema(self)
 
             newschema = schema_chunk["items"].dup
             newschema["properties"].merge!(cloudschema)
@@ -349,7 +349,7 @@ module MU
           end
           next if ["array", "object"].include?(realschema["type"])
 
-          scrubSchemaDefaults(item, realschema, depth+1, conf_chunk, type: type)
+          scrubSchemaDefaults(item, realschema, depth+1, type: type)
         }
       end
 
@@ -373,10 +373,7 @@ module MU
         'billing_acct' => {},
         'us_only' => {},
       }
-      clouds = {}
-      credentials = {}
-      regions = {}
-      MU::Cloud.resource_types.each_pair { |typename, attrs|
+      MU::Cloud.resource_types.values.each { |attrs|
         if bok[attrs[:cfg_plural]]
           processed = []
           bok[attrs[:cfg_plural]].each { |resource|
@@ -434,7 +431,7 @@ module MU
         next if counts.size != 1
         bok[field] = counts.keys.first
         MU.log "Setting global default #{field} to #{bok[field]} (#{deploy.deploy_id})", MU::DEBUG
-        MU::Cloud.resource_types.each_pair { |typename, attrs|
+        MU::Cloud.resource_types.values.each { |attrs|
           if bok[attrs[:cfg_plural]]
             new_resources = []
             bok[attrs[:cfg_plural]].each { |resource|

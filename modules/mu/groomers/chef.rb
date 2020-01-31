@@ -748,7 +748,7 @@ retry
           return
         end
 
-        @server.describe(update_cache: true) # Make sure we're fresh
+        @server.describe
         saveChefMetadata
         begin
           chef_node = ::Chef::Node.load(@server.mu_name)

@@ -720,7 +720,7 @@ next if !create
         # Return a description of this resource appropriate for deployment
         # metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
         def notify
-          node, config, deploydata = describe(cloud_id: @cloud_id, update_cache: true)
+          node, config, deploydata = describe(cloud_id: @cloud_id)
           deploydata = {} if deploydata.nil?
 
           if cloud_desc.nil?

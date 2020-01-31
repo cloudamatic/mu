@@ -274,7 +274,7 @@ module MU
       # Synchronize the deployment structure managed by {MU::MommaCat} into some Ansible variables, so that nodes can access this metadata.
       # @return [Hash]: The data synchronized.
       def saveDeployData
-        @server.describe(update_cache: true) # Make sure we're fresh
+        @server.describe
 
         allvars = {
           "mu_deployment" => MU::Config.stripConfig(@server.deploy.deployment),

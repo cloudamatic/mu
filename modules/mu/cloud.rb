@@ -479,7 +479,7 @@ module MU
       @@platform_cache = MU::Cloud.supportedClouds.map { |cloud|
         begin
           loadCloudType(cloud, :Server)
-        rescue MU::Cloud::MuCloudResourceNotImplemented, MU::MuError => e
+        rescue MU::Cloud::MuCloudResourceNotImplemented, MU::MuError
           next
         end
 
@@ -529,7 +529,7 @@ module MU
                 images.deep_merge!(YAML.load(response))
                 break
               end
-            rescue Exception => e
+            rescue StandardError
               if fail_hard
                 raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
               else
@@ -624,7 +624,7 @@ module MU
         end
       else
         if region
-          images.each_pair { |p, regions|
+          images.values.each { |regions|
             # Filter to match our requested region, but for all the platforms,
             # since we didn't specify one.
             if regions.is_a?(Hash)
@@ -652,7 +652,6 @@ module MU
             cloudclass[:cfg_name] == type or
             cloudclass[:cfg_plural] == type or
             Object.const_get("MU").const_get("Cloud").const_get(name) == type
-          cfg_name = cloudclass[:cfg_name]
           type = name
           return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name), cloudclass]
         end
@@ -802,7 +801,7 @@ module MU
     # @return [Class]: The cloud-specific class implementing this resource
     def self.loadCloudType(cloud, type)
       raise MuError, "cloud argument to MU::Cloud.loadCloudType cannot be nil" if cloud.nil?
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
       if @cloud_class_cache.has_key?(cloud) and @cloud_class_cache[cloud].has_key?(type)
         if @cloud_class_cache[cloud][type].nil?
           raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", caller
@@ -864,7 +863,7 @@ module MU
       }
     }
 
-    @@resource_types.each_pair { |name, attrs|
+    @@resource_types.keys.each { |name|
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
         attr_reader :cloudclass
         attr_reader :cloudobj
@@ -1147,7 +1146,7 @@ module MU
               ip = canonicalIP
               MU::MommaCat.removeIPFromSSHKnownHosts(ip) if ip
               if @deploy and @deploy.deployment and
-                 @deploy.deployment['servers'] and @config['name'] and
+                 @deploy.deployment['servers'] and @config['name']
                 me = @deploy.deployment['servers'][@config['name']][@mu_name]
                 if me
                   ["private_ip_address", "public_ip_address"].each { |field|
@@ -1156,8 +1155,8 @@ module MU
                     end
                   }
                   if me["private_ip_list"]
-                    me["private_ip_list"].each { |ip|
-                      MU::MommaCat.removeIPFromSSHKnownHosts(ip)
+                    me["private_ip_list"].each { |private_ip|
+                      MU::MommaCat.removeIPFromSSHKnownHosts(private_ip)
                     }
                   end
                 end
@@ -1286,7 +1285,7 @@ module MU
               if !@cloud_desc_cache
                 MU.log "cloud_desc via #{self.class.name}.find() failed to locate a live object.\nWas called by #{caller[0]}", MU::WARN, details: args
               end
-            rescue Exception => e
+            rescue StandardError => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
               raise e
             end
@@ -1297,9 +1296,8 @@ module MU
 
         # Retrieve all of the known metadata for this resource.
         # @param cloud_id [String]: The cloud platform's identifier for the resource we're describing. Makes lookups more efficient.
-        # @param update_cache [Boolean]: Ignore cached data if we have any, instead reconsituting from original sources.
         # @return [Array<Hash>]: mu_name, config, deploydata
-        def describe(cloud_id: nil, update_cache: false)
+        def describe(cloud_id: nil)
           if cloud_id.nil? and !@cloudobj.nil?
             @cloud_id ||= @cloudobj.cloud_id
           end
@@ -1614,7 +1612,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               end
               begin
                 cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
-              rescue MU::MuError => e
+              rescue MU::MuError
                 next
               end
 
@@ -1778,17 +1776,14 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                 MU.log "Failed at installing Cygwin", MU::ERR, details: resp
               end
 
-              set_hostname = true
               hostname = nil
               if !@config['active_directory'].nil?
                 if @config['active_directory']['node_type'] == "domain_controller" && @config['active_directory']['domain_controller_hostname']
                   hostname = @config['active_directory']['domain_controller_hostname']
                   @mu_windows_name = hostname
-                  set_hostname = true
                 else
                   # Do we have an AD specific hostname?
                   hostname = @mu_windows_name
-                  set_hostname = true
                 end
               else
                 hostname = @mu_windows_name
@@ -1859,7 +1854,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               end
               if windows?
                 output = ssh.exec!(win_env_fix)
-                output = ssh.exec!(win_installer_check)
+                output += ssh.exec!(win_installer_check)
                 raise MU::Cloud::BootstrapTempFail, "Got nil output from ssh session, waiting and retrying" if output.nil?
                 if output.match(/InProgress/)
                   raise MU::Cloud::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
@@ -1906,10 +1901,9 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           # @param winrm_retries [Integer]:
           # @param reboot_on_problems [Boolean]:
           def getWinRMSession(max_retries = 40, retry_interval = 60, timeout: 30, winrm_retries: 5, reboot_on_problems: false)
-            nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+            _nat_ssh_key, _nat_ssh_user, _nat_ssh_host, canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
             @mu_name ||= @config['mu_name']
 
-            conn = nil
             shell = nil
             opts = nil
             # and now, a thing I really don't want to do
@@ -1960,7 +1954,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           # @return [Net::SSH::Connection::Session]
           def getSSHSession(max_retries = 12, retry_interval = 30)
             ssh_keydir = Etc.getpwnam(@deploy.mu_user).dir+"/.ssh"
-            nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+            nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, _ssh_key_name = getSSHConfig
             session = nil
             retries = 0
 
@@ -2011,7 +2005,8 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               e.remember_host!
               session.close
               retry
-            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, MU::Cloud::NetSSHFail => e
+#            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, MU::Cloud::NetSSHFail => e
+            rescue SystemExit, Timeout::Error, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, Net::SSH::Exception, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ECONNREFUSED, Errno::EPIPE, SocketError, IOError => e
               begin
                 session.close if !session.nil?
               rescue Net::SSH::Disconnect, IOError => e
@@ -2064,7 +2059,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               cloudclass.cleanup(params)
             rescue MuCloudResourceNotImplemented
               MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
-            rescue Exception => e
+            rescue StandardError => e
               in_msg = cloud
               if params and params[:region]
                 in_msg += " "+params[:region]
