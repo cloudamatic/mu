@@ -383,9 +383,9 @@ module MU
 
       # Generic pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
       # @param lb [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(lb, configurator)
+      def self.validate(lb, _configurator)
         ok = true
         # Convert old-school listener declarations into target groups and health
         # checks, for which AWS and Google both have equivalents.
@@ -446,7 +446,7 @@ module MU
                 else
                   found = false
                   lb['targetgroups'].each { |tg|
-                    if l['targetgroup'] == action['targetgroup']
+                    if tg['name'] == action['targetgroup']
                       found = true
                       break
                     end

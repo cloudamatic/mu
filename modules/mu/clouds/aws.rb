@@ -38,7 +38,7 @@ module MU
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
       # resources) have always been done.
       # @param cloudobj [MU::Cloud]
-      # @param deploy [MU::MommaCat]
+      # @param _deploy [MU::MommaCat]
       def self.resourceInitHook(cloudobj, _deploy)
         class << self
           attr_reader :cloudformation_data

@@ -99,9 +99,9 @@ module MU
 
       # Generic pre-processing of {MU::Config::BasketofKittens::functions}, bare and unvalidated.
       # @param function [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(function, configurator)
+      def self.validate(function, _configurator)
         ok = true
         if !function['code']
           ok = false

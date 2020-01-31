@@ -35,10 +35,10 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::nosqldbs}, bare and unvalidated.
-      # @param db [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _db [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(db, configurator)
+      def self.validate(_db, _configurator)
         ok = true
 
         ok

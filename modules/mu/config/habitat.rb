@@ -38,10 +38,10 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::habitat}, bare and unvalidated.
-      # @param habitat [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _habitat [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(habitat, configurator)
+      def self.validate(_habitat, _configurator)
         ok = true
         ok
       end
