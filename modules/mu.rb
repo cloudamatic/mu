@@ -349,6 +349,13 @@ module MU
 
     if Gem.paths and Gem.paths.home and File.dirname(__FILE__).match(/^#{Gem.paths.home}/)
       @in_gem = true
+    elsif Gem.paths and Gem.paths.path and !Gem.paths.path.empty?
+      Gem.paths.path.each { |p|
+        if File.dirname(__FILE__).match(/^#{Regexp.quote(p)}/)
+          @in_gem = true
+        end
+      }
+      @in_gem = false if !defined? @in_gem
     else
       @in_gem = false
     end
