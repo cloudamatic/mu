@@ -16,7 +16,7 @@ require 'pp'
 require 'base64'
 require 'etc'
 
-home = Etc.getpwuid(Process.uid).dir
+Etc.getpwuid(Process.uid).dir
 
 if !ENV.include?('MU_INSTALLDIR')
   ENV['MU_INSTALLDIR'] = "/opt/mu"
@@ -52,7 +52,7 @@ end
 
 begin
   MU::MommaCat.syncMonitoringConfig(false)
-rescue Exception => e
+rescue StandardError => e
   MU.log e.inspect, MU::ERR, details: e.backtrace
   # ...but don't die!
 end
@@ -64,13 +64,11 @@ Thread.new {
     MU::MommaCat.cleanTerminatedInstances
     MU::Master.cleanExpiredScratchpads if $ENABLE_SCRATCHPAD
     sleep 60
-  rescue Exception => e
+  rescue StandardError => e
     MU.log "Error in cleanTerminatedInstances thread: #{e.inspect}", MU::ERR, details: e.backtrace
     retry
   end while true
 }
-
-required_vars = ["mu_id", "mu_deploy_secret", "mu_resource_name", "mu_resource_type", "mu_instance_id"]
 
 # Use a template to generate a pleasant-looking HTML page for simple messages
 # and errors.
@@ -193,7 +191,6 @@ def releaseKitten(mu_id)
 end
 
 app = proc do |env|
-  ok = false
   returnval = [
       200,
       {
@@ -356,7 +353,6 @@ app = proc do |env|
 
     elsif !env["rack.input"].nil?
       req = Rack::Utils.parse_nested_query(env["rack.input"].read)
-      ok = true
 
       if req["mu_user"].nil?
         req["mu_user"] = "mu"
@@ -373,7 +369,6 @@ app = proc do |env|
       kittenpile = getKittenPile(req)
       if kittenpile.nil? or kittenpile.original_config.nil? or kittenpile.original_config[req["mu_resource_type"]+"s"].nil?
         returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} in deploy_id #{req["mu_id"]}"
-        ok = false
         next
       end
       server_cfg = nil
@@ -385,7 +380,6 @@ app = proc do |env|
       }
       if server_cfg.nil?
         returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}"
-        ok = false
         next
       end
 
@@ -426,7 +420,6 @@ MU.log "ADDVOLUME REQUEST", MU::WARN, details: params
           instance.addVolume(params["dev"], params["size"], delete_on_termination: params["delete_on_termination"])
         else
           returnval = throw500 "I don't know how to add a volume for #{instance}"
-          ok = false
         end
       elsif !instance.nil?
         if !req["mu_bootstrap"].nil?
@@ -434,16 +427,13 @@ MU.log "ADDVOLUME REQUEST", MU::WARN, details: params
           returnval[2] = ["Grooming asynchronously, check Momma Cat logs on the master for details."]
         else
           returnval = throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
-          ok = false
         end
       else
         returnval = throw500 "No such instance id '#{req["mu_instance_id"]}' nor was this an SSL signing request"
-        ok = false
       end
     end
-  rescue Exception => e
+  rescue StandardError => e
     returnval = throw500 "Invalid request: #{e.inspect} (#{req})", e.backtrace
-    ok = false
   ensure
     if !req.nil?
       releaseKitten(req['mu_id'])

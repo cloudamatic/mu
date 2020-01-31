@@ -649,7 +649,7 @@ module MU
      !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
-      hostname = IO.readlines("/etc/hostname")[0].gsub /\n/, ''
+      hostname = IO.readlines("/etc/hostname")[0].gsub(/\n/, '')
 
       hostlines = File.open('/etc/hosts').grep(/.*#{hostname}.*/)
       if hostlines and !hostlines.empty?

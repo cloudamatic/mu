@@ -418,7 +418,6 @@ module MU
         if !vpc['ip_block']
           if configurator.updating and configurator.existing_deploy and
              configurator.existing_deploy.original_config['vpcs']
-            pieces = []
             configurator.existing_deploy.original_config['vpcs'].each { |v|
               if v['name'] == vpc['name']
                 vpc['ip_block'] = v['ip_block']
@@ -799,7 +798,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               end
               @@reference_cache[vpc_block] ||= ext_vpc if ok
             end
-          rescue Exception => e
+          rescue StandardError => e
             raise MuError, e.inspect, e.backtrace
           ensure
             if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
@@ -877,7 +876,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
             begin
               ext_subnet = ext_vpc.getSubnet(cloud_id: vpc_block['subnet_id'], name: vpc_block['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-            rescue MuError => e
+            rescue MuError
             end
 
             if ext_subnet.nil?
@@ -918,7 +917,6 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
           public_subnets = []
           public_subnets_map = {}
           subnet_ptr = "subnet_id"
-          all_subnets = []
           if !is_sibling
             pub = priv = 0
             raise MuError, "No subnets found in #{ext_vpc}" if ext_vpc.subnets.nil?
