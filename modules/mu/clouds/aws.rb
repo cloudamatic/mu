@@ -39,7 +39,7 @@ module MU
       # resources) have always been done.
       # @param cloudobj [MU::Cloud]
       # @param deploy [MU::MommaCat]
-      def self.resourceInitHook(cloudobj, deploy)
+      def self.resourceInitHook(cloudobj, _deploy)
         class << self
           attr_reader :cloudformation_data
         end
@@ -63,7 +63,6 @@ module MU
           return nil
         end
 
-        loaded = false
         cred_obj = nil
         if cred_cfg['access_key'] and cred_cfg['access_secret'] and
           # access key and secret just sitting in mu.yaml
@@ -328,7 +327,7 @@ module MU
       # server resides.
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
-      def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
+      def self.listAZs(region: MU.curRegion, credentials: nil)
         cfg = credConfig(credentials)
         return [] if !cfg
         if !region.nil? and @@azs[region]
@@ -491,7 +490,30 @@ module MU
       # @param cloudobj [MU::Cloud::AWS]: The resource from which to extract the habitat id
       # @return [String,nil]
       def self.habitat(cloudobj, nolookup: false, deploy: nil)
-        cloudobj.respond_to?(:account_number) ? cloudobj.account_number : nil
+        @@habmap ||= {}
+# XXX whaddabout config['habitat'] HNNNGH
+
+        if cloudobj.respond_to?(:account_number) and cloudobj.account_number and
+           !cloudobj.account_number.empty?
+          return cloudobj.account_number
+        elsif cloudobj.config and cloudobj.config['account']
+          if nolookup
+            return cloudobj.config['account']
+          end
+          if @@habmap[cloudobj.config['account']]
+            return @@habmap[cloudobj.config['account']]
+          end
+          deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
+
+#          accountobj = accountLookup(cloudobj.config['account'], deploy, raise_on_fail: false)
+
+#          if accountobj
+#            @@habmap[cloudobj.config['account']] = accountobj.cloud_id
+#            return accountobj.cloud_id
+#          end
+        end
+
+        nil
       end
 
 
@@ -506,7 +528,6 @@ module MU
 
         return creds['account_number'] if creds['account_number']
 
-        user_list = MU::Cloud::AWS.iam(credentials: name).list_users.users
         acct_num = MU::Cloud::AWS.iam(credentials: name).list_users.users.first.arn.split(/:/)[4]
         acct_num.to_s
       end
@@ -543,8 +564,8 @@ module MU
         if !found
           MU.log "Attempting to create log bucket #{cfg['log_bucket_name']} for credentials #{credentials}", MU::WARN
           begin
-            resp = MU::Cloud::AWS.s3(credentials: credentials).create_bucket(bucket: cfg['log_bucket_name'], acl: "private")
-          rescue Aws::S3::Errors::BucketAlreadyExists => e
+            MU::Cloud::AWS.s3(credentials: credentials).create_bucket(bucket: cfg['log_bucket_name'], acl: "private")
+          rescue Aws::S3::Errors::BucketAlreadyExists
             raise MuError, "AWS credentials #{credentials} need a log bucket, and the name #{cfg['log_bucket_name']} is unavailable. Use mu-configure to edit credentials '#{credentials}' or 'hostname'"
           end
         end
@@ -620,9 +641,9 @@ module MU
             # Check each credential sets' resident account, then
             $MU_CFG['aws'].each_pair { |acctname, cfg|
               begin
-                user_list = MU::Cloud::AWS.iam(credentials: acctname).list_users.users
+                MU::Cloud::AWS.iam(credentials: acctname).list_users.users
 #             rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
-              rescue Exception => e
+              rescue StandardError => e
                 MU.log e.inspect, MU::WARN, details: cfg
                 next
               end
@@ -653,7 +674,7 @@ module MU
 #       begin
 #          user_list = MU::Cloud::AWS.iam(region: credConfig['region']).list_users.users
 ##        rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
-#        rescue Exception => e
+#        rescue StandardError => e
 #          MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
 #        end
 #        if user_list.nil? or user_list.size == 0
@@ -682,7 +703,6 @@ module MU
         if @@regions.size == 0
           return [] if credConfig.nil?
           result = MU::Cloud::AWS.ec2(region: myRegion, credentials: credentials).describe_regions.regions
-          regions = []
           @@regions_semaphore.synchronize {
             begin
               result.each { |r|
@@ -1237,7 +1257,7 @@ module MU
         end
 
         allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-        MU::MommaCat.listAllNodes.each_pair { |node, data|
+        MU::MommaCat.listAllNodes.values.each { |data|
           next if data.nil? or !data.is_a?(Hash)
           ["public_ip_address"].each { |key|
             if data.has_key?(key) and !data[key].nil? and !data[key].empty?
@@ -1266,7 +1286,7 @@ module MU
                             }
                         ]
                     )
-                  rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
+                  rescue Aws::EC2::Errors::InvalidPermissionNotFound
                     MU.log "Permission disappeared from #{sg_id} (port #{port.to_s}) before I could remove it", MU::WARN, details: MU.structToHash(rule.ip_ranges)
                   end
                 end
@@ -1299,8 +1319,6 @@ module MU
           }
         }
       end
-
-      private
 
       # XXX we shouldn't have to do this, but AWS does not provide a way to look
       # it up, and the pricing API only returns the human-readable strings.
@@ -1397,7 +1415,7 @@ module MU
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region} with credentials #{@credentials}, waiting #{interval.to_s}s and retrying. Args were: #{arguments}", debuglevel, details: caller
             sleep interval
             retry
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region} with credentials #{@credentials}", MU::DEBUG, details: arguments
             raise e
           end

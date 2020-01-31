@@ -222,9 +222,12 @@ puts cn_str
         [cert, pfx_cert]
       end
 
-      private
 
-      private_class_method :toPfx
+      # Convert an x509 certificate to the .pfx thing Windows likes
+      # @param certfile [String]: Path to source certificate
+      # @param keyfile [String]: Path to source certificate's key
+      # @param pfxfile [String]: Path to output the new certificate
+      # @return [OpenSSL::PKCS12]
       def self.toPfx(certfile, keyfile, pfxfile)
         cacert = getCert("Mu_CA", ca: true).first
         cert = OpenSSL::X509::Certificate.new(File.read(certfile))
@@ -235,8 +238,12 @@ puts cn_str
         }
         pfx
       end
+      private_class_method :toPfx
 
-      private_class_method :formatSANS
+      # Given a list of strings that might be IPs or hostnames, format as a
+      # of Subject Alternative Names for use in a certificate.
+      # @param sans [Array<String>]
+      # @return [String]
       def self.formatSANS(sans)
         sans.map { |s|
           if s.match(/^\d+\.\d+\.\d+\.\d+$/)
@@ -246,6 +253,7 @@ puts cn_str
           end
         }.join(",")
       end
+      private_class_method :formatSANS
 
     end
   end
