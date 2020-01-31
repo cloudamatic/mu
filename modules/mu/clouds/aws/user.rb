@@ -257,7 +257,7 @@ module MU
                   }
                   retry
                 rescue ::Aws::IAM::Errors::NoSuchEntity
-rescue Exception => e
+rescue StandardError => e
 MU.log e.inspect, MU::ERR, details: policy
                 end
               end

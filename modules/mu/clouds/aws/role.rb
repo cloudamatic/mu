@@ -754,7 +754,7 @@ end
                   role_name: @mu_name
                 )
               end
-            rescue Exception => e
+            rescue StandardError => e
               MU.log "Error binding role #{@mu_name} to instance profile #{entityname}: #{e.message}", MU::ERR
               raise e
             end

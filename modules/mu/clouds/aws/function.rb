@@ -34,7 +34,7 @@ module MU
                 tags: each_pair
               })
             end
-          rescue Exception => e
+          rescue StandardError => e
             MU.log e, MU::ERR
           end
         end
@@ -565,7 +565,7 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
               role_name: name.to_s
             })
             return role['role']['arn']
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "#{e}", MU::ERR
           end
           nil

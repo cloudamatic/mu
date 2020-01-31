@@ -244,7 +244,7 @@ module MU
             MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
           end
           done = true
-        rescue Exception => e
+        rescue StandardError => e
           if !instance.nil? and !done
             MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
             MU::MommaCat.unlockAll
@@ -883,13 +883,13 @@ module MU
                 initialWinRMTasks(session)
                 begin
                   session.close
-                rescue Exception
+                rescue StandardError
                   # this is allowed to fail- we're probably rebooting anyway
                 end
               else # for an existing Windows node: WinRM, then SSH if it fails
                 begin
                   session = getWinRMSession(1, 60)
-                rescue Exception # yeah, yeah
+                rescue StandardError # yeah, yeah
                   session = getSSHSession(1, 60)
                   # XXX maybe loop at least once if this also fails?
                 end
@@ -1407,7 +1407,7 @@ module MU
             end
           rescue MU::Groomer::RunError => e
             MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN, details: e.message
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "Caught #{e.inspect} on #{node} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
           end
 

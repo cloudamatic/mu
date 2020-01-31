@@ -394,7 +394,7 @@ next if !create
 
             notify
 
-          rescue Exception => e
+          rescue StandardError => e
             if !cloud_desc.nil? and !done
               MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
               MU::MommaCat.unlockAll

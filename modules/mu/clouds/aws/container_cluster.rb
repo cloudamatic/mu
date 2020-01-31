@@ -321,7 +321,7 @@ module MU
                 else
                   begin
                     session = node.getWinRMSession(1, 60)
-                  rescue Exception # XXX
+                  rescue StandardError # XXX
                     session = node.getSSHSession(1, 60)
                   end
                 end

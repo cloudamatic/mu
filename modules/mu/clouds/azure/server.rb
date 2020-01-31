@@ -772,7 +772,7 @@ exit
               begin
 # XXX this doesn't actually work as documented
                 MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.sign(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
-              rescue Exception => e
+              rescue StandardError => e
                 MU.log e.message, MU::ERR
                 vm_obj.plan = nil
               end

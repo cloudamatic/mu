@@ -113,7 +113,7 @@ module MU
                 }
               rescue MU::Groomer::RunError => e
                 MU.log "Proceeding after failed initial Groomer run, but #{member.instance_id} may not behave as expected!", MU::WARN, details: e.inspect
-              rescue Exception => e
+              rescue StandardError => e
                 if !member.nil? and !done
                   MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
                   MU::MommaCat.unlockAll
@@ -846,7 +846,7 @@ module MU
                 next if !s[time]
                 begin
                   Time.parse(s[time])
-                rescue Exception => e
+                rescue StandardError => e
                   MU.log "Failed to parse #{time} '#{s[time]}' in scheduled action for AutoScale group #{pool['name']}: #{e.message}", MU::ERR
                   ok = false
                 end

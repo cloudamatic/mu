@@ -113,7 +113,7 @@ module MU
           @habitat_id = parent_id
           begin
             setProjectBilling
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "Failed to set billing account #{@config['billing_acct']} on project #{@cloud_id}: #{e.message}", MU::ERR
             MU::Cloud::Google.resource_manager(credentials: @config['credentials']).delete_project(@cloud_id)
             raise e

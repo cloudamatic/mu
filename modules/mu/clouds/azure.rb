@@ -266,7 +266,7 @@ module MU
         
         begin
           sdk_response = MU::Cloud::Azure.subs(credentials: credentials).subscriptions().list_locations(subscription)
-        rescue Exception => e
+        rescue StandardError => e
           MU.log e.inspect, MU::ERR, details: e.backtrace
           #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
           if @@regions and @@regions.size > 0

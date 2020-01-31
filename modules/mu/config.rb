@@ -920,7 +920,7 @@ return
       # you can't specify parameters in an included file, because ERB is what's
       # doing the including, and parameters need to already be resolved so that
       # ERB can use them.
-      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true, cloud: cloud)
+      param_cfg, _raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true, cloud: cloud)
       if param_cfg.has_key?("parameters")
         param_cfg["parameters"].each { |param|
           if param.has_key?("default") and param["default"].nil?
@@ -976,7 +976,7 @@ return
       $parameters = @@parameters.dup
       $parameters.freeze
 
-      tmp_cfg, raw_erb = resolveConfig(path: @@config_path, cloud: cloud)
+      tmp_cfg, _raw_erb = resolveConfig(path: @@config_path, cloud: cloud)
 
       # Convert parameter entries that constitute whole config keys into
       # {MU::Config::Tail} objects.
@@ -1022,8 +1022,6 @@ return
         exit 1
       end
 
-      types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
-
       MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }.each { |type|
         if @config[type]
           @config[type].each { |k|
@@ -1059,7 +1057,7 @@ return
           end
         }
         # Now add edges corresponding to the dependencies they list
-        MU::Cloud.resource_types.each_pair { |classname, attrs|
+        MU::Cloud.resource_types.values.each { |attrs|
           if config.has_key?(attrs[:cfg_plural]) and config[attrs[:cfg_plural]]
             config[attrs[:cfg_plural]].each { |resource|
               if resource.has_key?("dependencies")
@@ -1075,7 +1073,7 @@ return
         # Spew some output?
         MU.log "Emitting dependency graph as /tmp/#{config['appname']}.jpg", MU::NOTICE
         g.output(:jpg => "/tmp/#{config['appname']}.jpg")
-      rescue Exception => e
+      rescue StandardError => e
         MU.log "Failed to generate GraphViz dependency tree: #{e.inspect}. This should only matter to developers.", MU::WARN, details: e.backtrace
       end
     end
@@ -1132,7 +1130,7 @@ $CONFIGURABLES
       muyaml_rb.puts "# </pre>"
       muyaml_rb.puts "module MuYAML"
       muyaml_rb.puts "\t# The configuration file format for Mu's main config file."
-      self.printMuYamlSchema(muyaml_rb, [], { "subtree" => mu_yaml_schema })
+      MU::Config.printMuYamlSchema(muyaml_rb, [], { "subtree" => mu_yaml_schema })
       muyaml_rb.puts "end"
       muyaml_rb.close
     end
@@ -1206,7 +1204,7 @@ $CONFIGURABLES
     def haveLitterMate?(name, type, has_multiple: false)
       @kittencfg_semaphore.synchronize {
         matches = []
-        shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+        _shortclass, _cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(type)
         if @kittens[cfg_plural]
           @kittens[cfg_plural].each { |kitten|
             if kitten['name'].to_s == name.to_s or
@@ -1233,7 +1231,7 @@ $CONFIGURABLES
     # @param type [String]: The type of resource being removed
     def removeKitten(name, type)
       @kittencfg_semaphore.synchronize {
-        shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+        _shortclass, _cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(type)
         deletia = nil
         if @kittens[cfg_plural]
           @kittens[cfg_plural].each { |kitten|
@@ -1290,7 +1288,7 @@ $CONFIGURABLES
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
     def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false, overwrite: false)
       append = false
-      start = Time.now
+#      start = Time.now
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       MU.log "insertKitten on #{cfg_name} #{descriptor['name']} (delay_validation: #{delay_validation.to_s})", MU::DEBUG, details: caller[0]
 
@@ -1617,7 +1615,7 @@ $CONFIGURABLES
         plain_cfg.delete("parent_block") if cfg_plural == "vpcs"
         begin
           JSON::Validator.validate!(myschema, plain_cfg)
-        rescue JSON::Schema::ValidationError => e
+        rescue JSON::Schema::ValidationError
           pp plain_cfg
           # Use fully_validate to get the complete error list, save some time
           errors = JSON::Validator.fully_validate(myschema, plain_cfg)
@@ -1822,7 +1820,399 @@ $CONFIGURABLES
       return {"type" => "firewall_rule", "name" => name}
     end
 
-    private
+    # JSON-schema for resource dependencies
+    # @return [Hash]
+    def self.dependencies_primitive
+      {
+        "type" => "array",
+        "items" => {
+            "type" => "object",
+            "description" => "Declare other objects which this resource requires. This resource will wait until the others are available to create itself.",
+            "required" => ["name", "type"],
+            "additionalProperties" => false,
+            "properties" => {
+                "name" => {"type" => "string"},
+                "type" => {
+                    "type" => "string",
+                    "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
+                },
+                "phase" => {
+                  "type" => "string",
+                  "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
+                  "enum" => ["create", "groom"]
+                },
+                "no_create_wait" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
+                }
+            }
+        }
+      }
+    end
+
+    # Have a default value available for config schema elements that take an
+    # email address.
+    # @return [String]
+    def self.notification_email 
+      if MU.chef_user == "mu"
+        ENV['MU_ADMIN_EMAIL']
+      else
+        MU.userEmail
+      end
+    end
+
+    # Emit our Basket of Kittens schema in a format that YARD can comprehend
+    # and turn into documentation.
+    def self.printSchema(kitten_rb, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
+      return if schema.nil?
+
+      if schema["type"] == "object"
+        printme = []
+
+        if !schema["properties"].nil?
+          # order sub-elements by whether they're required, so we can use YARD's
+          # grouping tags on them
+          if !schema["required"].nil? and schema["required"].size > 0
+            prop_list = schema["properties"].keys.sort_by { |name|
+              schema["required"].include?(name) ? 0 : 1
+            }
+          else
+            prop_list = schema["properties"].keys
+          end
+          req = false
+          printme << "# @!group Optional parameters" if schema["required"].nil? or schema["required"].size == 0
+          prop_list.each { |name|
+            prop = schema["properties"][name]
+
+            if class_hierarchy.size == 1
+
+              _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(name)
+              if cfg_name
+                example_path = MU.myRoot+"/modules/mu/config/"+cfg_name+".yml"
+                if File.exist?(example_path)
+                  example = "#\n# Examples:\n#\n"
+                  # XXX these variables are all parameters from the BoKs in
+                  # modules/tests. A really clever implementation would read
+                  # and parse them to get default values, perhaps, instead of
+                  # hard-coding them here.
+                  instance_type = "t2.medium"
+                  db_size = "db.t2.medium"
+                  vpc_name = "some_vpc"
+                  logs_name = "some_loggroup"
+                  queues_name = "some_queue"
+                  server_pools_name = "some_server_pool"
+                  ["simple", "complex"].each { |complexity|
+                    erb = ERB.new(File.read(example_path), nil, "<>")
+                    example += "#      !!!yaml\n"
+                    example += "#      ---\n"
+                    example += "#      appname: #{complexity}\n"
+                    example += "#      #{cfg_plural}:\n"
+                    firstline = true
+                    erb.result(binding).split(/\n/).each { |l|
+                      l.chomp!
+                      l.sub!(/#.*/, "") if !l.match(/#(?:INTERNET|NAT|DENY)/)
+                      next if l.empty? or l.match(/^\s+$/)
+                      if firstline
+                        l = "- "+l
+                        firstline = false
+                      else
+                        l = "  "+l
+                      end
+                      example += "#      "+l+"    "+"\n"
+                    }
+                    example += "# &nbsp;\n#\n" if complexity == "simple"
+                  }
+                  schema["properties"][name]["items"]["description"] ||= ""
+                  if !schema["properties"][name]["items"]["description"].empty?
+                    schema["properties"][name]["items"]["description"] += "\n"
+                  end
+                  schema["properties"][name]["items"]["description"] += example
+                end
+              end
+            end
+
+            if !schema["required"].nil? and schema["required"].include?(name)
+              printme << "# @!group Required parameters" if !req
+              req = true
+            else
+              if req
+                printme << "# @!endgroup"
+                printme << "# @!group Optional parameters"
+              end
+              req = false
+            end
+
+            printme << self.printSchema(kitten_rb, class_hierarchy+ [name], prop, false, req, prefix: schema["prefix"])
+          }
+          printme << "# @!endgroup"
+        end
+
+        tabs = 1
+        class_hierarchy.each { |classname|
+          if classname == class_hierarchy.last and !schema['description'].nil?
+            kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + "# #{schema['description']}\n"
+          end
+          kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + "class #{classname}"
+          tabs = tabs + 1
+        }
+        printme.each { |lines|
+          if !lines.nil? and lines.is_a?(String)
+            lines.lines.each { |line|
+              kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + line
+            }
+          end
+        }
+
+        i = class_hierarchy.size
+        until i == 0 do
+          tabs = tabs - 1
+          kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + "end"
+          i -= 1
+        end
+
+        # And now that we've dealt with our children, pass our own rendered
+        # commentary back up to our caller.
+        name = class_hierarchy.last
+        if in_array
+          type = "Array<#{class_hierarchy.join("::")}>"
+        else
+          type = class_hierarchy.join("::")
+        end
+
+        docstring = "\n"
+        docstring = docstring + "# **REQUIRED**\n" if required
+        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
+        docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
+        docstring = docstring + "#\n"
+        docstring = docstring + "# @return [#{type}]\n"
+        docstring = docstring + "# @see #{class_hierarchy.join("::")}\n"
+        docstring = docstring + "attr_accessor :#{name}"
+        return docstring
+
+      elsif schema["type"] == "array"
+        return self.printSchema(kitten_rb, class_hierarchy, schema['items'], true, required, prefix: prefix)
+      else
+        name = class_hierarchy.last
+        if schema['type'].nil?
+          MU.log "Couldn't determine schema type in #{class_hierarchy.join(" => ")}", MU::WARN, details: schema
+          return nil
+        end
+        if in_array
+          type = "Array<#{schema['type'].capitalize}>"
+        else
+          type = schema['type'].capitalize
+        end
+        docstring = "\n"
+
+        prefixes = []
+        prefixes << "# **REQUIRED**" if required and schema['default'].nil?
+        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
+        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
+        if !schema['enum'].nil? and !schema["enum"].empty?
+          prefixes << "# **Must be one of: `#{schema['enum'].join(', ')}`**"
+        elsif !schema['pattern'].nil?
+          # XXX unquoted regex chars confuse the hell out of YARD. How do we
+          # quote {}[] etc in YARD-speak?
+          prefixes << "# **Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`**"
+        end
+
+        if prefixes.size > 0
+          docstring += prefixes.join(",\n")
+          if schema['description'] and schema['description'].size > 1
+            docstring += " - "
+          end
+          docstring += "\n"
+        end
+
+        docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
+        docstring = docstring + "#\n"
+        docstring = docstring + "# @return [#{type}]\n"
+        docstring = docstring + "attr_accessor :#{name}"
+
+        return docstring
+      end
+    end
+
+    # Emit our mu.yaml schema in a format that YARD can comprehend and turn into
+    # documentation.
+    def self.printMuYamlSchema(muyaml_rb, class_hierarchy, schema, in_array = false, required = false)
+      return if schema.nil?
+      if schema["subtree"]
+        printme = Array.new
+        # order sub-elements by whether they're required, so we can use YARD's
+        # grouping tags on them
+        have_required = schema["subtree"].keys.any? { |k| schema["subtree"][k]["required"] }
+        prop_list = schema["subtree"].keys.sort { |a, b|
+          if schema["subtree"][a]["required"] and !schema["subtree"][b]["required"]
+            -1
+          elsif !schema["subtree"][a]["required"] and schema["subtree"][b]["required"]
+            1
+          else
+            a <=> b
+          end
+        }
+
+        req = false
+        printme << "# @!group Optional parameters" if !have_required
+        prop_list.each { |name|
+          prop = schema["subtree"][name]
+          if prop["required"]
+            printme << "# @!group Required parameters" if !req
+            req = true
+          else
+            if req
+              printme << "# @!endgroup"
+              printme << "# @!group Optional parameters"
+            end
+            req = false
+          end
+
+          printme << self.printMuYamlSchema(muyaml_rb, class_hierarchy+ [name], prop, false, req)
+        }
+        printme << "# @!endgroup"
+
+        desc = (schema['desc'] || schema['title'])
+
+        tabs = 1
+        class_hierarchy.each { |classname|
+          if classname == class_hierarchy.last and desc
+            muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "# #{desc}\n"
+          end
+          muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "class #{classname}"
+          tabs = tabs + 1
+        }
+        printme.each { |lines|
+          if !lines.nil? and lines.is_a?(String)
+            lines.lines.each { |line|
+              muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + line
+            }
+          end
+        }
+
+#        class_hierarchy.each { |classname|
+#          tabs = tabs - 1
+#          muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "end"
+#        }
+        i = class_hierarchy.size
+        until i == 0 do
+          tabs = tabs - 1
+          muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "end"
+          i -= 1
+        end
+
+        # And now that we've dealt with our children, pass our own rendered
+        # commentary back up to our caller.
+        name = class_hierarchy.last
+        if in_array
+          type = "Array<#{class_hierarchy.join("::")}>"
+        else
+          type = class_hierarchy.join("::")
+        end
+
+        docstring = "\n"
+        docstring = docstring + "# **REQUIRED**\n" if required
+#        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
+        docstring = docstring + "# #{desc.gsub(/\n/, "\n#")}\n" if desc
+        docstring = docstring + "#\n"
+        docstring = docstring + "# @return [#{type}]\n"
+        docstring = docstring + "# @see #{class_hierarchy.join("::")}\n"
+        docstring = docstring + "attr_accessor :#{name}"
+        return docstring
+
+      else
+        in_array = schema["array"]
+        name = class_hierarchy.last
+        type = if schema['boolean']
+          "Boolean"
+        else
+          "String"
+        end
+        if in_array
+          type = "Array<#{type}>"
+        end
+        docstring = "\n"
+
+        prefixes = []
+        prefixes << "# **REQUIRED**" if schema["required"] and schema['default'].nil?
+#        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
+        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
+        if !schema['pattern'].nil?
+          # XXX unquoted regex chars confuse the hell out of YARD. How do we
+          # quote {}[] etc in YARD-speak?
+          prefixes << "# **Must match pattern `#{schema['pattern'].to_s.gsub(/\n/, "\n#")}`**"
+        end
+
+        desc = (schema['desc'] || schema['title'])
+        if prefixes.size > 0
+          docstring += prefixes.join(",\n")
+          if desc and desc.size > 1
+            docstring += " - "
+          end
+          docstring += "\n"
+        end
+
+        docstring = docstring + "# #{desc.gsub(/\n/, "\n#")}\n" if !desc.nil?
+        docstring = docstring + "#\n"
+        docstring = docstring + "# @return [#{type}]\n"
+        docstring = docstring + "attr_accessor :#{name}"
+
+        return docstring
+      end
+    end
+
+    # For our resources which specify intra-stack dependencies, make sure those
+    # dependencies are actually declared.
+    # TODO check for loops
+    def self.check_dependencies(config)
+      ok = true
+
+      config.each_pair { |type, values|
+        if values.instance_of?(Array)
+          values.each { |resource|
+            if resource.kind_of?(Hash) and !resource["dependencies"].nil?
+              append = []
+              delete = []
+              resource["dependencies"].each { |dependency|
+                _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(dependency["type"])
+                found = false
+                names_seen = []
+                if !config[cfg_plural].nil?
+                  config[cfg_plural].each { |service|
+                    names_seen << service["name"].to_s
+                    found = true if service["name"].to_s == dependency["name"].to_s
+                    if service["virtual_name"] 
+                      names_seen << service["virtual_name"].to_s
+                      if service["virtual_name"].to_s == dependency["name"].to_s
+                        found = true
+                        append_me = dependency.dup
+                        append_me['name'] = service['name']
+                        append << append_me
+                        delete << dependency
+                      end
+                    end
+                  }
+                end
+                if !found
+                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR, details: names_seen
+                  ok = false
+                end
+              }
+              if append.size > 0
+                append.uniq!
+                resource["dependencies"].concat(append)
+              end
+              if delete.size > 0
+                delete.each { |delete_me|
+                  resource["dependencies"].delete(delete_me)
+                }
+              end
+            end
+          }
+        end
+      }
+      return ok
+    end
 
     def self.resolveYAMLAnchors(lines)
       new_text = ""
@@ -1843,7 +2233,6 @@ $CONFIGURABLES
       return new_text
     end
 
-
     # Given a path to a config file, try to guess whether it's YAML or JSON.
     # @param path [String]: The path to the file to check.
     def self.guessFormat(path)
@@ -1852,10 +2241,10 @@ $CONFIGURABLES
       stripped = raw.gsub(/<%.*?%>,?/, "").gsub(/,[\n\s]*([\]\}])/, '\1')
       begin
         JSON.parse(stripped)
-      rescue JSON::ParserError => e
+      rescue JSON::ParserError
         begin
           YAML.load(raw.gsub(/<%.*?%>/, ""))
-        rescue Psych::SyntaxError => e
+        rescue Psych::SyntaxError
           # Ok, well neither of those worked, let's assume that filenames are
           # meaningful.
           if path.match(/\.(yaml|yml)$/i)
@@ -1935,7 +2324,7 @@ $CONFIGURABLES
       end
       begin
         erb = ERB.new(File.read(file), nil, "<>")
-      rescue Errno::ENOENT => e
+      rescue Errno::ENOENT
         retries = retries + 1
         if retries == 1
           file = File.dirname(MU::Config.config_path)+"/"+orig_filename
@@ -1960,12 +2349,12 @@ $CONFIGURABLES
         parsed_cfg = nil
         begin
           parsed_cfg = JSON.parse(erb.result(binding))
-          parsed_as = :json
+#          parsed_as = :json
         rescue JSON::ParserError => e
           MU.log e.inspect, MU::DEBUG
           begin
             parsed_cfg = YAML.load(MU::Config.resolveYAMLAnchors(erb.result(binding)))
-            parsed_as = :yaml
+#            parsed_as = :yaml
           rescue Psych::SyntaxError => e
             MU.log e.inspect, MU::DEBUG
             MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN if @param_pass
@@ -1980,14 +2369,9 @@ $CONFIGURABLES
           $yaml_refs[file] = ""+YAML.dump(parsed_cfg).sub(/^---\n/, "")
           return "# MU::Config.include PLACEHOLDER #{file} REDLOHECALP"
         end
-      rescue SyntaxError => e
+      rescue SyntaxError
         raise ValidationError, "ERB in #{file} threw a syntax error"
       end
-    end
-
-    # (see #include)
-    def include(file)
-      MU::Config.include(file, get_binding(@@tails.keys.sort), param_pass = @param_pass)
     end
 
     @@bindings = {}
@@ -1996,6 +2380,13 @@ $CONFIGURABLES
     # ones.
     def self.global_bindings
       @@bindings
+    end
+
+    private
+
+    # (see #include)
+    def include(file)
+      MU::Config.include(file, get_binding(@@tails.keys.sort), @param_pass)
     end
 
     # Namespace magic to pass to ERB's result method.
@@ -2021,7 +2412,7 @@ $CONFIGURABLES
             schema_chunk["properties"]["creation_style"] != "existing"
           schema_chunk["properties"].each_pair { |key, subschema|
             shortclass = if conf_chunk[key]
-              shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(key)
+              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
               shortclass
             else
               nil
@@ -2039,7 +2430,7 @@ $CONFIGURABLES
           realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
             cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
-            toplevel_required, cloudschema = cloudclass.schema(self)
+            _toplevel_required, cloudschema = cloudclass.schema(self)
 
             newschema = schema_chunk["items"].dup
             newschema["properties"].merge!(cloudschema)
@@ -2065,60 +2456,6 @@ $CONFIGURABLES
 
       return conf_chunk
     end
-
-    # For our resources which specify intra-stack dependencies, make sure those
-    # dependencies are actually declared.
-    # TODO check for loops
-    def self.check_dependencies(config)
-      ok = true
-
-      config.each_pair { |type, values|
-        if values.instance_of?(Array)
-          values.each { |resource|
-            if resource.kind_of?(Hash) and !resource["dependencies"].nil?
-              append = []
-              delete = []
-              resource["dependencies"].each { |dependency|
-                shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(dependency["type"])
-                found = false
-                names_seen = []
-                if !config[cfg_plural].nil?
-                  config[cfg_plural].each { |service|
-                    names_seen << service["name"].to_s
-                    found = true if service["name"].to_s == dependency["name"].to_s
-                    if service["virtual_name"] 
-                      names_seen << service["virtual_name"].to_s
-                      if service["virtual_name"].to_s == dependency["name"].to_s
-                        found = true
-                        append_me = dependency.dup
-                        append_me['name'] = service['name']
-                        append << append_me
-                        delete << dependency
-                      end
-                    end
-                  }
-                end
-                if !found
-                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR, details: names_seen
-                  ok = false
-                end
-              }
-              if append.size > 0
-                append.uniq!
-                resource["dependencies"].concat(append)
-              end
-              if delete.size > 0
-                delete.each { |delete_me|
-                  resource["dependencies"].delete(delete_me)
-                }
-              end
-            end
-          }
-        end
-      }
-      return ok
-    end
-
 
     # Verify that a server or server_pool has a valid AD config referencing
     # valid Vaults for credentials.
@@ -2177,7 +2514,7 @@ $CONFIGURABLES
       end
       return ok
     end
-
+    private_class_method :check_vault_refs
     
     # Given a bare hash describing a resource, insert default values which can
     # be inherited from its parent or from the root of the BoK.
@@ -2193,7 +2530,7 @@ $CONFIGURABLES
       end
 
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
       resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
 
       schema_fields = ["us_only", "scrub_mu_isms", "credentials", "billing_acct"]
@@ -2321,7 +2658,7 @@ $CONFIGURABLES
         ruleset = haveLitterMate?("database"+db['name'], "firewall_rules")
         if ruleset
           ["server_pools", "servers"].each { |type|
-            shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+            _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(type)
             @kittens[cfg_plural].each { |server|
               server["dependencies"].each { |dep|
                 if dep["type"] == "database" and dep["name"] == db["name"]
@@ -2378,328 +2715,6 @@ $CONFIGURABLES
 #      end
     end
 
-    # Emit our mu.yaml schema in a format that YARD can comprehend and turn into
-    # documentation.
-    def self.printMuYamlSchema(muyaml_rb, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
-      return if schema.nil?
-      if schema["subtree"]
-        printme = Array.new
-        # order sub-elements by whether they're required, so we can use YARD's
-        # grouping tags on them
-        have_required = schema["subtree"].keys.any? { |k| schema["subtree"][k]["required"] }
-        prop_list = schema["subtree"].keys.sort { |a, b|
-          if schema["subtree"][a]["required"] and !schema["subtree"][b]["required"]
-            -1
-          elsif !schema["subtree"][a]["required"] and schema["subtree"][b]["required"]
-            1
-          else
-            a <=> b
-          end
-        }
-
-        req = false
-        printme << "# @!group Optional parameters" if !have_required
-        prop_list.each { |name|
-          prop = schema["subtree"][name]
-          if prop["required"]
-            printme << "# @!group Required parameters" if !req
-            req = true
-          else
-            if req
-              printme << "# @!endgroup"
-              printme << "# @!group Optional parameters"
-            end
-            req = false
-          end
-
-          printme << self.printMuYamlSchema(muyaml_rb, class_hierarchy+ [name], prop, false, req)
-        }
-        printme << "# @!endgroup"
-
-        desc = (schema['desc'] || schema['title'])
-
-        tabs = 1
-        class_hierarchy.each { |classname|
-          if classname == class_hierarchy.last and desc
-            muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "# #{desc}\n"
-          end
-          muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "class #{classname}"
-          tabs = tabs + 1
-        }
-        printme.each { |lines|
-          if !lines.nil? and lines.is_a?(String)
-            lines.lines.each { |line|
-              muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + line
-            }
-          end
-        }
-
-        class_hierarchy.each { |classname|
-          tabs = tabs - 1
-          muyaml_rb.puts ["\t"].cycle(tabs).to_a.join('') + "end"
-        }
-
-        # And now that we've dealt with our children, pass our own rendered
-        # commentary back up to our caller.
-        name = class_hierarchy.last
-        if in_array
-          type = "Array<#{class_hierarchy.join("::")}>"
-        else
-          type = class_hierarchy.join("::")
-        end
-
-        docstring = "\n"
-        docstring = docstring + "# **REQUIRED**\n" if required
-#        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
-        docstring = docstring + "# #{desc.gsub(/\n/, "\n#")}\n" if desc
-        docstring = docstring + "#\n"
-        docstring = docstring + "# @return [#{type}]\n"
-        docstring = docstring + "# @see #{class_hierarchy.join("::")}\n"
-        docstring = docstring + "attr_accessor :#{name}"
-        return docstring
-
-      else
-        in_array = schema["array"]
-        name = class_hierarchy.last
-        type = if schema['boolean']
-          "Boolean"
-        else
-          "String"
-        end
-        if in_array
-          type = "Array<#{type}>"
-        end
-        docstring = "\n"
-
-        prefixes = []
-        prefixes << "# **REQUIRED**" if schema["required"] and schema['default'].nil?
-#        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
-        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
-        if !schema['pattern'].nil?
-          # XXX unquoted regex chars confuse the hell out of YARD. How do we
-          # quote {}[] etc in YARD-speak?
-          prefixes << "# **Must match pattern `#{schema['pattern'].to_s.gsub(/\n/, "\n#")}`**"
-        end
-
-        desc = (schema['desc'] || schema['title'])
-        if prefixes.size > 0
-          docstring += prefixes.join(",\n")
-          if desc and desc.size > 1
-            docstring += " - "
-          end
-          docstring += "\n"
-        end
-
-        docstring = docstring + "# #{desc.gsub(/\n/, "\n#")}\n" if !desc.nil?
-        docstring = docstring + "#\n"
-        docstring = docstring + "# @return [#{type}]\n"
-        docstring = docstring + "attr_accessor :#{name}"
-
-        return docstring
-      end
-
-    end
-
-    # Emit our Basket of Kittens schema in a format that YARD can comprehend
-    # and turn into documentation.
-    def self.printSchema(kitten_rb, class_hierarchy, schema, in_array = false, required = false, prefix: nil)
-      return if schema.nil?
-
-      if schema["type"] == "object"
-        printme = []
-
-        if !schema["properties"].nil?
-          # order sub-elements by whether they're required, so we can use YARD's
-          # grouping tags on them
-          if !schema["required"].nil? and schema["required"].size > 0
-            prop_list = schema["properties"].keys.sort_by { |name|
-              schema["required"].include?(name) ? 0 : 1
-            }
-          else
-            prop_list = schema["properties"].keys
-          end
-          req = false
-          printme << "# @!group Optional parameters" if schema["required"].nil? or schema["required"].size == 0
-          prop_list.each { |name|
-            prop = schema["properties"][name]
-
-            if class_hierarchy.size == 1
-
-              _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(name)
-              if cfg_name
-                example_path = MU.myRoot+"/modules/mu/config/"+cfg_name+".yml"
-                if File.exist?(example_path)
-                  example = "#\n# Examples:\n#\n"
-                  # XXX these variables are all parameters from the BoKs in
-                  # modules/tests. A really clever implementation would read
-                  # and parse them to get default values, perhaps, instead of
-                  # hard-coding them here.
-                  instance_type = "t2.medium"
-                  db_size = "db.t2.medium"
-                  vpc_name = "some_vpc"
-                  logs_name = "some_loggroup"
-                  queues_name = "some_queue"
-                  server_pools_name = "some_server_pool"
-                  ["simple", "complex"].each { |complexity|
-                    erb = ERB.new(File.read(example_path), nil, "<>")
-                    example += "#      !!!yaml\n"
-                    example += "#      ---\n"
-                    example += "#      appname: #{complexity}\n"
-                    example += "#      #{cfg_plural}:\n"
-                    firstline = true
-                    erb.result(binding).split(/\n/).each { |l|
-                      l.chomp!
-                      l.sub!(/#.*/, "") if !l.match(/#(?:INTERNET|NAT|DENY)/)
-                      next if l.empty? or l.match(/^\s+$/)
-                      if firstline
-                        l = "- "+l
-                        firstline = false
-                      else
-                        l = "  "+l
-                      end
-                      example += "#      "+l+"    "+"\n"
-                    }
-                    example += "# &nbsp;\n#\n" if complexity == "simple"
-                  }
-                  schema["properties"][name]["items"]["description"] ||= ""
-                  if !schema["properties"][name]["items"]["description"].empty?
-                    schema["properties"][name]["items"]["description"] += "\n"
-                  end
-                  schema["properties"][name]["items"]["description"] += example
-                end
-              end
-            end
-
-            if !schema["required"].nil? and schema["required"].include?(name)
-              printme << "# @!group Required parameters" if !req
-              req = true
-            else
-              if req
-                printme << "# @!endgroup"
-                printme << "# @!group Optional parameters"
-              end
-              req = false
-            end
-
-            printme << self.printSchema(kitten_rb, class_hierarchy+ [name], prop, false, req, prefix: schema["prefix"])
-          }
-          printme << "# @!endgroup"
-        end
-
-        tabs = 1
-        class_hierarchy.each { |classname|
-          if classname == class_hierarchy.last and !schema['description'].nil?
-            kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + "# #{schema['description']}\n"
-          end
-          kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + "class #{classname}"
-          tabs = tabs + 1
-        }
-        printme.each { |lines|
-          if !lines.nil? and lines.is_a?(String)
-            lines.lines.each { |line|
-              kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + line
-            }
-          end
-        }
-
-        class_hierarchy.each { |classname|
-          tabs = tabs - 1
-          kitten_rb.puts ["\t"].cycle(tabs).to_a.join('') + "end"
-        }
-
-        # And now that we've dealt with our children, pass our own rendered
-        # commentary back up to our caller.
-        name = class_hierarchy.last
-        if in_array
-          type = "Array<#{class_hierarchy.join("::")}>"
-        else
-          type = class_hierarchy.join("::")
-        end
-
-        docstring = "\n"
-        docstring = docstring + "# **REQUIRED**\n" if required
-        docstring = docstring + "# **"+schema["prefix"]+"**\n" if schema["prefix"]
-        docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
-        docstring = docstring + "#\n"
-        docstring = docstring + "# @return [#{type}]\n"
-        docstring = docstring + "# @see #{class_hierarchy.join("::")}\n"
-        docstring = docstring + "attr_accessor :#{name}"
-        return docstring
-
-      elsif schema["type"] == "array"
-        return self.printSchema(kitten_rb, class_hierarchy, schema['items'], true, required, prefix: prefix)
-      else
-        name = class_hierarchy.last
-        if schema['type'].nil?
-          MU.log "Couldn't determine schema type in #{class_hierarchy.join(" => ")}", MU::WARN, details: schema
-          return nil
-        end
-        if in_array
-          type = "Array<#{schema['type'].capitalize}>"
-        else
-          type = schema['type'].capitalize
-        end
-        docstring = "\n"
-
-        prefixes = []
-        prefixes << "# **REQUIRED**" if required and schema['default'].nil?
-        prefixes << "# **"+schema["prefix"]+"**" if schema["prefix"]
-        prefixes << "# **Default: `#{schema['default']}`**" if !schema['default'].nil?
-        if !schema['enum'].nil? and !schema["enum"].empty?
-          prefixes << "# **Must be one of: `#{schema['enum'].join(', ')}`**"
-        elsif !schema['pattern'].nil?
-          # XXX unquoted regex chars confuse the hell out of YARD. How do we
-          # quote {}[] etc in YARD-speak?
-          prefixes << "# **Must match pattern `#{schema['pattern'].gsub(/\n/, "\n#")}`**"
-        end
-
-        if prefixes.size > 0
-          docstring += prefixes.join(",\n")
-          if schema['description'] and schema['description'].size > 1
-            docstring += " - "
-          end
-          docstring += "\n"
-        end
-
-        docstring = docstring + "# #{schema['description'].gsub(/\n/, "\n#")}\n" if !schema['description'].nil?
-        docstring = docstring + "#\n"
-        docstring = docstring + "# @return [#{type}]\n"
-        docstring = docstring + "attr_accessor :#{name}"
-
-        return docstring
-      end
-
-    end
-
-    def self.dependencies_primitive
-      {
-        "type" => "array",
-        "items" => {
-            "type" => "object",
-            "description" => "Declare other objects which this resource requires. This resource will wait until the others are available to create itself.",
-            "required" => ["name", "type"],
-            "additionalProperties" => false,
-            "properties" => {
-                "name" => {"type" => "string"},
-                "type" => {
-                    "type" => "string",
-                    "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
-                },
-                "phase" => {
-                  "type" => "string",
-                  "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
-                  "enum" => ["create", "groom"]
-                },
-                "no_create_wait" => {
-                    "type" => "boolean",
-                    "default" => false,
-                    "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
-                }
-            }
-        }
-      }
-    end
-
     CIDR_PATTERN = "^\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}$"
     CIDR_DESCRIPTION = "CIDR-formatted IP block, e.g. 1.2.3.4/32"
     CIDR_PRIMITIVE = {
@@ -2708,16 +2723,6 @@ $CONFIGURABLES
       "description" => CIDR_DESCRIPTION
     }
 
-    # Have a default value available for config schema elements that take an
-    # email address.
-    # @return [String]
-    def self.notification_email 
-      if MU.chef_user == "mu"
-        ENV['MU_ADMIN_EMAIL']
-      else
-        MU.userEmail
-      end
-    end
 
     # Load and validate the schema for an individual resource class, optionally
     # merging cloud-specific schema components.
@@ -2726,7 +2731,7 @@ $CONFIGURABLES
     # @return [Hash]
     def self.loadResourceSchema(type, cloud: nil)
       valid = true
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
 
       [:schema, :validate].each { |method|
@@ -2752,7 +2757,7 @@ $CONFIGURABLES
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
 
         if cloudclass.respond_to?(:schema)
-          reqd, cloudschema = cloudclass.schema
+          _reqd, cloudschema = cloudclass.schema
           cloudschema.each { |key, cfg|
             if schema["properties"][key]
               schemaMerge(schema["properties"][key], cfg, cloud)
@@ -2769,6 +2774,7 @@ $CONFIGURABLES
 
       return [schema, valid]
     end
+    private_class_method :loadResourceSchema
 
     @@schema = {
       "$schema" => "http://json-schema.org/draft-04/schema#",
@@ -2881,7 +2887,7 @@ $CONFIGURABLES
     MU::Cloud.resource_types.each_pair { |type, cfg|
       begin
         require "mu/config/#{cfg[:cfg_name]}"
-      rescue LoadError => e
+      rescue LoadError
 #        raise MuError, "MU::Config implemention of #{type} missing from modules/mu/config/#{cfg[:cfg_name]}.rb"
         MU.log "MU::Config::#{type} stub class is missing", MU::ERR
         failed << type
