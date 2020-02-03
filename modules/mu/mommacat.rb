@@ -3037,82 +3037,6 @@ MESSAGE_END
     # @param type [String]: The type of resource, e.g. "vpc" or "server."
     # @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
     # @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
-
-    private
-
-    # Check to see whether a given resource name is unique across all
-    # deployments on this Mu server. We only enforce this for certain classes
-    # of names. If the name in question is available, add it to our cache of
-    # said names.  See #{MU::MommaCat.getResourceName}
-    # @param name [String]: The name to attempt to allocate.
-    # @return [Boolean]: True if allocation was successful.
-    def allocateUniqueResourceName(name)
-      raise MuError, "Cannot call allocateUniqueResourceName without an active deployment" if @deploy_id.nil?
-      path = File.expand_path(MU.dataDir+"/deployments")
-      File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
-        existing = []
-        f.flock(File::LOCK_EX)
-        f.readlines.each { |line|
-          existing << line.chomp
-        }
-        begin
-          existing.each { |used|
-            if used.match(/^#{name}:/)
-              if !used.match(/^#{name}:#{@deploy_id}$/)
-                MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN, details: caller
-                return false
-              else
-                return true
-              end
-            end
-          }
-          f.puts name+":"+@deploy_id
-          return true
-        ensure
-          f.flock(File::LOCK_UN)
-        end
-      }
-    end
-
-
-    ###########################################################################
-    ###########################################################################
-    def self.deploy_dir(deploy_id)
-      raise MuError, "deploy_dir must get a deploy_id if called as class method (from #{caller[0]}; #{caller[1]})" if deploy_id.nil?
-# XXX this will blow up if someone sticks MU in /
-      path = File.expand_path(MU.dataDir+"/deployments")
-      if !Dir.exist?(path)
-        MU.log "Creating #{path}", MU::DEBUG
-        Dir.mkdir(path, 0700)
-      end
-      path = path+"/"+deploy_id
-      return path
-    end
-    private_class_method :deploy_dir
-
-
-    def self.deploy_exists?(deploy_id)
-      if deploy_id.nil? or deploy_id.empty?
-        MU.log "Got nil deploy_id in MU::MommaCat.deploy_exists?", MU::WARN
-        return
-      end
-      path = File.expand_path(MU.dataDir+"/deployments")
-      if !Dir.exist?(path)
-        Dir.mkdir(path, 0700)
-      end
-      deploy_path = File.expand_path(path+"/"+deploy_id)
-      return Dir.exist?(deploy_path)
-    end
-    private_class_method :deploy_exists?
-
-
-    def createDeployKey
-      key = OpenSSL::PKey::RSA.generate(4096)
-      MU.log "Generated deploy key for #{MU.deploy_id}", MU::DEBUG, details: key.public_key.export
-      return [key.export, key.public_key.export]
-    end
-
-
     # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
     # @return [Hash,Array<Hash>]
     def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
@@ -3247,7 +3171,81 @@ MESSAGE_END
 
       return matches
     end
-    private_class_method :getResourceMetadata
+
+    # Get the deploy directory
+    # @param deploy_id [String]
+    # @return [String]
+    def self.deploy_dir(deploy_id)
+      raise MuError, "deploy_dir must get a deploy_id if called as class method (from #{caller[0]}; #{caller[1]})" if deploy_id.nil?
+# XXX this will blow up if someone sticks MU in /
+      path = File.expand_path(MU.dataDir+"/deployments")
+      if !Dir.exist?(path)
+        MU.log "Creating #{path}", MU::DEBUG
+        Dir.mkdir(path, 0700)
+      end
+      path = path+"/"+deploy_id
+      return path
+    end
+
+    # Does the deploy with the given id exist?
+    # @param deploy_id [String]
+    # @return [String]
+    def self.deploy_exists?(deploy_id)
+      if deploy_id.nil? or deploy_id.empty?
+        MU.log "Got nil deploy_id in MU::MommaCat.deploy_exists?", MU::WARN
+        return
+      end
+      path = File.expand_path(MU.dataDir+"/deployments")
+      if !Dir.exist?(path)
+        Dir.mkdir(path, 0700)
+      end
+      deploy_path = File.expand_path(path+"/"+deploy_id)
+      return Dir.exist?(deploy_path)
+    end
+
+    private
+
+    # Check to see whether a given resource name is unique across all
+    # deployments on this Mu server. We only enforce this for certain classes
+    # of names. If the name in question is available, add it to our cache of
+    # said names.  See #{MU::MommaCat.getResourceName}
+    # @param name [String]: The name to attempt to allocate.
+    # @return [Boolean]: True if allocation was successful.
+    def allocateUniqueResourceName(name)
+      raise MuError, "Cannot call allocateUniqueResourceName without an active deployment" if @deploy_id.nil?
+      path = File.expand_path(MU.dataDir+"/deployments")
+      File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
+        existing = []
+        f.flock(File::LOCK_EX)
+        f.readlines.each { |line|
+          existing << line.chomp
+        }
+        begin
+          existing.each { |used|
+            if used.match(/^#{name}:/)
+              if !used.match(/^#{name}:#{@deploy_id}$/)
+                MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN, details: caller
+                return false
+              else
+                return true
+              end
+            end
+          }
+          f.puts name+":"+@deploy_id
+          return true
+        ensure
+          f.flock(File::LOCK_UN)
+        end
+      }
+    end
+
+
+    def createDeployKey
+      key = OpenSSL::PKey::RSA.generate(4096)
+      MU.log "Generated deploy key for #{MU.deploy_id}", MU::DEBUG, details: key.public_key.export
+      return [key.export, key.public_key.export]
+    end
+
 
     ###########################################################################
     ###########################################################################
