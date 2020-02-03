@@ -362,8 +362,8 @@ module MU
         end
       end
 
-      private
-
+      # Hunt down and return a path for Ansible executables
+      # @return [String]
       def self.ansibleExecDir
         path = nil
         if File.exist?(BINDIR+"/ansible-playbook")
@@ -384,7 +384,8 @@ module MU
         end
         path
       end
-      private_class_method :ansibleExecDir
+
+      private
 
       # Get the +.vault_pw+ file for the appropriate user. If it doesn't exist,
       # generate one.
