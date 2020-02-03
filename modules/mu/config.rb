@@ -117,11 +117,11 @@ module MU
         MU::Cloud.supportedClouds.each { |cloud|
           begin
             require "mu/clouds/#{cloud.downcase}/#{attrs[:cfg_name]}"
-          rescue LoadError => e
+          rescue LoadError
             next
           end
           res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
-          required, res_schema = res_class.schema(self)
+          _required, res_schema = res_class.schema(self)
           docschema["properties"][attrs[:cfg_plural]]["items"]["description"] ||= ""
           docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+res_class.quality
           res_schema.each { |key, cfg|
@@ -141,7 +141,7 @@ module MU
         if cfg["type"] == "array" and cfg["items"]
           cfg["items"] = prepend_descriptions(prefix, cfg["items"])
         elsif cfg["type"] == "object" and cfg["properties"]
-          cfg["properties"].each_pair { |key, subcfg|
+          cfg["properties"].keys.each { |key|
             cfg["properties"][key] = prepend_descriptions(prefix, cfg["properties"][key])
           }
         end
@@ -271,7 +271,6 @@ module MU
         required = [:id, :type]
 
         @@ref_semaphore.synchronize {
-          match = nil
           @@refs.each { |ref|
             saw_mismatch = false
             saw_match = false
@@ -539,7 +538,7 @@ end
             # don't be the cause of a fatal error if so, we don't need this
             # object that badly.
             raise e if !e.message.match(/recursive locking/)
-rescue SystemExit => e
+rescue SystemExit
 # XXX this is temporary, to cope with some debug stuff that's in findStray
 # for the nonce
 return
@@ -2614,9 +2613,11 @@ $CONFIGURABLES
         }
       }
 
+      newrules = []
       @kittens["firewall_rules"].each { |acl|
-        acl = resolveIntraStackFirewallRefs(acl)
+        newrules << resolveIntraStackFirewallRefs(acl)
       }
+      @kittens["firewall_rules"] = newrules
 
       # VPCs do complex things in their cloud-layer validation that other
       # resources tend to need, like subnet allocation, so hit them early.

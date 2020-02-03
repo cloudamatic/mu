@@ -368,15 +368,24 @@ module MU
             }
           end
 
+          # map from GKE Kuberentes addon parameter names to our BoK equivalent
+          # fields so we can check all these programmatically
+          addon_map = {
+            :horizontal_pod_autoscaling => 'horizontal_pod_autoscaling',
+            :http_load_balancing => 'http_load_balancing',
+            :kubernetes_dashboard => 'dashboard',
+            :network_policy_config => 'network_policy_addon'
+          }
+
           if @config['kubernetes']
-            if (me.addons_config.horizontal_pod_autoscaling.disabled and @config['kubernetes']['horizontal_pod_autoscaling']) or
-               (!me.addons_config.horizontal_pod_autoscaling and !@config['kubernetes']['horizontal_pod_autoscaling']) or
-               (me.addons_config.http_load_balancing.disabled and @config['kubernetes']['http_load_balancing']) or
-               (!me.addons_config.http_load_balancing and !@config['kubernetes']['http_load_balancing']) or
-               (me.addons_config.kubernetes_dashboard.disabled and @config['kubernetes']['dashboard']) or
-               (!me.addons_config.kubernetes_dashboard and !@config['kubernetes']['dashboard']) or
-               (me.addons_config.network_policy_config.disabled and @config['kubernetes']['network_policy_addon']) or
-               (!me.addons_config.network_policy_config and !@config['kubernetes']['network_policy_addon'])
+            have_changes = false
+            addon_map.each_pair { |param, bok_param|
+              if (me.addons_config.send(param).disabled and @config['kubernetes'][bok_param]) or
+                 (!me.addons_config.send(param) and !@config['kubernetes'][bok_param])
+                have_changes = true
+              end
+            }
+            if have_changes
               updates << { :desired_addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
                 horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
                   disabled: !@config['kubernetes']['horizontal_pod_autoscaling']
