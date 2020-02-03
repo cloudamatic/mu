@@ -513,7 +513,7 @@ module MU
                     if eni_resp and eni_resp.data and
                        eni_resp.data.network_interfaces
                       eni_resp.data.network_interfaces.each { |iface|
-                        iface_groups = iface.groups.map { |sg| sg.group_id }
+                        iface_groups = iface.groups.map { |if_sg| if_sg.group_id }
                         iface_groups.delete(sg.group_id)
                         iface_groups << default_sg if iface_groups.empty?
                         MU.log "Attempting to remove #{sg.group_id} from ENI #{iface.network_interface_id}"

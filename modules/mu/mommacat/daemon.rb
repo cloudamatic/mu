@@ -185,7 +185,7 @@ module MU
         MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
       end
       MU::MommaCat.getLitter(MU.deploy_id)
-      MU::MommaCat.syncMonitoringConfig(false)
+      MU::Master.syncMonitoringConfig(false)
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
       FileUtils.touch(MU.dataDir+"/deployments/#{MU.deploy_id}/#{name}_done.txt")
       MU::MommaCat.unlockAll
@@ -273,7 +273,7 @@ module MU
         if MU.myCloud == "AWS"
           MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
-        MU::MommaCat.syncMonitoringConfig
+        MU::Master.syncMonitoringConfig
         GC.start
       end
       MU.log "cleanTerminatedInstances returning", loglevel

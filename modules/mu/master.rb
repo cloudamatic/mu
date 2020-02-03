@@ -706,5 +706,104 @@ module MU
       end
     end
 
+    # Ensure that the Nagios configuration local to the MU master has been
+    # updated, and make sure Nagios has all of the ssh keys it needs to tunnel
+    # to client nodes.
+    # @return [void]
+    def self.syncMonitoringConfig(blocking = true)
+      return if Etc.getpwuid(Process.uid).name != "root" or (MU.mu_user != "mu" and MU.mu_user != "root")
+      parent_thread_id = Thread.current.object_id
+      nagios_threads = []
+      nagios_threads << Thread.new {
+        MU.dupGlobals(parent_thread_id)
+        realhome = Etc.getpwnam("nagios").dir
+        [NAGIOS_HOME, "#{NAGIOS_HOME}/.ssh"].each { |dir|
+          Dir.mkdir(dir, 0711) if !Dir.exist?(dir)
+          File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, dir)
+        }
+        if realhome != NAGIOS_HOME and Dir.exist?(realhome) and !File.symlink?("#{realhome}/.ssh")
+          File.rename("#{realhome}/.ssh", "#{realhome}/.ssh.#{$$}") if Dir.exist?("#{realhome}/.ssh")
+          File.symlink("#{NAGIOS_HOME}/.ssh", Etc.getpwnam("nagios").dir+"/.ssh")
+        end
+        MU.log "Updating #{NAGIOS_HOME}/.ssh/config..."
+        ssh_lock = File.new("#{NAGIOS_HOME}/.ssh/config.mu.lock", File::CREAT|File::TRUNC|File::RDWR, 0600)
+        ssh_lock.flock(File::LOCK_EX)
+        ssh_conf = File.new("#{NAGIOS_HOME}/.ssh/config.tmp", File::CREAT|File::TRUNC|File::RDWR, 0600)
+        ssh_conf.puts "Host MU-MASTER localhost"
+        ssh_conf.puts "  Hostname localhost"
+        ssh_conf.puts "  User root"
+        ssh_conf.puts "  IdentityFile #{NAGIOS_HOME}/.ssh/id_rsa"
+        ssh_conf.puts "  StrictHostKeyChecking no"
+        ssh_conf.close
+        FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{NAGIOS_HOME}/.ssh/id_rsa")
+        File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/id_rsa")
+        threads = []
+
+        parent_thread_id = Thread.current.object_id
+        MU::MommaCat.listDeploys.sort.each { |deploy_id|
+          begin
+            # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
+            deploy = MU::MommaCat.getLitter(deploy_id)
+            if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
+              MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
+              next
+            end
+            FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
+            File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
+            if deploy.kittens.has_key?("servers")
+              deploy.kittens["servers"].values.each { |nodeclasses|
+                nodeclasses.values.each { |nodes|
+                  nodes.values.each { |server|
+                    next if !server.cloud_desc
+                    MU.dupGlobals(parent_thread_id)
+                    threads << Thread.new {
+                      MU::MommaCat.setThreadContext(deploy)
+                      MU.log "Adding #{server.mu_name} to #{NAGIOS_HOME}/.ssh/config", MU::DEBUG
+                      MU::Master.addHostToSSHConfig(
+                          server,
+                          ssh_dir: "#{NAGIOS_HOME}/.ssh",
+                          ssh_conf: "#{NAGIOS_HOME}/.ssh/config.tmp",
+                          ssh_owner: "nagios"
+                      )
+                      MU.purgeGlobals
+                    }
+                  }
+                }
+              }
+            end
+          rescue StandardError => e
+            MU.log "#{e.inspect} while generating Nagios SSH config in #{deploy_id}", MU::ERR, details: e.backtrace
+          end
+        }
+        threads.each { |t|
+          t.join
+        }
+        ssh_lock.flock(File::LOCK_UN)
+        ssh_lock.close
+        File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/config.tmp")
+        File.rename("#{NAGIOS_HOME}/.ssh/config.tmp", "#{NAGIOS_HOME}/.ssh/config")
+
+        MU.log "Updating Nagios monitoring config, this may take a while..."
+        output = nil
+        if $MU_CFG and !$MU_CFG['master_runlist_extras'].nil?
+          output = %x{#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1}
+        else
+          output = %x{#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only]' 2>&1}
+        end
+
+        if $?.exitstatus != 0
+          MU.log "Nagios monitoring config update returned a non-zero exit code!", MU::ERR, details: output
+        else
+          MU.log "Nagios monitoring config update complete."
+        end
+      }
+
+      if blocking
+        nagios_threads.each { |t|
+          t.join
+        }
+      end
+    end
+
   end
 end
