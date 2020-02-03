@@ -303,10 +303,10 @@ module MU
           word_two = second_ltr.shuffle.first
         end
         tries = tries + 1
-      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or word_one == word_two or (allnouns.include?(word_one) and allnouns.include?(word_two)) or (alladjs.include?(word_one) and alladjs.include?(word_two)) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two)))
+      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or word_one == word_two or (allnouns.include?(word_one) and allnouns.include?(word_two)) or (alladjs.include?(word_one) and alladjs.include?(word_two)) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two) and !@catwords.include?(word_one+"-"+word_two)))
 
       if tries >= 50 and (word_one.nil? or word_two.nil?)
-        MU.log "I failed to generated a valid handle, faking it", MU::ERR
+        MU.log "I failed to generated a valid handle from #{seed}, faking it", MU::ERR
         return "#{seed[0].capitalize} #{seed[1].capitalize}"
       end
 
@@ -350,9 +350,9 @@ module MU
     end
 
     # 2019-06-03 adding things from https://aiweirdness.com/post/185339301987/once-again-a-neural-net-tries-to-name-cats
-    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty chonky norty slonky floofy}
-    @catnouns = %w{bastet biscuits bobcat catnip cheetah chonk dot felix hamb jaguar kitty leopard lion lynx maru mittens moggy neko nip ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba slonk mew quat eek ziggy whiskeridoo cromch monch screm}
-    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline furever fumbs havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal chewie-bean chicken-whiskey fish-especially thelonious-monsieur tom-glitter serendipitous-kill sparky-buttons}
+    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty chonky norty slonky floofy heckin bebby}
+    @catnouns = %w{bastet biscuits bobcat catnip cheetah chonk dot felix hamb hambina jaguar kitty leopard lion lynx maru mittens moggy neko nip ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba slonk mew quat eek ziggy whiskeridoo cromch monch screm}
+    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline furever fumbs havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal chewie-bean chicken-whiskey fish-especially thelonious-monsieur tom-glitter serendipitous-kill sparky-buttons nip-nops murder-mittens bite}
     @catwords = @catadjs + @catnouns + @catmixed
 
     @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}
