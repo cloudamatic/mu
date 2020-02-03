@@ -68,8 +68,7 @@ module MU
         # Locate an existing Database or Databases and return an array containing matching GCP resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
         end
 
         # Called automatically by {MU::Deploy#createResources}

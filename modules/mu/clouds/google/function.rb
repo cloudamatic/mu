@@ -364,9 +364,7 @@ module example.com/cloudfunction
         # Locate an existing project
         # @return [Hash<OpenStruct>]: The cloud provider's complete descriptions of matching project
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
-          location = args[:region] || args[:availability_zone] || "-"
+          args = MU::Cloud::Google.findLocationArgs(args)
 
           found = {}
 
@@ -379,7 +377,7 @@ module example.com/cloudfunction
             found[args[:cloud_id]] = resp if resp
           else
             resp = begin
-              MU::Cloud::Google.function(credentials: args[:credentials]).list_project_location_functions("projects/#{args[:project]}/locations/#{location}")
+              MU::Cloud::Google.function(credentials: args[:credentials]).list_project_location_functions("projects/#{args[:project]}/locations/#{args[:location]}")
             rescue ::Google::Apis::ClientError => e
               raise e if !e.message.match(/forbidden:/)
             end

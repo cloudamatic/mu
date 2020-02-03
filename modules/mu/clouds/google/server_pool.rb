@@ -170,8 +170,7 @@ module MU
         # Locate an existing ServerPool or ServerPools and return an array containing matching Google resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
 
           regions = if args[:region]
             [args[:region]]

@@ -52,6 +52,17 @@ module MU
         [:url]
       end
 
+      # Most of our resource implementation +find+ methods have to mangle their
+      # args to make sure they've extracted a project or location argument from
+      # other available information. This does it for them.
+      # @return [Hash]
+      def self.findLocationArgs(**args)
+        args[:project] ||= args[:habitat]
+        args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+        args[:location] ||= args[:region] || args[:availability_zone] || "-"
+        args
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure

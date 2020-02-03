@@ -172,8 +172,7 @@ module MU
         # Locate an existing bucket.
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
 
           found = {}
           if args[:cloud_id]

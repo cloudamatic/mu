@@ -230,8 +230,8 @@ end
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
+
           resp = {}
           if args[:cloud_id] and args[:project]
             begin
@@ -1098,7 +1098,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                   r,
                   noop
                 )
-              rescue MU::Cloud::MuDefunctHabitat => e
+              rescue MU::Cloud::MuDefunctHabitat
                 Thread.exit
               end
             }
@@ -1107,8 +1107,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             t.join
           end
         end
-
-        protected
 
         # Subnets are almost a first-class resource. So let's kinda sorta treat
         # them like one. This should only be invoked on objects that already

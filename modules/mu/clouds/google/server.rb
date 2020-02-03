@@ -641,8 +641,8 @@ next if !create
         # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
+
           if !args[:region].nil? and MU::Cloud::Google.listRegions.include?(args[:region])
             regions = [args[:region]]
           else
