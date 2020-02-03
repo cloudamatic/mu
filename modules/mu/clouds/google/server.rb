@@ -1419,32 +1419,7 @@ next if !create
               ok = false
             end
           else
-            user = {
-              "name" => server['name'],
-              "cloud" => "Google",
-              "project" => server["project"],
-              "credentials" => server["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            if server['roles']
-              user['roles'] = server['roles'].dup
-            end
-            configurator.insertKitten(user, "users", true)
-            server['dependencies'] ||= []
-            server['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: user["name"],
-              project: user["project"],
-              credentials: user["credentials"]
-            )
-            server['dependencies'] << {
-              "type" => "user",
-              "name" => user["name"]
-            }
+            server = MU::Cloud::Google::User.genericServiceAccount(server, configurator)
           end
 
           subnets = nil

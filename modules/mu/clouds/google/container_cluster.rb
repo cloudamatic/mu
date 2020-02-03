@@ -1044,29 +1044,7 @@ module MU
               ok = false
             end
           else
-            user = {
-              "name" => cluster['name'],
-              "cloud" => "Google",
-              "project" => cluster["project"],
-              "credentials" => cluster["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            configurator.insertKitten(user, "users", true)
-            cluster['dependencies'] ||= []
-            cluster['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: cluster["name"],
-              project: cluster["project"],
-              credentials: cluster["credentials"]
-            )
-            cluster['dependencies'] << {
-              "type" => "user",
-              "name" => user["name"]
-            }
+            cluster = MU::Cloud::Google::User.genericServiceAccount(cluster, configurator)
           end
 
           if cluster['dependencies']

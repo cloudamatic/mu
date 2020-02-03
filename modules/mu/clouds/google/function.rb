@@ -623,32 +623,7 @@ module example.com/cloudfunction
               ok = false
             end
           else
-            user = {
-              "name" => function['name'],
-              "cloud" => "Google",
-              "project" => function["project"],
-              "credentials" => function["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            if function['roles']
-              user['roles'] = function['roles'].dup
-            end
-            configurator.insertKitten(user, "users", true)
-            function['dependencies'] ||= []
-            function['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: user["name"],
-              project: user["project"],
-              credentials: user["credentials"]
-            )
-            function['dependencies'] << {
-              "type" => "user",
-              "name" => user["name"]
-            }
+            function = MU::Cloud::Google::User.genericServiceAccount(function, configurator)
           end
 
 #          siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)

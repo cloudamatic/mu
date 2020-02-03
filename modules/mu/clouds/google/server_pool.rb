@@ -372,29 +372,7 @@ start = Time.now
               ok = false
             end
           else
-            user = {
-              "name" => pool['name'],
-              "cloud" => "Google",
-              "project" => pool["project"],
-              "credentials" => pool["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            configurator.insertKitten(user, "users", true)
-            pool['dependencies'] ||= []
-            pool['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: pool["name"],
-              project: pool["project"],
-              credentials: pool["credentials"]
-            )
-            pool['dependencies'] << {
-              "type" => "user",
-              "name" => pool["name"]
-            }
+            pool = MU::Cloud::Google::User.genericServiceAccount(pool, configurator)
           end
 
           pool['named_ports'] ||= []

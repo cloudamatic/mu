@@ -621,6 +621,43 @@ If we are binding (rather than creating) a user and no roles are specified, we w
           ok
         end
 
+        # Create and inject a service account on behalf of the parent resource.
+        # Return the modified parent configuration hash with references to the
+        # new addition.
+        # @param parent [Hash]
+        # @param configurator [MU::Config]
+        # @return [Hash]
+        def self.genericServiceAccount(parent, configurator)
+          user = {
+            "name" => parent['name'],
+            "cloud" => "Google",
+            "project" => parent["project"],
+            "credentials" => parent["credentials"],
+            "type" => "service"
+          }
+          if user["name"].length < 6
+            user["name"] += Password.pronounceable(6)
+          end
+          if parent['roles']
+            user['roles'] = parent['roles'].dup
+          end
+          configurator.insertKitten(user, "users", true)
+          parent['dependencies'] ||= []
+          parent['service_account'] = MU::Config::Ref.get(
+            type: "users",
+            cloud: "Google",
+            name: user["name"],
+            project: user["project"],
+            credentials: user["credentials"]
+          )
+          parent['dependencies'] << {
+            "type" => "user",
+            "name" => user["name"]
+          }
+
+          parent
+        end
+
         private
 
       end
