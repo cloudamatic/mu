@@ -315,7 +315,7 @@ app = proc do |env|
         elsif !filter or !path
           returnval = throw404 env['REQUEST_PATH']
         else
-          MU::MommaCat.addInstanceToEtcHosts(path, filter)
+          MU::Master.addInstanceToEtcHosts(path, filter)
           returnval = [
             200,
             {

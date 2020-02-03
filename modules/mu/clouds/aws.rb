@@ -1174,6 +1174,52 @@ module MU
         end
       end
 
+      # Tag a resource. Defaults to applying our MU deployment identifier, if no
+      # arguments other than the resource identifier are given.
+      # XXX this belongs in the cloud layer(s)
+      #
+      # @param resource [String]: The cloud provider identifier of the resource to tag
+      # @param tag_name [String]: The name of the tag to create
+      # @param tag_value [String]: The value of the tag
+      # @param region [String]: The cloud provider region
+      # @return [void]
+      def self.createTag(resource = nil,
+          tag_name="MU-ID",
+          tag_value=MU.deploy_id,
+          region: MU.curRegion,
+          credentials: nil)
+        attempts = 0
+
+        if !MU::Cloud::CloudFormation.emitCloudFormation
+          begin
+            MU::Cloud::AWS.ec2(credentials: credentials, region: region).create_tags(
+              resources: [resource],
+              tags: [
+                {
+                  key: tag_name,
+                  value: tag_value
+                }
+              ]
+            )
+          rescue Aws::EC2::Errors::ServiceError => e
+            MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
+            if attempts < 5
+              attempts = attempts + 1
+              sleep 15
+              retry
+            else
+              raise e
+            end
+          end
+          MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
+        else
+          return {
+            "Key" =>  tag_name,
+            "Value" => tag_value
+          }
+        end
+      end
+
       @syslog_port_semaphore = Mutex.new
       # Punch AWS security group holes for client nodes to talk back to us, the
       # Mu Master, if we're in AWS.
@@ -1225,8 +1271,8 @@ module MU
             )
             sg_id = group.group_id
             my_sgs << sg_id
-            MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
-            MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
+            MU::Cloud::AWS.createTag sg_id, "Name", my_client_sg_name
+            MU::Cloud::AWS.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
             MU::Cloud::AWS.ec2.modify_instance_attribute(
                 instance_id: my_instance_id,
                 groups: my_sgs

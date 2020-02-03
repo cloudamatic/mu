@@ -1144,19 +1144,19 @@ module MU
           if self.class.cfg_name == "server"
             begin
               ip = canonicalIP
-              MU::MommaCat.removeIPFromSSHKnownHosts(ip) if ip
+              MU::Master.removeIPFromSSHKnownHosts(ip) if ip
               if @deploy and @deploy.deployment and
                  @deploy.deployment['servers'] and @config['name']
                 me = @deploy.deployment['servers'][@config['name']][@mu_name]
                 if me
                   ["private_ip_address", "public_ip_address"].each { |field|
                     if me[field]
-                      MU::MommaCat.removeIPFromSSHKnownHosts(me[field])
+                      MU::Master.removeIPFromSSHKnownHosts(me[field])
                     end
                   }
                   if me["private_ip_list"]
                     me["private_ip_list"].each { |private_ip|
-                      MU::MommaCat.removeIPFromSSHKnownHosts(private_ip)
+                      MU::Master.removeIPFromSSHKnownHosts(private_ip)
                     }
                   end
                 end
@@ -1907,7 +1907,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             shell = nil
             opts = nil
             # and now, a thing I really don't want to do
-            MU::MommaCat.addInstanceToEtcHosts(canonical_ip, @mu_name)
+            MU::Master.addInstanceToEtcHosts(canonical_ip, @mu_name)
 
             # catch exceptions that circumvent our regular call stack
             Thread.abort_on_exception = false
@@ -1943,7 +1943,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               retries, rebootable_fails = handleWindowsFail(e, retries, rebootable_fails, max_retries: max_retries, reboot_on_problems: reboot_on_problems, retry_interval: retry_interval)
               retry
             ensure
-              MU::MommaCat.removeInstanceFromEtcHosts(@mu_name)
+              MU::Master.removeInstanceFromEtcHosts(@mu_name)
             end
 
             shell

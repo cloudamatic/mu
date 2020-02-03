@@ -38,17 +38,17 @@ module MU
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
           MU::Cloud::AWS.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
-          MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(vpc_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(vpc_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
             }
           end
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(vpc_id, key, value, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(vpc_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
@@ -68,10 +68,10 @@ module MU
               ]
             )
             resp.route_tables.each { |rtb|
-              MU::MommaCat.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'], credentials: @config['credentials'])
               if @config['tags']
                 @config['tags'].each { |tag|
-                  MU::MommaCat.createTag(rtb.route_table_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(rtb.route_table_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
@@ -79,7 +79,7 @@ module MU
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::MommaCat.createTag(rtb.route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(rtb.route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
                 }
               end
             }
@@ -93,16 +93,16 @@ module MU
             internet_gateway_id = resp.internet_gateway.internet_gateway_id
             sleep 5
             MU::Cloud::AWS.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
-            MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
             if @config['tags']
               @config['tags'].each { |tag|
-                MU::MommaCat.createTag(internet_gateway_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(internet_gateway_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
               }
             end
 
             if @config['optional_tags']
               MU::MommaCat.listOptionalTags.each { |key, value|
-                MU::MommaCat.createTag(internet_gateway_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(internet_gateway_id, key, value, region: @config['region'], credentials: @config['credentials'])
               }
             end
 
@@ -191,16 +191,16 @@ module MU
                 ).subnet
                 subnet_id = subnet['subnet_id'] = resp.subnet_id
                 MU::Cloud::AWS.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
-                MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
                 if @config['tags']
                   @config['tags'].each { |tag|
-                    MU::MommaCat.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                    MU::Cloud::AWS.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
                 if @config['optional_tags']
                   MU::MommaCat.listOptionalTags.each { |key, value|
-                    MU::MommaCat.createTag(subnet_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                    MU::Cloud::AWS.createTag(subnet_id, key, value, region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
@@ -316,7 +316,7 @@ module MU
                   raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
                   nat_gateways << {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
                   @tags.each_pair { |k, v|
-                    MU::MommaCat.createTag(nat_gateway_id, k, v, region: @config['region'], credentials: @config['credentials'])
+                    MU::Cloud::AWS.createTag(nat_gateway_id, k, v, region: @config['region'], credentials: @config['credentials'])
                   }
                 end
 
@@ -440,17 +440,17 @@ module MU
             )
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
             MU::Cloud::AWS.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
-            MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
 
             if @config['tags']
               @config['tags'].each { |tag|
-                MU::MommaCat.createTag(dhcpopt_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(dhcpopt_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
               }
             end
 
             if @config['optional_tags']
               MU::MommaCat.listOptionalTags.each { |key, value|
-                MU::MommaCat.createTag(dhcpopt_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(dhcpopt_id, key, value, region: @config['region'], credentials: @config['credentials'])
               }
             end
 
@@ -582,17 +582,17 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
               peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['id'])
 
               MU::Cloud::AWS.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
-              MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::MommaCat.createTag(peering_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(peering_id, key, value, region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
               if @config['tags']
                 @config['tags'].each { |tag|
-                  MU::MommaCat.createTag(peering_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(peering_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
@@ -1656,17 +1656,17 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route_table(vpc_id: vpc_id).route_table
           route_table_id = rtb['route_table_id'] = resp.route_table_id
           sleep 5
-          MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase, credentials: @config['credentials'])
+          MU::Cloud::AWS.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase, credentials: @config['credentials'])
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(route_table_id, tag['key'], tag['value'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(route_table_id, tag['key'], tag['value'], credentials: @config['credentials'])
             }
           end
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 

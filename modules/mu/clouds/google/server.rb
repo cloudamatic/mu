@@ -521,17 +521,17 @@ next if !create
           return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
 
 #          MU::Cloud::AWS.createStandardTags(@cloud_id, region: @config['region'])
-#          MU::MommaCat.createTag(@cloud_id, "Name", node, region: @config['region'])
+#          MU::Cloud::AWS.createTag(@cloud_id, "Name", node, region: @config['region'])
 #
 #          if @config['optional_tags']
 #            MU::MommaCat.listOptionalTags.each { |key, value|
-#              MU::MommaCat.createTag(@cloud_id, key, value, region: @config['region'])
+#              MU::Cloud::AWS.createTag(@cloud_id, key, value, region: @config['region'])
 #            }
 #          end
 #
 #          if !@config['tags'].nil?
 #            @config['tags'].each { |tag|
-#              MU::MommaCat.createTag(@cloud_id, tag['key'], tag['value'], region: @config['region'])
+#              MU::Cloud::AWS.createTag(@cloud_id, tag['key'], tag['value'], region: @config['region'])
 #            }
 #          end
 #          MU.log "Tagged #{node} (#{@cloud_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG

@@ -1,0 +1,689 @@
+# Copyright:: Copyright (c) 2020 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+module MU
+
+  # MommaCat is in charge of managing metadata about resources we've created,
+  # as well as orchestrating amongst them and bootstrapping nodes outside of
+  # the normal synchronous deploy sequence invoked by *mu-deploy*.
+  class MommaCat
+    @myhome = Etc.getpwuid(Process.uid).dir
+    @nagios_home = "/opt/mu/var/nagios_user_home"
+    @locks = Hash.new
+    @deploy_cache = Hash.new
+
+    # Return a {MU::MommaCat} instance for an existing deploy. Use this instead
+    # of using #initialize directly to avoid loading deploys multiple times or
+    # stepping on the global context for the deployment you're really working
+    # on..
+    # @param deploy_id [String]: The deploy ID of the deploy to load.
+    # @param set_context_to_me [Boolean]: Whether new MommaCat objects should overwrite any existing per-thread global deploy variables.
+    # @param use_cache [Boolean]: If we have an existing object for this deploy, use that
+    # @return [MU::MommaCat]
+    def self.getLitter(deploy_id, set_context_to_me: false, use_cache: true)
+      if deploy_id.nil? or deploy_id.empty?
+        raise MuError, "Cannot fetch a deployment without a deploy_id"
+      end
+
+# XXX this caching may be harmful, causing stale resource objects to stick
+# around. Have we fixed this? Sort of. Bad entries seem to have no kittens,
+# so force a reload if we see that. That's probably not the root problem.
+      littercache = nil
+      begin
+        @@litter_semaphore.synchronize {
+          littercache = @@litters.dup
+        }
+        if littercache[deploy_id] and @@litters_loadtime[deploy_id]
+          deploy_root = File.expand_path(MU.dataDir+"/deployments")
+          this_deploy_dir = deploy_root+"/"+deploy_id
+          if File.exist?("#{this_deploy_dir}/deployment.json")
+            lastmod = File.mtime("#{this_deploy_dir}/deployment.json")
+            if lastmod > @@litters_loadtime[deploy_id]
+              MU.log "Deployment metadata for #{deploy_id} was modified on disk, reload", MU::NOTICE
+              use_cache = false
+            end
+         end
+        end
+      rescue ThreadError => e
+        # already locked by a parent caller and this is a read op, so this is ok
+        raise e if !e.message.match(/recursive locking/)
+        littercache = @@litters.dup
+      end
+
+      if !use_cache or littercache[deploy_id].nil?
+        need_gc = !littercache[deploy_id].nil?
+        newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+        # This, we have to synchronize, as it's a write
+        @@litter_semaphore.synchronize {
+          @@litters[deploy_id] = newlitter
+          @@litters_loadtime[deploy_id] = Time.now
+        }
+        GC.start if need_gc
+      elsif set_context_to_me
+        MU::MommaCat.setThreadContext(@@litters[deploy_id])
+      end
+      return @@litters[deploy_id]
+#     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+    end
+
+    # List the currently held flock() locks.
+    def self.trapSafeLocks;
+      @locks
+    end
+    # List the currently held flock() locks.
+    def self.locks;
+      @lock_semaphore.synchronize {
+        @locks
+      }
+    end
+
+    # Overwrite this deployment's configuration with a new version. Save the
+    # previous version as well.
+    # @param new_conf [Hash]: A new configuration, fully resolved by {MU::Config}
+    def updateBasketofKittens(new_conf)
+      loadDeploy
+      if new_conf == @original_config
+        MU.log "#{@deploy_id}", MU::WARN
+        return
+      end
+
+      backup = "#{deploy_dir}/basket_of_kittens.json.#{Time.now.to_i.to_s}"
+      MU.log "Saving previous config of #{@deploy_id} to #{backup}"
+      config = File.new(backup, File::CREAT|File::TRUNC|File::RDWR, 0600)
+      config.flock(File::LOCK_EX)
+      config.puts JSON.pretty_generate(@original_config)
+      config.flock(File::LOCK_UN)
+      config.close
+
+      @original_config = new_conf
+#      save! # XXX this will happen later, more sensibly
+      MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
+    end
+
+    @lock_semaphore = Mutex.new
+    # Release all flock() locks held by the current thread.
+    def self.unlockAll
+      if !@locks.nil? and !@locks[Thread.current.object_id].nil?
+        # Work from a copy so we can iterate without worrying about contention
+        # in lock() or unlock(). We can't just wrap our iterator block in a
+        # semaphore here, because we're calling another method that uses the
+        # same semaphore.
+        @lock_semaphore.synchronize {
+          delete_list = []
+          @locks[Thread.current.object_id].keys.each { |id|
+            MU.log "Releasing lock on #{deploy_dir(MU.deploy_id)}/locks/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
+            begin
+              @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
+              @locks[Thread.current.object_id][id].close
+            rescue IOError => e
+              MU.log "Got #{e.inspect} unlocking #{id} on #{Thread.current.object_id}", MU::WARN
+            end
+            delete_list << id
+          }
+          # We do this here because we can't mangle a Hash while we're iterating
+          # over it.
+          delete_list.each { |id|
+            @locks[Thread.current.object_id].delete(id)
+          }
+          if @locks[Thread.current.object_id].size == 0
+            @locks.delete(Thread.current.object_id)
+          end
+        }
+      end
+    end
+
+    # Create/hold a flock() lock.
+    # @param id [String]: The lock identifier to release.
+    # @param nonblock [Boolean]: Whether to block while waiting for the lock. In non-blocking mode, we simply return false if the lock is not available.
+    # return [false, nil]
+    def self.lock(id, nonblock = false, global = false)
+      raise MuError, "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
+
+      if !global
+        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+      else
+        lockdir = File.expand_path(MU.dataDir+"/locks")
+      end
+
+      if !Dir.exist?(lockdir)
+        MU.log "Creating #{lockdir}", MU::DEBUG
+        Dir.mkdir(lockdir, 0700)
+      end
+
+      @lock_semaphore.synchronize {
+        if @locks[Thread.current.object_id].nil?
+          @locks[Thread.current.object_id] = Hash.new
+        end
+
+        @locks[Thread.current.object_id][id] = File.open("#{lockdir}/#{id}.lock", File::CREAT|File::RDWR, 0600)
+      }
+      MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG
+      begin
+        if nonblock
+          if !@locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
+            return false
+          end
+        else
+          @locks[Thread.current.object_id][id].flock(File::LOCK_EX)
+        end
+      rescue IOError
+        raise MU::BootstrapTempFail, "Interrupted waiting for lock on thread #{Thread.current.object_id}, probably just a node rebooting as part of a synchronous install"
+      end
+      MU.log "Lock on #{lockdir}/#{id}.lock on thread #{Thread.current.object_id} acquired", MU::DEBUG
+      return true
+    end
+
+    # Release a flock() lock.
+    # @param id [String]: The lock identifier to release.
+    def self.unlock(id, global = false)
+      raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
+      lockdir = nil
+      if !global
+        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+      else
+        lockdir = File.expand_path(MU.dataDir+"/locks")
+      end
+      @lock_semaphore.synchronize {
+        return if @locks.nil? or @locks[Thread.current.object_id].nil? or @locks[Thread.current.object_id][id].nil?
+      }
+      MU.log "Releasing lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
+      begin
+        @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
+        @locks[Thread.current.object_id][id].close
+        if !@locks[Thread.current.object_id].nil?
+          @locks[Thread.current.object_id].delete(id)
+        end
+        if @locks[Thread.current.object_id].size == 0
+          @locks.delete(Thread.current.object_id)
+        end
+      rescue IOError => e
+        MU.log "Got #{e.inspect} unlocking #{id} on #{Thread.current.object_id}", MU::WARN
+      end
+    end
+
+    # Remove a deployment's metadata.
+    # @param deploy_id [String]: The deployment identifier to remove.
+    def self.purge(deploy_id)
+      if deploy_id.nil? or deploy_id.empty?
+        raise MuError, "Got nil deploy_id in MU::MommaCat.purge"
+      end
+      # XXX archiving is better than annihilating
+      path = File.expand_path(MU.dataDir+"/deployments")
+      if Dir.exist?(path+"/"+deploy_id)
+        unlockAll
+        MU.log "Purging #{path}/#{deploy_id}" if File.exist?(path+"/"+deploy_id+"/deployment.json")
+
+        FileUtils.rm_rf(path+"/"+deploy_id, :secure => true)
+      end
+      if File.exist?(path+"/unique_ids")
+        File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
+          newlines = []
+          f.flock(File::LOCK_EX)
+          f.readlines.each { |line|
+            newlines << line if !line.match(/:#{deploy_id}$/)
+          }
+          f.rewind
+          f.truncate(0)
+          f.puts(newlines)
+          f.flush
+          f.flock(File::LOCK_UN)
+        }
+      end
+    end
+
+    # Remove the metadata of the currently loaded deployment.
+    def purge!
+      MU::MommaCat.purge(MU.deploy_id)
+    end
+
+    # Return a list of all currently active deploy identifiers.
+    # @return [Array<String>]
+    def self.listDeploys
+      return [] if !Dir.exist?("#{MU.dataDir}/deployments")
+      deploys = []
+      Dir.entries("#{MU.dataDir}/deployments").reverse_each { |muid|
+        next if !Dir.exist?("#{MU.dataDir}/deployments/#{muid}") or muid == "." or muid == ".."
+        deploys << muid
+      }
+      return deploys
+    end
+
+    # Return a list of all nodes in all deployments. Does so without loading
+    # deployments fully.
+    # @return [Hash]
+    def self.listAllNodes
+      nodes = Hash.new
+      MU::MommaCat.deploy_struct_semaphore.synchronize {
+        MU::MommaCat.listDeploys.each { |deploy|
+          if !Dir.exist?(MU::MommaCat.deploy_dir(deploy)) or
+              !File.size?("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json")
+            MU.log "Didn't see deployment metadata for '#{deploy}'", MU::WARN
+            next
+          end
+          data = File.open("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json", File::RDONLY)
+          MU.log "Getting lock to read #{MU::MommaCat.deploy_dir(deploy)}/deployment.json", MU::DEBUG
+          data.flock(File::LOCK_EX)
+          begin
+            deployment = JSON.parse(File.read("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json"))
+            deployment["deploy_id"] = deploy
+            if deployment.has_key?("servers")
+              deployment["servers"].each_key { |nodeclass|
+                deployment["servers"][nodeclass].each_pair { |mu_name, metadata|
+                  nodes[mu_name] = metadata
+                }
+              }
+            end
+          rescue JSON::ParserError => e
+            MU.log "JSON parse failed on #{MU::MommaCat.deploy_dir(deploy)}/deployment.json", MU::ERR, details: e.message
+          end
+          data.flock(File::LOCK_UN)
+          data.close
+        }
+      }
+      return nodes
+    end
+
+    # @return [String]: The Mu Master filesystem directory holding metadata for the current deployment
+    def deploy_dir
+      MU::MommaCat.deploy_dir(@deploy_id)
+    end
+
+    # Locate and return the deploy, if any, which matches the provided origin
+    # description
+    # @param origin [Hash]
+    def self.findMatchingDeploy(origin)
+      MU::MommaCat.listDeploys.each { |deploy_id|
+        o_path = deploy_dir(deploy_id)+"/origin.json"
+        next if !File.exist?(o_path)
+        this_origin = JSON.parse(File.read(o_path))
+        if origin == this_origin
+          MU.log "Deploy #{deploy_id} matches origin hash, loading", details: origin
+          return MU::MommaCat.new(deploy_id)
+        end
+      }
+      nil
+    end
+
+    # Synchronize all in-memory information related to this to deployment to
+    # disk.
+    # @param triggering_node [MU::Cloud::Server]: If we're being triggered by the addition/removal/update of a node, this allows us to notify any sibling or dependent nodes of changes
+    # @param force [Boolean]: Save even if +no_artifacts+ is set
+    # @param origin [Hash]: Optional blob of data indicating how this deploy was created
+    def save!(triggering_node = nil, force: false, origin: nil)
+
+      return if @no_artifacts and !force
+
+      MU::MommaCat.deploy_struct_semaphore.synchronize {
+        MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
+
+        if !Dir.exist?(deploy_dir)
+          MU.log "Creating #{deploy_dir}", MU::DEBUG
+          Dir.mkdir(deploy_dir, 0700)
+        end
+
+        if !origin.nil?
+          o_file = File.new("#{deploy_dir}/origin.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          o_file.puts JSON.pretty_generate(origin)
+          o_file.close
+        end
+
+        if !@private_key.nil?
+          privkey = File.new("#{deploy_dir}/private_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          privkey.puts @private_key
+          privkey.close
+        end
+
+        if !@public_key.nil?
+          pubkey = File.new("#{deploy_dir}/public_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          pubkey.puts @public_key
+          pubkey.close
+        end
+
+        if !@deployment.nil? and @deployment.size > 0
+          @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
+          @deployment['public_key'] = @public_key
+          @deployment['timestamp'] ||= @timestamp
+          @deployment['seed'] ||= @seed
+          @deployment['appname'] ||= @appname
+          @deployment['handle'] ||= @handle
+          @deployment['ssh_public_key'] ||= @ssh_public_key if @ssh_public_key
+          begin
+            # XXX doing this to trigger JSON errors before stomping the stored
+            # file...
+            JSON.pretty_generate(@deployment, max_nesting: false)
+            deploy = File.new("#{deploy_dir}/deployment.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
+            MU.log "Getting lock to write #{deploy_dir}/deployment.json", MU::DEBUG
+            deploy.flock(File::LOCK_EX)
+            deploy.puts JSON.pretty_generate(@deployment, max_nesting: false)
+          rescue JSON::NestingError => e
+            MU.log e.inspect, MU::ERR, details: @deployment
+            raise MuError, "Got #{e.message} trying to save deployment"
+          rescue Encoding::UndefinedConversionError => e
+            MU.log e.inspect, MU::ERR, details: @deployment
+            raise MuError, "Got #{e.message} at #{e.error_char.dump} (#{e.source_encoding_name} => #{e.destination_encoding_name}) trying to save deployment"
+          end
+          deploy.flock(File::LOCK_UN)
+          deploy.close
+          @need_deploy_flush = false
+          MU::MommaCat.updateLitter(@deploy_id, self)
+        end
+
+        if !@original_config.nil? and @original_config.is_a?(Hash)
+          config = File.new("#{deploy_dir}/basket_of_kittens.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          config.puts JSON.pretty_generate(MU::Config.manxify(@original_config))
+          config.close
+        end
+
+        if !@ssh_private_key.nil?
+          key = File.new("#{deploy_dir}/node_ssh.key", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          key.puts @ssh_private_key
+          key.close
+        end
+        if !@ssh_public_key.nil?
+          key = File.new("#{deploy_dir}/node_ssh.pub", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          key.puts @ssh_public_key
+          key.close
+        end
+        if !@ssh_key_name.nil?
+          key = File.new("#{deploy_dir}/ssh_key_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          key.puts @ssh_key_name
+          key.close
+        end
+        if !@environment.nil?
+          env = File.new("#{deploy_dir}/environment_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          env.puts @environment
+          env.close
+        end
+        if !@deploy_secret.nil?
+          secret = File.new("#{deploy_dir}/deploy_secret", File::CREAT|File::TRUNC|File::RDWR, 0600)
+          secret.print @deploy_secret
+          secret.close
+        end
+        if !@secrets.nil?
+          secretdir = "#{deploy_dir}/secrets"
+          if !Dir.exist?(secretdir)
+            MU.log "Creating #{secretdir}", MU::DEBUG
+            Dir.mkdir(secretdir, 0700)
+          end
+          @secrets.each_pair { |type, servers|
+            servers.each_pair { |server, svr_secret|
+              key = File.new("#{secretdir}/#{type}.#{server}", File::CREAT|File::TRUNC|File::RDWR, 0600)
+              key.puts svr_secret
+              key.close
+            }
+          }
+        end
+      }
+
+      # Update groomer copies of this metadata
+      syncLitter(@deployment['servers'].keys, triggering_node: triggering_node, save_only: true) if @deployment.has_key?("servers")
+    end
+
+    # Find one or more resources by their Mu resource name, and return
+    # MommaCat objects for their containing deploys, their BoK config data,
+    # and their deployment data.
+    #
+    # @param type [String]: The type of resource, e.g. "vpc" or "server."
+    # @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
+    # @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
+    # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
+    # @return [Hash,Array<Hash>]
+    def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
+      if type.nil?
+        raise MuError, "Can't call getResourceMetadata without a type argument"
+      end
+      _shortclass, _cfg_name, type, _classname = MU::Cloud.getResourceNames(type)
+
+      # first, check our in-memory deploys, which may or may not have been
+      # written to disk yet.
+      littercache = nil
+      begin
+        @@litter_semaphore.synchronize {
+          littercache = @@litters.dup
+        }
+      rescue ThreadError => e
+        # already locked by a parent caller and this is a read op, so this is ok
+        raise e if !e.message.match(/recursive locking/)
+        littercache = @@litters.dup
+      end
+      littercache.each_pair { |deploy, momma|
+        @@deploy_struct_semaphore.synchronize {
+          @deploy_cache[deploy] = {
+            "mtime" => Time.now,
+            "data" => momma.deployment
+          }
+        }
+      }
+
+      deploy_root = File.expand_path(MU.dataDir+"/deployments")
+      MU::MommaCat.deploy_struct_semaphore.synchronize {
+        if Dir.exist?(deploy_root)
+          Dir.entries(deploy_root).each { |deploy|
+            this_deploy_dir = deploy_root+"/"+deploy
+            next if deploy == "." or deploy == ".." or !Dir.exist?(this_deploy_dir)
+            next if deploy_id and deploy_id != deploy
+
+            if !File.size?(this_deploy_dir+"/deployment.json")
+              MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::DEBUG
+              next
+            end
+            if @deploy_cache[deploy].nil? or !use_cache
+              @deploy_cache[deploy] = Hash.new
+            elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
+              MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
+
+              next
+            end
+
+            @deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
+            MU.log "Caching deploy #{deploy}", MU::DEBUG
+            lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
+            lock.flock(File::LOCK_EX)
+            @deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
+
+            begin
+              @deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
+              lock.flock(File::LOCK_UN)
+
+              next if @deploy_cache[deploy].nil? or @deploy_cache[deploy]['data'].nil?
+              # Populate some generable entries that should be in the deploy
+              # data. Also, bounce out if we realize we've found exactly what
+              # we needed already.
+              MU::Cloud.resource_types.values.each { |attrs|
+
+                next if @deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
+                if !attrs[:has_multiples]
+                  @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
+# XXX we don't actually store node names for some resources, need to farm them
+# and fix metadata
+#                 if !mu_name.nil? and nodename == mu_name
+#                   return { deploy => [data] }
+#                 end
+                  }
+                else
+                  @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
+                    next if nodes.nil? or !nodes.is_a?(Hash)
+                    nodes.each_pair { |nodename, data|
+                      next if !data.is_a?(Hash)
+                      data['#MU_NODE_CLASS'] = node_class
+                      if !data.has_key?("cloud") # XXX kludge until old metadata gets fixed
+                        data["cloud"] = MU::Config.defaultCloud
+                      end
+                      data['#MU_NAME'] = nodename
+                      if !mu_name.nil? and nodename == mu_name
+                        return {deploy => [data]} if deploy_id && deploy == deploy_id
+                      end
+                    }
+                  }
+                end
+              }
+            rescue JSON::ParserError => e
+              raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
+            end
+            lock.flock(File::LOCK_UN)
+            lock.close
+          }
+        end
+      }
+
+      matches = {}
+
+      if deploy_id.nil?
+        @deploy_cache.each_key { |deploy|
+          next if !@deploy_cache[deploy].has_key?('data')
+          next if !@deploy_cache[deploy]['data'].has_key?(type)
+          if !name.nil?
+            next if @deploy_cache[deploy]['data'][type][name].nil?
+            matches[deploy] ||= []
+            matches[deploy] << @deploy_cache[deploy]['data'][type][name].dup
+          else
+            matches[deploy] ||= []
+            matches[deploy].concat(@deploy_cache[deploy]['data'][type].values)
+          end
+        }
+        return matches
+      elsif !@deploy_cache[deploy_id].nil?
+        if !@deploy_cache[deploy_id]['data'].nil? and
+            !@deploy_cache[deploy_id]['data'][type].nil?
+          if !name.nil?
+            if !@deploy_cache[deploy_id]['data'][type][name].nil?
+              matches[deploy_id] ||= []
+              matches[deploy_id] << @deploy_cache[deploy_id]['data'][type][name].dup
+            else
+              return matches # nothing, actually
+            end
+          else
+            matches[deploy_id] = @deploy_cache[deploy_id]['data'][type].values
+          end
+        end
+      end
+
+      return matches
+    end
+
+    # Get the deploy directory
+    # @param deploy_id [String]
+    # @return [String]
+    def self.deploy_dir(deploy_id)
+      raise MuError, "deploy_dir must get a deploy_id if called as class method (from #{caller[0]}; #{caller[1]})" if deploy_id.nil?
+# XXX this will blow up if someone sticks MU in /
+      path = File.expand_path(MU.dataDir+"/deployments")
+      if !Dir.exist?(path)
+        MU.log "Creating #{path}", MU::DEBUG
+        Dir.mkdir(path, 0700)
+      end
+      path = path+"/"+deploy_id
+      return path
+    end
+
+    # Does the deploy with the given id exist?
+    # @param deploy_id [String]
+    # @return [String]
+    def self.deploy_exists?(deploy_id)
+      if deploy_id.nil? or deploy_id.empty?
+        MU.log "Got nil deploy_id in MU::MommaCat.deploy_exists?", MU::WARN
+        return
+      end
+      path = File.expand_path(MU.dataDir+"/deployments")
+      if !Dir.exist?(path)
+        Dir.mkdir(path, 0700)
+      end
+      deploy_path = File.expand_path(path+"/"+deploy_id)
+      return Dir.exist?(deploy_path)
+    end
+
+    private
+
+    ###########################################################################
+    ###########################################################################
+    def loadDeployFromCache(set_context_to_me = true)
+      return false if !File.size?(deploy_dir+"/deployment.json")
+
+      deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
+      MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
+      # deploy.flock(File::LOCK_EX)
+      begin
+        Timeout::timeout(90) {deploy.flock(File::LOCK_EX)}
+      rescue Timeout::Error
+        raise MuError, "Timed out trying to get an exclusive lock on #{deploy_dir}/deployment.json"
+      end
+
+      begin
+        @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
+      rescue JSON::ParserError => e
+        MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR, details: e.message
+      end
+
+      deploy.flock(File::LOCK_UN)
+      deploy.close
+
+      setThreadContextToMe if set_context_to_me
+
+      @timestamp = @deployment['timestamp']
+      @seed = @deployment['seed']
+      @appname = @deployment['appname']
+      @handle = @deployment['handle']
+
+      true
+    end
+
+    ###########################################################################
+    ###########################################################################
+    def loadDeploy(deployment_json_only = false, set_context_to_me: true)
+      MU::MommaCat.deploy_struct_semaphore.synchronize {
+        success = loadDeployFromCache(set_context_to_me)
+
+        return if deployment_json_only and success
+
+        if File.exist?(deploy_dir+"/private_key")
+          @private_key = File.read("#{deploy_dir}/private_key")
+          @public_key = File.read("#{deploy_dir}/public_key")
+        end
+
+        if File.exist?(deploy_dir+"/basket_of_kittens.json")
+          begin
+            @original_config = JSON.parse(File.read("#{deploy_dir}/basket_of_kittens.json"))
+          rescue JSON::ParserError => e
+            MU.log "JSON parse failed on #{deploy_dir}/basket_of_kittens.json", MU::ERR, details: e.message
+          end
+        end
+        if File.exist?(deploy_dir+"/ssh_key_name")
+          @ssh_key_name = File.read("#{deploy_dir}/ssh_key_name").chomp!
+        end
+        if File.exist?(deploy_dir+"/node_ssh.key")
+          @ssh_private_key = File.read("#{deploy_dir}/node_ssh.key")
+        end
+        if File.exist?(deploy_dir+"/node_ssh.pub")
+          @ssh_public_key = File.read("#{deploy_dir}/node_ssh.pub")
+        end
+        if File.exist?(deploy_dir+"/environment_name")
+          @environment = File.read("#{deploy_dir}/environment_name").chomp!
+        end
+        if File.exist?(deploy_dir+"/deploy_secret")
+          @deploy_secret = File.read("#{deploy_dir}/deploy_secret")
+        end
+        if Dir.exist?("#{deploy_dir}/secrets")
+          @secrets.each_key { |type|
+            Dir.glob("#{deploy_dir}/secrets/#{type}.*") { |filename|
+              server = File.basename(filename).split(/\./)[1]
+
+              @secrets[type][server] = File.read(filename).chomp!
+            }
+          }
+        end
+      }
+    end
+
+  end #class
+end #module

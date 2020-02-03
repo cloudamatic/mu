@@ -212,7 +212,7 @@ module MU
               vol_id = attachment.volume_id
               vol_dev = attachment.device
               if vol_parent == instance_id and (vol_dev == device or device.nil?)
-                MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region, credentials: credentials)
+                MU::Cloud::AWS.createTag(vol_id, tag_name, tag_value, region: region, credentials: credentials)
                 break
               end
             }
@@ -241,7 +241,7 @@ module MU
             MU::MommaCat.unlock(instance.instance_id+"-create")
           else
             MU::Cloud::AWS.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
-            MU::MommaCat.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(instance.instance_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
           end
           done = true
         rescue StandardError => e
@@ -532,17 +532,17 @@ module MU
         return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 
         MU::Cloud::AWS.createStandardTags(instance.instance_id, region: @config['region'], credentials: @config['credentials'])
-        MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'], credentials: @config['credentials'])
+        MU::Cloud::AWS.createTag(instance.instance_id, "Name", node, region: @config['region'], credentials: @config['credentials'])
 
         if @config['optional_tags']
           MU::MommaCat.listOptionalTags.each { |key, value|
-            MU::MommaCat.createTag(instance.instance_id, key, value, region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(instance.instance_id, key, value, region: @config['region'], credentials: @config['credentials'])
           }
         end
 
         if !@config['tags'].nil?
           @config['tags'].each { |tag|
-            MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
           }
         end
         MU.log "Tagged #{node} (#{instance.instance_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG
@@ -769,17 +769,17 @@ module MU
               MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
               iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: subnet_id).network_interface
               MU::Cloud::AWS.createStandardTags(iface.network_interface_id, region: @config['region'], credentials: @config['credentials'])
-              MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'], credentials: @config['credentials'])
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::MommaCat.createTag(iface.network_interface_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(iface.network_interface_id, key, value, region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
               if !@config['tags'].nil?
                 @config['tags'].each { |tag|
-                  MU::MommaCat.createTag(iface.network_interface_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(iface.network_interface_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
@@ -828,24 +828,24 @@ module MU
           vol.volumes.each { |volume|
             volume.attachments.each { |attachment|
               MU::MommaCat.listStandardTags.each_pair { |key, value|
-                MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(attachment.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
 
                 if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
-                  MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.deploy_id}-#{@config["name"].upcase}", region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(attachment.volume_id, "Name", "ROOT-#{MU.deploy_id}-#{@config["name"].upcase}", region: @config['region'], credentials: @config['credentials'])
                 else
-                  MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(attachment.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'], credentials: @config['credentials'])
                 end
               }
 
               if @config['optional_tags']
                 MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(attachment.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
                 }
               end
 
               if @config['tags']
                 @config['tags'].each { |tag|
-                  MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(attachment.volume_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
                 }
               end
             }
@@ -1583,7 +1583,7 @@ module MU
 
           ami_ids[region] = ami
           MU::Cloud::AWS.createStandardTags(ami, region: region, credentials: credentials)
-          MU::MommaCat.createTag(ami, "Name", name, region: region, credentials: credentials)
+          MU::Cloud::AWS.createTag(ami, "Name", name, region: region, credentials: credentials)
           MU.log "AMI of #{name} in region #{region}: #{ami}"
           if make_public
             MU::Cloud::AWS::Server.waitForAMI(ami, region: region, credentials: credentials)
@@ -1611,10 +1611,10 @@ module MU
                 ami_ids[r] = copy.image_id
 
                 MU::Cloud::AWS.createStandardTags(copy.image_id, region: r, credentials: credentials)
-                MU::MommaCat.createTag(copy.image_id, "Name", name, region: r, credentials: credentials)
+                MU::Cloud::AWS.createTag(copy.image_id, "Name", name, region: r, credentials: credentials)
                 if !tags.nil?
                   tags.each { |tag|
-                    MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: r, credentials: credentials)
+                    MU::Cloud::AWS.createTag(instance.instance_id, tag['key'], tag['value'], region: r, credentials: credentials)
                   }
                 end
                 MU::Cloud::AWS::Server.waitForAMI(copy.image_id, region: r, credentials: credentials)
@@ -1883,9 +1883,9 @@ module MU
 
           if @deploy
             MU::MommaCat.listStandardTags.each_pair { |key, value|
-              MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(creation.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
-            MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'], credentials: @config['credentials'])
           end
 
           attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_volume(

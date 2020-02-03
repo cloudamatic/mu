@@ -150,14 +150,14 @@ module MU
                 when "AWS::EC2::Instance"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   instance_name = MU.deploy_id+"-"+@config['name']+"-"+resource.logical_resource_id
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
 
                   instance = MU::Cloud::AWS::Server.notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
 
-                  MU::MommaCat.addHostToSSHConfig(
+                  MU::Master.addHostToSSHConfig(
                       instance_name,
                       instance["private_ip_address"],
                       instance["private_dns_name"],
@@ -172,19 +172,19 @@ module MU
                   if !mu_zone.nil?
                     MU::Cloud::AWS::DNSZone.genericMuDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
                   else
-                    MU::MommaCat.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
+                    MU::Master.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
                   end
 
                 when "AWS::EC2::SecurityGroup"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   MU::Cloud::AWS::FirewallRule.notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
                 when "AWS::EC2::Subnet"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   data = {
                       "collection" => @config["name"],
                       "subnet_id" => resource.physical_resource_id,
@@ -192,7 +192,7 @@ module MU
                   @deploy.notify("subnets", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::VPC"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   data = {
                       "collection" => @config["name"],
                       "vpc_id" => resource.physical_resource_id,
@@ -200,10 +200,10 @@ module MU
                   @deploy.notify("vpcs", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::InternetGateway"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                 when "AWS::EC2::RouteTable"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
 
                 # The rest of these aren't anything we act on
                 when "AWS::EC2::Route"

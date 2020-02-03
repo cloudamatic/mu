@@ -24,6 +24,9 @@ module MU
     autoload :LDAP, 'mu/master/ldap'
     autoload :SSL, 'mu/master/ssl'
 
+    MY_HOME = Etc.getpwuid(Process.uid).dir
+    NAGIOS_HOME = "/opt/mu/var/nagios_user_home" # XXX gross
+
     # @param users [Hash]: User metadata of the type returned by listUsers
     def self.printUsersToTerminal(users = MU::Master.listUsers)
       labeled = false
@@ -489,6 +492,216 @@ module MU
         if retries <= 5
           retries = retries + 1
           retry
+        end
+      end
+    end
+
+    # Clean a node's entries out of /etc/hosts
+    # @param node [String]: The node's name
+    # @return [void]
+    def self.removeInstanceFromEtcHosts(node)
+      return if MU.mu_user != "mu"
+      hostsfile = "/etc/hosts"
+      FileUtils.copy(hostsfile, "#{hostsfile}.bak-#{MU.deploy_id}")
+      File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
+        f.flock(File::LOCK_EX)
+        newlines = Array.new
+        f.readlines.each { |line|
+          newlines << line if !line.match(/ #{node}(\s|$)/)
+        }
+        f.rewind
+        f.truncate(0)
+        f.puts(newlines)
+        f.flush
+
+        f.flock(File::LOCK_UN)
+      }
+    end
+
+
+    # Insert node names associated with a new instance into /etc/hosts so we
+    # can treat them as if they were real DNS entries. Especially helpful when
+    # Chef/Ohai mistake the proper hostname, e.g. when bootstrapping Windows.
+    # @param public_ip [String]: The node's IP address
+    # @param chef_name [String]: The node's Chef node name
+    # @param system_name [String]: The node's local system name
+    # @return [void]
+    def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
+
+      # XXX cover ipv6 case
+      if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
+        raise MuError, "addInstanceToEtcHosts requires public_ip and one or both of chef_name and system_name!"
+      end
+      if chef_name == "localhost" or system_name == "localhost"
+        raise MuError, "Can't set localhost as a name in addInstanceToEtcHosts"
+      end
+
+      if !["mu", "root"].include?(MU.mu_user)
+        response = nil
+        begin
+          response = open("https://127.0.0.1:#{MU.mommaCatPort.to_s}/rest/hosts_add/#{chef_name}/#{public_ip}").read
+        rescue Errno::ECONNRESET, Errno::ECONNREFUSED
+        end
+        if response != "ok"
+          MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
+        end
+        return
+      end
+
+      File.readlines("/etc/hosts").each { |line|
+        if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
+          MU.log "Ignoring attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::DEBUG
+          return
+        end
+      }
+      File.open("/etc/hosts", 'a') { |etc_hosts|
+        etc_hosts.flock(File::LOCK_EX)
+        etc_hosts.puts("#{public_ip} #{chef_name} #{system_name}")
+        etc_hosts.flock(File::LOCK_UN)
+      }
+      MU.log("Added to /etc/hosts: #{public_ip} #{chef_name} #{system_name}")
+    end
+
+    @ssh_semaphore = Mutex.new
+    # Insert a definition for a node into our SSH config.
+    # @param server [MU::Cloud::Server]: The name of the node.
+    # @param names [Array<String>]: Other names that we'd like this host to be known by for SSH purposes
+    # @param ssh_dir [String]: The configuration directory of the SSH config to emit.
+    # @param ssh_conf [String]: A specific SSH configuration file to write entries into.
+    # @param ssh_owner [String]: The preferred owner of the SSH configuration files.
+    # @param timeout [Integer]: An alternate timeout value for connections to this server.
+    # @return [void]
+    def self.addHostToSSHConfig(server,
+        ssh_dir: "#{Etc.getpwuid(Process.uid).dir}/.ssh",
+        ssh_conf: "#{Etc.getpwuid(Process.uid).dir}/.ssh/config",
+        ssh_owner: Etc.getpwuid(Process.uid).name,
+        names: [],
+        timeout: 0
+    )
+      if server.nil?
+        MU.log "Called addHostToSSHConfig without a MU::Cloud::Server object", MU::ERR, details: caller
+        return nil
+      end
+
+      _nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = begin
+        server.getSSHConfig
+      rescue MU::MuError
+        return
+      end
+
+      if ssh_user.nil? or ssh_user.empty?
+        MU.log "Failed to extract ssh_user for #{server.mu_name} addHostToSSHConfig", MU::ERR
+        return
+      end
+      if canonical_ip.nil? or canonical_ip.empty?
+        MU.log "Failed to extract canonical_ip for #{server.mu_name} addHostToSSHConfig", MU::ERR
+        return
+      end
+      if ssh_key_name.nil? or ssh_key_name.empty?
+        MU.log "Failed to extract ssh_key_name for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
+        return
+      end
+
+      @ssh_semaphore.synchronize {
+
+        if File.exist?(ssh_conf)
+          File.readlines(ssh_conf).each { |line|
+            if line.match(/^Host #{server.mu_name} /)
+              MU.log("Attempt to add duplicate #{ssh_conf} entry for #{server.mu_name}", MU::WARN)
+              return
+            end
+          }
+        end
+
+        File.open(ssh_conf, 'a', 0600) { |ssh_config|
+          ssh_config.flock(File::LOCK_EX)
+          host_str = "Host #{server.mu_name} #{server.canonicalIP}"
+          if !names.nil? and names.size > 0
+            host_str = host_str+" "+names.join(" ")
+          end
+          ssh_config.puts host_str
+          ssh_config.puts "  Hostname #{server.canonicalIP}"
+          if !nat_ssh_host.nil? and server.canonicalIP != nat_ssh_host
+            ssh_config.puts "  ProxyCommand ssh -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
+          end
+          if timeout > 0
+            ssh_config.puts "  ConnectTimeout #{timeout}"
+          end
+
+          ssh_config.puts "  User #{ssh_user}"
+# XXX I'd rather add the host key to known_hosts, but Net::SSH is a little dumb
+          ssh_config.puts "  StrictHostKeyChecking no"
+          ssh_config.puts "  ServerAliveInterval 60"
+
+          ssh_config.puts "  IdentityFile #{ssh_dir}/#{ssh_key_name}"
+          if !File.exist?("#{ssh_dir}/#{ssh_key_name}")
+            MU.log "#{server.mu_name} - ssh private key #{ssh_dir}/#{ssh_key_name} does not exist", MU::WARN
+          end
+
+          ssh_config.flock(File::LOCK_UN)
+          ssh_config.chown(Etc.getpwnam(ssh_owner).uid, Etc.getpwnam(ssh_owner).gid)
+        }
+        MU.log "Wrote #{server.mu_name} ssh key to #{ssh_dir}/config", MU::DEBUG
+        return "#{ssh_dir}/#{ssh_key_name}"
+      }
+    end
+
+    # Clean an IP address out of ~/.ssh/known hosts
+    # @param ip [String]: The IP to remove
+    # @return [void]
+    def self.removeIPFromSSHKnownHosts(ip, noop: false)
+      return if ip.nil?
+      sshdir = "#{MY_HOME}/.ssh"
+      knownhosts = "#{sshdir}/known_hosts"
+
+      if File.exist?(knownhosts) and File.open(knownhosts).read.match(/^#{Regexp.quote(ip)} /)
+        MU.log "Expunging old #{ip} entry from #{knownhosts}", MU::NOTICE
+        if !noop
+          File.open(knownhosts, File::CREAT|File::RDWR, 0600) { |f|
+            f.flock(File::LOCK_EX)
+            newlines = Array.new
+            f.readlines.each { |line|
+              next if line.match(/^#{Regexp.quote(ip)} /)
+              newlines << line
+            }
+            f.rewind
+            f.truncate(0)
+            f.puts(newlines)
+            f.flush
+            f.flock(File::LOCK_UN)
+          }
+        end
+      end
+    end
+
+    # Clean a node's entries out of ~/.ssh/config
+    # @param nodename [String]: The node's name
+    # @return [void]
+    def self.removeHostFromSSHConfig(nodename, noop: false)
+      sshdir = "#{MY_HOME}/.ssh"
+      sshconf = "#{sshdir}/config"
+
+      if File.exist?(sshconf) and File.open(sshconf).read.match(/ #{nodename} /)
+        MU.log "Expunging old #{nodename} entry from #{sshconf}", MU::DEBUG
+        if !noop
+          File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
+            f.flock(File::LOCK_EX)
+            newlines = Array.new
+            delete_block = false
+            f.readlines.each { |line|
+              if line.match(/^Host #{nodename}(\s|$)/)
+                delete_block = true
+              elsif line.match(/^Host /)
+                delete_block = false
+              end
+              newlines << line if !delete_block
+            }
+            f.rewind
+            f.truncate(0)
+            f.puts(newlines)
+            f.flush
+            f.flock(File::LOCK_UN)
+          }
         end
       end
     end

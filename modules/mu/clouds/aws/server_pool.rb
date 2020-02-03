@@ -293,7 +293,7 @@ module MU
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_or_update_tags(tag_conf)
             current.instances.each { |instance|
               tag_conf[:tags].each { |t|
-                MU::MommaCat.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'], credentials: @config['credentials'])
               }
             }
           end
