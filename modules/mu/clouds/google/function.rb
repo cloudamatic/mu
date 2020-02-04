@@ -108,98 +108,9 @@ module example.com/cloudfunction
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          labels = Hash[@tags.keys.map { |k|
-            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
-          ]
-          labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
 
           location = "projects/"+@config['project']+"/locations/"+@config['region']
-          sa = nil
-          retries = 0
-          begin
-            sa_ref = MU::Config::Ref.get(@config['service_account'])
-            sa = @deploy.findLitterMate(name: sa_ref.name, type: "users")
-            if !sa or !sa.cloud_desc
-              sleep 10
-            end
-          rescue ::Google::Apis::ClientError => e
-            if e.message.match(/notFound:/)
-              sleep 10
-              retries += 1
-              retry
-            end
-          end while !sa or !sa.cloud_desc and retries < 5
-
-          if !sa or !sa.cloud_desc
-            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
-          end
-
-          desc = {
-            name: location+"/functions/"+@mu_name.downcase,
-            runtime: @config['runtime'],
-            timeout: @config['timeout'].to_s+"s",
-#            entry_point: "hello_world",
-            entry_point: @config['handler'],
-            description: @deploy.deploy_id,
-            service_account_email: sa.cloud_desc.email,
-            labels: labels,
-            available_memory_mb: @config['memory']
-          }
-
-          # XXX This network argument is deprecated in favor of using VPC
-          # Connectors. Which would be fine, except there's no API support for
-          # interacting with VPC Connectors. Can't create them, can't list them,
-          # can't do anything except pass their ids into Cloud Functions or 
-          # AppEngine and hope for the best.
-          if @config['vpc_connector']
-            desc[:vpc_connector] = @config['vpc_connector']
-          elsif @vpc
-            desc[:network] = @vpc.url.sub(/^.*?\/projects\//, 'projects/')
-          end
-
-          if @config['triggers']
-            desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
-              event_type: @config['triggers'].first['event'],
-              resource: @config['triggers'].first['resource']
-            )
-          else
-            desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
-          end
-
-
-          if @config['environment_variable']
-            @config['environment_variable'].each { |var|
-              desc[:environment_variables] ||= {}
-              desc[:environment_variables][var["key"].to_s] = var["value"].to_s
-            }
-          end
-
-#          hello_code = nil
-#          HELLO_WORLDS.each_pair { |runtime, code|
-#            if @config['runtime'].match(/^#{Regexp.quote(runtime)}/)
-#              hello_code = code
-#              break
-#            end
-#          }
-          if @config['code']['gs_url']
-            desc[:source_archive_url] = @config['code']['gs_url']
-          elsif @config['code']['zip_file']
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
-          end
-
-#          Dir.mktmpdir(@mu_name) { |dir|
-#            hello_code.each_pair { |file, contents|
-#              f = File.open(dir+"/"+file, "w")
-#              f.puts contents
-#              f.close
-#              Zip::File.open(dir+"/function.zip", Zip::File::CREATE) { |z|
-#                z.add(file, dir+"/"+file)
-#              }
-#            }
-#            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: @credentials)
-#          }
-
-          func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
+          func_obj = buildDesc
           MU.log "Creating Cloud Function #{@mu_name} in #{location}", details: func_obj
           resp = MU::Cloud::Google.function(credentials: @credentials).create_project_location_function(location, func_obj)
           @cloud_id = resp.name
@@ -214,27 +125,26 @@ module example.com/cloudfunction
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
 
           if cloud_desc.labels != labels
-            desc[:labels] = labels
+            need_update = true
           end
 
           if cloud_desc.runtime != @config['runtime']
-            desc[:runtime] = @config['runtime']
+            need_update = true
           end
           if cloud_desc.timeout != @config['timeout'].to_s+"s"
-            desc[:timeout] = @config['timeout'].to_s+"s"
+            need_update = true
           end
           if cloud_desc.entry_point != @config['handler']
-            desc[:entry_point] = @config['handler']
+            need_update = true
           end
           if cloud_desc.available_memory_mb != @config['memory']
-            desc[:available_memory_mb] = @config['memory']
+            need_update = true
           end
           if @config['environment_variable']
             @config['environment_variable'].each { |var|
               if !cloud_desc.environment_variables or
                  cloud_desc.environment_variables[var["key"].to_s] != var["value"].to_s
-                desc[:environment_variables] ||= {}
-                desc[:environment_variables][var["key"].to_s] = var["value"].to_s
+                need_update = true
               end
             }
           end
@@ -242,10 +152,7 @@ module example.com/cloudfunction
             if !cloud_desc.event_trigger or
                cloud_desc.event_trigger.event_type != @config['triggers'].first['event'] or
                cloud_desc.event_trigger.resource != @config['triggers'].first['resource']
-              desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
-                event_type: @config['triggers'].first['event'],
-                resource: @config['triggers'].first['resource']
-              )
+              need_update = true
             end
           end
 
@@ -269,30 +176,13 @@ module example.com/cloudfunction
           if @config['code']['gs_url'] and
              (@config['code']['gs_url'] != cloud_desc.source_archive_url or
              current != new)
-            desc[:source_archive_url] = @config['code']['gs_url']
+            need_update = true
           elsif @config['code']['zip_file'] and current != new
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+            need_update = true
           end
 
-          if desc.size > 0
-            # A trigger and some code must always be specified, apparently. The
-            # endpoint hangs indefinitely if either is missing. Charming.
-            if !desc[:https_trigger] and !desc[:event_trigger]
-              if cloud_desc.https_trigger
-                desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
-              else
-                desc[:event_trigger] = cloud_desc.event_trigger
-              end
-            end
-            if !desc[:source_archive_url] and !desc[:source_upload_url]
-              if cloud_desc.source_archive_url
-                desc[:source_archive_url] = cloud_desc.source_archive_url
-              else
-                desc[:source_upload_url] = cloud_desc.source_upload_url
-              end
-            end
-
-            func_obj = MU::Cloud::Google.function(:CloudFunction).new(desc)
+          if need_update
+            func_obj = buildDesc
             MU.log "Updating Cloud Function #{@mu_name}", MU::NOTICE, details: func_obj
             begin
               MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
@@ -457,7 +347,6 @@ module example.com/cloudfunction
 
           bok
         end
-
 
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
@@ -644,6 +533,102 @@ module example.com/cloudfunction
 #          end
 
           ok
+        end
+
+        private
+
+        def buildDesc
+          labels = Hash[@tags.keys.map { |k|
+            [k.downcase, @tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
+          labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
+
+          location = "projects/"+@config['project']+"/locations/"+@config['region']
+          sa = nil
+          retries = 0
+          begin
+            sa_ref = MU::Config::Ref.get(@config['service_account'])
+            sa = @deploy.findLitterMate(name: sa_ref.name, type: "users")
+            if !sa or !sa.cloud_desc
+              sleep 10
+            end
+          rescue ::Google::Apis::ClientError => e
+            if e.message.match(/notFound:/)
+              sleep 10
+              retries += 1
+              retry
+            end
+          end while !sa or !sa.cloud_desc and retries < 5
+
+          if !sa or !sa.cloud_desc
+            raise MuError, "Failed to get service account cloud id from #{@config['service_account'].to_s}"
+          end
+
+          desc = {
+            name: location+"/functions/"+@mu_name.downcase,
+            runtime: @config['runtime'],
+            timeout: @config['timeout'].to_s+"s",
+#            entry_point: "hello_world",
+            entry_point: @config['handler'],
+            description: @deploy.deploy_id,
+            service_account_email: sa.cloud_desc.email,
+            labels: labels,
+            available_memory_mb: @config['memory']
+          }
+
+          # XXX This network argument is deprecated in favor of using VPC
+          # Connectors. Which would be fine, except there's no API support for
+          # interacting with VPC Connectors. Can't create them, can't list them,
+          # can't do anything except pass their ids into Cloud Functions or 
+          # AppEngine and hope for the best.
+          if @config['vpc_connector']
+            desc[:vpc_connector] = @config['vpc_connector']
+          elsif @vpc
+            desc[:network] = @vpc.url.sub(/^.*?\/projects\//, 'projects/')
+          end
+
+          if @config['triggers']
+            desc[:event_trigger] = MU::Cloud::Google.function(:EventTrigger).new(
+              event_type: @config['triggers'].first['event'],
+              resource: @config['triggers'].first['resource']
+            )
+          else
+            desc[:https_trigger] = MU::Cloud::Google.function(:HttpsTrigger).new
+          end
+
+
+          if @config['environment_variable']
+            @config['environment_variable'].each { |var|
+              desc[:environment_variables] ||= {}
+              desc[:environment_variables][var["key"].to_s] = var["value"].to_s
+            }
+          end
+
+#          hello_code = nil
+#          HELLO_WORLDS.each_pair { |runtime, code|
+#            if @config['runtime'].match(/^#{Regexp.quote(runtime)}/)
+#              hello_code = code
+#              break
+#            end
+#          }
+          if @config['code']['gs_url']
+            desc[:source_archive_url] = @config['code']['gs_url']
+          elsif @config['code']['zip_file']
+            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+          end
+
+#          Dir.mktmpdir(@mu_name) { |dir|
+#            hello_code.each_pair { |file, contents|
+#              f = File.open(dir+"/"+file, "w")
+#              f.puts contents
+#              f.close
+#              Zip::File.open(dir+"/function.zip", Zip::File::CREATE) { |z|
+#                z.add(file, dir+"/"+file)
+#              }
+#            }
+#            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(dir+"/function.zip", @mu_name+"-cloudfunction.zip", credentials: @credentials)
+#          }
+          MU::Cloud::Google.function(:CloudFunction).new(desc)
         end
 
       end

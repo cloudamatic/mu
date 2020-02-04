@@ -461,7 +461,7 @@ module MU
       else
         true
       end
-      private_class_method :call_cleanup
+
     end
   end #class
 end #module

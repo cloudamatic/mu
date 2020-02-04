@@ -288,7 +288,7 @@ module MU
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_groom_container")
 #          Thread.abort_on_exception = false
-          MU::Cloud.resource_types.valueseach { |data|
+          MU::Cloud.resource_types.values.each { |data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
                 data[:instance].include?(:groom)
