@@ -179,16 +179,17 @@ module example.com/cloudfunction
             need_update = true
           elsif @config['code']['zip_file'] and current != new
             need_update = true
+            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
           end
 
           if need_update
             func_obj = buildDesc
             MU.log "Updating Cloud Function #{@mu_name}", MU::NOTICE, details: func_obj
             begin
-              MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
-                @cloud_id, 
-                func_obj
-              )
+#              MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
+#                @cloud_id, 
+#                func_obj
+#              )
             rescue ::Google::Apis::ClientError => e
               MU.log "Error updating Cloud Function #{@mu_name}.", MU::ERR
               if desc[:source_archive_url]
@@ -381,6 +382,11 @@ module example.com/cloudfunction
             "vpc_connector" => {
               "type" => "string",
               "description" => "+DEPRECATED+ VPC Connector to attach, of the form +projects/my-project/locations/some-region/connectors/my-connector+. This option will be removed once proper google-cloud-sdk support for VPC Connectors becomes available, at which point we will piggyback on the normal +vpc+ stanza and resolve connectors as needed."
+            },
+            "vpc_connector_allow_all_egress" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "+DEPRECATED+ Allow VPC connector egress traffic to any IP range, instead of just private IPs. This option will be removed once proper google-cloud-sdk support for VPC Connectors becomes available, at which point we will piggyback on the normal +vpc+ stanza and resolve connectors as needed."
             },
             "code" => {
               "type" => "object",  
@@ -583,6 +589,8 @@ module example.com/cloudfunction
           # AppEngine and hope for the best.
           if @config['vpc_connector']
             desc[:vpc_connector] = @config['vpc_connector']
+            desc[:vpc_connector_egress_settings] = @config['vpc_connector_allow_all_egress'] ? "ALL_TRAFFIC" : "PRIVATE_RANGES_ONLY"
+            pp desc
           elsif @vpc
             desc[:network] = @vpc.url.sub(/^.*?\/projects\//, 'projects/')
           end
