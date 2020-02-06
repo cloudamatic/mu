@@ -64,10 +64,9 @@ module MU
             size = @config['basis']['launch_config']['size']
             @config['image_id'] = @config['basis']['launch_config']['image_id']
           end
-          az = @config['availability_zone']
-          if az.nil?
-            az = MU::Cloud::Google.listAZs(@config['region']).sample
-          end
+# XXX this should create a non-regional instance group
+#          az = @config['availability_zone']
+#          az ||= MU::Cloud::Google.listAZs(@config['region']).sample
 
           metadata = { # :items?
             "startup-script" => @userdata
@@ -361,7 +360,7 @@ end
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
-start = Time.now
+#start = Time.now
           pool['project'] ||= MU::Cloud::Google.defaultProject(pool['credentials'])
           if pool['service_account']
             pool['service_account']['cloud'] = "Google"

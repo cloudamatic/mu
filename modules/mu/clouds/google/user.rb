@@ -235,7 +235,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          my_domains = MU::Cloud::Google.getDomains(credentials)
+          MU::Cloud::Google.getDomains(credentials)
           my_org = MU::Cloud::Google.getOrg(credentials)
 
           # We don't have a good way of tagging directory users, so we rely
@@ -319,7 +319,7 @@ module MU
               MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
                 "projects/"+args[:project]
               )
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError
               MU.log "Do not have permissions to retrieve service accounts for project #{args[:project]}", MU::WARN
             end
 
@@ -441,9 +441,9 @@ module MU
        end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "name" => {
@@ -517,9 +517,9 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::users}, bare and unvalidated.
         # @param user [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(user, configurator)
+        def self.validateConfig(user, _configurator)
           ok = true
 
           my_domains = MU::Cloud::Google.getDomains(user['credentials'])

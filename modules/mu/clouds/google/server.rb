@@ -609,7 +609,7 @@ next if !create
             @named = true
           end
 
-          nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+          _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
           if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
@@ -720,8 +720,7 @@ next if !create
         # Return a description of this resource appropriate for deployment
         # metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
         def notify
-          node, config, deploydata = describe(cloud_id: @cloud_id)
-          deploydata = {} if deploydata.nil?
+          _node, _config, deploydata = describe(cloud_id: @cloud_id)
 
           if cloud_desc.nil?
             raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
@@ -783,7 +782,7 @@ next if !create
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          node, _config, deploydata = describe(cloud_id: @cloud_id)
 
           if node.nil? or node.empty?
             raise MuError, "MU::Cloud::Google::Server.groom was called without a mu_name"
@@ -966,7 +965,7 @@ next if !create
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
-          mu_name, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 
           if !cloud_desc
             raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
@@ -1017,7 +1016,7 @@ next if !create
             description: description,
             zone: @config['availability_zone'],
 #            type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
-            type: "projects/#{@project_id}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
+            type: "projects/#{@project_id}/zones/#{@config['availability_zone']}/diskTypes/#{type}",
 # Other values include pd-ssd and local-ssd
             name: resname
           )
@@ -1045,7 +1044,7 @@ next if !create
           )
 
           MU.log "Attaching disk #{resname} to #{@cloud_id} at #{devname}"
-          attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
+          MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
             @project_id,
             @config['availability_zone'],
             @cloud_id,
@@ -1189,8 +1188,7 @@ next if !create
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
-          skipsnapshots = flags["skipsnapshots"]
-          onlycloud = flags["onlycloud"]
+
 # XXX make damn sure MU.deploy_id is set
 
           MU::Cloud::Google.listAZs(region).each { |az|
@@ -1209,7 +1207,7 @@ next if !create
                     disks << disk if !disk.auto_delete
                   }
                 end
-                deletia = MU::Cloud::Google.compute(credentials: credentials).delete_instance(
+                MU::Cloud::Google.compute(credentials: credentials).delete_instance(
                   flags["project"],
                   az,
                   instance.name
@@ -1484,7 +1482,7 @@ next if !create
             img_project = Regexp.last_match[1]
             img_name = Regexp.last_match[2]
             begin
-              img = MU::Cloud::Google.compute(credentials: server['credentials']).get_image(img_project, img_name)
+              MU::Cloud::Google.compute(credentials: server['credentials']).get_image(img_project, img_name)
               snaps = MU::Cloud::Google.compute(credentials: server['credentials']).list_snapshots(
                 img_project,
                 filter: "name eq #{img_name}-.*"
@@ -1522,8 +1520,6 @@ next if !create
 
           ok
         end
-
-        private
 
       end #class
     end #class

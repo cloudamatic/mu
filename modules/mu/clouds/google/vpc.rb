@@ -239,7 +239,7 @@ end
               args[:cloud_id].to_s.sub(/^.*?\/([^\/]+)$/, '\1')
             )
             resp[args[:cloud_id]] = vpc if !vpc.nil?
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError
               MU.log "VPC #{args[:cloud_id]} in project #{args[:project]} does not exist, or I do not have permission to view it", MU::WARN
             end
           else # XXX other criteria
