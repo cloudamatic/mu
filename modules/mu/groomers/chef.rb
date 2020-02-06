@@ -893,6 +893,22 @@ retry
         MU::MommaCat.unlock("vault-#{vault}", true)
       end
 
+      # Execute a +knife+ command, and return its exit status and output
+      # @param cmd [String]: The knife subcommand to run, such as +vault list+
+      # @param showoutput [String]: Print the results to stdout
+      # @return [Array<Integer,String>]
+      def self.knifeCmd(cmd, showoutput = false)
+        MU.log "knife #{cmd}", MU::NOTICE if showoutput
+        output = `#{MU::Groomer::Chef.knife} #{cmd}`
+        exitstatus = $?.exitstatus
+
+        if showoutput
+          puts output
+          puts "Exit status: #{exitstatus}"
+        end
+        return [exitstatus, output]
+      end
+
       private
 
       # Save common Mu attributes to this node's Chef node structure.
@@ -1018,19 +1034,6 @@ retry
         self.class.grantSecretAccess(@server.mu_name, vault, item)
         @secrets_granted["#{vault}:#{item}"] = item
       end
-
-      def self.knifeCmd(cmd, showoutput = false)
-        MU.log "knife #{cmd}", MU::NOTICE if showoutput
-        output = `#{MU::Groomer::Chef.knife} #{cmd}`
-        exitstatus = $?.exitstatus
-
-        if showoutput
-          puts output
-          puts "Exit status: #{exitstatus}"
-        end
-        return [exitstatus, output]
-      end
-      private_class_method :knifeCmd
 
       def knifeCmd(cmd, showoutput = false)
         self.class.knifeCmd(cmd, showoutput)

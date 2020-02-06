@@ -385,10 +385,12 @@ module MU
         path
       end
 
-      private
-
-      # Get the +.vault_pw+ file for the appropriate user. If it doesn't exist,
-      # generate one.
+      # Get path to the +.vault_pw+ file for the appropriate user. If it
+      # doesn't exist, generate it. 
+      #
+      # @param for_user [String]:
+      # @param pwfile [String]
+      # @return [String]
       def self.vaultPasswordFile(for_user = nil, pwfile: nil)
         pwfile ||= secret_dir(for_user)+"/.vault_pw"
         @@pwfile_semaphore.synchronize {
@@ -401,21 +403,23 @@ module MU
         }
         pwfile
       end
-      private_class_method :vaultPasswordFile
 
       # Figure out where our main stash of secrets is, and make sure it exists
-      def secret_dir
-        MU::Groomer::Ansible.secret_dir(@mu_user)
-      end
-
-      # Figure out where our main stash of secrets is, and make sure it exists
+      # @param user [String]:
+      # @return [String]
       def self.secret_dir(user = MU.mu_user)
         path = MU.dataDir(user) + "/ansible-secrets"
         Dir.mkdir(path, 0755) if !Dir.exist?(path)
 
         path
       end
-      private_class_method :secret_dir
+
+      private
+
+      # Figure out where our main stash of secrets is, and make sure it exists
+      def secret_dir
+        MU::Groomer::Ansible.secret_dir(@mu_user)
+      end
 
       # Make an effort to distinguish an Ansible role from other sorts of
       # artifacts, since 'roles' is an awfully generic name for a directory.
