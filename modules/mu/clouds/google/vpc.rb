@@ -82,7 +82,6 @@ module MU
             end
           end
 
-          route_table_ids = []
           if !@config['route_tables'].nil?
             @config['route_tables'].each { |rtb|
               rtb['routes'].each { |route|
@@ -562,7 +561,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                   if e.message.match(/Failed to delete network (.+)/)
                     network_name = Regexp.last_match[1]
                     fwrules = MU::Cloud::Google::FirewallRule.find(project: flags['project'], credentials: credentials)
-                    fwrules.reject! { |name, desc|
+                    fwrules.reject! { |_name, desc|
                       !desc.network.match(/.*?\/#{Regexp.quote(network_name)}$/)
                     }
                     fwrules.keys.each { |name|
@@ -595,8 +594,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           }
           MU::Cloud::Google.listRegions.size
 
-          diff = {}
-          schema, valid = MU::Config.loadResourceSchema("VPC", cloud: "Google")
+          _schema, valid = MU::Config.loadResourceSchema("VPC", cloud: "Google")
           return [nil, nil] if !valid
 #          pp schema
 #          MU.log "++++++++++++++++++++++++++++++++"
@@ -630,7 +628,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             end
           end
 
-          peer_names = []
           if cloud_desc.peerings and cloud_desc.peerings.size > 0
             bok['peers'] = []
             cloud_desc.peerings.each { |peer|
@@ -690,7 +687,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config = nil)
+        def self.schema(_config = nil)
           toplevel_required = []
           schema = {
             "regions" => {
@@ -736,7 +733,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
           # see if one of this thing's siblings declared a subnet_pref we can
           # use to guess which one we should marry ourselves to
-          configurator.kittens.each_pair { |type, siblings|
+          configurator.kittens.values.each { |siblings|
             siblings.each { |sibling|
               next if !sibling['dependencies']
               sibling['dependencies'].each { |dep|
@@ -900,7 +897,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 "destination_network"=>"0.0.0.0/0"
               }
             end
-            nat_count = 0
+
             # You know what, let's just guarantee that we'll have a route from
             # this master, always
             # XXX this confuses machines that don't have public IPs
@@ -973,6 +970,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 #          end
           configurator.insertKitten(private_acl, "firewall_rules", true)
         end
+        private_class_method :genStandardSubnetACLs
 
         # Helper method for manufacturing routes. Expect to be called from
         # {MU::Cloud::Google::VPC#create} or {MU::Cloud::Google::VPC#groom}.
@@ -1039,7 +1037,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             rescue ::Google::Apis::ClientError, MU::MuError => e
               if e.message.match(/notFound/)
                 MU.log "Creating route #{routename} in project #{@project_id}", details: routeobj
-                resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_route(@project_id, routeobj)
+                MU::Cloud::Google.compute(credentials: @config['credentials']).insert_route(@project_id, routeobj)
               else
                 # TODO can't update GCP routes, would have to delete and re-create
               end
@@ -1047,44 +1045,12 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           end
         end
 
-
-        # Remove all network gateways associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_gateways(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-        end
-
-        # Remove all NAT gateways associated with the VPC of the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param vpc_id [String]: The cloud provider's unique VPC identifier
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_nat_gateways(noop = false, vpc_id: nil, region: MU.curRegion)
-        end
-
-        # Remove all VPC endpoints associated with the VPC of the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param vpc_id [String]: The cloud provider's unique VPC identifier
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_endpoints(noop = false, vpc_id: nil, region: MU.curRegion)
-        end
-
-        # Remove all network interfaces associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_interfaces(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
-        end
-
         # Remove all subnets associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param regions [Array<String>]: The cloud provider regions to check
         # @return [void]
-        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: nil, credentials: nil)
+        def self.purge_subnets(noop = false, _tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: nil, credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
           parent_thread_id = Thread.current.object_id
           regionthreads = []
@@ -1107,6 +1073,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             t.join
           end
         end
+        private_class_method :purge_subnets
 
         # Subnets are almost a first-class resource. So let's kinda sorta treat
         # them like one. This should only be invoked on objects that already
