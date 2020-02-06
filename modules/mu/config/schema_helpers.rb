@@ -80,10 +80,17 @@ module MU
     end
 
     @@allregions = []
+    @@loadfails = []
     MU::Cloud.availableClouds.each { |cloud|
+      next if @@loadfails.include?(cloud)
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      regions = cloudclass.listRegions()
-      @@allregions.concat(regions) if regions
+      begin
+        regions = cloudclass.listRegions()
+        @@allregions.concat(regions) if regions
+      rescue MU::MuError => e
+        @@loadfails << cloud
+        MU.log e.message, MU::WARN
+      end
     }
 
     # Configuration chunk for choosing a provider region
@@ -92,9 +99,15 @@ module MU
       if !@@allregions or @@allregions.empty?
         @@allregions = []
         MU::Cloud.availableClouds.each { |cloud|
+          next if @@loadfails.include?(cloud)
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-          return @allregions if !cloudclass.listRegions()
-          @@allregions.concat(cloudclass.listRegions())
+          begin
+            return @@allregions if !cloudclass.listRegions()
+            @@allregions.concat(cloudclass.listRegions())
+          rescue MU::MuError => e
+            @@loadfails << cloud
+            MU.log e.message, MU::WARN
+          end
         }
       end
       {
