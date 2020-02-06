@@ -206,17 +206,36 @@ module MU
 
         ssh_user = @server.config['ssh_user'] || "root"
 
-# XXX honor override_runlist
-# XXX honor update_runlist
-# XXX honor output
+        if update_runlist
+          bootstrap
+        end
 
-        cmd = %Q{cd #{@ansible_path} && #{@ansible_execs}/ansible-playbook -i hosts #{@server.config['name']}.yml --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
+        tmpfile = nil
+        playbook = if override_runlist and !override_runlist.empty?
+          play = {
+            "hosts" => @server.config['name']
+          }
+          play["become"] = "yes" if @server.config['ssh_user'] != "root"
+          play["roles"] = override_runlist if @server.config['run_list'] and !@server.config['run_list'].empty?
+          play["vars"] = @server.config['ansible_vars'] if @server.config['ansible_vars']
+
+          tmpfile = Tempfile.new("#{@server.config['name']}-override-runlist.yml")
+          tmpfile.puts [play].to_yaml
+          tmpfile.close
+          tmpfile.path
+        else
+          "#{@server.config['name']}.yml"
+        end
+
+        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         retries = 0
         begin
           MU.log cmd
           Timeout::timeout(timeout) {
-            raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}" if !system(cmd)
+            outlines = %x{#{cmd} 2>&1}
+            puts outlines if output
+            raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}"
           }
         rescue Timeout::Error, MU::Groomer::RunError => e
           if retries < max_retries
@@ -229,9 +248,12 @@ module MU
             MU.log "Failed Ansible run, will retry (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE, details: cmd
             retry
           else
+            tmpfile.unlink if tmpfile
             raise MuError, "Failed Ansible command: #{cmd}"
           end
         end
+
+        tmpfile.unlink if tmpfile
       end
 
       # This is a stub; since Ansible is effectively agentless, this operation

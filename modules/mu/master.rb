@@ -24,7 +24,10 @@ module MU
     autoload :LDAP, 'mu/master/ldap'
     autoload :SSL, 'mu/master/ssl'
 
+    # Home directory of the invoking user
     MY_HOME = Etc.getpwuid(Process.uid).dir
+
+    # Home directory of the Nagios user, if we're in a non-gem context
     NAGIOS_HOME = "/opt/mu/var/nagios_user_home" # XXX gross
 
     # @param users [Hash]: User metadata of the type returned by listUsers
