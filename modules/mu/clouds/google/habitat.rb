@@ -209,7 +209,7 @@ module MU
                billing.billing_account_name.empty?
               return false
             end
-          rescue ::Google::Apis::ClientError => e
+          rescue ::Google::Apis::ClientError
             return false
           end
 
@@ -223,10 +223,12 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+
           if resp and resp.projects
             resp.projects.each { |p|
-              if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase and
-                 p.lifecycle_state == "ACTIVE"
+              labelmatch = (p.labels and (p.labels["mu-id"] == MU.deploy_id.downcase and (ignoremaster or p.labels["mu-master-ip"] == MU.mu_public_ip.gsub(/\./, "_"))))
+              flagmatch = (flags and flags['known'] and flags['known'].include?(p.project_id))
+              if (labelmatch or flagmatch) and p.lifecycle_state == "ACTIVE"
                 MU.log "Deleting project #{p.project_id} (#{p.name})", details: p
                 if !noop
                   begin
@@ -334,9 +336,9 @@ module MU
 
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "billing_acct" => {

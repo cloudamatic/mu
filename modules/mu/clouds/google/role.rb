@@ -87,7 +87,7 @@ module MU
             resp = if @config['role_source'] == "org"
               my_org = MU::Cloud::Google.getOrg(@config['credentials'])
               MU.log "Creating IAM organization role #{@mu_name} in #{my_org.display_name}", details: create_role_obj
-              resp = MU::Cloud::Google.iam(credentials: @credentials).create_organization_role(my_org.name, create_role_obj)
+              MU::Cloud::Google.iam(credentials: @credentials).create_organization_role(my_org.name, create_role_obj)
             elsif @config['role_source'] == "project"
               if !@project_id
                 raise MuError, "Role #{@mu_name} is supposed to be in project #{@config['project']}, but no such project was found"
@@ -138,7 +138,7 @@ module MU
         def cloud_desc
           return @cloud_desc_cache if @cloud_desc_cache
 
-          my_org = MU::Cloud::Google.getOrg(@config['credentials'])
+          MU::Cloud::Google.getOrg(@config['credentials'])
 
           @cloud_desc_cache = if @config['role_source'] == "directory"
             MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_role(@customer, @cloud_id)
@@ -238,7 +238,7 @@ module MU
             req_obj = MU::Cloud::Google.resource_manager(:SetIamPolicyRequest).new(
               policy: policy
             )
-            policy = if scope_type == "organizations"
+            if scope_type == "organizations"
               MU::Cloud::Google.resource_manager(credentials: credentials).set_organization_iam_policy(
                 scope_id,
                 req_obj
@@ -310,7 +310,7 @@ module MU
                   policy: policy
                 )
 
-                policy = if scope_type == "organizations"
+                if scope_type == "organizations"
                   MU::Cloud::Google.resource_manager(credentials: credentials).set_organization_iam_policy(
                     scope_id,
                     req_obj
@@ -339,8 +339,6 @@ module MU
         # @param credentials [String]:
         def self.bindFromConfig(entity_type, entity_id, cfg, credentials: nil, deploy: nil, debug: false)
           loglevel = debug ? MU::NOTICE : MU::DEBUG
-
-          bindings = []
 
           return if !cfg
           MU.log "Google::Role::bindFromConfig binding called for #{entity_type} #{entity_id}", loglevel, details: cfg
@@ -464,11 +462,16 @@ module MU
         # Remove all roles associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           customer = MU::Cloud::Google.customerID(credentials)
           my_org = MU::Cloud::Google.getOrg(credentials)
+
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google Role artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           if flags['known']
             flags['known'].each { |id|
@@ -576,7 +579,7 @@ module MU
               }
             end
             if args[:cloud_id]
-              found.reject! { |k, v| k != role.name }
+              found.reject! { |k, _v| k != role.name }
             end
 
             # Now go get everything that's bound here
@@ -678,7 +681,7 @@ module MU
             end
             if !cloud_desc.role_privileges.nil? and !cloud_desc.role_privileges.empty?
               bok['import'] = []
-              ids, names, privs = MU::Cloud::Google::Role.privilege_service_to_name(@config['credentials'])
+              ids, _names, _privs = MU::Cloud::Google::Role.privilege_service_to_name(@config['credentials'])
               cloud_desc.role_privileges.each { |priv|
                 if !ids[priv.service_id]
                   MU.log "Role privilege defined for a service id with no name I can find, writing with raw id", MU::WARN, details: priv
@@ -697,7 +700,7 @@ module MU
               bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
               bok['role_source'] = "canned"
             elsif cloud_desc.name.match(/^([^\/]+?)\/([^\/]+?)\/roles\/(.*)/)
-              junk, type, parent, name = Regexp.last_match.to_a
+              _junk, type, parent, name = Regexp.last_match.to_a
               bok['name'] = name.gsub(/[^a-z0-9]/i, '-')
               bok['role_source'] = type == "organizations" ? "org" : "project"
               if bok['role_source'] == "project"
@@ -985,9 +988,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "name" => {
@@ -1052,7 +1055,7 @@ If this value is not specified, and the role name matches the name of an existin
         def self.validateConfig(role, configurator)
           ok = true
 
-          credcfg = MU::Cloud::Google.credConfig(role['credentials'])
+          MU::Cloud::Google.credConfig(role['credentials'])
 
           my_org = MU::Cloud::Google.getOrg(role['credentials'])
           if !role['role_source']
@@ -1061,7 +1064,7 @@ If this value is not specified, and the role name matches the name of an existin
               if !lookup_name.match(/^roles\//)
                 lookup_name = "roles/"+lookup_name
               end
-              canned = MU::Cloud::Google.iam(credentials: role['credentials']).get_role(lookup_name)
+              MU::Cloud::Google.iam(credentials: role['credentials']).get_role(lookup_name)
               MU.log "Role #{role['name']} appears to be a referenced to canned role #{role.name} (#{role.title})", MU::NOTICE
               role['role_source'] = "canned"
             rescue ::Google::Apis::ClientError
@@ -1122,8 +1125,6 @@ If this value is not specified, and the role name matches the name of an existin
 
           ok
         end
-
-        private
 
         @@service_id_to_name = {}
         @@service_id_to_privs = {}

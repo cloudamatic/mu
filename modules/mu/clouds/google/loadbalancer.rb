@@ -79,13 +79,13 @@ module MU
             end
             if @config['global']
               MU.log "Creating Global Forwarding Rule #{@mu_name}", MU::NOTICE, details: ruleobj
-              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_global_forwarding_rule(
+              MU::Cloud::Google.compute(credentials: @config['credentials']).insert_global_forwarding_rule(
                 @project_id,
                 ruleobj
               )
             else
               MU.log "Creating regional Forwarding Rule #{@mu_name} in #{@config['region']}", MU::NOTICE, details: ruleobj
-              resp = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_forwarding_rule(
+              MU::Cloud::Google.compute(credentials: @config['credentials']).insert_forwarding_rule(
                 @project_id,
                 @config['region'],
                 ruleobj
@@ -149,6 +149,11 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: nil, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google LoadBalancer artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           if region
             ["forwarding_rule", "region_backend_service"].each { |type|
@@ -174,9 +179,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "named_ports" => {
@@ -202,9 +207,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
         # @param lb [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(lb, configurator)
+        def self.validateConfig(lb, _configurator)
           ok = true
           if lb['classic']
             MU.log "LoadBalancer 'classic' flag has no meaning in Google Cloud", MU::WARN
@@ -236,7 +241,6 @@ module MU
           end
 
           lb["listeners"].each { |l|
-            ruleobj = nil
             if lb["private"] and !["TCP", "UDP"].include?(l['lb_protocol'])
               MU.log "Only TCP and UDP listeners are valid for private LoadBalancers in Google Cloud", MU::ERR
               ok = false
@@ -255,7 +259,6 @@ module MU
           lb["targetgroups"].each { |tg|
             if tg["healthcheck"]
               target = tg["healthcheck"]['target'].match(/^([^:]+):(\d+)(.*)/)
-              proto = target[1]
               if tg["proto"] != target[1]
                 MU.log "LoadBalancer #{lb['name']} can't mix and match target group and health check protocols in Google Cloud", MU::ERR, details: tg
                 ok = false
@@ -286,13 +289,8 @@ module MU
         end
 
         # Locate an existing LoadBalancer or LoadBalancers and return an array containing matching Google resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param flags [Hash]: Optional flags
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {}, credentials: nil)
+        # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching LoadBalancers
+        def self.find(**args)
           args = MU::Cloud::Google.findLocationArgs(args)
         end
 

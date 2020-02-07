@@ -139,11 +139,16 @@ module MU
         # Remove all groups associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          my_domains = MU::Cloud::Google.getDomains(credentials)
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+          MU::Cloud::Google.getDomains(credentials)
           my_org = MU::Cloud::Google.getOrg(credentials)
+
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google Group artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           if my_org
             groups = MU::Cloud::Google.admin_directory(credentials: credentials).list_groups(customer: MU::Cloud::Google.customerID(credentials)).groups
@@ -209,8 +214,8 @@ module MU
           bok['name'] = cloud_desc.name
           bok['cloud_id'] = cloud_desc.email
           bok['members'] = members
-          bok['members'].each { |m|
-            m = MU::Config::Ref.get(
+          members.each { |m|
+            bok['members'] << MU::Config::Ref.get(
               id: m,
               cloud: "Google",
               credentials: @config['credentials'],
@@ -227,9 +232,9 @@ module MU
        end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "name" => {
@@ -322,7 +327,7 @@ If we are binding (rather than creating) a group and no roles are specified, we 
           end
 
 
-          credcfg = MU::Cloud::Google.credConfig(group['credentials'])
+          MU::Cloud::Google.credConfig(group['credentials'])
 
           if group['external'] and group['members']
             MU.log "Cannot manage memberships for external group #{group['name']}", MU::ERR
@@ -359,8 +364,6 @@ If we are binding (rather than creating) a group and no roles are specified, we 
 
           ok
         end
-
-        private
 
       end
     end
