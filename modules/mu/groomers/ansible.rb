@@ -233,9 +233,15 @@ module MU
         begin
           MU.log cmd
           Timeout::timeout(timeout) {
-            outlines = %x{#{cmd} 2>&1}
-            puts outlines if output
-            raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}"
+            if output
+              system("#{cmd}")
+            else
+              %x{#{cmd} 2>&1}
+            end
+
+            if $?.exitstatus != 0
+              raise MU::Groomer::RunError, "Failed Ansible command: #{cmd}"
+            end
           }
         rescue Timeout::Error, MU::Groomer::RunError => e
           if retries < max_retries

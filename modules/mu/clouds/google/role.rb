@@ -644,7 +644,8 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**args)
+
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials'],
@@ -723,8 +724,9 @@ module MU
                 bindings[scopetype].each_pair { |scope_id, entity_types|
                   # If we've been given a habitat filter, skip over bindings
                   # that don't match it.
-                  if scopetype == "projects" and habitats and
-                     !habitats.empty? and !habitats.include?(scope_id)
+                  if scopetype == "projects" and args[:habitats] and
+                     !args[:habitats].empty? and
+                     !args[:habitats].include?(scope_id)
                     next
                   end
 

@@ -247,15 +247,22 @@ next if !create
             subnet_cfg = config['vpc']['subnets'].sample
 
           end
+
           subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
           if subnet.nil?
-            raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
+            if config['vpc']['name']
+              subnet = vpc.getSubnet(name: config['vpc']['name']+subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
+            end
+            if subnet.nil?
+              raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
+            end
           end
 
           base_iface_obj = {
             :network => vpc.url,
             :subnetwork => subnet.url
           }
+
           if config['associate_public_ip']
             base_iface_obj[:access_configs] = [
               MU::Cloud::Google.compute(:AccessConfig).new
@@ -369,7 +376,7 @@ next if !create
                 sleep 10
               end
             rescue ::Google::Apis::ClientError => e
-              MU.log e.message, MU::ERR
+              MU.log e.message+" inserting instance into #{@project_id}/#{@config['availability_zone']}", MU::ERR, details: instanceobj
               raise e
             end while @cloud_id.nil?
 
@@ -1063,7 +1070,7 @@ next if !create
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials'],

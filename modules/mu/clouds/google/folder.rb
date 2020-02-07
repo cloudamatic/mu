@@ -160,7 +160,7 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {}, region: MU.myRegion)
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           # We can't label GCP folders, and their names are too short to encode
           # Mu deploy IDs, so all we can do is rely on flags['known'] passed in
           # from cleanup, which relies on our metadata to know what's ours.
@@ -293,7 +293,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**args)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
@@ -310,9 +310,9 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
               credentials: @config['credentials'],
               type: "folders"
             )
-          elsif rootparent
+          elsif args[:rootparent]
             bok['parent'] = {
-              'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+              'id' => args[:rootparent].is_a?(String) ? args[:rootparent] : args[:rootparent].cloud_desc.name
             }
           else
             bok['parent'] = { 'id' => cloud_desc.parent }

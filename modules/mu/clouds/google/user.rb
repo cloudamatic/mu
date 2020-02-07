@@ -199,7 +199,18 @@ module MU
             end
           else
             @config['type'] ||= "service"
-            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
+            # this often fails even when it succeeded earlier, so try to be
+            # resilient on GCP's behalf
+            retries = 0
+            begin
+              MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/notFound:/) and retries < 10
+                sleep 3
+                retries += 1
+                retry
+              end
+            end
           end
 
         end
@@ -382,7 +393,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           if MU::Cloud::Google::User.cannedServiceAcctName?(@cloud_id)
             return nil
           end

@@ -431,7 +431,7 @@ module MU
 MU.log e.message, MU::WARN, details: e.inspect
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
-          elsif e.message.match(/notFound: |Unknown user:/)
+          elsif e.message.match(/notFound: |Unknown user:|conflict: /)
             if retries < 5
               sleep 5
               retries += 1
@@ -440,7 +440,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               raise e
             end
           elsif e.inspect.match(/The metadata for object "null" was edited during the operation/)
-            MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::WARN, details: aclobj
+            MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::DEBUG, details: aclobj
             sleep 10
             retry
           else
@@ -1206,11 +1206,19 @@ MU.log e.message, MU::WARN, details: e.inspect
             retval = nil
             retries = 0
             wait_backoff = 5
-            if next_page_token
-              if arguments.size == 1 and arguments.first.is_a?(Hash)
-                arguments[0][:page_token] = next_page_token
-              else
-                arguments << { :page_token => next_page_token }
+            if next_page_token 
+              if method_sym != :list_entry_log_entries
+                if arguments.size == 1 and arguments.first.is_a?(Hash)
+                  arguments[0][:page_token] = next_page_token
+                else
+                  arguments << { :page_token => next_page_token }
+                end
+              elsif arguments.first.class == ::Google::Apis::LoggingV2::ListLogEntriesRequest
+                arguments[0] = ::Google::Apis::LoggingV2::ListLogEntriesRequest.new(
+                  resource_names: arguments.first.resource_names,
+                  filter: arguments.first.filter,
+                  page_token: next_page_token
+                )
               end
             end
             begin
@@ -1451,6 +1459,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             if overall_retval
               if method_sym.to_s.match(/^list_(.*)/)
                 require 'google/apis/iam_v1'
+                require 'google/apis/logging_v2'
                 what = Regexp.last_match[1].to_sym
                 whatassign = (Regexp.last_match[1]+"=").to_sym
                 if overall_retval.class == ::Google::Apis::IamV1::ListServiceAccountsResponse
@@ -1462,7 +1471,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                     newarray = retval.public_send(what) + overall_retval.public_send(what)
                     overall_retval.public_send(whatassign, newarray)
                   end
-                else
+                elsif !retval.respond_to?(:next_page_token) or retval.next_page_token.nil? or retval.next_page_token.empty?
                   MU.log "Not sure how to append #{method_sym.to_s} results to #{overall_retval.class.name} (apparently #{what.to_s} and #{whatassign.to_s} aren't it), returning first page only", MU::WARN, details: retval
                   return retval
                 end

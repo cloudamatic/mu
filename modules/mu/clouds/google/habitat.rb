@@ -221,7 +221,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
           if resp and resp.projects
             resp.projects.each { |p|
@@ -291,7 +291,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**args)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
@@ -311,17 +311,17 @@ module MU
                 credentials: @config['credentials'],
                 type: "folders"
               )
-            elsif rootparent
+            elsif args[:rootparent]
               bok['parent'] = {
-                'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+                'id' => args[:rootparent].is_a?(String) ? args[:rootparent] : args[:rootparent].cloud_desc.name
               }
             else
               # org parent is *probably* safe to infer from credentials
             end
           end
 
-          if billing
-            bok['billing_acct'] = billing
+          if args[:billing]
+            bok['billing_acct'] = args[:billing]
           else
             cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
             if cur_billing and cur_billing.billing_account_name

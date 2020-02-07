@@ -1114,7 +1114,7 @@ module MU
       # Reverse-map our cloud description into a runnable config hash.
       # We assume that any values we have in +@config+ are placeholders, and
       # calculate our own accordingly based on what's live in the cloud.
-      def toKitten(rootparent: nil, billing: nil, habitats: nil)
+      def toKitten(**args)
         bok = {
           "cloud" => "AWS",
           "credentials" => @config['credentials'],

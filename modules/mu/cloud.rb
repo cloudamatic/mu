@@ -2054,6 +2054,11 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           clouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
+
+              if cloudclass.isGlobal?
+                params.delete(:region)
+              end
+
               raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
               MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
               cloudclass.cleanup(params)

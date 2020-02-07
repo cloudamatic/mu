@@ -36,12 +36,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-
           networkobj = MU::Cloud::Google.compute(:Network).new(
             name: MU::Cloud::Google.nameStr(@mu_name),
             description: @deploy.deploy_id,
             auto_create_subnetworks: false
-#            i_pv4_range: @config['ip_block']
           )
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']}) in project #{@project_id}", details: networkobj
 
@@ -58,7 +56,7 @@ module MU
                 subnet_name = @config['name']+subnet['name']
 
                 subnet_mu_name = @config['scrub_mu_isms'] ? @cloud_id+subnet_name.downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name, max_length: 61))
-                MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id}", details: subnet
+                MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@project_id} region #{subnet['availability_zone']}", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
                   description: @deploy.deploy_id,
@@ -72,9 +70,17 @@ module MU
                 subnetdesc = nil
                 begin 
                   subnetdesc = MU::Cloud::Google.compute(credentials: @config['credentials']).get_subnetwork(@project_id, subnet['availability_zone'], subnet_mu_name)
+                  if !subnetdesc.nil?
+                    subnet_cfg = {}
+                    subnet_cfg["ip_block"] = subnet['ip_block']
+                    subnet_cfg["name"] = subnet_name
+                    subnet_cfg['mu_name'] = subnet_mu_name
+                    subnet_cfg["cloud_id"] = subnetdesc.self_link.gsub(/.*?\/([^\/]+)$/, '\1')
+                    subnet_cfg['az'] = subnet['availability_zone']
+                    @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet_cfg, precache_description: false)
+                  end
                   sleep 1
                 end while subnetdesc.nil?
-  
               }
             }
             subnetthreads.each do |t|
@@ -476,9 +482,8 @@ end
         # directly at child nodes in peered VPCs, the public internet, and the
         # like.
         # @param target_instance [OpenStruct]: The cloud descriptor of the instance to check.
-        # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
-        def self.haveRouteToInstance?(target_instance, region: MU.curRegion, credentials: nil)
+        def self.haveRouteToInstance?(target_instance, credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
           return false if MU.myCloud != "Google"
 # XXX see if we reside in the same Network and overlap subnets
@@ -537,9 +542,15 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          filter = "labels.mu-id:#{MU.deploy_id}"
+          if !ignoremaster
+            filter += " labels.mu-master-ip:#{MU.mu_public_ip}"
+          end
+
+          MU.log "Placeholder: Google VPC artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           purge_subnets(noop, project: flags['project'], credentials: credentials)
           ["route", "network"].each { |type|
@@ -585,7 +596,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           return nil if cloud_desc.name == "default" # parent project builds these
           bok = {
             "cloud" => "Google",
@@ -942,7 +953,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         private
 
-        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, publicroute = true, credentials: nil)
+        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, _publicroute = true, credentials: nil)
           private_acl = {
             "name" => vpc_name+"-rt",
             "cloud" => "Google",
@@ -1081,7 +1092,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         class Subnet < MU::Cloud::Google::VPC
 
           attr_reader :cloud_id
-          attr_reader :url
           attr_reader :ip_block
           attr_reader :mu_name
           attr_reader :name
@@ -1114,10 +1124,17 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             MU.structToHash(cloud_desc)
           end
 
+          # Return the +self_link+ to this subnet
+          def url
+            cloud_desc if !@url
+            @url
+          end
+
           # Describe this VPC Subnet from the cloud platform's perspective
           # @return [Google::Apis::Core::Hashable]
           def cloud_desc
             @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.habitat_id, @config['az'], @config['cloud_id'])
+            @url ||= @cloud_desc_cache.self_link
             @cloud_desc_cache
           end
 
