@@ -434,6 +434,11 @@ end
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google ServerPool artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           if !flags["global"]
             ["region_autoscaler", "region_instance_group_manager"].each { |type|

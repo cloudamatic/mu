@@ -700,7 +700,7 @@ retry
           end
         }
         knifeAddToRunList("role[mu-node]")
-        knifeAddToRunList("mu-tools::selinux")
+        knifeAddToRunList("recipe[mu-tools::selinux]")
 
         grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?
         grantSecretAccess(@server.mu_name, "ssl_cert")

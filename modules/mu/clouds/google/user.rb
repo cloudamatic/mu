@@ -245,9 +245,15 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           MU::Cloud::Google.getDomains(credentials)
           my_org = MU::Cloud::Google.getOrg(credentials)
+
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google User artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           # We don't have a good way of tagging directory users, so we rely
           # on the known parameter, which is pulled from deployment metadata
@@ -668,8 +674,6 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
           parent
         end
-
-        private
 
       end
     end

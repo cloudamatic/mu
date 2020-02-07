@@ -545,11 +545,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
-          filter = "labels.mu-id:#{MU.deploy_id}"
-          if !ignoremaster
-            filter += " labels.mu-master-ip:#{MU.mu_public_ip}"
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
           end
-
           MU.log "Placeholder: Google VPC artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           purge_subnets(noop, project: flags['project'], credentials: credentials)
