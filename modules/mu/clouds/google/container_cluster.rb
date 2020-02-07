@@ -250,7 +250,7 @@ module MU
           @config['master_az'] = @config['region']
           parent_arg = "projects/"+@config['project']+"/locations/"+@config['master_az']
 
-          cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
+          MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
             parent_arg,
             requestobj
           )
@@ -277,11 +277,9 @@ module MU
 
           me = cloud_desc
 
-          parent_arg = "projects/"+@config['project']+"/locations/"+me.location
-
           # Enable/disable basic auth
           authcfg = {}
-          action = nil
+
           if @config['master_user'] and (me.master_auth.username != @config['master_user'] or !me.master_auth.password)
             authcfg[:username] = @config['master_user']
             authcfg[:password] = Password.pronounceable(16..18)
@@ -746,7 +744,6 @@ module MU
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          skipsnapshots = flags["skipsnapshots"]
 
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
@@ -763,7 +760,9 @@ module MU
           clusters.uniq.each { |cluster|
             if !cluster.resource_labels or (
                  !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
-                 cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                 (cluster.resource_labels['mu-id'] != MU.deploy_id.downcase or
+                  (!ignoremaster and cluster.resource_labels['mu-master-ip'] != MU.mu_public_ip.gsub(/\./, "_"))
+                 )
                )
               next
             end
@@ -1208,6 +1207,7 @@ module MU
           @@server_config[credentials][az] = MU::Cloud::Google.container(credentials: credentials).get_project_location_server_config(parent_arg)
           @@server_config[credentials][az]
         end
+        private_class_method :defaults
 
         def writeKubeConfig
           kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"

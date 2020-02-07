@@ -206,11 +206,15 @@ end
         # Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google FirewallRule artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           MU::Cloud::Google.compute(credentials: credentials).delete(
             "firewall",
@@ -361,9 +365,9 @@ end
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config = nil)
+        def self.schema(_config = nil)
           toplevel_required = []
           schema = {
             "rules" => {
@@ -522,7 +526,7 @@ end
             end
           }
 
-          rules_by_class.reject! { |k, v| v.size == 0 }
+          rules_by_class.reject! { |_k, v| v.size == 0 }
 
           # Generate other firewall rule objects to cover the other behaviors
           # we've requested, if indeed we've done so.
@@ -541,8 +545,6 @@ end
 
           ok
         end
-
-        private
 
       end #class
     end #class

@@ -48,7 +48,7 @@ module MU
           folder_obj = MU::Cloud::Google.folder(:Folder).new(params)
 
           MU.log "Creating folder #{name_string} under #{parent}", details: folder_obj
-          resp = MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj, parent: parent)
+          MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj, parent: parent)
 
           # Wait for list_folders output to be consistent (for the folder we
           # just created to show up)
@@ -161,6 +161,11 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google Folder artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
           # We can't label GCP folders, and their names are too short to encode
           # Mu deploy IDs, so all we can do is rely on flags['known'] passed in
           # from cleanup, which relies on our metadata to know what's ours.
@@ -322,9 +327,9 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "display_name" => {

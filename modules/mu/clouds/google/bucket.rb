@@ -143,15 +143,14 @@ module MU
         # Remove all buckets associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
 
           resp = MU::Cloud::Google.storage(credentials: credentials).list_buckets(flags['project'])
           if resp and resp.items
             resp.items.each { |bucket|
-              if bucket.labels and bucket.labels["mu-id"] == MU.deploy_id.downcase
+              if bucket.labels and bucket.labels["mu-id"] == MU.deploy_id.downcase and (ignoremaster or bucket.labels['mu-master-ip'] == MU.mu_public_ip.gsub(/\./, "_"))
                 MU.log "Deleting Cloud Storage bucket #{bucket.name}"
                 if !noop
                   MU::Cloud::Google.storage(credentials: credentials).delete_bucket(bucket.name)
@@ -299,9 +298,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "storage_class" => {
@@ -321,9 +320,9 @@ module MU
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::bucket}, bare and unvalidated.
 
         # @param bucket [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(bucket, configurator)
+        def self.validateConfig(bucket, _configurator)
           ok = true
           bucket['project'] ||= MU::Cloud::Google.defaultProject(bucket['credentials'])
 

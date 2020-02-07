@@ -161,7 +161,6 @@ module example.com/cloudfunction
             File.read("#{dir}/current.zip")
           }
 
-          source_url = nil
           new = if @config['code']['zip_file']
             File.read(@config['code']['zip_file'])
           elsif @config['code']['gs_url']
@@ -190,7 +189,7 @@ module example.com/cloudfunction
 #                @cloud_id, 
 #                func_obj
 #              )
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError
               MU.log "Error updating Cloud Function #{@mu_name}.", MU::ERR
               if desc[:source_archive_url]
                 main_file = nil
@@ -241,7 +240,7 @@ module example.com/cloudfunction
           found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["project"])
           found.each_pair { |cloud_id, desc|
             if (desc.description and desc.description == MU.deploy_id) or
-               (desc.labels and desc.labels["mu-id"] == MU.deploy_id.downcase) or
+               (desc.labels and desc.labels["mu-id"] == MU.deploy_id.downcase and (ignoremaster or desc.labels["mu-master-ip"] == MU.mu_public_ip.gsub(/\./, "_"))) or
                (flags["known"] and flags["known"].include?(cloud_id))
               MU.log "Deleting Cloud Function #{desc.name}"
               if !noop
@@ -416,7 +415,7 @@ module example.com/cloudfunction
             cloud_desc.source_archive_url.match(/^gs:\/\/([^\/]+)\/(.*)/)
             bucket = Regexp.last_match[1]
             path = Regexp.last_match[2]
-            current = nil
+
             MU::Cloud::Google.storage(credentials: credentials).get_object(bucket, path, download_dest: zipfile)
           elsif cloud_desc.source_upload_url
             resp = MU::Cloud::Google.function(credentials: credentials).generate_function_download_url(
