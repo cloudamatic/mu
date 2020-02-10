@@ -1131,6 +1131,11 @@ If this value is not specified, and the role name matches the name of an existin
         @@service_name_to_id = {}
         @@service_name_map_semaphore = Mutex.new
 
+        # Generate lookup tables mapping between hex service role identifiers,
+        # human-readable names of services, and the privileges associated with
+        # those roles.
+        # @param credentials [String]
+        # @return [Array<Hash,Hash,Hash>]
         def self.privilege_service_to_name(credentials = nil)
 
           customer = MU::Cloud::Google.customerID(credentials)
@@ -1179,6 +1184,11 @@ If this value is not specified, and the role name matches the name of an existin
           }
         end
 
+        # Convert a list of shorthand GSuite/Cloud Identity privileges into
+        # +RolePrivilege+ objects for consumption by other API calls
+        # @param roles [Array<String>]:
+        # @param credentials [String]:
+        # @return [Array<Google::Apis::AdminDirectoryV1::DirectoryService::Role::RolePrivilege>]
         def self.map_directory_privileges(roles, credentials: nil)
           rolepriv_objs = []
           notfound = []

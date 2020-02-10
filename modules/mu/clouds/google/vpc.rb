@@ -540,7 +540,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # Remove all VPC resources associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
@@ -695,7 +694,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(_config = nil)
           toplevel_required = []
@@ -1057,7 +1056,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         # Remove all subnets associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
+        # @param _tagfilters [Array<Hash>]: Labels to filter against when search for resources to purge
         # @param regions [Array<String>]: The cloud provider regions to check
         # @return [void]
         def self.purge_subnets(noop = false, _tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: nil, credentials: nil)

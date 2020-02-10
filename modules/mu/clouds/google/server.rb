@@ -863,7 +863,7 @@ next if !create
                 make_public: img_cfg['public'],
                 tags: @tags,
                 zone: @config['availability_zone'],
-                family: @config['family'],
+                family: img_cfg['family'],
                 credentials: @config['credentials']
             )
             @deploy.notify("images", @config['name'], {"image_id" => image_id})
@@ -960,6 +960,23 @@ MU.log "CREATEIMAGE CALLED", MU::WARN, details: instance
             project,
             MU::Cloud::Google.compute(:Image).new(image_desc)
           )
+
+          if make_public
+            MU.log "Making image #{newimage.name} public"
+            MU::Cloud::Google.compute(credentials: credentials).set_image_iam_policy(
+              project,
+              newimage.name,
+              MU::Cloud::Google.compute(:GlobalSetPolicyRequest).new(
+                bindings: [
+                  MU::Cloud::Google.compute(:Binding).new(
+                    members: ["allAuthenticatedUsers"],
+                    role: "roles/compute.imageUser"
+                  )
+                ],
+              )
+            )
+          end
+
           newimage.name
         end
 

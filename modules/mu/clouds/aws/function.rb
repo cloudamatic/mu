@@ -437,6 +437,7 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
             },
             "code" => {
               "type" => "object",  
+              "description" => "Zipped deployment package to upload to our function.", 
               "properties" => {  
                 "s3_bucket" => {
                   "type" => "string",

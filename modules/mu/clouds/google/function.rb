@@ -389,6 +389,7 @@ module example.com/cloudfunction
             },
             "code" => {
               "type" => "object",  
+              "description" => "Zipped deployment package to upload to our function.", 
               "properties" => {  
                 "gs_url" => {
                   "type" => "string",
