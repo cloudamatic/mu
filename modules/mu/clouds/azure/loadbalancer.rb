@@ -74,9 +74,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
 #            "named_ports" => {
@@ -102,9 +102,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
         # @param lb [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(lb, configurator)
+        def self.validateConfig(lb, _configurator)
           ok = true
           lb['region'] ||= MU::Cloud::Azure.myRegion(lb['credentials'])
 
@@ -144,7 +144,7 @@ module MU
                 found[Id.new(lb.id)] = lb
               }
             else
-              MU::Cloud::Azure.network(credentials: args[:credentials]).load_balancers.list_all.each { |net|
+              MU::Cloud::Azure.network(credentials: args[:credentials]).load_balancers.list_all.each { |lb|
                 found[Id.new(lb.id)] = lb
               }
             end

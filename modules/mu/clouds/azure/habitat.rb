@@ -131,7 +131,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil)
+        def toKitten(**args)
           bok = {
             "cloud" => "Azure",
             "credentials" => @config['credentials']
@@ -141,9 +141,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
           }
@@ -152,9 +152,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::habitats}, bare and unvalidated.
         # @param habitat [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(habitat, configurator)
+        def self.validateConfig(habitat, _configurator)
           ok = true
           habitat['region'] ||= MU::Cloud::Azure.myRegion(habitat['credentials'])
 

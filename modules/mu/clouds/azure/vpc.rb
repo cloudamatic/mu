@@ -53,7 +53,6 @@ module MU
         def groom
 
           if @config['peers']
-            count = 0
             @config['peers'].each { |peer|
               if peer['vpc']['name']
                 peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs", habitat: peer['vpc']['project'])
@@ -113,7 +112,6 @@ module MU
         # Describe this VPC
         # @return [Hash]
         def notify
-          base = {}
           base = MU.structToHash(cloud_desc)
           base["cloud_id"] = @cloud_id.name
           base.merge!(@config.to_h)
@@ -192,10 +190,9 @@ module MU
         # @param use_cache [Boolean]: If available, use saved deployment metadata to describe subnets, instead of querying the cloud API
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets(use_cache: false)
-          desc = cloud_desc
           @subnets = []
 
-          MU::Cloud::Azure.network(credentials: @credentials).subnets.list(@resource_group, cloud_desc.name).each { |subnet|
+          MU::Cloud::Azure.network(credentials: @credentials).subnets.list(@resource_group, cloud_desc(use_cache: use_cache).name).each { |subnet|
             subnet_cfg = {
               "cloud_id" => subnet.name,
               "mu_name" => subnet.name,
@@ -334,7 +331,7 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
-        def toKitten(rootparent: nil, billing: nil)
+        def toKitten(**_args)
           return nil if cloud_desc.name == "default" # parent project builds these
           bok = {
             "cloud" => "Azure",
@@ -346,9 +343,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config = nil)
+        def self.schema(_config = nil)
           toplevel_required = []
           schema = {
             "peers" => {
@@ -522,7 +519,6 @@ MU.structToHash(ext_vpc).diff(MU.structToHash(vpc_obj))
           # this is slow, so maybe thread it
           rtb_map = {}
           routethreads = []
-          create_nat_gateway = false
           @config['route_tables'].each { |rtb_cfg|
             routethreads << Thread.new(rtb_cfg) { |rtb|
               rtb_name = @mu_name+"-"+rtb['name'].upcase
@@ -717,8 +713,6 @@ MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
 
           loadSubnets
         end
-
-        protected
 
         # Subnets are almost a first-class resource. So let's kinda sorta treat
         # them like one. This should only be invoked on objects that already

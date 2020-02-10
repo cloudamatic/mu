@@ -895,7 +895,6 @@ next if !create
         def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: nil, zone: MU::Cloud::Google.listAZs.sample, credentials: nil)
           project ||= MU::Cloud::Google.defaultProject(credentials)
           instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
-MU.log "CREATEIMAGE CALLED", MU::WARN, details: instance
           if instance.nil?
             raise MuError, "Failed to find instance '#{instance_id}' in createImage"
           end
@@ -908,40 +907,42 @@ MU.log "CREATEIMAGE CALLED", MU::WARN, details: instance
           bootdisk = nil
           threads = []
           parent_thread_id = Thread.current.object_id
-          instance[instance_id].disks.each { |disk|
-            threads << Thread.new {
-              Thread.abort_on_exception = false
-              MU.dupGlobals(parent_thread_id)
-              if disk.boot
-                bootdisk = disk.source
-              else
-                snapobj = MU::Cloud::Google.compute(:Snapshot).new(
-                  name: name+"-"+disk.device_name,
-                  description: "Mu image created from #{name} (#{disk.device_name})"
-                )
-                diskname = disk.source.gsub(/.*?\//, "")
-                MU.log "Creating snapshot of #{diskname} in #{zone}", MU::NOTICE, details: snapobj
-                snap = MU::Cloud::Google.compute(credentials: credentials).create_disk_snapshot(
-                  project,
-                  zone,
-                  diskname,
-                  snapobj
-                )
-                MU::Cloud::Google.compute(credentials: credentials).set_snapshot_labels(
-                  project,
-                  snap.name,
-                  MU::Cloud::Google.compute(:GlobalSetLabelsRequest).new(
-                    label_fingerprint: snap.label_fingerprint,
-                    labels: labels.merge({
-                      "mu-device-name" => disk.device_name,
-                      "mu-parent-image" => name,
-                      "mu-orig-zone" => zone
-                    })
+          if !exclude_storage
+            instance[instance_id].disks.each { |disk|
+              threads << Thread.new {
+                Thread.abort_on_exception = false
+                MU.dupGlobals(parent_thread_id)
+                if disk.boot
+                  bootdisk = disk.source
+                else
+                  snapobj = MU::Cloud::Google.compute(:Snapshot).new(
+                    name: name+"-"+disk.device_name,
+                    description: "Mu image created from #{name} (#{disk.device_name})"
                   )
-                )
-              end
+                  diskname = disk.source.gsub(/.*?\//, "")
+                  MU.log "Creating snapshot of #{diskname} in #{zone}", MU::NOTICE, details: snapobj
+                  snap = MU::Cloud::Google.compute(credentials: credentials).create_disk_snapshot(
+                    project,
+                    zone,
+                    diskname,
+                    snapobj
+                  )
+                  MU::Cloud::Google.compute(credentials: credentials).set_snapshot_labels(
+                    project,
+                    snap.name,
+                    MU::Cloud::Google.compute(:GlobalSetLabelsRequest).new(
+                      label_fingerprint: snap.label_fingerprint,
+                      labels: labels.merge({
+                        "mu-device-name" => disk.device_name,
+                        "mu-parent-image" => name,
+                        "mu-orig-zone" => zone
+                      })
+                    )
+                  )
+                end
+              }
             }
-          }
+          end
           threads.each do |t|
             t.join
           end

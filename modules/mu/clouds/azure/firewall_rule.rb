@@ -53,7 +53,7 @@ module MU
               oldrules[rule.name] = rule
             end
           }
-          used_priorities = oldrules.values.map { |r| r.priority }
+#          used_priorities = oldrules.values.map { |r| r.priority }
 
           newrules_semaphore = Mutex.new
           num_rules = 0
@@ -136,12 +136,12 @@ module MU
             }
           end
 
-          resolved_lbs = []
-          if lbs
-            lbs.each { |lb|
+#          resolved_lbs = []
+#          if lbs
+#            lbs.each { |lb|
 # TODO awaiting LoadBalancer implementation
-            }
-          end
+#            }
+#          end
 
           if egress
             rule_obj.direction = MU::Cloud::Azure.network(:SecurityRuleDirection)::Outbound
@@ -295,7 +295,7 @@ module MU
                 resp = MU::Cloud::Azure.network(credentials: args[:credentials]).network_security_groups.get(rg, id_str)
                 next if resp.nil?
                 found[Id.new(resp.id)] = resp
-              rescue MU::Cloud::Azure::APIError => e
+              rescue MU::Cloud::Azure::APIError
                 # this is fine, we're doing a blind search after all
               end
             }
@@ -336,16 +336,16 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil)
+        def toKitten(**args)
           bok = {}
 
           bok
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config = nil)
+        def self.schema(_config = nil)
           toplevel_required = []
           hosts_schema = MU::Config::CIDR_PRIMITIVE
           hosts_schema["pattern"] = "^(\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}|\\*)$"

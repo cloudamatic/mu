@@ -86,7 +86,6 @@ module MU
 
             client = ::MsRest::ServiceClient.new(cred_obj)
             cloud_desc.client_secret_url.match(/^(http.*?\.azure\.net)(\/.*)/)
-            base = Regexp.last_match[1]
             path = Regexp.last_match[2]
 #MU.log "Calling into #{base} #{path}"
             promise = client.make_request_async(
@@ -97,7 +96,7 @@ module MU
 
             # XXX this is async, need to stop and wait somehow
             promise.then do | result|
-              resp = result.response
+              result.response
 #              MU.log "RESPONSE", MU::WARN, details: resp
             end
           end
@@ -106,7 +105,6 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          rgroup_name = @deploy.deploy_id+"-"+@config['region'].upcase
           if @config['roles']
             @config['roles'].each { |role|
               MU::Cloud::Azure::Role.assignTo(cloud_desc.principal_id, role_name: role, credentials: @config['credentials'])
@@ -191,9 +189,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "region" => MU::Config.region_primitive,
@@ -221,9 +219,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::users}, bare and unvalidated.
         # @param user [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(user, configurator)
+        def self.validateConfig(user, _configurator)
           ok = true
           user['region'] ||= MU::Cloud::Azure.myRegion(user['credentials'])
 

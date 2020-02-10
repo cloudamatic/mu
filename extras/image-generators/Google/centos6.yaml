@@ -16,3 +16,4 @@
     create_image:
       image_then_destroy: true
       public: true
+      family: mu-centos-6

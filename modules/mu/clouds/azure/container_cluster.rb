@@ -119,7 +119,6 @@ module MU
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
-          base = {}
           base = MU.structToHash(cloud_desc)
           base["cloud_id"] = @cloud_id.name
           base.merge!(@config.to_h)
@@ -146,9 +145,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "flavor" => {

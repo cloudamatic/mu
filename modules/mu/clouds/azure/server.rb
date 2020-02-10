@@ -139,7 +139,7 @@ module MU
         # Figure out what's needed to SSH into this server.
         # @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
         def getSSHConfig
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 # XXX add some awesome alternate names from metadata and make sure they end
 # up in MU::MommaCat's ssh config wangling
           ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
@@ -153,7 +153,7 @@ module MU
                 MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
               end
-              foo, bar, baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
+              _foo, _bar, _baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
               if nat_ssh_user.nil? and !nat_ssh_host.nil?
                 MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
                 nat_ssh_user = "root"
@@ -188,7 +188,7 @@ module MU
             @named = true
           end
 
-          nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+          _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
           if !nat_ssh_host and !MU::Cloud::Azure::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
@@ -236,7 +236,7 @@ module MU
                 resp = MU::Cloud::Azure.compute(credentials: args[:credentials]).virtual_machines.get(rg, id_str)
                 next if resp.nil?
                 found[Id.new(resp.id)] = resp
-              rescue MU::Cloud::Azure::APIError => e
+              rescue MU::Cloud::Azure::APIError
                 # this is fine, we're doing a blind search after all
               end
             }
@@ -267,7 +267,7 @@ module MU
 
           MU::MommaCat.lock(@cloud_id.to_s+"-groom")
           
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          node, _config, deploydata = describe(cloud_id: @cloud_id)
 
           if node.nil? or node.empty?
             raise MuError, "MU::Cloud::Azure::Server.groom was called without a mu_name"
@@ -357,7 +357,7 @@ module MU
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
-          mu_name, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 
           if !cloud_desc
             raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
@@ -495,7 +495,6 @@ module MU
 
             if !foundmatch
               MU.log "Invalid size '#{size}' for Azure Compute instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
-exit
               return nil
             end
           end
