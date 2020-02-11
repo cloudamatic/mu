@@ -1,6 +1,6 @@
 ---
-centos6: &centos6 centos-cloud/centos-6
-centos7: &centos7 centos-cloud/centos-7
+centos6: &centos6 egt-labs-admin/mu-centos-6
+centos7: &centos7 egt-labs-admin/mu-centos-7
 rhel71: &rhel71 rhel-cloud/rhel-7
 rhel6: &rhel6 rhel-cloud/rhel-6
 debian10: &debian10 debian-cloud/debian-10

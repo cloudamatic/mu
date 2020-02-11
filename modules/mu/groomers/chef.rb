@@ -389,6 +389,8 @@ module MU
               MU.log "ssh session to #{@server.mu_name} was closed unexpectedly, waiting before trying again", MU::NOTICE
             end
             sleep 10
+          rescue StandardError => e
+            MU.log "Error I don't recognize closing ssh tunnel", MU::WARN, details: e.inspect
           end
           if e.instance_of?(MU::Groomer::RunError) and retries == 0 and max_retries > 1 and purpose != "Base Windows configuration"
             MU.log "Got a run error, will attempt to install/update Chef Client on next attempt", MU::NOTICE
