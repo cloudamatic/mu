@@ -45,7 +45,6 @@ commands = {}
 failures = []
 
 files.each { |f|
-next if f != "aws-iam.yaml"
   clouds = baseclouds.dup
   File.open(dir+"/"+f).readlines.each { |l|
     l.chomp!
