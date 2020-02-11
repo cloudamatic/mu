@@ -13,11 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+bindir = File.realpath(File.expand_path(File.dirname(__FILE__)))
+dir = File.realpath(File.expand_path(bindir+"/../modules/tests"))
+Dir.chdir(dir)
+
 require 'colorize'
 require 'optimist'
-bindir = File.realpath(File.expand_path(File.dirname(__FILE__)))
 require bindir+"/mu-load-config.rb"
 require 'mu'
+
+require 'rubygems'
+require 'bundler/setup'
+require 'json'
+require 'erb'
+require 'json-schema'
 
 $opts = Optimist::options do
   banner <<-EOS
@@ -28,16 +37,15 @@ Usage:
   opt :full, "Actually run deploys, instead of --dryrun", :require => false, :default => false
 end
 
-dir = File.realpath(File.expand_path(bindir+"/../modules/tests"))
-Dir.chdir(dir)
-
 files = Dir.glob("*.yaml", base: dir)
 files.concat(Dir.glob("*.yml", base: dir))
 baseclouds = MU::Cloud.supportedClouds.reject { |c| c == "CloudFormation" }
 
 commands = {}
+failures = []
 
 files.each { |f|
+next if f != "aws-iam.yaml"
   clouds = baseclouds.dup
   File.open(dir+"/"+f).readlines.each { |l|
     l.chomp!
@@ -54,7 +62,30 @@ files.each { |f|
     break
   }
   clouds.each { |cloud|
-    commands["mu-deploy #{f} --cloud #{cloud} #{$opts[:full] ? "" : "--dryrun"}"] = { "file" => f, "cloud" => cloud }
+    cmd = "mu-deploy #{f} --cloud #{cloud} #{$opts[:full] ? "" : "--dryrun"}"
+    commands[cmd] = {
+      "file" => f,
+      "cloud" => cloud,
+    }
+    if $opts[:full]
+      $environment = "dev"
+      begin
+        conf_engine = MU::Config.new(f, cloud: cloud)
+      rescue StandardError => e
+        MU.log e.message+" parsing "+f+" with cloud "+cloud, MU::WARN, details: e.backtrace
+        failures << f+" ("+commands[cmd]["cloud"]+")"
+        next 
+      end
+      parsed = MU::Config.stripConfig(conf_engine.config)
+      types = []
+      MU::Cloud.resource_types.values.each { |attrs|
+        if parsed.has_key?(attrs[:cfg_plural])
+          types << attrs[:cfg_plural]
+        end
+      }
+      commands[cmd]["parsed"] = parsed
+      commands[cmd]["types"] = types
+    end
   }
 }
 
@@ -84,10 +115,33 @@ commands.keys.each { |cmd|
     end
     if $opts[:full] and results[cmd_thr]["output"].match(/deploy - Deployment id: .*? \((.*?)\)/)
       deploy_id = Regexp.last_match[1]
-      results[cmd_thr]["output"] += %x{mu-cleanup #{deploy_id} --skipsnapshots}
-      if $?.exitstatus != 0
-        results[cmd_thr]["status"] = false
+      adoptdir = Dir.mktmpdir(commands[cmd_thr]["file"].gsub(/[^a-z0-9]|yaml$/i, ""))
+      if commands[cmd_thr]["types"].size > 0
+        adopt = "cd #{adoptdir} && mu-adopt --appname adoptone --grouping omnibus  --clouds #{commands[cmd_thr]["cloud"]} --types #{commands[cmd_thr]["types"].join(" ")} 2>&1"
+        puts adopt
+        results[cmd_thr]["output"] += %x{#{adopt}}
+        results[cmd_thr]["status"] = false if $?.exitstatus != 0
       end
+
+      if File.exist?(dir+"/regrooms/"+commands[cmd_thr]["file"])
+        regroom = "mu-deploy regrooms/#{commands[cmd_thr]["file"]} --cloud #{commands[cmd_thr]["cloud"]} --update #{deploy_id} 2>&1"
+        puts regroom
+        results[cmd_thr]["output"] += %x{#{regroom}}
+        results[cmd_thr]["status"] = false if $?.exitstatus != 0
+        if commands[cmd_thr]["types"].size > 0
+          re_adopt = "cd #{adoptdir} && mu-adopt --appname adopttwo --grouping omnibus --clouds #{commands[cmd_thr]["cloud"]} --types #{commands[cmd_thr]["types"].join(" ")} 2>&1"
+          puts re_adopt
+          results[cmd_thr]["output"] += %x{#{re_adopt}}
+          results[cmd_thr]["status"] = false if $?.exitstatus != 0
+        end
+# TODO big flex is to read back both adopted BoKs and .diff them, but without
+# all resources having implemented adoption this isn't much of a test yet
+      end
+
+      FileUtils.remove_entry(adoptdir)
+
+      results[cmd_thr]["output"] += %x{mu-cleanup #{deploy_id} --skipsnapshots}
+      results[cmd_thr]["status"] = false if $?.exitstatus != 0
     end
   }
 }
@@ -96,7 +150,6 @@ threads.each { |t|
 }
 puts ""
 
-failures = []
 results.keys.sort { |a, b|
       if results[b]["status"] and !results[a]["status"]
         1
