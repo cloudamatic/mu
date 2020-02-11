@@ -1,0 +1,19 @@
+---
+appname: smoketest
+buckets:
+- name: bucket
+  policies:
+  - name: testpermissions
+    grant_to:
+    - identifier: egt.gcp.sandbox@gmail.com
+    targets: # XXX this is redundant except for path:
+    - type: bucket
+      identifier: bucket
+  - name: testpermissions2
+    grant_to:
+    - identifier: williamdingiv@gmail.com
+    targets: # XXX this is redundant except for path:
+    - type: bucket
+      identifier: bucket
+  web: false
+  versioning: true
