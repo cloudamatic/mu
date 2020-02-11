@@ -305,13 +305,11 @@ module MU
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
           asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
-          tg_arns = []
           if asg_options[:target_group_arns]
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
               target_group_arns: asg_options[:target_group_arns]
             )
-            tg_arns = asg_options[:target_group_arns].dup
             asg_options.delete(:target_group_arns)
           end
 
@@ -365,7 +363,6 @@ module MU
                 policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
-                  lb_path = nil
                   lb = @deploy.deployment["loadbalancers"].values.first
                   if @deploy.deployment["loadbalancers"].size > 1
                     MU.log "Multiple load balancers attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
@@ -415,7 +412,7 @@ module MU
               }
               if !policy_already_correct
                 MU.log "Putting scaling policy #{policy_name} for #{@mu_name}", MU::NOTICE, details: policy_params
-                resp = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_scaling_policy(policy_params)
+                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_scaling_policy(policy_params)
               end
 
             }
@@ -486,7 +483,7 @@ module MU
       # Reverse-map our cloud description into a runnable config hash.
       # We assume that any values we have in +@config+ are placeholders, and
       # calculate our own accordingly based on what's live in the cloud.
-      def toKitten(**args)
+      def toKitten(**_args)
         bok = {
           "cloud" => "AWS",
           "credentials" => @config['credentials'],
@@ -528,9 +525,9 @@ module MU
 
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
 
           term_policies = MU::Cloud::AWS.credConfig ? MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types : ["AllocationStrategy", "ClosestToNextInstanceHour", "Default", "NewestInstance", "OldestInstance", "OldestLaunchConfiguration", "OldestLaunchTemplate"]
@@ -1054,6 +1051,8 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::ServerPool.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
           filters = [{name: "key", values: ["MU-ID"]}]
           if !ignoremaster
             filters << {name: "key", values: ["MU-MASTER-IP"]}
@@ -1134,7 +1133,6 @@ module MU
           instance_secret = Password.random(50)
           @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
-          nodes_name = @deploy.getResourceName(@config['basis']["launch_config"]["name"])
           if !@config['basis']['launch_config']["server"].nil?
             #XXX this isn't how we find these; use findStray or something
             if @deploy.deployment["images"].nil? or @deploy.deployment["images"][@config['basis']['launch_config']["server"]].nil?
@@ -1205,7 +1203,7 @@ module MU
                   vol.delete("encrypted")
                 end
               end
-              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              mapping, _cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
               storage << mapping
             }
           end
@@ -1322,7 +1320,7 @@ module MU
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_launch_configuration(launch_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
             if lc_attempts > 3
-              MU.log "Got error while creating #{@mu_name} Launch Config#{@config['credentials'] ? " with credentials #{@config['credentials']}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,v | k == :user_data }
+              MU.log "Got error while creating #{@mu_name} Launch Config#{@config['credentials'] ? " with credentials #{@config['credentials']}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,_v | k == :user_data }
             end
             sleep 5
             lc_attempts += 1
@@ -1411,7 +1409,7 @@ module MU
                   if lb_name == lb['concurrent_load_balancer']
                     lbs << deployed_lb["awsname"] # XXX check for classic
                     if deployed_lb.has_key?("targetgroups")
-                      deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
+                      deployed_lb["targetgroups"].values.each { |tg_arn|
                         tg_arns << tg_arn
                       }
                     end
@@ -1464,7 +1462,6 @@ module MU
 
 
           if @config['basis']["server"]
-            nodes_name = @deploy.getResourceName(@config['basis']["server"])
             srv_name = @config['basis']["server"]
 # XXX cloudformation bits
             if @deploy.deployment['servers'] != nil and
@@ -1473,7 +1470,6 @@ module MU
             end
           elsif @config['basis']["instance_id"]
             # TODO should go fetch the name tag or something
-            nodes_name = @deploy.getResourceName(@config['basis']["instance_id"].gsub(/-/, ""))
 # XXX cloudformation bits
             asg_options[:instance_id] = @config['basis']["instance_id"]
           end

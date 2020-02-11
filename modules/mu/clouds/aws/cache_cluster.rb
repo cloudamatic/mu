@@ -170,7 +170,7 @@ module MU
             # config_struct[:preferred_cache_cluster_a_zs] = @config["preferred_cache_cluster_azs"]
 
             MU.log "Creating cache replication group #{@config['identifier']}"
-            resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_replication_group(config_struct).replication_group
+            MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_replication_group(config_struct).replication_group
 
             wait_start_time = Time.now
             retries = 0
@@ -180,7 +180,7 @@ module MU
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for cache replication group #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
                 end
-                waiter.before_wait do |attempts, r|
+                waiter.before_wait do |_attempts, r|
                   throw :success if r.replication_groups.first.status == "available"
                   throw :failure if Time.now - wait_start_time > 1800
                 end
@@ -228,7 +228,7 @@ module MU
 
             MU.log "Creating cache cluster #{@config['identifier']}"
             begin
-              resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_cluster(config_struct).cache_cluster
+              MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_cluster(config_struct).cache_cluster
             rescue ::Aws::ElastiCache::Errors::InvalidParameterValue => e
               if e.message.match(/security group (sg-[^\s]+)/)
                 bad_sg = Regexp.last_match[1]
@@ -248,7 +248,7 @@ module MU
                 waiter.before_attempt do |attempts|
                   MU.log "Waiting for cache cluster #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
                 end
-                waiter.before_wait do |attempts, r|
+                waiter.before_wait do |_attempts, r|
                   throw :success if r.cache_clusters.first.cache_cluster_status  == "available"
                   throw :failure if Time.now - wait_start_time > 1800
                 end
@@ -317,7 +317,7 @@ module MU
                 "vpc_id" => vpc_id,
                 "subnets" => mu_subnets
               }
-              using_default_vpc = true
+
               MU.log "Using default VPC for cache cluster #{@config['identifier']}"
             end
           end
@@ -327,7 +327,7 @@ module MU
           else
             MU.log "Creating subnet group #{@config["subnet_group_name"]} for cache cluster #{@config['identifier']}"
 
-            resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_subnet_group(
+            MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_subnet_group(
               cache_subnet_group_name: @config["subnet_group_name"],
               cache_subnet_group_description: @config["subnet_group_name"],
               subnet_ids: subnet_ids
@@ -340,8 +340,8 @@ module MU
               if nat.is_a?(Struct) && nat.nat_gateway_id && nat.nat_gateway_id.start_with?("nat-")
                 MU.log "Using NAT Gateway, not modifying security groups"
               else
-                nat_name, nat_conf, nat_deploydata = @nat.describe
-                @deploy.kittens['firewall_rules'].each_pair { |name, acl|
+                _nat_name, _nat_conf, nat_deploydata = @nat.describe
+                @deploy.kittens['firewall_rules'].values.each { |acl|
   # XXX if a user doesn't set up dependencies correctly, this can die horribly on a NAT that's still in mid-creation. Fix this... possibly in the config parser.
                   if acl.config["admin"]
                     acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
@@ -364,7 +364,7 @@ module MU
         # Create a Cache Cluster parameter group.
         def createParameterGroup        
           MU.log "Creating a cache cluster parameter group #{@config["parameter_group_name"]}"
-          resp = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_parameter_group(
+          MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_cache_parameter_group(
             cache_parameter_group_name: @config["parameter_group_name"],
             cache_parameter_group_family: @config["parameter_group_family"],
             description: "Parameter group for #{@config["parameter_group_family"]}"
@@ -404,7 +404,7 @@ module MU
         def self.getCacheClusterById(cc_id, region: MU.curRegion, credentials: nil)
           begin
             MU::Cloud::AWS.elasticache(region: region, credentials: credentials).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
-          rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
+          rescue Aws::ElastiCache::Errors::CacheClusterNotFound
             nil
           end
         end
@@ -532,7 +532,7 @@ module MU
 
           attempts = 0
           begin
-           snapshot = MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_snapshot(
+           MU::Cloud::AWS.elasticache(region: @config['region'], credentials: @config['credentials']).create_snapshot(
               cache_cluster_id: @config["identifier"],
               snapshot_name: snap_id
             )
@@ -669,7 +669,7 @@ module MU
                 threads << Thread.new(replication_group) { |myrepl_group|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id, credentials: credentials)
+                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, credentials: credentials)
                 }
               }
             end
@@ -681,7 +681,7 @@ module MU
                 threads << Thread.new(cluster) { |mycluster|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id, credentials: credentials)
+                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, credentials: credentials)
                 }
               }
             end
@@ -694,9 +694,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "create_replication_group" => {
@@ -806,7 +806,7 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
-        def self.terminate_cache_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
+        def self.terminate_cache_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, credentials: nil)
           raise MuError, "terminate_cache_cluster requires a non-nil cache cluster descriptor" if cluster.nil? || cluster.empty?
 
           cluster_id = cluster.cache_cluster_id
@@ -874,7 +874,7 @@ module MU
                   waiter.before_attempt do |attempts|
                     MU.log "Waiting for cache cluster #{cluster_id} to delete..", MU::NOTICE if attempts % 10 == 0
                   end
-                  waiter.before_wait do |attempts, resp|
+                  waiter.before_wait do |_attempts, resp|
                     throw :success if resp.cache_clusters.first.cache_cluster_status  == "deleted"
                     throw :failure if Time.now - wait_start_time > 1800
                   end
@@ -897,6 +897,7 @@ module MU
             MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region, credentials: credentials) if parameter_group && !parameter_group.start_with?("default")
           end
         end
+        private_class_method :terminate_cache_cluster
 
         # Remove a Cache Cluster Replication Group and associated artifacts
         # @param repl_group [OpenStruct]: The cloud provider's description of the Cache Cluster artifact.
@@ -905,7 +906,7 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
-        def self.terminate_replication_group(repl_group, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
+        def self.terminate_replication_group(repl_group, noop: false, skipsnapshots: false, region: MU.curRegion, credentials: nil)
           raise MuError, "terminate_replication_group requires a non-nil cache replication group descriptor" if repl_group.nil? || repl_group.empty?
 
           repl_group_id = repl_group.replication_group_id
@@ -983,7 +984,7 @@ module MU
                   waiter.before_attempt do |attempts|
                     MU.log "Waiting for #{repl_group_id} to delete..", MU::NOTICE if attempts % 10 == 0
                   end
-                  waiter.before_wait do |attempts, resp|
+                  waiter.before_wait do |_attempts, resp|
                     throw :success if resp.replication_groups.first.status == "deleted"
                     throw :failure if Time.now - wait_start_time > 1800
                   end
@@ -1005,6 +1006,7 @@ module MU
             MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group && !parameter_group.start_with?("default")
           end
         end
+        private_class_method :terminate_replication_group
 
         # Remove a Cache Cluster Subnet Group.
         # @param subnet_group_id [string]: The cloud provider's ID of the cache cluster subnet group.
@@ -1026,6 +1028,7 @@ module MU
             MU.log "Subnet group #{subnet_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
           end
         end
+        private_class_method :delete_subnet_group
 
         # Remove a Cache Cluster Parameter Group.
         # @param parameter_group_id [string]: The cloud provider's ID of the cache cluster parameter group.
@@ -1049,6 +1052,7 @@ module MU
             MU.log "Parameter group #{parameter_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
           end
         end
+        private_class_method :delete_parameter_group
       end
     end
   end

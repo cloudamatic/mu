@@ -374,7 +374,7 @@ module MU
         cfg = credConfig(credentials)
         return if !cfg or !cfg['project']
         flags["project"] ||= cfg['project']
-        name = deploy_id+"-secret"
+
         resp = MU::Cloud::Google.storage(credentials: credentials).list_objects(
           adminBucketName(credentials),
           prefix: deploy_id
@@ -551,7 +551,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               listRegions(credentials: credentials)
               listInstanceTypes(credentials: credentials)
               listProjects(credentials)
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError
               MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
               @@authorizers.delete(credentials)
               return nil
@@ -728,7 +728,6 @@ MU.log e.message, MU::WARN, details: e.inspect
             raise e
           end
 
-          regions = []
           result.items.each { |region|
             @@regions[region.name] = []
             region.zones.each { |az|
@@ -857,7 +856,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           if subclass.nil?
             begin
               @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials, auth_error_quiet: true)
-            rescue Signet::AuthorizationError => e
+            rescue Signet::AuthorizationError
               MU.log "Falling back to read-only access to DirectoryService API for credential set '#{credentials}'", MU::WARN
               @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
               @@readonly[credentials] ||= {}
@@ -1063,8 +1062,6 @@ MU.log e.message, MU::WARN, details: e.inspect
         @@customer_ids_cache[credentials]
       end
 
-      private
-
       # Wrapper class for Google APIs, so that we can catch some common
       # transient endpoint errors without having to spray rescues all over the
       # codebase.
@@ -1120,12 +1117,13 @@ MU.log e.message, MU::WARN, details: e.inspect
         # @param filter [String]: The Compute API filter string to use to isolate appropriate resources
         def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}", credentials: nil)
           list_sym = "list_#{type.sub(/y$/, "ie")}s".to_sym
+          credentials ||= @credentials
           resp = nil
           begin
             if region
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter, mu_gcp_enable_apis: false)
+              resp = MU::Cloud::Google.compute(credentials: credentials).send(list_sym, project, region, filter: filter, mu_gcp_enable_apis: false)
             else
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter, mu_gcp_enable_apis: false)
+              resp = MU::Cloud::Google.compute(credentials: credentials).send(list_sym, project, filter: filter, mu_gcp_enable_apis: false)
             end
 
           rescue ::Google::Apis::ClientError => e
@@ -1148,9 +1146,9 @@ MU.log e.message, MU::WARN, details: e.inspect
                     resp = nil
                     failed = false
                     if region
-                      resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, region, obj.name)
+                      resp = MU::Cloud::Google.compute(credentials: credentials).send(delete_sym, project, region, obj.name)
                     else
-                      resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, obj.name)
+                      resp = MU::Cloud::Google.compute(credentials: credentials).send(delete_sym, project, obj.name)
                     end
 
                     if resp.error and resp.error.errors and resp.error.errors.size > 0
@@ -1337,7 +1335,6 @@ MU.log e.message, MU::WARN, details: e.inspect
             if retval.class.name.match(/.*?::Operation$/)
 
               retries = 0
-              orig_target = retval.name
 
               # Check whether the various types of +Operation+ responses say
               # they're done, without knowing which specific API they're from
@@ -1409,7 +1406,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               # take advantage.
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
-              had_been_found = false
+#              had_been_found = false
               if method_sym.to_s.match(/^(insert|create|patch)_/)
                 get_method = method_sym.to_s.gsub(/^(insert|patch|create_disk|create)_/, "get_").to_sym
                 cloud_id = if retval.respond_to?(:target_link)
@@ -1436,7 +1433,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 #if method_sym == :insert_instance
 #MU.log "actual_resource", MU::WARN, details: actual_resource
 #end
-                had_been_found = true
+#                had_been_found = true
                 if actual_resource.respond_to?(:status) and
                   ["PROVISIONING", "STAGING", "PENDING", "CREATING", "RESTORING"].include?(actual_resource.status)
                   retries = 0

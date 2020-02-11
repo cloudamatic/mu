@@ -115,7 +115,7 @@ commands.keys.each { |cmd|
     if $opts[:full] and results[cmd_thr]["output"].match(/deploy - Deployment id: .*? \((.*?)\)/)
       deploy_id = Regexp.last_match[1]
       adoptdir = Dir.mktmpdir(commands[cmd_thr]["file"].gsub(/[^a-z0-9]|yaml$/i, ""))
-      if commands[cmd_thr]["types"].size > 0
+      if commands[cmd_thr]["types"] and commands[cmd_thr]["types"].size > 0
         adopt = "cd #{adoptdir} && mu-adopt --appname adoptone --grouping omnibus  --clouds #{commands[cmd_thr]["cloud"]} --types #{commands[cmd_thr]["types"].join(" ")} 2>&1"
         puts adopt
         results[cmd_thr]["output"] += %x{#{adopt}}
@@ -127,7 +127,7 @@ commands.keys.each { |cmd|
         puts regroom
         results[cmd_thr]["output"] += %x{#{regroom}}
         results[cmd_thr]["status"] = false if $?.exitstatus != 0
-        if commands[cmd_thr]["types"].size > 0
+        if commands[cmd_thr]["types"] and commands[cmd_thr]["types"].size > 0
           re_adopt = "cd #{adoptdir} && mu-adopt --appname adopttwo --grouping omnibus --clouds #{commands[cmd_thr]["cloud"]} --types #{commands[cmd_thr]["types"].join(" ")} 2>&1"
           puts re_adopt
           results[cmd_thr]["output"] += %x{#{re_adopt}}

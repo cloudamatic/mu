@@ -282,45 +282,6 @@ module MU
         )
       end
 
-      # Tag EC2 resources. 
-      #
-      # @param resources [Array<String>]: The cloud provider identifier of the resource to tag
-      # @param key [String]: The name of the tag to create
-      # @param value [String]: The value of the tag
-      # @param region [String]: The cloud provider region
-      # @return [void,<Hash>]
-      def self.createTag(key, value, resources = [], region: myRegion, credentials: nil)
-  
-        if !MU::Cloud::CloudFormation.emitCloudFormation
-          begin
-            MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
-              resources: resources,
-              tags: [
-                {
-                  key: key,
-                  value: value
-                }
-              ]
-            )
-          rescue Aws::EC2::Errors::ServiceError => e
-            MU.log "Got #{e.inspect} tagging #{resources.size.to_s} resources with #{key}=#{value}", MU::WARN, details: resources if attempts > 1
-            if attempts < 5
-              attempts = attempts + 1
-              sleep 15
-              retry
-            else
-              raise e
-            end
-          end
-          MU.log "Created tag #{key} with value #{value}", MU::DEBUG, details: resources
-        else
-          return {
-            "Key" =>  key,
-            "Value" => value
-          }
-        end
-      end
-
       @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
@@ -504,6 +465,8 @@ module MU
             return @@habmap[cloudobj.config['account']]
           end
           deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
+
+          MU.log "Incomplete implementation: MU::Cloud::AWS.habitat", MU::DEBUG, details: deploy
 
 #          accountobj = accountLookup(cloudobj.config['account'], deploy, raise_on_fail: false)
 

@@ -240,8 +240,6 @@ module MU
           {}
         end
 
-        protected
-
         # Subnets are almost a first-class resource. So let's kinda sorta treat
         # them like one. This should only be invoked on objects that already
         # exists in the cloud layer.
@@ -288,13 +286,13 @@ module MU
 
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
-        def self.find(*args)
+        def self.find(**args)
           MU.log "find() not implemented for CloudFormation layer", MU::DEBUG
           nil
         end
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
-        def self.cleanup(*args)
+        def self.cleanup(**args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
         end

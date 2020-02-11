@@ -110,6 +110,10 @@ module MU
       config = nil
       @param_pass = param_pass
 
+      if cloud
+        MU.log "Exposing cloud variable to ERB with value of #{cloud}", MU::DEBUG
+      end
+
       # Catch calls to missing variables in Basket of Kittens files when being
       # parsed by ERB, and replace with placeholders for parameters. This
       # method_missing is only defined innside {MU::Config.resolveConfig}
