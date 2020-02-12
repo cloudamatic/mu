@@ -152,10 +152,9 @@ module MU
       def self.habitat(cloudobj, nolookup: false, deploy: nil)
         @@habmap ||= {}
 # XXX whaddabout config['habitat'] HNNNGH
-
         return nil if !cloudobj.cloudclass.canLiveIn.include?(:Habitat)
 
-# XXX users are assholes because they're valid two different ways ugh ugh
+# XXX these are assholes because they're valid two different ways ugh ugh
         return nil if [MU::Cloud::Google::Group, MU::Cloud::Google::Folder].include?(cloudobj.cloudclass)
         if cloudobj.config and cloudobj.config['project']
           if nolookup
@@ -165,7 +164,6 @@ module MU
             return @@habmap[cloudobj.config['project']]
           end
           deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
-
           projectobj = projectLookup(cloudobj.config['project'], deploy, raise_on_fail: false)
 
           if projectobj

@@ -1153,10 +1153,13 @@ module MU
           credentials: nil)
         attempts = 0
 
+        return nil if resource.nil?
+        resource = [resource] if resource.is_a?(String)
+
         if !MU::Cloud::CloudFormation.emitCloudFormation
           begin
             MU::Cloud::AWS.ec2(credentials: credentials, region: region).create_tags(
-              resources: [resource],
+              resources: resource,
               tags: [
                 {
                   key: tag_name,

@@ -181,8 +181,8 @@ module MU
             main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
             tagme << main_sg.cloud_id if main_sg
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
-            MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
-            MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(tagme, "kubernetes.io/cluster/#{@mu_name}", "shared", credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(tagme_elb, "kubernetes.io/cluster/elb", @mu_name, credentials: @config['credentials'])
 
             if @config['flavor'] == "Fargate"
               fargate_subnets = []
@@ -268,7 +268,18 @@ module MU
               authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
               MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
-              %x{#{authmap_cmd}}
+              retries = 0
+              begin
+                output = %x{#{authmap_cmd}}
+                if $?.exitstatus != 0
+                  if retries >= 10
+                    raise MuError, "Failed to apply #{authmap_cmd}"
+                  end
+                  sleep 10
+                  retries += 1 
+                end
+              end while $?.exitstatus != 0
+
             end
 
 # and this one
@@ -1950,7 +1961,7 @@ MU.log c.name, MU::NOTICE, details: t
                   "name" => cluster['name']
                 }
               ]
-              worker_pool["run_list"] = ["mu-tools::eks"]
+              worker_pool["run_list"] = ["recipe[mu-tools::eks]"]
 							worker_pool["run_list"].concat(cluster["run_list"]) if cluster["run_list"]
               MU::Config::Server.common_properties.keys.each { |k|
                 if cluster[k] and !worker_pool[k]

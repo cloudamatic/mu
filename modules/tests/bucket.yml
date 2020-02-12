@@ -6,7 +6,11 @@ buckets:
   policies:
   - name: testpermissions
     grant_to:
+<% if cloud == "Google" %>
     - identifier: egt.gcp.sandbox@gmail.com
+<% elsif cloud == "AWS" %>
+    - identifier: "arn:aws:iam::<%= MU::Cloud::AWS.account_number %>:root"
+<% end %>
     targets: # XXX this is redundant except for path:
     - type: bucket
       identifier: bucket

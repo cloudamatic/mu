@@ -1094,7 +1094,7 @@ end
         # @param policies [Array<Hash>]: One or more policy chunks
         # @param deploy_obj [MU::MommaCat]: Deployment object to use when looking up sibling Mu resources
         # @return [Array<Hash>]
-        def self.genPolicyDocument(policies, deploy_obj: nil)
+        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false)
           iam_policies = []
 
           if policies
@@ -1134,12 +1134,21 @@ end
                     )
                     if sibling
                       id = sibling.cloudobj.arn
-                      statement["Principal"] << id
+                      if bucket_style
+                        statement["Principal"] << { "AWS" => id }
+                      else
+                        statement["Principal"] << id
+                      end
                     else
                       raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating IAM policy"
                     end
                   else
-                    statement["Principal"] << grantee["identifier"]
+                    bucket_prefix = grantee["identifier"].match(/^[^\.]+\.amazonaws\.com$/) ? "Service" : "AWS"
+                    if bucket_style
+                      statement["Principal"] << { bucket_prefix => grantee["identifier"] }
+                    else
+                      statement["Principal"] << grantee["identifier"]
+                    end
                   end
                 }
                 if policy["grant_to"].size == 1
@@ -1162,6 +1171,8 @@ end
                         stream_id = id.sub(/:([^:]+)$/, ":log-stream:*")
 #                        "arn:aws:logs:us-east-2:accountID:log-group:log_group_name:log-stream:CloudTrail_log_stream_name_prefix*"
                         statement["Resource"] << stream_id
+                      elsif id.match(/:s3:/)
+                        statement["Resource"] << id+"/*"
                       end
                     else
                       raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy"

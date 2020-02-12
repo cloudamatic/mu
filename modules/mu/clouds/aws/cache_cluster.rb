@@ -669,7 +669,7 @@ module MU
                 threads << Thread.new(replication_group) { |myrepl_group|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, credentials: credentials)
+                  terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, credentials: credentials)
                 }
               }
             end
@@ -681,7 +681,7 @@ module MU
                 threads << Thread.new(cluster) { |mycluster|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, credentials: credentials)
+                  terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, credentials: credentials)
                 }
               }
             end
@@ -893,8 +893,8 @@ module MU
           MU.log "#{cluster_id} has been terminated"
 
           unless noop
-            MU::Cloud::AWS::CacheCluster.delete_subnet_group(subnet_group, region: region, credentials: credentials) if subnet_group
-            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region, credentials: credentials) if parameter_group && !parameter_group.start_with?("default")
+            delete_subnet_group(subnet_group, region: region, credentials: credentials) if subnet_group
+            delete_parameter_group(parameter_group, region: region, credentials: credentials) if parameter_group && !parameter_group.start_with?("default")
           end
         end
         private_class_method :terminate_cache_cluster

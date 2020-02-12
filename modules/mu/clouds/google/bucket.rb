@@ -34,7 +34,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloudobj.cloud_id
+          @project_id = MU::Cloud::Google.projectLookup(@config['project'], @deploy).cloud_id
 
           current = cloud_desc
           changed = false

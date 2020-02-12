@@ -90,7 +90,6 @@ module MU
           tagBucket if !@config['scrub_mu_isms']
 
           current = cloud_desc
-
           if @config['policies']
             @config['policies'].each { |pol|
               pol['grant_to'] ||= [
@@ -98,9 +97,9 @@ module MU
               ]
             }
 
-            policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy)
+            policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
             policy_docs.each { |doc|
-              MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: doc.values.first
+              MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
               MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
                 bucket: @cloud_id,
                 policy: JSON.generate(doc.values.first)
@@ -177,10 +176,6 @@ module MU
           end
 
           begin
-puts data
-puts acl
-puts bucket
-puts path
             MU.log "Writing #{path} to S3 bucket #{bucket}"
             MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
               acl: acl,
@@ -340,7 +335,7 @@ puts path
           if bucket['policies']
             bucket['policies'].each { |pol|
               if !pol['permissions'] or pol['permissions'].empty?
-                pol['permissions'] = ["s3:GetObject"]
+                pol['permissions'] = ["s3:GetObject", "s3:ListBucket"]
               end
             }
           end
