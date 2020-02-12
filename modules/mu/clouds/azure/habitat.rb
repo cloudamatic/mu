@@ -60,7 +60,7 @@ module MU
         end
 
         # Return the cloud descriptor for the Habitat
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           @cached_cloud_desc ||= MU::Cloud::Azure::Habitat.find(cloud_id: @cloud_id).values.first
 #          @habitat_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
           @cached_cloud_desc

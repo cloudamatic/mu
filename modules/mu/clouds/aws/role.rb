@@ -211,7 +211,7 @@ module MU
         # Return a hash containing a +role+ element and a +policies+ element,
         # populated with one or both depending on what this resource has
         # defined.
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           desc = {}
           if @config['bare_policies']
             if @cloud_id

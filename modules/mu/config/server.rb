@@ -429,60 +429,30 @@ module MU
               }
           },
           "ssh_user" => {
-              "type" => "string",
-              "default" => "root",
-              "default_if" => [
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "windows",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "win2k12",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "win2k12r2",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "win2k16",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "ubuntu",
-                      "set" => "ubuntu"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "ubuntu14",
-                      "set" => "ubuntu"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "centos7",
-                      "set" => "centos"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "rhel7",
-                      "set" => "ec2-user"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "rhel71",
-                      "set" => "ec2-user"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "amazon",
-                      "set" => "ec2-user"
-                  }
-              ]
+            "type" => "string",
+            "default" => "root",
+            "default_if" => [
+              {
+                "key_is" => "platform",
+                "value_is" => "centos",
+                "set" => "centos"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "centos6",
+                "set" => "centos"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "centos7",
+                "set" => "centos"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "centos8",
+                "set" => "centos"
+              }
+            ]
           },
           "use_cloud_provider_windows_password" => {
               "type" => "boolean",

@@ -163,7 +163,7 @@ module MU
 
           if @config['ssh_user'].nil?
             if windows?
-              @config['ssh_user'] = "Administrator"
+              @config['ssh_user'] = "muadmin"
             else
               @config['ssh_user'] = "root"
             end
@@ -451,6 +451,34 @@ module MU
                   }
                 }
               }
+            },
+            "windows_admin_username" => {
+              "type" => "string",
+              "default" => "muadmin",
+            },
+            "ssh_user" => {
+              "default_if" => [
+                {
+                  "key_is" => "platform",
+                  "value_is" => "windows",
+                  "set" => "muadmin"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k12",
+                  "set" => "muadmin"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k12r2",
+                  "set" => "muadmin"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k16",
+                  "set" => "muadmin"
+                }
+              ]
             }
           }
           [toplevel_required, schema]
@@ -479,6 +507,7 @@ module MU
                 mem = foreign_types[size]["memory"]
                 ecu = foreign_types[size]["ecu"]
                 types.keys.sort.reverse.each { |type|
+                  next if type.match(/_Promo$/i)
                   features = types[type]
                   next if ecu == "Variable" and ecu != features["ecu"]
                   next if features["vcpu"] != vcpu
@@ -511,6 +540,10 @@ module MU
 
           server['region'] ||= MU::Cloud::Azure.myRegion(server['credentials'])
           server['ssh_user'] ||= "muadmin"
+          if server['windows_admin_username'] == "Administrator"
+            MU.log "Azure does not permit admin user to be 'Administrator'", MU::ERR
+            ok = false
+          end
 
           server['size'] = validateInstanceType(server["size"], server["region"])
           ok = false if server['size'].nil?
@@ -723,12 +756,15 @@ module MU
           hw_obj.vm_size = @config['size']
 
           os_obj = MU::Cloud::Azure.compute(:OSProfile).new
-          os_obj.admin_username = @config['ssh_user']
-          os_obj.computer_name = @mu_name
           if windows?
             win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
             os_obj.windows_configuration = win_obj
+            os_obj.admin_username = @config['windows_admin_username']
+            os_obj.admin_password = MU.generateWindowsPassword
+            os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/)
           else
+            os_obj.admin_username = @config['ssh_user']
+            os_obj.computer_name = @mu_name
             key_obj = MU::Cloud::Azure.compute(:SshPublicKey).new
             key_obj.key_data = @deploy.ssh_public_key
             key_obj.path = "/home/#{@config['ssh_user']}/.ssh/authorized_keys"

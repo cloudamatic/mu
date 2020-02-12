@@ -221,7 +221,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         end
 
         # @return [Struct]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_rest_api(
             rest_api_id: @cloud_id
           )

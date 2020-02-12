@@ -1017,6 +1017,7 @@ module MU
           # @param arguments [Array]
           def method_missing(method_sym, *arguments)
             MU.log "Calling #{@parentname}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
+            retries = 0
             begin
               if !arguments.nil? and arguments.size == 1
                 retval = @myobject.method(method_sym).call(arguments[0])
@@ -1025,9 +1026,16 @@ module MU
               else
                 retval = @myobject.method(method_sym).call
               end
-            rescue ::Net::ReadTimeout, ::Faraday::TimeoutError => e
+            rescue ::Net::ReadTimeout, ::Faraday::TimeoutError, ::Faraday::ConnectionFailed => e
               sleep 5
-              retry
+              if retries < 12
+                MU.log e.message+" calling #{@parentname}.#{@myname}.#{method_sym.to_s}(#{arguments.map { |a| a.to_s }.join(", ")})", MU::DEBUG, details: caller
+                retries += 1
+                retry
+              else
+                MU.log e.message+" calling #{@parentname}.#{@myname}.#{method_sym.to_s}(#{arguments.map { |a| a.to_s }.join(", ")})", MU::ERR, details: caller
+                raise e
+              end
             rescue ::MsRestAzure::AzureOperationError, ::MsRest::HttpOperationError => e
               MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
               begin

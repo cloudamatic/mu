@@ -60,7 +60,7 @@ module MU
         # Wrapper for cloud_desc method that deals with finding the AWS
         # domain_name parameter, which isn't what we'd call ourselves if we had
         # our druthers.
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           if @config['domain_name']
             MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @config['domain_name']

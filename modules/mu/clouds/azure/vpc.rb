@@ -120,8 +120,8 @@ module MU
 #
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
-        def cloud_desc
-          if @cloud_desc_cache
+        def cloud_desc(use_cache: true)
+          if @cloud_desc_cache and use_cache
             return @cloud_desc_cache
           end
           @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @cloud_id, resource_group: @resource_group).values.first
@@ -569,6 +569,9 @@ MU.structToHash(ext_vpc).diff(MU.structToHash(vpc_obj))
                 routename = rtb_name+"-"+route['destination_network'].gsub(/[^a-z0-9]/i, "_")
                 route_obj.next_hop_type = if route['gateway'] == "#NAT" and @config['bastion']
                   routename = rtb_name+"-NAT"
+                  if @config['bastion'].is_a?(Hash) and !@config['bastion']['id'] and !@config['bastion']['deploy_id']
+                    @config['bastion']['deploy_id'] = @deploy.deploy_id
+                  end
                   bastion_ref = MU::Config::Ref.get(@config['bastion'])
                   if bastion_ref.kitten and bastion_ref.kitten.cloud_desc
                     iface_id = Id.new(bastion_ref.kitten.cloud_desc.network_profile.network_interfaces.first.id)
@@ -766,7 +769,7 @@ MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
           end
 
           # Describe this VPC Subnet from the cloud platform's perspective
-          def cloud_desc
+          def cloud_desc(use_cache: true)
             return @cloud_desc_cache if !@cloud_desc_cache.nil?
             @cloud_desc_cache = MU::Cloud::Azure.network(credentials: @parent.credentials).subnets.get(@parent.resource_group, @parent.cloud_desc.name, @cloud_id.to_s)
             @cloud_desc_cache

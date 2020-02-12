@@ -77,7 +77,7 @@ module MU
         # Retrieve the AWS descriptor for this SQS queue. AWS doesn't exactly
         # provide one; if you want real information for SQS ask notify()
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           if !@cloud_id
             resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).list_queues(
               queue_name_prefix: @mu_name

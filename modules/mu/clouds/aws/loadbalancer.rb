@@ -554,7 +554,7 @@ module MU
         end
 
         # Wrapper for cloud_desc method that deals with elb vs. elb2 resources.
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           if @config['classic']
             resp = MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
               load_balancer_names: [@cloud_id]

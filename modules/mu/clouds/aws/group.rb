@@ -153,7 +153,7 @@ module MU
 
         # Fetch the AWS API description of this group
         # return [Struct]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
             group_name: @mu_name
           )

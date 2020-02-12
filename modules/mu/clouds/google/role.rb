@@ -135,7 +135,7 @@ module MU
 
         # Return the cloud descriptor for the Role
         # @return [Google::Apis::Core::Hashable]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache
 
           MU::Cloud::Google.getOrg(@config['credentials'])

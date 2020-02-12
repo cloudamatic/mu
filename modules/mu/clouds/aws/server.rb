@@ -1464,7 +1464,7 @@ module MU
 
         # Return the cloud provider's description for this instance
         # @return [Openstruct]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           max_retries = 5
           retries = 0
           if !@cloud_id.nil?
@@ -2387,6 +2387,47 @@ module MU
                   }
                 }
               }
+            },
+            "ssh_user" => {
+              "type" => "string",
+              "default" => "root",
+              "default_if" => [
+                {
+                  "key_is" => "platform",
+                  "value_is" => "windows",
+                  "set" => "Administrator"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k12",
+                  "set" => "Administrator"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k12r2",
+                  "set" => "Administrator"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k16",
+                  "set" => "Administrator"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "rhel7",
+                  "set" => "ec2-user"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "rhel71",
+                  "set" => "ec2-user"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "amazon",
+                  "set" => "ec2-user"
+                }
+              ]
             }
           }
           [toplevel_required, schema]

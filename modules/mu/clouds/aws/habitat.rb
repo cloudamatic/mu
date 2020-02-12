@@ -60,7 +60,7 @@ module MU
         end
 
         # Return the cloud descriptor for the Habitat
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           MU::Cloud::AWS::Habitat.find(cloud_id: @cloud_id).values.first
         end
 

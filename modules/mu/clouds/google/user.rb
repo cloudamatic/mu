@@ -189,7 +189,7 @@ module MU
 
         # Retrieve the cloud descriptor for this resource.
         # @return [Google::Apis::Core::Hashable]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           if @config['type'] == "interactive" or !@config['type']
              @config['type'] ||= "interactive"
             if !@config['external']

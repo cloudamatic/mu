@@ -312,6 +312,8 @@ module MU
         @mommacat.save!
 
       rescue StandardError => e
+        MU.log e.class.name, MU::ERR, details: caller
+
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and
              t.thread_variable_get("name") != "main_thread" and
@@ -338,6 +340,8 @@ module MU
             @nocleanup = true # so we don't run this again later
           end
         end
+
+
         @reraise_thread.raise MuError, e.inspect, e.backtrace if @reraise_thread
         Thread.current.exit
       ensure

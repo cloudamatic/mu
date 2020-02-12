@@ -749,7 +749,7 @@ MU.log c.name, MU::NOTICE, details: t
 
         # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
         # @return [OpenStruct]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
           if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
