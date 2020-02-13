@@ -1270,6 +1270,10 @@ next if !create
           toplevel_required = []
           schema = {
             "roles" => MU::Cloud::Google::User.schema(config)[1]["roles"],
+            "windows_admin_username" => {
+              "type" => "string",
+              "default" => "Administrator"
+            },
             "create_image" => {
               "properties" => {
                 "family" => {

@@ -2345,6 +2345,10 @@ module MU
               "type" => "string",
               "description" => "Alias for +image_id+"
             },
+            "windows_admin_username" => {
+              "type" => "string",
+              "default" => "Administrator"
+            },
             "generate_iam_role" => {
               "type" => "boolean",
               "default" => true,

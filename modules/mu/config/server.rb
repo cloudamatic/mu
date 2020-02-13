@@ -391,9 +391,8 @@ module MU
           },
           "userdata_script" => userdata_primitive,
           "windows_admin_username" => {
-              "type" => "string",
-              "default" => "Administrator",
-              "description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
+            "type" => "string",
+            "description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
           },
           "windows_auth_vault" => {
               "type" => "object",
