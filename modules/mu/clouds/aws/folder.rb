@@ -78,20 +78,20 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
           }
           [toplevel_required, schema]
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::logs}, bare and unvalidated.
-        # @param log [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::folder}, bare and unvalidated.
+        # @param _folder [Hash]: The resource to process and validate
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(log, configurator)
+        def self.validateConfig(_folder, _configurator)
           ok = true
 
           ok

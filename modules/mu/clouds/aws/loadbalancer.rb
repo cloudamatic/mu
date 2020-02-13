@@ -288,7 +288,7 @@ module MU
           else
             @config["listeners"].each { |l|
               if l['ssl_certificate_id']
-                resp = MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).set_load_balancer_policies_of_listener(
+                MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).set_load_balancer_policies_of_listener(
                   load_balancer_name: @cloud_id, 
                   load_balancer_port: l['lb_port'], 
                   policy_names: [
@@ -330,7 +330,7 @@ module MU
                 }
               )
             else
-              @targetgroups.each_pair { |tg_name, tg|
+              @targetgroups.values.each { |tg|
                 MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
@@ -400,7 +400,7 @@ module MU
                 timeout = 0
                 MU.log "Disabling connection draining on #{lb.dns_name}"
               end
-              @targetgroups.each_pair { |tg_name, tg|
+              @targetgroups.values.each { |tg|
                 MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
@@ -473,7 +473,7 @@ module MU
                 end
               end
             else
-              @targetgroups.each_pair { |tg_name, tg|
+              @targetgroups.values.each { |tg|
                 MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
@@ -553,15 +553,17 @@ module MU
           end
         end
 
+        @cloud_desc_cache = nil
         # Wrapper for cloud_desc method that deals with elb vs. elb2 resources.
         def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
           if @config['classic']
-            resp = MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
+            @cloud_desc_cache = MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
               load_balancer_names: [@cloud_id]
             ).load_balancer_descriptions.first
-            return resp
+            return @cloud_desc_cache
           else
-            resp = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
+            @cloud_desc_cache = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
               names: [@cloud_id]
             ).load_balancers.first
             if @targetgroups.nil? and !@deploy.nil? and
@@ -573,7 +575,7 @@ module MU
               }
             end
 
-            return resp
+            return @cloud_desc_cache
           end
         end
 
@@ -692,7 +694,6 @@ module MU
               classic = false
             end
             begin
-              tags = []
               matched = false
               if flags and flags['vpc_id']
                 matched = true if lb.vpc_id == flags['vpc_id']
@@ -773,9 +774,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "targetgroups" => {
@@ -818,9 +819,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
         # @param lb [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(lb, configurator)
+        def self.validateConfig(lb, _configurator)
           ok = true
 
           # XXX what about raw targetgroup ssl declarations?
@@ -830,7 +831,7 @@ module MU
               if lb['cloud'] != "CloudFormation" # XXX or maybe do this anyway?
                 begin
                   listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s, region: lb['region'])
-                rescue MuError => e
+                rescue MuError
                   ok = false
                   next
                 end

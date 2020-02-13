@@ -54,13 +54,12 @@ module MU
 
             secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
-          rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
+          rescue Aws::EC2::Errors::InvalidGroupDuplicate
             MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
             filters = [{name: "group-name", values: [groupname]}]
             filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
 
             secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(filters: filters).security_groups.first
-            deploy_id = @deploy.deploy_id if !@deploy_id.nil?
             if secgroup.nil?
               raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
             end
@@ -69,7 +68,7 @@ module MU
 
           begin
             MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(group_ids: [secgroup.group_id])
-          rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+          rescue Aws::EC2::Errors::InvalidGroupNotFound
             MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
             sleep 10
             retry
@@ -180,7 +179,7 @@ module MU
                 ip_permissions: ec2_rule
               )
             end
-          rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
+          rescue Aws::EC2::Errors::InvalidPermissionDuplicate
             MU.log "Attempt to add duplicate rule to #{@cloud_id}", MU::DEBUG, details: ec2_rule
             # Ensure that, at least, the description field gets updated on
             # existing rules
@@ -246,7 +245,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(**args)
+        def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
@@ -537,9 +536,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "rules" => {

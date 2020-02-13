@@ -45,7 +45,6 @@ module MU
             resp = MU::Cloud::AWS.orgs(credentials: @config['credentials']).describe_create_account_status(
               create_account_request_id: createid
             )
-            createstatus = resp.create_account_status.state
             if !["SUCCEEDED", "IN_PROGRESS"].include?(resp.create_account_status.state)
               raise MuError, "Failed to create account #{@mu_name}: #{resp.create_account_status.failure_reason}"
             end
@@ -59,9 +58,12 @@ module MU
           MU.log "Creation of account #{@mu_name} (#{resp.create_account_status.account_id}) complete"
         end
 
+        @cloud_desc_cache = nil
         # Return the cloud descriptor for the Habitat
         def cloud_desc(use_cache: true)
-          MU::Cloud::AWS::Habitat.find(cloud_id: @cloud_id).values.first
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = MU::Cloud::AWS::Habitat.find(cloud_id: @cloud_id).values.first
+          @cloud_desc_cache
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -87,10 +89,11 @@ module MU
         # Remove all AWS accounts associated with the currently loaded deployment. Try to, anyway.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           return if !orgMasterCreds?(credentials)
+          MU.log "AWS::Habitat.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS Habitat artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           resp = MU::Cloud::AWS.orgs(credentials: credentials).list_accounts
 
@@ -108,14 +111,14 @@ module MU
 
         # Locate an existing account
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching account
-        def self.find(**args)
+        def self.find(**_args)
           {}
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "email" => {
@@ -126,9 +129,10 @@ module MU
           [toplevel_required, schema]
         end
 
-        # @param account_number [String]
+        # @param _account_number [String]
+        # @param _credentials [String]
         # @return [Boolean]
-        def self.isLive?(account_number, credentials = nil)
+        def self.isLive?(_account_number, _credentials = nil)
           true
         end
 
@@ -138,7 +142,6 @@ module MU
         # @param credentials [String]
         # @return [Boolean]
         def self.orgMasterCreds?(credentials = nil)
-          user_list = MU::Cloud::AWS.iam(credentials:  credentials).list_users.users
           acct_num = MU::Cloud::AWS.iam(credentials:  credentials).list_users.users.first.arn.split(/:/)[4]
 
           parentorg = MU::Cloud::AWS::Folder.find(credentials: credentials).values.first
@@ -147,9 +150,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::habitats}, bare and unvalidated.
         # @param habitat [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(habitat, configurator)
+        def self.validateConfig(habitat, _configurator)
           ok = true
 
           if !habitat["email"]

@@ -3,6 +3,10 @@ Style:
 Layout:
   Enabled: false
 
+# The alternative code doesn't seem to work
+Lint/UriEscapeUnescape:
+  Enabled: false
+
 # Yeah, we do these. Wanna fight?
 Layout/LineLength:
   Enabled: false
