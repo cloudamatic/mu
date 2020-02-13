@@ -101,11 +101,11 @@ module MU
         def initialize(*args)
           if args.first.is_a?(String)
             @raw = args.first
-            junk, junk, @subscription, junk, @resource_group, junk, @provider, @resource_type, @name = @raw.split(/\//)
+            _junk, _junk2, @subscription, _junk3, @resource_group, _junk4, @provider, @resource_type, @name = @raw.split(/\//)
             if @subscription.nil? or @resource_group.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
               # Not everything has a resource group
               if @raw.match(/^\/subscriptions\/#{Regexp.quote(@subscription)}\/providers/)
-                junk, junk, @subscription, junk, @provider, @resource_type, @name = @raw.split(/\//)
+                _junk, _junk2, @subscription, _junk3, @provider, @resource_type, @name = @raw.split(/\//)
                 if @subscription.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
                   raise MuError, "Failed to parse Azure resource id string #{@raw} (got subscription: #{@subscription}, provider: #{@provider}, resource_type: #{@resource_type}, name: #{@name}"
                 end
@@ -378,7 +378,7 @@ module MU
         rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
         rg_obj.location = region
         rg_obj.tags = MU::MommaCat.listStandardTags
-        rg_obj.tags.reject! { |k, v| v.nil? }
+        rg_obj.tags.reject! { |_k, v| v.nil? }
 
         MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
           if rg.name == name and rg.location == region and rg.tags == rg_obj.tags
@@ -519,7 +519,7 @@ module MU
           end
           return @@metadata
 
-        rescue Timeout::Error => e
+        rescue Timeout::Error
           # MU.log "Timeout querying Azure Metadata"
           return nil
         rescue
@@ -906,7 +906,6 @@ module MU
 # END SDK STUBS
 
 # BEGIN SDK CLIENT
-      private
 
       @@authorization_api = {}
       @@subscriptions_api = {}
@@ -967,7 +966,7 @@ module MU
             begin
               modelpath = "::Azure::#{api}::Mgmt::#{profile}::#{@subclass}"
               @api = Object.const_get(modelpath).new(@cred_obj)
-            rescue NameError => e
+            rescue NameError
               raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
             end
           end

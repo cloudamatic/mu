@@ -126,7 +126,7 @@ module MU
         # Describe this VPC from the cloud platform's perspective
         # @return [Google::Apis::Core::Hashable]
         def cloud_desc(use_cache: true)
-          if @cloud_desc_cache
+          if @cloud_desc_cache and use_cache
             return @cloud_desc_cache
           end
 
@@ -1128,10 +1128,13 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             @url
           end
 
+          @cloud_desc_cache = nil
           # Describe this VPC Subnet from the cloud platform's perspective
           # @return [Google::Apis::Core::Hashable]
           def cloud_desc(use_cache: true)
-            @cloud_desc_cache ||= MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.habitat_id, @config['az'], @config['cloud_id'])
+            return @cloud_desc_cache if @cloud_desc_cache and use_cache
+
+            @cloud_desc_cache = MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.habitat_id, @config['az'], @config['cloud_id'])
             @url ||= @cloud_desc_cache.self_link
             @cloud_desc_cache
           end

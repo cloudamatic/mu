@@ -187,13 +187,15 @@ module MU
           end
         end
 
+        @cloud_desc_cache = nil
         # Retrieve the cloud descriptor for this resource.
         # @return [Google::Apis::Core::Hashable]
         def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
           if @config['type'] == "interactive" or !@config['type']
              @config['type'] ||= "interactive"
             if !@config['external']
-              return MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
+              @cloud_desc_cache = MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
             else
               return nil
             end
@@ -203,7 +205,7 @@ module MU
             # resilient on GCP's behalf
             retries = 0
             begin
-              MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
+              @cloud_desc_cache = MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/notFound:/) and retries < 10
                 sleep 3
@@ -213,6 +215,7 @@ module MU
             end
           end
 
+          @cloud_desc_cache
         end
 
         # Return the metadata for this user configuration

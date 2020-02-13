@@ -344,7 +344,7 @@ module MU
               )
             rescue Aws::Route53::Errors::LastVPCAssociation => e
               MU.log e.inspect, MU::WARN
-            rescue Aws::Route53::Errors::VPCAssociationNotFound => e
+            rescue Aws::Route53::Errors::VPCAssociationNotFound
               MU.log "VPC #{vpc_id} access to zone #{id} already revoked", MU::WARN
             end
           end
@@ -366,7 +366,7 @@ module MU
         # @param location [Hash<String>]: A parsed Hash of {MU::Config::BasketofKittens::dnszones::records::geo_location}.
         # @param set_identifier [String]: A unique string to differentiate otherwise-similar records. Normally auto-generated, should not need to specify.
         # @param alias_zone [String]: Zone ID of the target's hosted zone, when creating an alias (type R53ALIAS)
-        def self.manageRecord(id, name, type, targets: nil, aliases: nil,
+        def self.manageRecord(id, name, type, targets: nil,
             ttl: 7200, delete: false, sync_wait: true, failover: nil,
             healthcheck: nil, region: nil, weight: nil, overwrite: true,
             location: nil, set_identifier: nil, alias_zone: nil)
@@ -502,7 +502,7 @@ module MU
           rescue Aws::Route53::Errors::PriorRequestNotComplete => e
             sleep 10
             retry
-          rescue Aws::Route53::Errors::InvalidChangeBatch, Aws::Route53::Errors::InvalidInput, Exception => e
+          rescue Aws::Route53::Errors::InvalidChangeBatch, Aws::Route53::Errors::InvalidInput, StandardError => e
             return if e.message.match(/ but it already exists/) and !delete
             MU.log "Failed to change DNS records, #{e.inspect}", MU::ERR, details: params
             raise e if !delete
@@ -663,7 +663,8 @@ module MU
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          checks_to_clean = []
+          MU.log "AWS::DNSZone.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
           threads = []
           MU::Cloud::AWS.route53(credentials: credentials).list_health_checks.health_checks.each { |check|
             begin
@@ -692,19 +693,19 @@ module MU
                 threads << Thread.new(check) { |mycheck|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU.log "Removing health check #{check.id}"
+                  MU.log "Removing health check #{mycheck.id}"
                   retries = 5
                   begin 
-                    MU::Cloud::AWS.route53(credentials: credentials).delete_health_check(health_check_id: check.id) if !noop
+                    MU::Cloud::AWS.route53(credentials: credentials).delete_health_check(health_mycheck_id: mycheck.id) if !noop
                   rescue Aws::Route53::Errors::NoSuchHealthCheck => e
-                    MU.log "Health Check '#{check.id}' disappeared before I could remove it", MU::WARN, details: e.inspect
+                    MU.log "Health Check '#{mycheck.id}' disappeared before I could remove it", MU::WARN, details: e.inspect
                   rescue Aws::Route53::Errors::InvalidInput => e
                     if e.message.match(/is still referenced from parent health check/) && retries <= 5
                       sleep 5
                       retries += 1
                       retry
                     else
-                      MU.log "Health Check #{check.id} still has a parent health check associated with it, skipping", MU::WARN, details: e.inspect
+                      MU.log "Health Check #{mycheck.id} still has a parent health check associated with it, skipping", MU::WARN, details: e.inspect
                     end
                   end
                 }
@@ -719,7 +720,7 @@ module MU
           }
 
           zones = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, region: region)
-          zones.each_pair { |id, zone|
+          zones.values.each { |zone|
             MU.log "Purging DNS Zone '#{zone.name}' (#{zone.id})"
             if !noop
               begin
@@ -727,7 +728,6 @@ module MU
                 rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: zone.id)
                 rrsets.resource_record_sets.each { |rrset|
                   next if zone.name == rrset.name and (rrset.type == "NS" or rrset.type == "SOA")
-                  records = []
                   MU::Cloud::AWS.route53(credentials: credentials).change_resource_record_sets(
                       hosted_zone_id: zone.id,
                       change_batch: {
@@ -791,9 +791,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {}
           [toplevel_required, schema]
@@ -801,9 +801,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::dnszones}, bare and unvalidated.
         # @param zone [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(zone, configurator)
+        def self.validateConfig(zone, _configurator)
           ok = true
 
           if !zone["records"].nil?
