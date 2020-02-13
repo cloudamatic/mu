@@ -420,12 +420,15 @@ module MU
 
         end
 
+        @cloud_desc_cache = nil
         # Retrieve the AWS descriptor for this Autoscale group
         # @return [OpenStruct]
         def cloud_desc(use_cache: true)
-          MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(
             auto_scaling_group_names: [@mu_name]
           ).auto_scaling_groups.first
+          @cloud_desc_cache
         end
 
         # Canonical Amazon Resource Number for this resource
