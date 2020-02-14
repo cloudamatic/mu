@@ -616,6 +616,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             bok['subnets'] = []
             regions_seen = []
             names_seen = []
+            @subnets.reject! { |x| x.cloud_desc.nil? }
             @subnets.map { |x| x.cloud_desc }.each { |s|
               subnet_name = s.name.dup
               names_seen << s.name.dup
@@ -1134,7 +1135,16 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           def cloud_desc(use_cache: true)
             return @cloud_desc_cache if @cloud_desc_cache and use_cache
 
-            @cloud_desc_cache = MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.habitat_id, @config['az'], @config['cloud_id'])
+            begin
+              @cloud_desc_cache = MU::Cloud::Google.compute(credentials: @parent.config['credentials']).get_subnetwork(@parent.habitat_id, @az, @cloud_id)
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/notFound: /)
+                MU.log "Failed to fetch cloud description for Google subnet #{@cloud_id}", MU::WARN, details: { "project" => @parent.habitat_id, "region" => @az, "name" => @cloud_id }
+                return nil
+              else
+                raise e
+              end
+            end
             @url ||= @cloud_desc_cache.self_link
             @cloud_desc_cache
           end

@@ -504,7 +504,7 @@ module MU
             bok['tags'] ||= []
             bok['tags'] << { "key" => tag.key, "value" => tag.value }
           }
-          realname = MU::Adoption.tagsToName(bok['tags'])
+          realname = MU::Adoption.tagsToName(bok['tags'], basename: @cloud_id)
           if realname
             bok['name'] = realname
             bok['name'].gsub!(/[^a-zA-Z0-9_\-]/, "_")
@@ -512,16 +512,36 @@ module MU
         end
         bok['name'] ||= @cloud_id
 
-#        if cloud_desc.vpc_id
-#          bok['vpc'] = MU::Config::Ref.get(
-#            id: cloud_desc.vpc_id,
-#            cloud: "AWS",
-#            credentials: @credentials,
-#            type: "vpcs",
-#          )
-#        end
+        bok['min_size'] = cloud_desc.min_size
+        bok['max_size'] = cloud_desc.max_size
 
-        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+        if cloud_desc.launch_configuration_name
+          launch = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @credentials).describe_launch_configurations(
+            launch_configuration_names: [cloud_desc.launch_configuration_name]
+          ).launch_configurations.first
+          bok['basis'] = {
+            "launch_config" => {
+              "image_id" => launch.image_id,
+              "name" => bok['name'],
+              "size" => launch.instance_type
+            }
+          }
+        end
+
+        if cloud_desc.vpc_zone_identifier and
+           !cloud_desc.vpc_zone_identifier.empty?
+          nets = cloud_desc.vpc_zone_identifier.split(/,/)
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
+          bok['vpc'] = MU::Config::Ref.get(
+            id: resp.vpc_id,
+            cloud: "AWS",
+            credentials: @credentials,
+            type: "vpcs",
+            subnets: nets.map { |s| { "subnet_id" => s } }
+          )
+        end
+
+#        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
 
         bok
       end

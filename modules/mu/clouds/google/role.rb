@@ -32,6 +32,7 @@ module MU
           # If we're being reverse-engineered from a cloud descriptor, use that
           # to determine what sort of account we are.
           if args[:from_cloud_desc]
+            require 'google/apis/admin_directory_v1'
             @cloud_desc_cache = args[:from_cloud_desc]
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::Role
               @config['role_source'] = "directory"

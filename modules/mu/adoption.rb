@@ -132,8 +132,9 @@ module MU
     # this infers from Mu-style tagging, but we'll add a couple cases for
     # special cloud provider cases.
     # @param tags [Array<Hash>]
+    # @param basename [String]
     # return [String]
-    def self.tagsToName(tags = [])
+    def self.tagsToName(tags = [], basename: nil)
       tags.each { |tag|
         if tag['key'] == "aws:cloudformation:logical-id"
           return tag['value']
@@ -146,6 +147,7 @@ module MU
           break
         end
       }
+
       tags.each { |tag|
         if tag['key'] == "Name"
           if muid and tag['value'].match(/^#{Regexp.quote(muid)}-(.*)/)
@@ -155,6 +157,11 @@ module MU
           end
         end
       }
+
+      if basename and muid and basename.match(/^#{Regexp.quote(muid)}-(.*)/)
+        return Regexp.last_match[1].downcase
+      end
+
       nil
     end
 
