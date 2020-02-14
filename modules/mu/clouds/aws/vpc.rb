@@ -1670,13 +1670,17 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
               ).security_groups
               if default_sg_resp and default_sg_resp.size == 1
                 default_sg = default_sg_resp.first.group_id
-                if iface.groups.size != 1 or
+                if iface.groups.size > 1 or
                    iface.groups.first.group_id != default_sg
                   MU.log "Removing extra security groups from ENI #{iface.network_interface_id}"
-                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
-                    network_interface_id: iface.network_interface_id,
-                    groups: [default_sg]
-                  )
+                  begin
+                    MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                      network_interface_id: iface.network_interface_id,
+                      groups: [default_sg]
+                    )
+                  rescue ::Aws::EC2::Errors::AuthFailure
+                    MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
+                  end
                 end
               end
             end

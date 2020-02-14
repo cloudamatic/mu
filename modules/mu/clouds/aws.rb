@@ -136,11 +136,22 @@ module MU
           # assume we've got an IAM profile and hope for the best
           ENV.delete('AWS_ACCESS_KEY_ID')
           ENV.delete('AWS_SECRET_ACCESS_KEY')
-          cred_obj = Aws::InstanceProfileCredentials.new
+          retries = 0
+          begin
+            cred_obj = Aws::InstanceProfileCredentials.new
+            if cred_obj.nil?
+              retries += 1
+              MU.log "Failed to fetch AWS instance profile credentials, attempt #{retries.to_s}/10", MU::WARN
+              sleep 3
+            end
+          end while cred_obj.nil? and retries < 10
 #          if name.nil?
 #            Aws.config = {region: ENV['EC2_REGION']}
 #          end
         end
+if cred_obj.nil?
+MU.log "cred_obj is nil and hosted? says #{hosted?.to_s}", MU::WARN, details: name
+end
 
         if name.nil?
           @@creds_loaded["#default"] = cred_obj
