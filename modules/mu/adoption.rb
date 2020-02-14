@@ -123,6 +123,8 @@ module MU
         MU.log "Failed to locate a folder that resembles #{@parent}", MU::ERR
       end
       MU.log "Scraping complete"
+
+      @scraped
     end
 
     # Given a list of BoK style tags, try to reverse-engineer the correct

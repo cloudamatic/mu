@@ -202,7 +202,7 @@ module MU
 #            ok = false if !insertKitten(alarm, "alarms")
 #          }
 #        end
-        if pool["basis"]["server"] != nil
+        if pool["basis"] and pool["basis"]["server"]
           pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
         end
         if !pool['static_ip'].nil? and !pool['ip'].nil?

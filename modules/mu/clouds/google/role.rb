@@ -629,15 +629,17 @@ module MU
               }
             end
 
-            resp = begin
-              MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
-            rescue ::Google::Apis::ClientError => e
-              raise e if !e.message.match(/forbidden: /)
-            end
-            if resp and resp.roles
-              resp.roles.each { |role|
-                found[role.name] = role
-              }
+            if my_org
+              resp = begin
+                MU::Cloud::Google.iam(credentials: args[:credentials]).list_organization_roles(my_org.name)
+              rescue ::Google::Apis::ClientError => e
+                raise e if !e.message.match(/forbidden: /)
+              end
+              if resp and resp.roles
+                resp.roles.each { |role|
+                  found[role.name] = role
+                }
+              end
             end
           end
 

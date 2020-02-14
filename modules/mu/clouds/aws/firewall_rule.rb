@@ -515,11 +515,15 @@ module MU
                         iface_groups = iface.groups.map { |if_sg| if_sg.group_id }
                         iface_groups.delete(sg.group_id)
                         iface_groups << default_sg if iface_groups.empty?
-                        MU.log "Attempting to remove #{sg.group_id} from ENI #{iface.network_interface_id}"
-                        MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
-                          network_interface_id: iface.network_interface_id,
-                          groups: iface_groups
-                        )
+                        MU.log "Attempting to remove #{sg.group_id} (#{sg.group_name}) from ENI #{iface.network_interface_id}"
+                        begin
+                          MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                            network_interface_id: iface.network_interface_id,
+                            groups: iface_groups
+                          )
+                        rescue ::Aws::EC2::Errors::AuthFailure
+                          MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
+                        end
                       }
                     end
                   end

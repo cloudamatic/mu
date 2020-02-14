@@ -103,7 +103,11 @@ end
 
 
 adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats])
-adoption.scrapeClouds
+found = adoption.scrapeClouds
+if found.nil? or found.empty?
+  MU.log "No resources found to adopt", MU::WARN, details: {"clouds" => clouds, "types" => types }
+  exit
+end
 MU.log "Generating baskets", MU::DEBUG
 boks = adoption.generateBaskets(prefix: $opt[:appname])
 
