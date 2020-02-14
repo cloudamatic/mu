@@ -559,17 +559,17 @@ module MU
           end
 
           image_desc = MU::Cloud::Azure::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'], region: server['region'])
-          if image_desc.plan
-            terms = MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.get(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
-            if !terms.accepted
-              MU.log "Deploying #{server['name']} will automatically agree to the licensing terms for #{terms.product}", MU::NOTICE, details: terms.license_text_link
-            end
-          end
 
           if !image_desc
             MU.log "Failed to locate an Azure VM image for #{server['name']} from #{server['image_id']} in #{server['region']}", MU::ERR
             ok = false
           else
+            if image_desc.plan
+              terms = MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.get(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
+              if !terms.accepted
+                MU.log "Deploying #{server['name']} will automatically agree to the licensing terms for #{terms.product}", MU::NOTICE, details: terms.license_text_link
+              end
+            end
             server['image_id'] = image_desc.id
           end
 
@@ -656,17 +656,22 @@ module MU
           skus = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list_skus(region, publisher, offer).map { |s| s.name }
 
           if !skus.include?(sku)
-            skus.sort { |a, b| MU.version_sort(a, b) }.reverse.each { |s|
-              if s.match(/^#{Regexp.quote(sku)}/)
-                sku = s
-                break
-              end
-            }
+            skus.reject! { |s| !s.match(/^#{Regexp.quote(sku)}/) }
+            skus.sort! { |a, b| MU.version_sort(a, b) }.reverse!
+            sku = skus.first
           end
 
-          versions = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list(region, publisher, offer, sku).map { |v| v.name }
+          version = nil
+          begin
+            versions = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list(region, publisher, offer, sku).map { |v| v.name }
+            if versions.nil? or versions.empty?
+              skus.delete(sku)
+              sku = skus.first
+            end
+          end while skus.size > 0 and (versions.nil? or versions.empty?)
+
           if versions.nil? or versions.empty?
-            MU.log "Azure API returned empty machine image version list for publisher #{publisher} offer #{offer} sku #{sku}", MU::ERR
+            MU.log "Azure API returned empty machine image version list for publisher #{publisher} offer #{offer} sku #{sku}", MU::ERR, details: skus
             return nil
           end
 
