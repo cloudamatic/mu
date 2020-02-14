@@ -31,11 +31,14 @@ require 'json-schema'
 $opts = Optimist::options do
   banner <<-EOS
 Usage:
-#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-j] [-p parameter=value] /path/to/stack/config.[json|yaml] [-u deploy_id [-l]] [-r deploy_id]
+#{$0} [-m <#>] [-f] [-v] [specific test BoK to run [...]]
   EOS
   opt :max_threads, "Environment to set on creation.", :require => false, :default => 3, :type => :integer
   opt :full, "Actually run deploys, instead of --dryrun", :require => false, :default => false
+  opt :verbose, "Show more information while running", :require => false, :default => false
 end
+
+only = ARGV
 
 files = Dir.glob("*.yaml", base: dir)
 files.concat(Dir.glob("*.yml", base: dir))
@@ -43,6 +46,13 @@ baseclouds = MU::Cloud.supportedClouds.reject { |c| c == "CloudFormation" }
 
 commands = {}
 failures = []
+if only and only.size > 0
+  files.reject! { |f| !only.include?(f) }
+  if files.size == 0
+    MU.log "No files in #{dir} matched requested list", MU::WARN, details: only
+    exit 1
+  end
+end
 
 files.each { |f|
   clouds = baseclouds.dup
@@ -90,6 +100,39 @@ files.each { |f|
 
 puts "Running #{commands.size.to_s.bold} #{$opts[:full] ? "full deploy" : "parse"} tests from #{files.size.to_s.bold} Baskets of Kittens across #{baseclouds.size.to_s.bold} clouds"
 
+@output_semaphore = Mutex.new
+
+def execCommand(cmd, results_stash)
+  @output_semaphore.synchronize {
+    puts cmd if $opts[:verbose]
+  }
+
+  ok = true
+  output = %x{#{cmd} 2>&1}
+  ok = false if $?.exitstatus != 0
+
+  results_stash["output"] += output
+
+  @output_semaphore.synchronize {
+    if ok
+      if $opts[:verbose]
+        puts "#{cmd} SUCCEEDED".green
+      else
+        print ".".green
+      end
+    else
+      if $opts[:verbose]
+        puts "#{cmd} FAILED:".light_red
+        puts output
+      else
+        print ".".light_red
+      end
+    end
+  }
+
+  ok
+end
+
 threads = []
 results = {}
 commands.keys.each { |cmd|
@@ -102,45 +145,41 @@ commands.keys.each { |cmd|
   end
 
   threads << Thread.new(cmd) { |cmd_thr|
-    results[cmd_thr] = {}
-    puts %Q{#{cmd_thr} 2>&1}
-    results[cmd_thr]["output"] = %x{#{cmd_thr} 2>&1}
-    if $?.exitstatus != 0
-      results[cmd_thr]["status"] = false
-      print ".".light_red
-    else
-      results[cmd_thr]["status"] = true
-      print ".".green
+    results[cmd_thr] = { "output" => "", "failed" => [] }
+    if !execCommand(cmd_thr, results[cmd_thr])
+      results[cmd_thr]["failed"] << "main"
     end
+
     if $opts[:full] and results[cmd_thr]["output"].match(/deploy - Deployment id: .*? \((.*?)\)/)
       deploy_id = Regexp.last_match[1]
       adoptdir = Dir.mktmpdir(commands[cmd_thr]["file"].gsub(/[^a-z0-9]|yaml$/i, ""))
       if commands[cmd_thr]["types"] and commands[cmd_thr]["types"].size > 0
         adopt = "cd #{adoptdir} && mu-adopt --appname adoptone --grouping omnibus  --clouds #{commands[cmd_thr]["cloud"]} --types #{commands[cmd_thr]["types"].join(" ")} 2>&1"
-        puts adopt
-        results[cmd_thr]["output"] += %x{#{adopt}}
-        results[cmd_thr]["status"] = false if $?.exitstatus != 0
+        if !execCommand(adopt, results[cmd_thr])
+          results[cmd_thr]["failed"] << "adopt"
+        end
       end
 
       if File.exist?(dir+"/regrooms/"+commands[cmd_thr]["file"])
         regroom = "mu-deploy regrooms/#{commands[cmd_thr]["file"]} --cloud #{commands[cmd_thr]["cloud"]} --update #{deploy_id} 2>&1"
-        puts regroom
-        results[cmd_thr]["output"] += %x{#{regroom}}
-        results[cmd_thr]["status"] = false if $?.exitstatus != 0
+        if !execCommand(regroom, results[cmd_thr])
+          results[cmd_thr]["failed"] << "regroom"
+        end
         if commands[cmd_thr]["types"] and commands[cmd_thr]["types"].size > 0
           re_adopt = "cd #{adoptdir} && mu-adopt --appname adopttwo --grouping omnibus --clouds #{commands[cmd_thr]["cloud"]} --types #{commands[cmd_thr]["types"].join(" ")} 2>&1"
-          puts re_adopt
-          results[cmd_thr]["output"] += %x{#{re_adopt}}
-          results[cmd_thr]["status"] = false if $?.exitstatus != 0
+          if !execCommand(re_adopt, results[cmd_thr])
+            results[cmd_thr]["failed"] << "second adopt"
+          end
         end
 # TODO big flex is to read back both adopted BoKs and .diff them, but without
 # all resources having implemented adoption this isn't much of a test yet
       end
 
       FileUtils.remove_entry(adoptdir)
-
-      results[cmd_thr]["output"] += %x{mu-cleanup #{deploy_id} --skipsnapshots}
-      results[cmd_thr]["status"] = false if $?.exitstatus != 0
+      cleanup = %Q{mu-cleanup #{deploy_id} --skipsnapshots}
+      if !execCommand(cleanup, results[cmd_thr])
+        results[cmd_thr]["failed"] << "cleanup"
+      end
     end
   }
 }
@@ -150,19 +189,13 @@ threads.each { |t|
 puts ""
 
 results.keys.sort { |a, b|
-      if results[b]["status"] and !results[a]["status"]
-        1
-      elsif !results[b]["status"] and results[a]["status"]
-        -1
-      else
-        0
-      end
+      results[b]["failed"].size <=> results[a]["failed"].size
     }.each { |cmd|
-  if !results[cmd]["status"]
+  if results[cmd]["failed"].size > 0
     puts cmd+" failed:".light_red
     puts results[cmd]["output"].yellow
     puts "^ #{cmd}".light_red
-    failures << commands[cmd]["file"]+" ("+commands[cmd]["cloud"]+")"
+    failures << commands[cmd]["file"]+" in "+commands[cmd]["cloud"]+" ("+results[cmd]["failed"].join(", ")+")"
   else
     puts cmd+" passed".green
   end

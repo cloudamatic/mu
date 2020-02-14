@@ -244,17 +244,15 @@ module MU
     # @param cloud [String]: Sets a parameter named 'cloud', and insert it as the default cloud platform if not already declared
     # @return [Hash]: The complete validated configuration for a deployment.
     def initialize(path, skipinitialupdates = false, params: {}, updating: nil, default_credentials: nil, cloud: nil)
-      $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
-      $myRoot = MU.myRoot
+      $myPublicIp ||= MU.mu_public_ip
+      $myRoot ||= MU.myRoot
       $myRoot.freeze
 
-      $myAZ = MU.myAZ.freeze
+      $myAZ ||= MU.myAZ.freeze
       $myAZ.freeze
-      $myRegion = MU.curRegion.freeze
+      $myRegion ||= MU.curRegion.freeze
       $myRegion.freeze
       
-      $myAppName = nil
-
       @kittens = {}
       @kittencfg_semaphore = Mutex.new
       @@config_path = path
