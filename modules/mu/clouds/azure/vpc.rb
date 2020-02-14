@@ -117,7 +117,7 @@ module MU
           base.merge!(@config.to_h)
           base
         end
-#
+
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
         def cloud_desc(use_cache: true)
@@ -770,7 +770,7 @@ MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
 
           # Describe this VPC Subnet from the cloud platform's perspective
           def cloud_desc(use_cache: true)
-            return @cloud_desc_cache if !@cloud_desc_cache.nil?
+            return @cloud_desc_cache if @cloud_desc_cache and use_cache
             @cloud_desc_cache = MU::Cloud::Azure.network(credentials: @parent.credentials).subnets.get(@parent.resource_group, @parent.cloud_desc.name, @cloud_id.to_s)
             @cloud_desc_cache
           end

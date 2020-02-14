@@ -59,8 +59,10 @@ module MU
         def groom
         end
 
+        @cached_cloud_desc = nil
         # Return the cloud descriptor for the Habitat
         def cloud_desc(use_cache: true)
+          return @cached_cloud_desc if @cached_cloud_desc and use_cache
           @cached_cloud_desc ||= MU::Cloud::Azure::Habitat.find(cloud_id: @cloud_id).values.first
 #          @habitat_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
           @cached_cloud_desc
