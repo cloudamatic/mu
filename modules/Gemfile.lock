@@ -10,7 +10,7 @@ GIT
 PATH
   remote: ..
   specs:
-    cloud-mu (3.1.3)
+    cloud-mu (3.1.4)
       addressable (~> 2.5)
       aws-sdk-core (< 3)
       azure_sdk (~> 0.52)
@@ -46,7 +46,7 @@ GEM
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
     aws-eventstream (1.0.3)
-    aws-sdk-core (2.11.442)
+    aws-sdk-core (2.11.445)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.1.0)
@@ -548,7 +548,7 @@ GEM
     color (1.8)
     colorize (0.8.1)
     concurrent-ruby (1.1.6)
-    cookbook-omnifetch (0.9.0)
+    cookbook-omnifetch (0.9.1)
       mixlib-archive (>= 0.4, < 2.0)
     cucumber-core (5.0.2)
       backports (~> 3.15, >= 3.15.0)
@@ -792,7 +792,7 @@ GEM
       logging (>= 1.6.1, < 3.0)
       nori (~> 2.0)
       rubyntlm (~> 0.6.0, >= 0.6.1)
-    winrm-elevated (1.2.0)
+    winrm-elevated (1.2.1)
       erubi (~> 1.8)
       winrm (~> 2.0)
       winrm-fs (~> 1.0)
