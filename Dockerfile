@@ -16,9 +16,9 @@ RUN gem install ./cloud-mu-*.gem thin -N
 
 RUN echo "about to remove gem detritus"
 
-RUN ls -la cloud-mu-*.gem
+RUN ls -la
 
-RUN rm -f cloud-mu-*.gem
+RUN rm --verbose -f cloud-mu-*.gem
 
 RUN echo "gem detritus removed"
 
