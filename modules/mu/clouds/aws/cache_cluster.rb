@@ -804,7 +804,6 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done.
         # @param skipsnapshots [Boolean]: If true, will not create a last snapshot before terminating the Cache Cluster.
         # @param region [String]: The cloud provider's region in which to operate.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
         def self.terminate_cache_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, credentials: nil)
           raise MuError, "terminate_cache_cluster requires a non-nil cache cluster descriptor" if cluster.nil? || cluster.empty?
@@ -904,7 +903,6 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done.
         # @param skipsnapshots [Boolean]: If true, will not create a last snapshot before terminating the Cache Cluster.
         # @param region [String]: The cloud provider's region in which to operate.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
         def self.terminate_replication_group(repl_group, noop: false, skipsnapshots: false, region: MU.curRegion, credentials: nil)
           raise MuError, "terminate_replication_group requires a non-nil cache replication group descriptor" if repl_group.nil? || repl_group.empty?

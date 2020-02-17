@@ -65,7 +65,7 @@ module MU
         end
 
         # Assign this role object to a given principal (create a RoleAssignment)
-        # @param principal [MU::Cloud::Azure::Id]
+        # @param principal_id [MU::Cloud::Azure::Id]
         def assignTo(principal_id)
           MU::Cloud::Azure::Role.assignTo(principal_id, role_id: @cloud_id)
         end

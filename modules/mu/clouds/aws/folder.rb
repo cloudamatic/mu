@@ -15,7 +15,7 @@
 module MU
   class Cloud
     class AWS
-      # A log as configured in {MU::Config::BasketofKittens::logs}
+      # A log as configured in {MU::Config::BasketofKittens::folders}
       class Folder < MU::Cloud::Folder
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
@@ -87,7 +87,7 @@ module MU
           [toplevel_required, schema]
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::folder}, bare and unvalidated.
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::folders}, bare and unvalidated.
         # @param _folder [Hash]: The resource to process and validate
         # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
