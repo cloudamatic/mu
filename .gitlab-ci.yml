@@ -138,7 +138,7 @@ Docker Build:
     - Gem Build
   before_script:
     - df -h
-    - cd /var && du -sm * | sort -n
+    - cd / && du -sm * | sort -n
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - IMGS="`docker images -a --filter=dangling=true -q`"
     - test "$IMGS" != "" && docker rmi $(docker images -a --filter=dangling=true -q)
