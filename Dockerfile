@@ -10,9 +10,13 @@ RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential
 
 RUN apt-get upgrade -y
 
+RUN df -h
+
 COPY ./cloud-mu-*.gem /home/mu
 
 RUN gem install ./cloud-mu-*.gem -N
+
+RUN df -h
 
 RUN ls -la
 
