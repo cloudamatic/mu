@@ -12,9 +12,11 @@ RUN apt-get upgrade -y
 
 COPY ./cloud-mu-*.gem /home/mu
 
-RUN gem install ./cloud-mu-*.gem thin -N
+RUN gem install ./cloud-mu-*.gem -N
 
 RUN echo "about to remove gem detritus"
+
+RUN echo "about to run a real command to do it"
 
 RUN ls -la
 
