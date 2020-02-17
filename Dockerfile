@@ -14,7 +14,13 @@ COPY ./cloud-mu-*.gem /home/mu
 
 RUN gem install ./cloud-mu-*.gem thin -N
 
-RUN rm cloud-mu-*.gem
+RUN echo "about to remove gem detritus"
+
+RUN ls -la cloud-mu-*.gem
+
+RUN rm -f cloud-mu-*.gem
+
+RUN echo "gem detritus removed"
 
 RUN apt-get remove -y build-essential ruby2.5-dev
 
