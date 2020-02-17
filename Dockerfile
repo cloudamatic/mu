@@ -4,6 +4,8 @@ RUN mkdir -p /opt/mu/etc/ /home/mu /usr/local/ruby-current/lib/ruby/gems/2.5.0/g
 
 WORKDIR /home/mu
 
+RUN df -h
+
 RUN apt-get update
 
 RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential
@@ -20,7 +22,7 @@ RUN df -h
 
 RUN ls -la
 
-RUN rm --verbose -f cloud-mu-*.gem
+#RUN rm --verbose -f cloud-mu-*.gem
 
 RUN apt-get remove -y build-essential ruby2.5-dev
 
