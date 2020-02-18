@@ -38,8 +38,8 @@ module MU
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
       # resources) have always been done.
       # @param cloudobj [MU::Cloud]
-      # @param deploy [MU::MommaCat]
-      def self.resourceInitHook(cloudobj, deploy)
+      # @param _deploy [MU::MommaCat]
+      def self.resourceInitHook(cloudobj, _deploy)
         class << self
           attr_reader :cloudformation_data
         end
@@ -63,7 +63,6 @@ module MU
           return nil
         end
 
-        loaded = false
         cred_obj = nil
         if cred_cfg['access_key'] and cred_cfg['access_secret'] and
           # access key and secret just sitting in mu.yaml
@@ -137,11 +136,22 @@ module MU
           # assume we've got an IAM profile and hope for the best
           ENV.delete('AWS_ACCESS_KEY_ID')
           ENV.delete('AWS_SECRET_ACCESS_KEY')
-          cred_obj = Aws::InstanceProfileCredentials.new
+          retries = 0
+          begin
+            cred_obj = Aws::InstanceProfileCredentials.new
+            if cred_obj.nil?
+              retries += 1
+              MU.log "Failed to fetch AWS instance profile credentials, attempt #{retries.to_s}/10", MU::WARN
+              sleep 3
+            end
+          end while cred_obj.nil? and retries < 10
 #          if name.nil?
 #            Aws.config = {region: ENV['EC2_REGION']}
 #          end
         end
+if cred_obj.nil?
+MU.log "cred_obj is nil and hosted? says #{hosted?.to_s}", MU::WARN, details: name
+end
 
         if name.nil?
           @@creds_loaded["#default"] = cred_obj
@@ -283,52 +293,13 @@ module MU
         )
       end
 
-      # Tag EC2 resources. 
-      #
-      # @param resources [Array<String>]: The cloud provider identifier of the resource to tag
-      # @param key [String]: The name of the tag to create
-      # @param value [String]: The value of the tag
-      # @param region [String]: The cloud provider region
-      # @return [void,<Hash>]
-      def self.createTag(key, value, resources = [], region: myRegion, credentials: nil)
-  
-        if !MU::Cloud::CloudFormation.emitCloudFormation
-          begin
-            MU::Cloud::AWS.ec2(region: region, credentials: credentials).create_tags(
-              resources: resources,
-              tags: [
-                {
-                  key: key,
-                  value: value
-                }
-              ]
-            )
-          rescue Aws::EC2::Errors::ServiceError => e
-            MU.log "Got #{e.inspect} tagging #{resources.size.to_s} resources with #{key}=#{value}", MU::WARN, details: resources if attempts > 1
-            if attempts < 5
-              attempts = attempts + 1
-              sleep 15
-              retry
-            else
-              raise e
-            end
-          end
-          MU.log "Created tag #{key} with value #{value}", MU::DEBUG, details: resources
-        else
-          return {
-            "Key" =>  key,
-            "Value" => value
-          }
-        end
-      end
-
       @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
       # server resides.
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
-      def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
+      def self.listAZs(region: MU.curRegion, credentials: nil)
         cfg = credConfig(credentials)
         return [] if !cfg
         if !region.nil? and @@azs[region]
@@ -491,7 +462,32 @@ module MU
       # @param cloudobj [MU::Cloud::AWS]: The resource from which to extract the habitat id
       # @return [String,nil]
       def self.habitat(cloudobj, nolookup: false, deploy: nil)
-        cloudobj.respond_to?(:account_number) ? cloudobj.account_number : nil
+        @@habmap ||= {}
+# XXX whaddabout config['habitat'] HNNNGH
+
+        if cloudobj.respond_to?(:account_number) and cloudobj.account_number and
+           !cloudobj.account_number.empty?
+          return cloudobj.account_number
+        elsif cloudobj.config and cloudobj.config['account']
+          if nolookup
+            return cloudobj.config['account']
+          end
+          if @@habmap[cloudobj.config['account']]
+            return @@habmap[cloudobj.config['account']]
+          end
+          deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
+
+          MU.log "Incomplete implementation: MU::Cloud::AWS.habitat", MU::DEBUG, details: deploy
+
+#          accountobj = accountLookup(cloudobj.config['account'], deploy, raise_on_fail: false)
+
+#          if accountobj
+#            @@habmap[cloudobj.config['account']] = accountobj.cloud_id
+#            return accountobj.cloud_id
+#          end
+        end
+
+        nil
       end
 
 
@@ -506,7 +502,6 @@ module MU
 
         return creds['account_number'] if creds['account_number']
 
-        user_list = MU::Cloud::AWS.iam(credentials: name).list_users.users
         acct_num = MU::Cloud::AWS.iam(credentials: name).list_users.users.first.arn.split(/:/)[4]
         acct_num.to_s
       end
@@ -543,8 +538,8 @@ module MU
         if !found
           MU.log "Attempting to create log bucket #{cfg['log_bucket_name']} for credentials #{credentials}", MU::WARN
           begin
-            resp = MU::Cloud::AWS.s3(credentials: credentials).create_bucket(bucket: cfg['log_bucket_name'], acl: "private")
-          rescue Aws::S3::Errors::BucketAlreadyExists => e
+            MU::Cloud::AWS.s3(credentials: credentials).create_bucket(bucket: cfg['log_bucket_name'], acl: "private")
+          rescue Aws::S3::Errors::BucketAlreadyExists
             raise MuError, "AWS credentials #{credentials} need a log bucket, and the name #{cfg['log_bucket_name']} is unavailable. Use mu-configure to edit credentials '#{credentials}' or 'hostname'"
           end
         end
@@ -620,9 +615,9 @@ module MU
             # Check each credential sets' resident account, then
             $MU_CFG['aws'].each_pair { |acctname, cfg|
               begin
-                user_list = MU::Cloud::AWS.iam(credentials: acctname).list_users.users
+                MU::Cloud::AWS.iam(credentials: acctname).list_users.users
 #             rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
-              rescue Exception => e
+              rescue StandardError => e
                 MU.log e.inspect, MU::WARN, details: cfg
                 next
               end
@@ -653,7 +648,7 @@ module MU
 #       begin
 #          user_list = MU::Cloud::AWS.iam(region: credConfig['region']).list_users.users
 ##        rescue ::Aws::IAM::Errors => e # XXX why does this NameError here?
-#        rescue Exception => e
+#        rescue StandardError => e
 #          MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN, details: caller
 #        end
 #        if user_list.nil? or user_list.size == 0
@@ -682,7 +677,6 @@ module MU
         if @@regions.size == 0
           return [] if credConfig.nil?
           result = MU::Cloud::AWS.ec2(region: myRegion, credentials: credentials).describe_regions.regions
-          regions = []
           @@regions_semaphore.synchronize {
             begin
               result.each { |r|
@@ -1154,6 +1148,55 @@ module MU
         end
       end
 
+      # Tag a resource. Defaults to applying our MU deployment identifier, if no
+      # arguments other than the resource identifier are given.
+      # XXX this belongs in the cloud layer(s)
+      #
+      # @param resource [String]: The cloud provider identifier of the resource to tag
+      # @param tag_name [String]: The name of the tag to create
+      # @param tag_value [String]: The value of the tag
+      # @param region [String]: The cloud provider region
+      # @return [void]
+      def self.createTag(resource = nil,
+          tag_name="MU-ID",
+          tag_value=MU.deploy_id,
+          region: MU.curRegion,
+          credentials: nil)
+        attempts = 0
+
+        return nil if resource.nil?
+        resource = [resource] if resource.is_a?(String)
+
+        if !MU::Cloud::CloudFormation.emitCloudFormation
+          begin
+            MU::Cloud::AWS.ec2(credentials: credentials, region: region).create_tags(
+              resources: resource,
+              tags: [
+                {
+                  key: tag_name,
+                  value: tag_value
+                }
+              ]
+            )
+          rescue Aws::EC2::Errors::ServiceError => e
+            MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
+            if attempts < 5
+              attempts = attempts + 1
+              sleep 15
+              retry
+            else
+              raise e
+            end
+          end
+          MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
+        else
+          return {
+            "Key" =>  tag_name,
+            "Value" => tag_value
+          }
+        end
+      end
+
       @syslog_port_semaphore = Mutex.new
       # Punch AWS security group holes for client nodes to talk back to us, the
       # Mu Master, if we're in AWS.
@@ -1205,8 +1248,8 @@ module MU
             )
             sg_id = group.group_id
             my_sgs << sg_id
-            MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
-            MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
+            MU::Cloud::AWS.createTag sg_id, "Name", my_client_sg_name
+            MU::Cloud::AWS.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
             MU::Cloud::AWS.ec2.modify_instance_attribute(
                 instance_id: my_instance_id,
                 groups: my_sgs
@@ -1237,7 +1280,7 @@ module MU
         end
 
         allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-        MU::MommaCat.listAllNodes.each_pair { |node, data|
+        MU::MommaCat.listAllNodes.values.each { |data|
           next if data.nil? or !data.is_a?(Hash)
           ["public_ip_address"].each { |key|
             if data.has_key?(key) and !data[key].nil? and !data[key].empty?
@@ -1266,7 +1309,7 @@ module MU
                             }
                         ]
                     )
-                  rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
+                  rescue Aws::EC2::Errors::InvalidPermissionNotFound
                     MU.log "Permission disappeared from #{sg_id} (port #{port.to_s}) before I could remove it", MU::WARN, details: MU.structToHash(rule.ip_ranges)
                   end
                 end
@@ -1299,8 +1342,6 @@ module MU
           }
         }
       end
-
-      private
 
       # XXX we shouldn't have to do this, but AWS does not provide a way to look
       # it up, and the pricing API only returns the human-readable strings.
@@ -1397,7 +1438,7 @@ module MU
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region} with credentials #{@credentials}, waiting #{interval.to_s}s and retrying. Args were: #{arguments}", debuglevel, details: caller
             sleep interval
             retry
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region} with credentials #{@credentials}", MU::DEBUG, details: arguments
             raise e
           end

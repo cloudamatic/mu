@@ -29,12 +29,12 @@ module MU
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
-              tag_resp = MU::Cloud::AWS.lambda(region: region, credentials: @config['credentials']).tag_resource({
+              MU::Cloud::AWS.lambda(region: region, credentials: @config['credentials']).tag_resource({
                 resource: resource_arn,
                 tags: each_pair
               })
             end
-          rescue Exception => e
+          rescue StandardError => e
             MU.log e, MU::ERR
           end
         end
@@ -153,7 +153,7 @@ module MU
 
               MU.log trigger_properties, MU::DEBUG
               begin
-                add_trigger = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
+                MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
               end
               adjust_trigger(tr['service'], trigger_arn, func_arn, @mu_name) 
@@ -176,7 +176,7 @@ module MU
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
-            add_trigger = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger)
+            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger)
           rescue Aws::Lambda::Errors::ResourceConflictException => e
             if e.message.match(/already exists/)
               MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).remove_permission(
@@ -220,15 +220,15 @@ module MU
           
           when 'sns'
            # XXX don't do this, use MU::Cloud::AWS::Notification 
-            sns_client = MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials'])
-            sub_to_what = sns_client.subscribe({
+            sns_client = MU::Cloud::AWS.sns(region: region, credentials: @config['credentials'])
+            sns_client.subscribe({
               topic_arn: trig_arn,
               protocol: protocol,
               endpoint: func_arn
             })
           when 'event','cloudwatch_event', 'events'
            # XXX don't do this, use MU::Cloud::AWS::Log
-            client = MU::Cloud::AWS.cloudwatch_events(region: @config['region'], credentials: @config['credentials']).put_targets({
+            MU::Cloud::AWS.cloudwatch_events(region: region, credentials: @config['credentials']).put_targets({
               rule: @config['trigger']['name'],
               targets: [
                 {
@@ -271,11 +271,13 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::Function.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
           MU::Cloud::AWS.lambda(credentials: credentials, region: region).list_functions.functions.each { |f|
             desc = MU::Cloud::AWS.lambda(credentials: credentials, region: region).get_function(
               function_name: f.function_name
             )
-            if desc.tags and desc.tags["MU-ID"] == MU.deploy_id
+            if desc.tags and desc.tags["MU-ID"] == MU.deploy_id and (desc.tags["MU-MASTER-IP"] == MU.mu_public_ip or ignoremaster)
               MU.log "Deleting Lambda function #{f.function_name}"
               if !noop
                 MU::Cloud::AWS.lambda(credentials: credentials, region: region).delete_function(
@@ -312,7 +314,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
@@ -407,9 +409,9 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
 
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = ["runtime"]
           schema = {
             "triggers" => {
@@ -437,6 +439,7 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
             },
             "code" => {
               "type" => "object",  
+              "description" => "Zipped deployment package to upload to our function.", 
               "properties" => {  
                 "s3_bucket" => {
                   "type" => "string",
@@ -565,7 +568,7 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
               role_name: name.to_s
             })
             return role['role']['arn']
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "#{e}", MU::ERR
           end
           nil

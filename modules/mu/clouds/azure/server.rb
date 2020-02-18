@@ -139,7 +139,7 @@ module MU
         # Figure out what's needed to SSH into this server.
         # @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
         def getSSHConfig
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 # XXX add some awesome alternate names from metadata and make sure they end
 # up in MU::MommaCat's ssh config wangling
           ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
@@ -153,7 +153,7 @@ module MU
                 MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
               end
-              foo, bar, baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
+              _foo, _bar, _baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
               if nat_ssh_user.nil? and !nat_ssh_host.nil?
                 MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
                 nat_ssh_user = "root"
@@ -163,7 +163,7 @@ module MU
 
           if @config['ssh_user'].nil?
             if windows?
-              @config['ssh_user'] = "Administrator"
+              @config['ssh_user'] = "muadmin"
             else
               @config['ssh_user'] = "root"
             end
@@ -188,7 +188,7 @@ module MU
             @named = true
           end
 
-          nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+          _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
           if !nat_ssh_host and !MU::Cloud::Azure::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
@@ -236,7 +236,7 @@ module MU
                 resp = MU::Cloud::Azure.compute(credentials: args[:credentials]).virtual_machines.get(rg, id_str)
                 next if resp.nil?
                 found[Id.new(resp.id)] = resp
-              rescue MU::Cloud::Azure::APIError => e
+              rescue MU::Cloud::Azure::APIError
                 # this is fine, we're doing a blind search after all
               end
             }
@@ -267,7 +267,7 @@ module MU
 
           MU::MommaCat.lock(@cloud_id.to_s+"-groom")
           
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          node, _config, deploydata = describe(cloud_id: @cloud_id)
 
           if node.nil? or node.empty?
             raise MuError, "MU::Cloud::Azure::Server.groom was called without a mu_name"
@@ -357,7 +357,7 @@ module MU
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
-          mu_name, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 
           if !cloud_desc
             raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
@@ -451,6 +451,34 @@ module MU
                   }
                 }
               }
+            },
+            "windows_admin_username" => {
+              "type" => "string",
+              "default" => "muadmin",
+            },
+            "ssh_user" => {
+              "default_if" => [
+                {
+                  "key_is" => "platform",
+                  "value_is" => "windows",
+                  "set" => "muadmin"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k12",
+                  "set" => "muadmin"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k12r2",
+                  "set" => "muadmin"
+                },
+                {
+                  "key_is" => "platform",
+                  "value_is" => "win2k16",
+                  "set" => "muadmin"
+                }
+              ]
             }
           }
           [toplevel_required, schema]
@@ -479,6 +507,7 @@ module MU
                 mem = foreign_types[size]["memory"]
                 ecu = foreign_types[size]["ecu"]
                 types.keys.sort.reverse.each { |type|
+                  next if type.match(/_Promo$/i)
                   features = types[type]
                   next if ecu == "Variable" and ecu != features["ecu"]
                   next if features["vcpu"] != vcpu
@@ -495,7 +524,6 @@ module MU
 
             if !foundmatch
               MU.log "Invalid size '#{size}' for Azure Compute instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
-exit
               return nil
             end
           end
@@ -512,6 +540,10 @@ exit
 
           server['region'] ||= MU::Cloud::Azure.myRegion(server['credentials'])
           server['ssh_user'] ||= "muadmin"
+          if server['windows_admin_username'] == "Administrator"
+            MU.log "Azure does not permit admin user to be 'Administrator'", MU::ERR
+            ok = false
+          end
 
           server['size'] = validateInstanceType(server["size"], server["region"])
           ok = false if server['size'].nil?
@@ -527,17 +559,17 @@ exit
           end
 
           image_desc = MU::Cloud::Azure::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'], region: server['region'])
-          if image_desc.plan
-            terms = MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.get(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
-            if !terms.accepted
-              MU.log "Deploying #{server['name']} will automatically agree to the licensing terms for #{terms.product}", MU::NOTICE, details: terms.license_text_link
-            end
-          end
 
           if !image_desc
             MU.log "Failed to locate an Azure VM image for #{server['name']} from #{server['image_id']} in #{server['region']}", MU::ERR
             ok = false
           else
+            if image_desc.plan
+              terms = MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.get(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
+              if !terms.accepted
+                MU.log "Deploying #{server['name']} will automatically agree to the licensing terms for #{terms.product}", MU::NOTICE, details: terms.license_text_link
+              end
+            end
             server['image_id'] = image_desc.id
           end
 
@@ -624,17 +656,22 @@ exit
           skus = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list_skus(region, publisher, offer).map { |s| s.name }
 
           if !skus.include?(sku)
-            skus.sort { |a, b| MU.version_sort(a, b) }.reverse.each { |s|
-              if s.match(/^#{Regexp.quote(sku)}/)
-                sku = s
-                break
-              end
-            }
+            skus.reject! { |s| !s.match(/^#{Regexp.quote(sku)}/) }
+            skus.sort! { |a, b| MU.version_sort(a, b) }.reverse!
+            sku = skus.first
           end
 
-          versions = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list(region, publisher, offer, sku).map { |v| v.name }
+          version = nil
+          begin
+            versions = MU::Cloud::Azure.compute(credentials: credentials).virtual_machine_images.list(region, publisher, offer, sku).map { |v| v.name }
+            if versions.nil? or versions.empty?
+              skus.delete(sku)
+              sku = skus.first
+            end
+          end while skus.size > 0 and (versions.nil? or versions.empty?)
+
           if versions.nil? or versions.empty?
-            MU.log "Azure API returned empty machine image version list for publisher #{publisher} offer #{offer} sku #{sku}", MU::ERR
+            MU.log "Azure API returned empty machine image version list for publisher #{publisher} offer #{offer} sku #{sku}", MU::ERR, details: skus
             return nil
           end
 
@@ -724,12 +761,15 @@ exit
           hw_obj.vm_size = @config['size']
 
           os_obj = MU::Cloud::Azure.compute(:OSProfile).new
-          os_obj.admin_username = @config['ssh_user']
-          os_obj.computer_name = @mu_name
           if windows?
             win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
             os_obj.windows_configuration = win_obj
+            os_obj.admin_username = @config['windows_admin_username']
+            os_obj.admin_password = MU.generateWindowsPassword
+            os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/)
           else
+            os_obj.admin_username = @config['ssh_user']
+            os_obj.computer_name = @mu_name
             key_obj = MU::Cloud::Azure.compute(:SshPublicKey).new
             key_obj.key_data = @deploy.ssh_public_key
             key_obj.path = "/home/#{@config['ssh_user']}/.ssh/authorized_keys"
@@ -772,7 +812,7 @@ exit
               begin
 # XXX this doesn't actually work as documented
                 MU::Cloud::Azure.marketplace(credentials: @credentials).marketplace_agreements.sign(image_desc.plan.publisher, image_desc.plan.product, image_desc.plan.name)
-              rescue Exception => e
+              rescue StandardError => e
                 MU.log e.message, MU::ERR
                 vm_obj.plan = nil
               end

@@ -16,10 +16,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-["google-api-client", "google-cloud", "googleauth"].each { |gem|
+["google-api-client", "googleauth"].each { |gem|
   chef_gem gem do
     compile_time true
     action :install
-		only_if { !get_google_metadata("name").nil? }
+		only_if { !get_google_metadata("instance/name").nil? }
   end
 }

@@ -33,7 +33,7 @@ module MU
           bucket_name = @deploy.getResourceName(@config["name"], max_length: 63).downcase
 
           MU.log "Creating S3 bucket #{bucket_name}"
-          resp = MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
+          MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
             acl: @config['acl'],
             bucket: bucket_name
           )
@@ -90,7 +90,6 @@ module MU
           tagBucket if !@config['scrub_mu_isms']
 
           current = cloud_desc
-
           if @config['policies']
             @config['policies'].each { |pol|
               pol['grant_to'] ||= [
@@ -98,9 +97,9 @@ module MU
               ]
             }
 
-            policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy)
+            policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
             policy_docs.each { |doc|
-              MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: doc.values.first
+              MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
               MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
                 bucket: @cloud_id,
                 policy: JSON.generate(doc.values.first)
@@ -177,10 +176,6 @@ module MU
           end
 
           begin
-puts data
-puts acl
-puts bucket
-puts path
             MU.log "Writing #{path} to S3 bucket #{bucket}"
             MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
               acl: acl,
@@ -213,6 +208,7 @@ puts path
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::Bucket.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           resp = MU::Cloud::AWS.s3(credentials: credentials, region: region).list_buckets
           if resp and resp.buckets
@@ -243,15 +239,21 @@ puts path
 
               begin
                 tags = MU::Cloud::AWS.s3(credentials: credentials, region: region).get_bucket_tagging(bucket: bucket.name).tag_set
+                deploy_match = false
+                master_match = false
                 tags.each { |tag|
                   if tag.key == "MU-ID" and tag.value == MU.deploy_id
-                    MU.log "Deleting S3 Bucket #{bucket.name}"
-                    if !noop
-                      MU::Cloud::AWS.s3(credentials: credentials, region: region).delete_bucket(bucket: bucket.name)
-                    end
-                    break
+                    deploy_match = true
+                  elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+                    master_match = true
                   end
                 }
+                if deploy_match and (ignoremaster or master_match)
+                  MU.log "Deleting S3 Bucket #{bucket.name}"
+                  if !noop
+                    MU::Cloud::AWS.s3(credentials: credentials, region: region).delete_bucket(bucket: bucket.name)
+                  end
+                end
               rescue Aws::S3::Errors::NoSuchTagSet, Aws::S3::Errors::PermanentRedirect
                 next
               end
@@ -302,9 +304,9 @@ puts path
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "policies" => MU::Cloud::AWS::Role.condition_schema,
@@ -325,15 +327,15 @@ puts path
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::bucket}, bare and unvalidated.
 
         # @param bucket [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(bucket, configurator)
+        def self.validateConfig(bucket, _configurator)
           ok = true
 
           if bucket['policies']
             bucket['policies'].each { |pol|
               if !pol['permissions'] or pol['permissions'].empty?
-                pol['permissions'] = ["s3:GetObject"]
+                pol['permissions'] = ["s3:GetObject", "s3:ListBucket"]
               end
             }
           end
@@ -341,11 +343,13 @@ puts path
           ok
         end
 
-        private
-
         # AWS doesn't really implement a useful describe_ method for S3 buckets;
         # instead we run the million little individual API calls to construct
         # an approximation for our uses
+        # @param bucket [String]:
+        # @param minimal [Boolean]:
+        # @param credentials [String]:
+        # @param region [String]:
         def self.describe_bucket(bucket, minimal: false, credentials: nil, region: nil)
           @@region_cache = {}
           @@region_cache_semaphore = Mutex.new
@@ -372,7 +376,7 @@ puts path
                 }
               end
 
-            rescue Aws::S3::Errors::NoSuchCORSConfiguration, Aws::S3::Errors::ServerSideEncryptionConfigurationNotFoundError, Aws::S3::Errors::NoSuchLifecycleConfiguration, Aws::S3::Errors::NoSuchBucketPolicy, Aws::S3::Errors::ReplicationConfigurationNotFoundError, Aws::S3::Errors::NoSuchTagSet, Aws::S3::Errors::NoSuchWebsiteConfiguration => e
+            rescue Aws::S3::Errors::NoSuchCORSConfiguration, Aws::S3::Errors::ServerSideEncryptionConfigurationNotFoundError, Aws::S3::Errors::NoSuchLifecycleConfiguration, Aws::S3::Errors::NoSuchBucketPolicy, Aws::S3::Errors::ReplicationConfigurationNotFoundError, Aws::S3::Errors::NoSuchTagSet, Aws::S3::Errors::NoSuchWebsiteConfiguration
               desc[method] = nil
               next
             end

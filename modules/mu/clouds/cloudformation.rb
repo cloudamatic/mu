@@ -73,8 +73,8 @@ module MU
       # Stub method- there's no such thing as being "hosted" in a CloudFormation
       # environment. Calls {MU::Cloud::AWS.listAZs} to return sensible
       # values, if we happen to have AWS credentials configured.
-      def self.listAZs(region: MU.curRegion, account: nil, credentials: nil)
-        MU::Cloud::AWS.listAZs(region: region, account: account, credentials: credentials)
+      def self.listAZs(region: MU.curRegion, credentials: nil)
+        MU::Cloud::AWS.listAZs(region: region, credentials: credentials)
       end
 
       # Stub method- there's no such thing as being "hosted" in a CloudFormation
@@ -466,7 +466,7 @@ module MU
         desc["DependsOn"] = []
         if !cloudobj.nil? and cloudobj.respond_to?(:dependencies) and type != "subnet"
           cloudobj.dependencies(use_cache: true).first.each_pair { |resource_classname, resources|
-            resources.each_pair { |sibling_name, sibling_obj|
+            resources.each_pair { |_sibling_name, sibling_obj|
               next if sibling_obj == cloudobj
 #              desc["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
               desc["DependsOn"] << sibling_obj.cloudobj.cfm_name
@@ -498,7 +498,6 @@ module MU
       # @param name [String]: The name of key we're creating/appending
       # @param value [MU::Config::Tail|String]: The value to set. If it's a {MU::Config::Tail} object, we'll treat it as a reference to a parameter.
       def self.setCloudFormationProp(resource, name, value)
-        realvalue = value
         is_list_element = false
 
         # Recursively resolve MU::Config::Tail references
@@ -508,9 +507,11 @@ module MU
               tree[key] = self.resolveTails(val)
             }
           elsif tree.is_a?(Array)
+            newtree = []
             tree.each { |elt|
-              elt = self.resolveTails(elt)
+              newtree << self.resolveTails(elt)
             }
+            tree = newtree
           elsif tree.class.to_s == "MU::Config::Tail"
             if tree.is_list_element
               return { "Fn::Select" => [tree.index, { "Ref" => "#{tree.getPrettyName}" }] }
@@ -584,7 +585,7 @@ module MU
             cfm_template["Conditions"][cond['name']] = JSON.parse(cond['cloudcode'])
           }
         end
-        tails.each_pair { |param, data|
+        tails.each_pair { |_param, data|
           tail = data
           next if tail.is_a?(MU::Config::Tail) and (tail.pseudo or !tail.runtimecode.nil?)
           default = ""
@@ -638,7 +639,7 @@ module MU
             }
           end
         }
-        MU::Cloud.resource_types.each { |cloudclass, data|
+        MU::Cloud.resource_types.values.each { |data|
           if !config[data[:cfg_plural]].nil? and
               config[data[:cfg_plural]].size > 0
             config[data[:cfg_plural]].each { |resource|

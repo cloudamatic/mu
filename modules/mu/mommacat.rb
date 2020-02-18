@@ -18,6 +18,9 @@ require 'json'
 require 'stringio'
 require 'securerandom'
 require 'timeout'
+require 'mu/mommacat/storage'
+require 'mu/mommacat/daemon'
+require 'mu/mommacat/naming'
 
 module MU
 
@@ -41,60 +44,6 @@ module MU
     @@litters = {}
     @@litters_loadtime = {}
     @@litter_semaphore = Mutex.new
-
-    # Return a {MU::MommaCat} instance for an existing deploy. Use this instead
-    # of using #initialize directly to avoid loading deploys multiple times or
-    # stepping on the global context for the deployment you're really working
-    # on..
-    # @param deploy_id [String]: The deploy ID of the deploy to load.
-    # @param set_context_to_me [Boolean]: Whether new MommaCat objects should overwrite any existing per-thread global deploy variables.
-    # @param use_cache [Boolean]: If we have an existing object for this deploy, use that
-    # @return [MU::MommaCat]
-    def self.getLitter(deploy_id, set_context_to_me: false, use_cache: true)
-      if deploy_id.nil? or deploy_id.empty?
-        raise MuError, "Cannot fetch a deployment without a deploy_id"
-      end
-
-# XXX this caching may be harmful, causing stale resource objects to stick
-# around. Have we fixed this? Sort of. Bad entries seem to have no kittens,
-# so force a reload if we see that. That's probably not the root problem.
-      littercache = nil
-      begin
-        @@litter_semaphore.synchronize {
-          littercache = @@litters.dup
-        }
-        if littercache[deploy_id] and @@litters_loadtime[deploy_id]
-          deploy_root = File.expand_path(MU.dataDir+"/deployments")
-          this_deploy_dir = deploy_root+"/"+deploy_id
-          if File.exist?("#{this_deploy_dir}/deployment.json")
-            lastmod = File.mtime("#{this_deploy_dir}/deployment.json")
-            if lastmod > @@litters_loadtime[deploy_id]
-              MU.log "Deployment metadata for #{deploy_id} was modified on disk, reload", MU::NOTICE
-              use_cache = false
-            end
-         end
-        end
-      rescue ThreadError => e
-        # already locked by a parent caller and this is a read op, so this is ok
-        raise e if !e.message.match(/recursive locking/)
-        littercache = @@litters.dup
-      end
-
-      if !use_cache or littercache[deploy_id].nil?
-        need_gc = !littercache[deploy_id].nil?
-        newlitter = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-        # This, we have to synchronize, as it's a write
-        @@litter_semaphore.synchronize {
-          @@litters[deploy_id] = newlitter
-          @@litters_loadtime[deploy_id] = Time.now
-        }
-        GC.start if need_gc
-      elsif set_context_to_me
-        MU::MommaCat.setThreadContext(@@litters[deploy_id])
-      end
-      return @@litters[deploy_id]
-#     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-    end
 
     # Update the in-memory cache of a given deploy. This is intended for use by
     # {#save!}, primarily.
@@ -127,21 +76,7 @@ module MU
     attr_reader :chef_user
     attr_reader :no_artifacts
     attr_accessor :kittens # really want a method only available to :Deploy
-    @myhome = Etc.getpwuid(Process.uid).dir
-    @nagios_home = "/opt/mu/var/nagios_user_home"
-    @locks = Hash.new
-    @deploy_cache = Hash.new
     @nocleanup = false
-    # List the currently held flock() locks.
-    def self.trapSafeLocks;
-      @locks
-    end
-    # List the currently held flock() locks.
-    def self.locks;
-      @lock_semaphore.synchronize {
-        @locks
-      }
-    end
 
     @@deploy_struct_semaphore = Mutex.new
     # Don't let things that modify the deploy struct Hash step on each other.
@@ -393,7 +328,7 @@ module MU
                   end
                   attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
                 end
-              rescue Exception => e
+              rescue StandardError => e
                 if e.class != MU::Cloud::MuCloudResourceNotImplemented
                   MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
                 end
@@ -455,6 +390,46 @@ module MU
       seen.uniq
     end
 
+    # List the accounts/projects/subscriptions used by each resource in our
+    # deploy.
+    # @return [Array<String>]
+    def habitatsUsed
+      return [] if !@original_config
+      habitats = []
+      habitats << @original_config['project'] if @original_config['project']
+      if @original_config['habitat']
+        hab_ref = MU::Config::Ref.get(@original_config['habitat'])
+        if hab_ref and hab_ref.id
+          habitats << hab_ref.id
+        end
+      end
+
+      MU::Cloud.resource_types.values.each { |attrs|
+        type = attrs[:cfg_plural]
+        if @original_config[type]
+          @original_config[type].each { |resource|
+            if resource['project']
+              habitats << resource['project']
+            elsif resource['habitat']
+              hab_ref = MU::Config::Ref.get(resource['habitat'])
+              if hab_ref and hab_ref.id
+                habitats << hab_ref.id
+              end
+            elsif resource['cloud']
+              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
+              # XXX this should be a general method implemented by each cloud
+              # provider
+              if resource['cloud'] == "Google"
+                habitats << cloudclass.defaultProject(resource['credentials'])
+              end
+            end
+          }
+        end
+      }
+
+      habitats.uniq!
+    end
+
     # List the regions used by each resource in our deploy. This will just be
     # a flat list of strings with no regard to which region belongs with what
     # cloud provider- things mostly use this as a lookup table so they can
@@ -472,7 +447,7 @@ module MU
               cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
               resclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud']).const_get(res_type.to_s)
               if resclass.isGlobal?
-                regions.concat(cloudclass.listRegions)
+# XXX why was I doing this, urgh
                 next
               elsif !resource['region']
                 regions << cloudclass.myRegion
@@ -548,29 +523,6 @@ module MU
       @kittens
     end
 
-    # Overwrite this deployment's configuration with a new version. Save the
-    # previous version as well.
-    # @param new_conf [Hash]: A new configuration, fully resolved by {MU::Config}
-    def updateBasketofKittens(new_conf)
-      loadDeploy
-      if new_conf == @original_config
-        MU.log "#{@deploy_id}", MU::WARN
-        return
-      end
-
-      backup = "#{deploy_dir}/basket_of_kittens.json.#{Time.now.to_i.to_s}"
-      MU.log "Saving previous config of #{@deploy_id} to #{backup}"
-      config = File.new(backup, File::CREAT|File::TRUNC|File::RDWR, 0600)
-      config.flock(File::LOCK_EX)
-      config.puts JSON.pretty_generate(@original_config)
-      config.flock(File::LOCK_UN)
-      config.close
-
-      @original_config = new_conf
-#      save! # XXX this will happen later, more sensibly
-      MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
-    end
-
     # Keep tabs on a {MU::Cloud} object so that it can be found easily by
     # #findLitterMate.
     # @param type [String]:
@@ -597,166 +549,6 @@ module MU
       }
     end
 
-    # Check a provided deploy key against our stored version. The instance has
-    # in theory accessed a secret via S3 and encrypted it with the deploy's
-    # public key. If it decrypts correctly, we assume this instance is indeed
-    # one of ours.
-    # @param ciphertext [String]: The text to decrypt.
-    # return [Boolean]: Whether the provided text was encrypted with the correct key
-    def authKey(ciphertext)
-      if @private_key.nil? or @deploy_secret.nil?
-        MU.log "Missing auth metadata, can't authorize node in authKey", MU::ERR
-        return false
-      end
-      my_key = OpenSSL::PKey::RSA.new(@private_key)
-
-      begin
-        if my_key.private_decrypt(ciphertext).force_encoding("UTF-8") == @deploy_secret.force_encoding("UTF-8")
-          MU.log "Matched ciphertext for #{MU.deploy_id}", MU::INFO
-          return true
-        else
-          MU.log "Mis-matched ciphertext for #{MU.deploy_id}", MU::ERR
-          return false
-        end
-      rescue OpenSSL::PKey::RSAError => e
-        MU.log "Error decrypting provided ciphertext using private key from #{deploy_dir}/private_key: #{e.message}", MU::ERR, details: ciphertext
-        return false
-      end
-    end
-
-    # Generate a three-character string which can be used to unique-ify the
-    # names of resources which might potentially collide, e.g. Windows local
-    # hostnames, Amazon Elastic Load Balancers, or server pool instances.
-    # @return [String]: A three-character string consisting of two alphnumeric
-    # characters (uppercase) and one number.
-    def self.genUniquenessString
-      begin
-        candidate = SecureRandom.base64(2).slice(0..1) + SecureRandom.random_number(9).to_s
-        candidate.upcase!
-      end while candidate.match(/[^A-Z0-9]/)
-      return candidate
-    end
-
-    @unique_map_semaphore = Mutex.new
-    @name_unique_str_map = {}
-    # Keep a map of the uniqueness strings we assign to various full names, in
-    # case we want to reuse them later.
-    # @return [Hash<String>]
-    def self.name_unique_str_map
-      @name_unique_str_map
-    end
-
-    # Keep a map of the uniqueness strings we assign to various full names, in
-    # case we want to reuse them later.
-    # @return [Mutex]
-    def self.unique_map_semaphore
-      @unique_map_semaphore
-    end
-
-    # Generate a name string for a resource, incorporate the MU identifier
-    # for this deployment. Will dynamically shorten the name to fit for
-    # restrictive uses (e.g. Windows local hostnames, Amazon Elastic Load
-    # Balancers).
-    # @param name [String]: The shorthand name of the resource, usually the value of the "name" field in an Mu resource declaration.
-    # @param max_length [Integer]: The maximum length of the resulting resource name.
-    # @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
-    # @param scrub_mu_isms [Boolean]: Don't bother with generating names specific to this deployment. Used to generate generic CloudFormation templates, amongst other purposes.
-    # @param disallowed_chars [Regexp]: A pattern of characters that are illegal for this resource name, such as +/[^a-zA-Z0-9-]/+
-    # @return [String]: A full name string for this resource
-    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], disallowed_chars: nil)
-      if name.nil?
-        raise MuError, "Got no argument to MU::MommaCat.getResourceName"
-      end
-      if @appname.nil? or @environment.nil? or @timestamp.nil? or @seed.nil?
-        MU.log "getResourceName: Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}' (appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}, deploy_id: #{@deploy_id}", MU::WARN, details: caller
-        return name
-      end
-      need_unique_string = false if scrub_mu_isms
-
-      muname = nil
-      if need_unique_string
-        reserved = 4
-      else
-        reserved = 0
-      end
-
-      # First, pare down the base name string until it will fit
-      basename = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + @seed.upcase + "-" + name.upcase
-      if scrub_mu_isms
-        basename = @appname.upcase + "-" + @environment.upcase + name.upcase
-      end
-
-      subchar = if disallowed_chars
-        if "-".match(disallowed_chars)
-          if !"_".match(disallowed_chars)
-            "_"
-          else
-            ""
-          end
-        else
-          "-"
-        end
-      end
-
-      if disallowed_chars
-        basename.gsub!(disallowed_chars, subchar) if disallowed_chars
-      end
-      attempts = 0
-      begin
-        if (basename.length + reserved) > max_length
-          MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
-          if basename == @appname.upcase + "-" + @seed.upcase + "-" + name.upcase
-            # If we've run out of stuff to strip, truncate what's left and
-            # just leave room for the deploy seed and uniqueness string. This
-            # is the bare minimum, and probably what you'll see for most Windows
-            # hostnames.
-            basename = name.upcase + "-" + @appname.upcase
-            basename.slice!((max_length-(reserved+3))..basename.length)
-            basename.sub!(/-$/, "")
-            basename = basename + "-" + @seed.upcase
-            basename.gsub!(disallowed_chars, subchar) if disallowed_chars
-          else
-            # If we have to strip anything, assume we've lost uniqueness and
-            # will have to compensate with #genUniquenessString.
-            need_unique_string = true
-            reserved = 4
-            basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
-            basename = basename + "-" + @seed.upcase + "-" + name.upcase
-            basename.gsub!(disallowed_chars, subchar) if disallowed_chars
-          end
-        end
-        attempts += 1
-        raise MuError, "Failed to generate a reasonable name getResourceName(#{name}, max_length: #{max_length.to_s}, need_unique_string: #{need_unique_string.to_s}, use_unique_string: #{use_unique_string.to_s}, reuse_unique_string: #{reuse_unique_string.to_s}, scrub_mu_isms: #{scrub_mu_isms.to_s}, disallowed_chars: #{disallowed_chars})" if attempts > 10
-      end while (basename.length + reserved) > max_length
-
-      # Finally, apply our short random differentiator, if it's needed.
-      if need_unique_string
-        # Preferentially use a requested one, if it's not already in use.
-        if !use_unique_string.nil?
-          muname = basename + "-" + use_unique_string
-          if !allocateUniqueResourceName(muname) and !reuse_unique_string
-            MU.log "Requested to use #{use_unique_string} as differentiator when naming #{name}, but the name #{muname} is unavailable.", MU::WARN
-            muname = nil
-          end
-        end
-        if !muname
-          begin
-            unique_string = MU::MommaCat.genUniquenessString
-            muname = basename + "-" + unique_string
-          end while !allocateUniqueResourceName(muname)
-          MU::MommaCat.unique_map_semaphore.synchronize {
-            MU::MommaCat.name_unique_str_map[muname] = unique_string
-          }
-        end
-      else
-        muname = basename
-      end
-      muname.gsub!(disallowed_chars, subchar) if disallowed_chars
-
-      return muname
-    end
-
-
     # Encrypt a string with the deployment's public key.
     # @param ciphertext [String]: The string to encrypt
     def encryptWithDeployKey(ciphertext)
@@ -770,7 +562,6 @@ module MU
       my_private_key = OpenSSL::PKey::RSA.new(@private_key)
       return my_private_key.private_decrypt(ciphertext)
     end
-
 
     # Save a string into deployment metadata for the current deployment,
     # encrypting it with our deploy key.
@@ -810,157 +601,6 @@ module MU
         end
       }
       return decryptWithDeployKey(@secrets[type][instance_id])
-    end
-
-
-    # Run {MU::Cloud::Server#postBoot} and {MU::Cloud::Server#groom} on a node.
-    # @param cloud_id [OpenStruct]: The cloud provider's identifier for this node.
-    # @param name [String]: The MU resource name of the node being created.
-    # @param mu_name [String]: The full #{MU::MommaCat.getResourceName} name of the server we're grooming, if it's been initialized already.
-    # @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
-    def groomNode(cloud_id, name, type, mu_name: nil, reraise_fail: false, sync_wait: true)
-      if cloud_id.nil?
-        raise GroomError, "MU::MommaCat.groomNode requires a {MU::Cloud::Server} object"
-      end
-      if name.nil? or name.empty?
-        raise GroomError, "MU::MommaCat.groomNode requires a resource name"
-      end
-      if type.nil? or type.empty?
-        raise GroomError, "MU::MommaCat.groomNode requires a resource type"
-      end
-
-      if !MU::MommaCat.lock(cloud_id+"-mommagroom", true)
-        MU.log "Instance #{cloud_id} on #{MU.deploy_id} (#{type}: #{name}) is already being groomed, ignoring this extra request.", MU::NOTICE
-        MU::MommaCat.unlockAll
-        if !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
-          puts "------------------------------"
-          puts "Open flock() locks:"
-          pp MU::MommaCat.locks
-          puts "------------------------------"
-        end
-        return
-      end
-      loadDeploy
-
-      # XXX this is to stop Net::SSH from killing our entire stack when it
-      # throws an exception. See ECAP-139 in JIRA. Far as we can tell, it's
-      # just not entirely thread safe.
-      Thread.handle_interrupt(Net::SSH::Disconnect => :never) {
-        begin
-          Thread.handle_interrupt(Net::SSH::Disconnect => :immediate) {
-            MU.log "(Probably harmless) Caught a Net::SSH::Disconnect in #{Thread.current.inspect}", MU::DEBUG, details: Thread.current.backtrace
-          }
-        ensure
-        end
-      }
-
-      if @original_config[type+"s"].nil?
-        raise GroomError, "I see no configured resources of type #{type} (bootstrap request for #{name} on #{@deploy_id})"
-      end
-      kitten = nil
-
-      kitten = findLitterMate(type: "server", name: name, mu_name: mu_name, cloud_id: cloud_id)
-      if !kitten.nil?
-        MU.log "Re-grooming #{mu_name}", details: kitten.deploydata
-      else
-        first_groom = true
-        @original_config[type+"s"].each { |svr|
-          if svr['name'] == name
-            svr["instance_id"] = cloud_id
-
-            # This will almost always be true in server pools, but lets be safe. Somewhat problematic because we are only
-            # looking at deploy_id, but we still know this is our DNS record and not a custom one.
-            if svr['dns_records'] && !svr['dns_records'].empty?
-              svr['dns_records'].each { |dnsrec|
-                if dnsrec.has_key?("name") && dnsrec['name'].start_with?(MU.deploy_id.downcase)
-                  MU.log "DNS record for #{MU.deploy_id.downcase}, #{name} is probably wrong, deleting", MU::WARN, details: dnsrec
-                  dnsrec.delete('name')
-                  dnsrec.delete('target')
-                end
-              }
-            end
-
-            kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
-            mu_name = kitten.mu_name if mu_name.nil?
-            MU.log "Grooming #{mu_name} for the first time", details: svr
-            break
-          end
-        }
-      end
-
-      begin
-        # This is a shared lock with MU::Cloud::AWS::Server.create, to keep from
-        # stomping on synchronous deploys that are still running. This
-        # means we're going to wait here if this instance is still being
-        # bootstrapped by "regular" means.
-        if !MU::MommaCat.lock(cloud_id+"-create", true)
-          MU.log "#{mu_name} is still in mid-creation, skipping", MU::NOTICE
-          MU::MommaCat.unlockAll
-          if !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
-            puts "------------------------------"
-            puts "Open flock() locks:"
-            pp MU::MommaCat.locks
-            puts "------------------------------"
-          end
-          return
-        end
-        MU::MommaCat.unlock(cloud_id+"-create")
-
-        if !kitten.postBoot(cloud_id)
-          MU.log "#{mu_name} is already being groomed, skipping", MU::NOTICE
-          MU::MommaCat.unlockAll
-          if !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
-            puts "------------------------------"
-            puts "Open flock() locks:"
-            pp MU::MommaCat.locks
-            puts "------------------------------"
-          end
-          return
-        end
-
-        # This is a shared lock with MU::Deploy.createResources, simulating the
-        # thread logic that tells MU::Cloud::AWS::Server.deploy to wait until
-        # its dependencies are ready. We don't, for example, want to start
-        # deploying if we rely on an RDS instance that isn't ready yet. We can
-        # release this immediately, once we successfully grab it.
-        MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
-        MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
-
-        kitten.groom
-      rescue Exception => e
-        MU::MommaCat.unlockAll
-        if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exist?(deploy_dir+"/.cleanup."+cloud_id) and !File.exist?(deploy_dir+"/.cleanup")
-          MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
-          sendAdminSlack("Grooming FAILED for `#{kitten.mu_name}` with `#{e.message}` :crying_cat_face:", msg: e.backtrace.join("\n"))
-         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-           msg: e.inspect,
-           data: e.backtrace,
-           debug: true
-         )
-          raise e if reraise_fail
-        else
-          MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
-        end
-        return
-      end
-
-      if !@deployment['servers'].nil? and !sync_wait
-        syncLitter(@deployment["servers"].keys, triggering_node: kitten)
-      end
-      MU::MommaCat.unlock(cloud_id+"-mommagroom")
-      if MU.myCloud == "AWS"
-        MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
-      end
-      MU::MommaCat.getLitter(MU.deploy_id)
-      MU::MommaCat.syncMonitoringConfig(false)
-      MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
-      FileUtils.touch(MU.dataDir+"/deployments/#{MU.deploy_id}/#{name}_done.txt")
-      MU::MommaCat.unlockAll
-      if first_groom
-        sendAdminSlack("Grooming complete for #{mu_name} :heart_eyes_cat:")
-        sendAdminMail("Grooming complete for '#{name}' (#{mu_name}) on deploy \"#{MU.handle}\" (#{MU.deploy_id})")
-      end
-      return
     end
 
     # Return the parts and pieces of this deploy's node ssh key set. Generate
@@ -1012,225 +652,6 @@ module MU
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key]
     end
 
-    @lock_semaphore = Mutex.new
-    # Release all flock() locks held by the current thread.
-    def self.unlockAll
-      if !@locks.nil? and !@locks[Thread.current.object_id].nil?
-        # Work from a copy so we can iterate without worrying about contention
-        # in lock() or unlock(). We can't just wrap our iterator block in a
-        # semaphore here, because we're calling another method that uses the
-        # same semaphore.
-        @lock_semaphore.synchronize {
-          delete_list = []
-          @locks[Thread.current.object_id].keys.each { |id|
-            MU.log "Releasing lock on #{deploy_dir(MU.deploy_id)}/locks/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
-            begin
-              @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
-              @locks[Thread.current.object_id][id].close
-            rescue IOError => e
-              MU.log "Got #{e.inspect} unlocking #{id} on #{Thread.current.object_id}", MU::WARN
-            end
-            delete_list << id
-          }
-          # We do this here because we can't mangle a Hash while we're iterating
-          # over it.
-          delete_list.each { |id|
-            @locks[Thread.current.object_id].delete(id)
-          }
-          if @locks[Thread.current.object_id].size == 0
-            @locks.delete(Thread.current.object_id)
-          end
-        }
-      end
-    end
-
-    # Create/hold a flock() lock.
-    # @param id [String]: The lock identifier to release.
-    # @param nonblock [Boolean]: Whether to block while waiting for the lock. In non-blocking mode, we simply return false if the lock is not available.
-    # return [false, nil]
-    def self.lock(id, nonblock = false, global = false)
-      raise MuError, "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
-
-      if !global
-        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
-      else
-        lockdir = File.expand_path(MU.dataDir+"/locks")
-      end
-
-      if !Dir.exist?(lockdir)
-        MU.log "Creating #{lockdir}", MU::DEBUG
-        Dir.mkdir(lockdir, 0700)
-      end
-
-      @lock_semaphore.synchronize {
-        if @locks[Thread.current.object_id].nil?
-          @locks[Thread.current.object_id] = Hash.new
-        end
-
-        @locks[Thread.current.object_id][id] = File.open("#{lockdir}/#{id}.lock", File::CREAT|File::RDWR, 0600)
-      }
-      MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG
-      begin
-        if nonblock
-          if !@locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
-            return false
-          end
-        else
-          @locks[Thread.current.object_id][id].flock(File::LOCK_EX)
-        end
-      rescue IOError
-        raise MU::BootstrapTempFail, "Interrupted waiting for lock on thread #{Thread.current.object_id}, probably just a node rebooting as part of a synchronous install"
-      end
-      MU.log "Lock on #{lockdir}/#{id}.lock on thread #{Thread.current.object_id} acquired", MU::DEBUG
-      return true
-    end
-
-    # Release a flock() lock.
-    # @param id [String]: The lock identifier to release.
-    def self.unlock(id, global = false)
-      raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
-      lockdir = nil
-      if !global
-        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
-      else
-        lockdir = File.expand_path(MU.dataDir+"/locks")
-      end
-      @lock_semaphore.synchronize {
-        return if @locks.nil? or @locks[Thread.current.object_id].nil? or @locks[Thread.current.object_id][id].nil?
-      }
-      MU.log "Releasing lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
-      begin
-        @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
-        @locks[Thread.current.object_id][id].close
-        if !@locks[Thread.current.object_id].nil?
-          @locks[Thread.current.object_id].delete(id)
-        end
-        if @locks[Thread.current.object_id].size == 0
-          @locks.delete(Thread.current.object_id)
-        end
-      rescue IOError => e
-        MU.log "Got #{e.inspect} unlocking #{id} on #{Thread.current.object_id}", MU::WARN
-      end
-    end
-
-    # Remove a deployment's metadata.
-    # @param deploy_id [String]: The deployment identifier to remove.
-    def self.purge(deploy_id)
-      if deploy_id.nil? or deploy_id.empty?
-        raise MuError, "Got nil deploy_id in MU::MommaCat.purge"
-      end
-      # XXX archiving is better than annihilating
-      path = File.expand_path(MU.dataDir+"/deployments")
-      if Dir.exist?(path+"/"+deploy_id)
-        unlockAll
-        MU.log "Purging #{path}/#{deploy_id}" if File.exist?(path+"/"+deploy_id+"/deployment.json")
-
-        FileUtils.rm_rf(path+"/"+deploy_id, :secure => true)
-      end
-      if File.exist?(path+"/unique_ids")
-        File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
-          newlines = []
-          f.flock(File::LOCK_EX)
-          f.readlines.each { |line|
-            newlines << line if !line.match(/:#{deploy_id}$/)
-          }
-          f.rewind
-          f.truncate(0)
-          f.puts(newlines)
-          f.flush
-          f.flock(File::LOCK_UN)
-        }
-      end
-    end
-
-    # Remove the metadata of the currently loaded deployment.
-    def purge!
-      MU::MommaCat.purge(MU.deploy_id)
-    end
-
-    @cleanup_threads = []
-
-    # Iterate over all known deployments and look for instances that have been
-    # terminated, but not yet cleaned up, then clean them up.
-    def self.cleanTerminatedInstances(debug = false)
-      loglevel = debug ? MU::NOTICE : MU::DEBUG
-      MU::MommaCat.lock("clean-terminated-instances", false, true)
-      MU.log "Checking for harvested instances in need of cleanup", loglevel
-      parent_thread_id = Thread.current.object_id
-      purged = 0
-
-      MU::MommaCat.listDeploys.each { |deploy_id|
-        next if File.exist?(deploy_dir(deploy_id)+"/.cleanup")
-        MU.log "Checking for dead wood in #{deploy_id}", loglevel
-        need_reload = false
-        @cleanup_threads << Thread.new {
-          MU.dupGlobals(parent_thread_id)
-          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
-          purged_this_deploy = 0
-            MU.log "#{deploy_id} has some kittens in it", loglevel, details: deploy.kittens.keys
-          if deploy.kittens.has_key?("servers")
-            MU.log "#{deploy_id} has some servers declared", loglevel, details: deploy.object_id
-            deploy.kittens["servers"].values.each { |nodeclasses|
-              nodeclasses.each_pair { |nodeclass, servers|
-                deletia = []
-                MU.log "Checking status of servers under '#{nodeclass}'", loglevel, details: servers.keys
-                servers.each_pair { |mu_name, server|
-                  server.describe
-                  if !server.cloud_id
-                    MU.log "Checking for presence of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
-                  elsif !server.active?
-                    next if File.exist?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
-                    deletia << mu_name
-                    need_reload = true
-                    MU.log "Cleaning up metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id}, which appears to have been terminated", MU::NOTICE
-                    begin
-                      server.destroy
-                      deploy.sendAdminMail("Retired metadata for terminated node #{mu_name}")
-                      deploy.sendAdminSlack("Retired metadata for terminated node `#{mu_name}`")
-                    rescue Exception => e
-                      MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
-                      next
-                    end
-                    MU.log "Cleanup of metadata for #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
-                    purged = purged + 1
-                    purged_this_deploy = purged_this_deploy + 1
-                  end
-                }
-                deletia.each { |mu_name|
-                  servers.delete(mu_name)
-                }
-                if purged_this_deploy > 0
-                  # XXX triggering_node needs to take more than one node name
-                  deploy.syncLitter(servers.keys, triggering_node: deletia.first)
-                end
-              }
-            }
-          end
-          if need_reload
-            MU.log "Saving modified deploy #{deploy_id}", loglevel
-            deploy.save!
-            MU::MommaCat.getLitter(deploy_id)
-          end
-          MU.purgeGlobals
-        }
-      }
-      @cleanup_threads.each { |t|
-        t.join
-      }
-      MU.log "cleanTerminatedInstances threads complete", loglevel
-      MU::MommaCat.unlock("clean-terminated-instances", true)
-      @cleanup_threads = []
-
-      if purged > 0
-        if MU.myCloud == "AWS"
-          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
-        end
-        MU::MommaCat.syncMonitoringConfig
-        GC.start
-      end
-      MU.log "cleanTerminatedInstances returning", loglevel
-    end
-
     @@dummy_cache = {}
 
     # Locate a resource that's either a member of another deployment, or of no
@@ -1269,7 +690,7 @@ module MU
     ) 
       start = Time.now
       callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, dummy_ok: #{dummy_ok.to_s}, flags: #{flags.to_s}) from #{caller[0]}"
-      callstack = caller.dup
+#      callstack = caller.dup
 
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
       shortclass, _cfg_name, cfg_plural, classname, _attrs = MU::Cloud.getResourceNames(type)
@@ -1496,15 +917,9 @@ module MU
                 regions.each { |reg| region_threads << Thread.new(reg) { |r|
                   MU.log "findStray: Searching #{r} in #{p} (#{region_threads.size.to_s} region threads running) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
                   MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-begin
                   found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
                   MU.log "findStray: #{found ? found.size.to_s : "nil"} results - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-rescue Exception => e
-MU.log "#{e.class.name} THREW A FIND EXCEPTION "+e.message, MU::WARN, details: caller
-pp e.backtrace
-MU.log "#{callstr}", MU::WARN, details: callstack
-exit
-end
+
                   if found
                     desc_semaphore.synchronize {
                       cloud_descs[p][r] = found
@@ -1640,7 +1055,7 @@ end
             }
           end
         }
-      rescue Exception => e
+      rescue StandardError => e
         MU.log e.inspect, MU::ERR, details: e.backtrace
       end
       MU.log "findStray: returning #{matches ? matches.size.to_s : "0"} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
@@ -1873,374 +1288,6 @@ end
       MU::MommaCat.unlock("deployment-notification")
     end
 
-    # Tag a resource. Defaults to applying our MU deployment identifier, if no
-    # arguments other than the resource identifier are given.
-    # XXX this belongs in the cloud layer(s)
-    #
-    # @param resource [String]: The cloud provider identifier of the resource to tag
-    # @param tag_name [String]: The name of the tag to create
-    # @param tag_value [String]: The value of the tag
-    # @param region [String]: The cloud provider region
-    # @return [void]
-    def self.createTag(resource = nil,
-        tag_name="MU-ID",
-        tag_value=MU.deploy_id,
-        region: MU.curRegion,
-        credentials: nil)
-      attempts = 0
-
-      if !MU::Cloud::CloudFormation.emitCloudFormation
-        begin
-          MU::Cloud::AWS.ec2(credentials: credentials, region: region).create_tags(
-            resources: [resource],
-            tags: [
-              {
-                key: tag_name,
-                value: tag_value
-              }
-            ]
-          )
-        rescue Aws::EC2::Errors::ServiceError => e
-          MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
-          if attempts < 5
-            attempts = attempts + 1
-            sleep 15
-            retry
-          else
-            raise e
-          end
-        end
-        MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
-      else
-        return {
-          "Key" =>  tag_name,
-          "Value" => tag_value
-        }
-      end
-    end
-
-    # List the name/value pairs for our mandatory standard set of resource tags, which
-    # should be applied to all taggable cloud provider resources.
-    # @return [Hash<String,String>]
-    def self.listStandardTags
-      return {} if !MU.deploy_id
-      {
-        "MU-ID" => MU.deploy_id,
-        "MU-APP" => MU.appname,
-        "MU-ENV" => MU.environment,
-        "MU-MASTER-IP" => MU.mu_public_ip
-      }
-    end
-    # List the name/value pairs for our mandatory standard set of resource tags
-    # for this deploy.
-    # @return [Hash<String,String>]
-    def listStandardTags
-      {
-        "MU-ID" => @deploy_id,
-        "MU-APP" => @appname,
-        "MU-ENV" => @environment,
-        "MU-MASTER-IP" => MU.mu_public_ip
-      }
-    end
-
-    # List the name/value pairs of our optional set of resource tags which
-    # should be applied to all taggable cloud provider resources.
-    # @return [Hash<String,String>]
-    def self.listOptionalTags
-      return {
-        "MU-HANDLE" => MU.handle,
-        "MU-MASTER-NAME" => Socket.gethostname,
-        "MU-OWNER" => MU.mu_user
-      }
-    end
-
-    # Clean an IP address out of ~/.ssh/known hosts
-    # @param ip [String]: The IP to remove
-    # @return [void]
-    def self.removeIPFromSSHKnownHosts(ip)
-      return if ip.nil?
-      sshdir = "#{@myhome}/.ssh"
-      knownhosts = "#{sshdir}/known_hosts"
-
-      if File.exist?(knownhosts) and File.open(knownhosts).read.match(/^#{Regexp.quote(ip)} /)
-        MU.log "Expunging old #{ip} entry from #{knownhosts}", MU::NOTICE
-        if !@noop
-          File.open(knownhosts, File::CREAT|File::RDWR, 0600) { |f|
-            f.flock(File::LOCK_EX)
-            newlines = Array.new
-            delete_block = false
-            f.readlines.each { |line|
-              next if line.match(/^#{Regexp.quote(ip)} /)
-              newlines << line
-            }
-            f.rewind
-            f.truncate(0)
-            f.puts(newlines)
-            f.flush
-            f.flock(File::LOCK_UN)
-          }
-        end
-      end
-    end
-
-    # Clean a node's entries out of ~/.ssh/config
-    # @param nodename [String]: The node's name
-    # @return [void]
-    def self.removeHostFromSSHConfig(nodename)
-      sshdir = "#{@myhome}/.ssh"
-      sshconf = "#{sshdir}/config"
-
-      if File.exist?(sshconf) and File.open(sshconf).read.match(/ #{nodename} /)
-        MU.log "Expunging old #{nodename} entry from #{sshconf}", MU::DEBUG
-        if !@noop
-          File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
-            f.flock(File::LOCK_EX)
-            newlines = Array.new
-            delete_block = false
-            f.readlines.each { |line|
-              if line.match(/^Host #{nodename}(\s|$)/)
-                delete_block = true
-              elsif line.match(/^Host /)
-                delete_block = false
-              end
-              newlines << line if !delete_block
-            }
-            f.rewind
-            f.truncate(0)
-            f.puts(newlines)
-            f.flush
-            f.flock(File::LOCK_UN)
-          }
-        end
-      end
-
-    end
-
-    # Make sure the given node has proper DNS entries, /etc/hosts entries,
-    # SSH config entries, etc.
-    # @param server [MU::Cloud::Server]: The {MU::Cloud::Server} we'll be setting up.
-    # @param sync_wait [Boolean]: Whether to wait for DNS to fully synchronize before returning.
-    def self.nameKitten(server, sync_wait: false)
-      node, config, _deploydata = server.describe
-
-      mu_zone = nil
-      # XXX GCP!
-      if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
-        zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
-        mu_zone = zones.values.first if !zones.nil?
-      end
-      if !mu_zone.nil?
-        MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
-      else
-        MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
-      end
-
-## TO DO: Do DNS registration of "real" records as the last stage after the groomer completes
-      if config && config['dns_records'] && !config['dns_records'].empty?
-        dnscfg = config['dns_records'].dup
-        dnscfg.each { |dnsrec|
-          if !dnsrec.has_key?('name')
-            dnsrec['name'] = node.downcase
-            dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
-          end
-
-          if !dnsrec.has_key?("target")
-            # Default to register public endpoint
-            public = true
-
-            if dnsrec.has_key?("target_type")
-              # See if we have a preference for pubic/private endpoint
-              public = dnsrec["target_type"] == "private" ? false : true
-            end
-  
-            dnsrec["target"] =
-              if dnsrec["type"] == "CNAME"
-                if public
-                  # Make sure we have a public canonical name to register. Use the private one if we don't
-                  server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name
-                else
-                  # If we specifically requested to register the private canonical name lets use that
-                  server.cloud_desc.private_dns_name
-                end
-              elsif dnsrec["type"] == "A"
-                if public
-                  # Make sure we have a public IP address to register. Use the private one if we don't
-                  server.cloud_desc.public_ip_address ? server.cloud_desc.public_ip_address : server.cloud_desc.private_ip_address
-                else
-                  # If we specifically requested to register the private IP lets use that
-                  server.cloud_desc.private_ip_address
-                end
-              end
-          end
-        }
-        if !MU::Cloud::AWS.isGovCloud?
-          MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
-        end
-      end
-
-      MU::MommaCat.removeHostFromSSHConfig(node)
-      if server and server.canonicalIP
-        MU::MommaCat.removeIPFromSSHKnownHosts(server.canonicalIP)
-      end
-# XXX add names paramater with useful stuff
-      MU::MommaCat.addHostToSSHConfig(
-          server,
-          ssh_owner: server.deploy.mu_user,
-          ssh_dir: Etc.getpwnam(server.deploy.mu_user).dir+"/.ssh"
-      )
-    end
-
-    @ssh_semaphore = Mutex.new
-    # Insert a definition for a node into our SSH config.
-    # @param server [MU::Cloud::Server]: The name of the node.
-    # @param names [Array<String>]: Other names that we'd like this host to be known by for SSH purposes
-    # @param ssh_dir [String]: The configuration directory of the SSH config to emit.
-    # @param ssh_conf [String]: A specific SSH configuration file to write entries into.
-    # @param ssh_owner [String]: The preferred owner of the SSH configuration files.
-    # @param timeout [Integer]: An alternate timeout value for connections to this server.
-    # @return [void]
-    def self.addHostToSSHConfig(server,
-        ssh_dir: "#{@myhome}/.ssh",
-        ssh_conf: "#{@myhome}/.ssh/config",
-        ssh_owner: Etc.getpwuid(Process.uid).name,
-        names: [],
-        timeout: 0
-    )
-      if server.nil?
-        MU.log "Called addHostToSSHConfig without a MU::Cloud::Server object", MU::ERR, details: caller
-        return nil
-      end
-
-      _nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = begin
-        server.getSSHConfig
-      rescue MU::MuError
-        return
-      end
-
-      if ssh_user.nil? or ssh_user.empty?
-        MU.log "Failed to extract ssh_user for #{server.mu_name} addHostToSSHConfig", MU::ERR
-        return
-      end
-      if canonical_ip.nil? or canonical_ip.empty?
-        MU.log "Failed to extract canonical_ip for #{server.mu_name} addHostToSSHConfig", MU::ERR
-        return
-      end
-      if ssh_key_name.nil? or ssh_key_name.empty?
-        MU.log "Failed to extract ssh_key_name for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
-        return
-      end
-
-      @ssh_semaphore.synchronize {
-
-        if File.exist?(ssh_conf)
-          File.readlines(ssh_conf).each { |line|
-            if line.match(/^Host #{server.mu_name} /)
-              MU.log("Attempt to add duplicate #{ssh_conf} entry for #{server.mu_name}", MU::WARN)
-              return
-            end
-          }
-        end
-
-        File.open(ssh_conf, 'a', 0600) { |ssh_config|
-          ssh_config.flock(File::LOCK_EX)
-          host_str = "Host #{server.mu_name} #{server.canonicalIP}"
-          if !names.nil? and names.size > 0
-            host_str = host_str+" "+names.join(" ")
-          end
-          ssh_config.puts host_str
-          ssh_config.puts "  Hostname #{server.canonicalIP}"
-          if !nat_ssh_host.nil? and server.canonicalIP != nat_ssh_host
-            ssh_config.puts "  ProxyCommand ssh -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
-          end
-          if timeout > 0
-            ssh_config.puts "  ConnectTimeout #{timeout}"
-          end
-
-          ssh_config.puts "  User #{ssh_user}"
-# XXX I'd rather add the host key to known_hosts, but Net::SSH is a little dumb
-          ssh_config.puts "  StrictHostKeyChecking no"
-          ssh_config.puts "  ServerAliveInterval 60"
-
-          ssh_config.puts "  IdentityFile #{ssh_dir}/#{ssh_key_name}"
-          if !File.exist?("#{ssh_dir}/#{ssh_key_name}")
-            MU.log "#{server.mu_name} - ssh private key #{ssh_dir}/#{ssh_key_name} does not exist", MU::WARN
-          end
-
-          ssh_config.flock(File::LOCK_UN)
-          ssh_config.chown(Etc.getpwnam(ssh_owner).uid, Etc.getpwnam(ssh_owner).gid)
-        }
-        MU.log "Wrote #{server.mu_name} ssh key to #{ssh_dir}/config", MU::DEBUG
-        return "#{ssh_dir}/#{ssh_key_name}"
-      }
-    end
-
-    # Clean a node's entries out of /etc/hosts
-    # @param node [String]: The node's name
-    # @return [void]
-    def self.removeInstanceFromEtcHosts(node)
-      return if MU.mu_user != "mu"
-      hostsfile = "/etc/hosts"
-      FileUtils.copy(hostsfile, "#{hostsfile}.bak-#{MU.deploy_id}")
-      File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
-        f.flock(File::LOCK_EX)
-        newlines = Array.new
-        f.readlines.each { |line|
-          newlines << line if !line.match(/ #{node}(\s|$)/)
-        }
-        f.rewind
-        f.truncate(0)
-        f.puts(newlines)
-        f.flush
-
-        f.flock(File::LOCK_UN)
-      }
-    end
-
-
-    # Insert node names associated with a new instance into /etc/hosts so we
-    # can treat them as if they were real DNS entries. Especially helpful when
-    # Chef/Ohai mistake the proper hostname, e.g. when bootstrapping Windows.
-    # @param public_ip [String]: The node's IP address
-    # @param chef_name [String]: The node's Chef node name
-    # @param system_name [String]: The node's local system name
-    # @return [void]
-    def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
-
-      # XXX cover ipv6 case
-      if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
-        raise MuError, "addInstanceToEtcHosts requires public_ip and one or both of chef_name and system_name!"
-      end
-      if chef_name == "localhost" or system_name == "localhost"
-        raise MuError, "Can't set localhost as a name in addInstanceToEtcHosts"
-      end
-
-      if !["mu", "root"].include?(MU.mu_user)
-        response = nil
-        begin
-          response = open("https://127.0.0.1:#{MU.mommaCatPort.to_s}/rest/hosts_add/#{chef_name}/#{public_ip}").read
-        rescue Errno::ECONNRESET, Errno::ECONNREFUSED
-        end
-        if response != "ok"
-          MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
-        end
-        return
-      end
-
-      File.readlines("/etc/hosts").each { |line|
-        if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
-          MU.log "Ignoring attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::DEBUG
-          return
-        end
-      }
-      File.open("/etc/hosts", 'a') { |etc_hosts|
-        etc_hosts.flock(File::LOCK_EX)
-        etc_hosts.puts("#{public_ip} #{chef_name} #{system_name}")
-        etc_hosts.flock(File::LOCK_UN)
-      }
-      MU.log("Added to /etc/hosts: #{public_ip} #{chef_name} #{system_name}")
-    end
-
-
     # Send a Slack notification to a deployment's administrators.
     # @param subject [String]: The subject line of the message.
     # @param msg [String]: The message body.
@@ -2306,205 +1353,6 @@ MESSAGE_END
       rescue Net::SMTPFatalError, Errno::ECONNREFUSED => e
         MU.log e.inspect, MU::WARN
       end
-    end
-
-    # Manufactures a human-readable deployment name from the random
-    # two-character seed in MU-ID. Cat-themed when possible.
-    # @param seed [String]: A two-character seed from which we'll generate a name.
-    # @return [String]: Two words
-    def self.generateHandle(seed)
-      word_one=word_two=nil
-
-      # Unless we've got two letters that don't have corresponding cat-themed
-      # words, we'll insist that our generated handle have at least one cat
-      # element to it.
-      require_cat_words = true
-      if @catwords.select { |word| word.match(/^#{seed[0]}/i) }.size == 0 and
-          @catwords.select { |word| word.match(/^#{seed[1]}/i) }.size == 0
-        require_cat_words = false
-        MU.log "Got an annoying pair of letters #{seed}, not forcing cat-theming", MU::DEBUG
-      end
-      allnouns = @catnouns + @jaegernouns
-      alladjs = @catadjs + @jaegeradjs
-
-      tries = 0
-      begin
-        # Try to avoid picking something "nouny" for the first word
-        source = @catadjs + @catmixed + @jaegeradjs + @jaegermixed
-        first_ltr = source.select { |word| word.match(/^#{seed[0]}/i) }
-        if !first_ltr or first_ltr.size == 0
-          first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
-        end
-        word_one = first_ltr.shuffle.first
-
-        # If we got a paired set that happen to match our letters, go with it
-        if !word_one.nil? and word_one.match(/-#{seed[1]}/i)
-          word_one, word_two = word_one.split(/-/)
-        else
-          source = @words
-          if @catwords.include?(word_one)
-            source = @jaegerwords
-          elsif require_cat_words
-            source = @catwords
-          end
-          second_ltr = source.select { |word| word.match(/^#{seed[1]}/i) and !word.match(/-/i) }
-          word_two = second_ltr.shuffle.first
-        end
-        tries = tries + 1
-      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or word_one == word_two or (allnouns.include?(word_one) and allnouns.include?(word_two)) or (alladjs.include?(word_one) and alladjs.include?(word_two)) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two)))
-
-      if tries >= 50 and (word_one.nil? or word_two.nil?)
-        MU.log "I failed to generated a valid handle, faking it", MU::ERR
-        return "#{seed[0].capitalize} #{seed[1].capitalize}"
-      end
-
-      return "#{word_one.capitalize} #{word_two.capitalize}"
-    end
-
-    # Ensure that the Nagios configuration local to the MU master has been
-    # updated, and make sure Nagios has all of the ssh keys it needs to tunnel
-    # to client nodes.
-    # @return [void]
-    def self.syncMonitoringConfig(blocking = true)
-      return if Etc.getpwuid(Process.uid).name != "root" or (MU.mu_user != "mu" and MU.mu_user != "root")
-      parent_thread_id = Thread.current.object_id
-      nagios_threads = []
-      nagios_threads << Thread.new {
-        MU.dupGlobals(parent_thread_id)
-        realhome = Etc.getpwnam("nagios").dir
-        [@nagios_home, "#{@nagios_home}/.ssh"].each { |dir|
-          Dir.mkdir(dir, 0711) if !Dir.exist?(dir)
-          File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, dir)
-        }
-        if realhome != @nagios_home and Dir.exist?(realhome) and !File.symlink?("#{realhome}/.ssh")
-          File.rename("#{realhome}/.ssh", "#{realhome}/.ssh.#{$$}") if Dir.exist?("#{realhome}/.ssh")
-          File.symlink("#{@nagios_home}/.ssh", Etc.getpwnam("nagios").dir+"/.ssh")
-        end
-        MU.log "Updating #{@nagios_home}/.ssh/config..."
-        ssh_lock = File.new("#{@nagios_home}/.ssh/config.mu.lock", File::CREAT|File::TRUNC|File::RDWR, 0600)
-        ssh_lock.flock(File::LOCK_EX)
-        ssh_conf = File.new("#{@nagios_home}/.ssh/config.tmp", File::CREAT|File::TRUNC|File::RDWR, 0600)
-        ssh_conf.puts "Host MU-MASTER localhost"
-        ssh_conf.puts "  Hostname localhost"
-        ssh_conf.puts "  User root"
-        ssh_conf.puts "  IdentityFile #{@nagios_home}/.ssh/id_rsa"
-        ssh_conf.puts "  StrictHostKeyChecking no"
-        ssh_conf.close
-        FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{@nagios_home}/.ssh/id_rsa")
-        File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/id_rsa")
-        threads = []
-
-        parent_thread_id = Thread.current.object_id
-        MU::MommaCat.listDeploys.sort.each { |deploy_id|
-          begin
-            # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
-            deploy = MU::MommaCat.getLitter(deploy_id)
-            if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
-              MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
-              next
-            end
-            FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
-            File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
-            if deploy.kittens.has_key?("servers")
-              deploy.kittens["servers"].values.each { |nodeclasses|
-                nodeclasses.values.each { |nodes|
-                  nodes.values.each { |server|
-                    next if !server.cloud_desc
-                    MU.dupGlobals(parent_thread_id)
-                    threads << Thread.new {
-                      MU::MommaCat.setThreadContext(deploy)
-                      MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
-                      MU::MommaCat.addHostToSSHConfig(
-                          server,
-                          ssh_dir: "#{@nagios_home}/.ssh",
-                          ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-                          ssh_owner: "nagios"
-                      )
-                      MU.purgeGlobals
-                    }
-                  }
-                }
-              }
-            end
-          rescue Exception => e
-            MU.log "#{e.inspect} while generating Nagios SSH config in #{deploy_id}", MU::ERR, details: e.backtrace
-          end
-        }
-        threads.each { |t|
-          t.join
-        }
-        ssh_lock.flock(File::LOCK_UN)
-        ssh_lock.close
-        File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config.tmp")
-        File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
-
-        MU.log "Updating Nagios monitoring config, this may take a while..."
-        output = nil
-        if $MU_CFG and !$MU_CFG['master_runlist_extras'].nil?
-          output = %x{#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1}
-        else
-          output = %x{#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only]' 2>&1}
-        end
-
-        if $?.exitstatus != 0
-          MU.log "Nagios monitoring config update returned a non-zero exit code!", MU::ERR, details: output
-        else
-          MU.log "Nagios monitoring config update complete."
-        end
-      }
-
-      if blocking
-        nagios_threads.each { |t|
-          t.join
-        }
-      end
-    end
-
-    # Return a list of all currently active deploy identifiers.
-    # @return [Array<String>]
-    def self.listDeploys
-      return [] if !Dir.exist?("#{MU.dataDir}/deployments")
-      deploys = []
-      Dir.entries("#{MU.dataDir}/deployments").reverse_each { |muid|
-        next if !Dir.exist?("#{MU.dataDir}/deployments/#{muid}") or muid == "." or muid == ".."
-        deploys << muid
-      }
-      return deploys
-    end
-
-    # Return a list of all nodes in all deployments. Does so without loading
-    # deployments fully.
-    # @return [Hash]
-    def self.listAllNodes
-      nodes = Hash.new
-      MU::MommaCat.deploy_struct_semaphore.synchronize {
-        MU::MommaCat.listDeploys.each { |deploy|
-          if !Dir.exist?(MU::MommaCat.deploy_dir(deploy)) or
-              !File.size?("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json")
-            MU.log "Didn't see deployment metadata for '#{deploy}'", MU::WARN
-            next
-          end
-          data = File.open("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json", File::RDONLY)
-          MU.log "Getting lock to read #{MU::MommaCat.deploy_dir(deploy)}/deployment.json", MU::DEBUG
-          data.flock(File::LOCK_EX)
-          begin
-            deployment = JSON.parse(File.read("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json"))
-            deployment["deploy_id"] = deploy
-            if deployment.has_key?("servers")
-              deployment["servers"].each_key { |nodeclass|
-                deployment["servers"][nodeclass].each_pair { |mu_name, metadata|
-                  nodes[mu_name] = metadata
-                }
-              }
-            end
-          rescue JSON::ParserError => e
-            MU.log "JSON parse failed on #{MU::MommaCat.deploy_dir(deploy)}/deployment.json", MU::ERR, details: e.message
-          end
-          data.flock(File::LOCK_UN)
-          data.close
-        }
-      }
-      return nodes
     end
 
     # Return a list of all nodes associated with the current deployment.
@@ -2750,324 +1598,7 @@ MESSAGE_END
       results[cert_cn]
     end
 
-    # @return [String]: The Mu Master filesystem directory holding metadata for the current deployment
-    def deploy_dir
-      MU::MommaCat.deploy_dir(@deploy_id)
-    end
-
-    # Path to the log file used by the Momma Cat daemon
-    # @return [String]
-    def self.daemonLogFile
-      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
-      "#{base}/log/mu-momma-cat.log"
-    end
-
-    # Path to the PID file used by the Momma Cat daemon
-    # @return [String]
-    def self.daemonPidFile
-      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
-      "#{base}/run/mommacat.pid"
-    end
-
-		# Start the Momma Cat daemon and return the exit status of the command used
-    # @return [Integer]
-    def self.start
-      if MU.inGem? and MU.muCfg['disable_mommacat']
-        return
-      end
-      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
-      [base, "#{base}/log", "#{base}/run"].each { |dir|
-       if !Dir.exist?(dir)
-          MU.log "Creating #{dir}"
-          Dir.mkdir(dir)
-        end
-      }
-      return 0 if status
-    
-      MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}, PID file #{daemonPidFile}"
-      origdir = Dir.getwd
-      Dir.chdir(MU.myRoot+"/modules")
-
-      # XXX what's the safest way to find the 'bundle' executable in both gem and non-gem installs?
-      if MU.inGem?
-        cmd = %Q{thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
-      else
-        cmd = %Q{bundle exec thin --threaded --daemonize --port #{MU.mommaCatPort} --pid #{daemonPidFile} --log #{daemonLogFile} --ssl --ssl-key-file #{MU.muCfg['ssl']['key']} --ssl-cert-file #{MU.muCfg['ssl']['cert']} --ssl-disable-verify --tag mu-momma-cat -R mommacat.ru start}
-      end
-
-      MU.log cmd, MU::NOTICE
-
-      retries = 0
-      begin
-        output = %x{#{cmd}}
-        sleep 1
-        retries += 1
-        if retries >= 10
-          MU.log "MommaCat failed to start (command was #{cmd}, working directory #{MU.myRoot}/modules)", MU::WARN, details: output
-          pp caller
-          return $?.exitstatus
-        end
-      end while !status
-
-      Dir.chdir(origdir)
-    
-      if $?.exitstatus != 0
-        exit 1
-      end
-
-      return $?.exitstatus
-    end
-
-    # Return true if the Momma Cat daemon appears to be running
-    # @return [Boolean]
-    def self.status
-      if MU.inGem? and MU.muCfg['disable_mommacat']
-        return true
-      end
-      if File.exist?(daemonPidFile)
-        pid = File.read(daemonPidFile).chomp.to_i
-        begin
-          Process.getpgid(pid)
-          MU.log "Momma Cat running with pid #{pid.to_s}"
-          return true
-        rescue Errno::ESRCH
-        end
-      end
-      MU.log "Momma Cat daemon not running", MU::NOTICE, details: daemonPidFile
-      false
-    end
-    
-		# Stop the Momma Cat daemon, if it's running
-    def self.stop
-      if File.exist?(daemonPidFile)
-        pid = File.read(daemonPidFile).chomp.to_i
-        MU.log "Stopping Momma Cat with pid #{pid.to_s}"
-        Process.kill("INT", pid)
-        killed = false
-        begin
-          Process.getpgid(pid)
-          sleep 1
-        rescue Errno::ESRCH
-          killed = true
-        end while killed
-        MU.log "Momma Cat with pid #{pid.to_s} stopped", MU::DEBUG, details: daemonPidFile
-    
-        begin
-          File.unlink(daemonPidFile)
-        rescue Errno::ENOENT
-        end
-      end
-    end
-
-		# (Re)start the Momma Cat daemon and return the exit status of the start command
-    # @return [Integer]
-    def self.restart
-      stop
-      start
-    end
-
-    # Locate and return the deploy, if any, which matches the provided origin
-    # description
-    # @param origin [Hash]
-    def self.findMatchingDeploy(origin)
-      MU::MommaCat.listDeploys.each { |deploy_id|
-        o_path = deploy_dir(deploy_id)+"/origin.json"
-        next if !File.exist?(o_path)
-        this_origin = JSON.parse(File.read(o_path))
-        if origin == this_origin
-          MU.log "Deploy #{deploy_id} matches origin hash, loading", details: origin
-          return MU::MommaCat.new(deploy_id)
-        end
-      }
-      nil
-    end
-
-    # Synchronize all in-memory information related to this to deployment to
-    # disk.
-    # @param triggering_node [MU::Cloud::Server]: If we're being triggered by the addition/removal/update of a node, this allows us to notify any sibling or dependent nodes of changes
-    # @param force [Boolean]: Save even if +no_artifacts+ is set
-    # @param origin [Hash]: Optional blob of data indicating how this deploy was created
-    def save!(triggering_node = nil, force: false, origin: nil)
-
-      return if @no_artifacts and !force
-
-      MU::MommaCat.deploy_struct_semaphore.synchronize {
-        MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
-
-        if !Dir.exist?(deploy_dir)
-          MU.log "Creating #{deploy_dir}", MU::DEBUG
-          Dir.mkdir(deploy_dir, 0700)
-        end
-
-        if !origin.nil?
-          o_file = File.new("#{deploy_dir}/origin.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          o_file.puts JSON.pretty_generate(origin)
-          o_file.close
-        end
-
-        if !@private_key.nil?
-          privkey = File.new("#{deploy_dir}/private_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          privkey.puts @private_key
-          privkey.close
-        end
-
-        if !@public_key.nil?
-          pubkey = File.new("#{deploy_dir}/public_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          pubkey.puts @public_key
-          pubkey.close
-        end
-
-        if !@deployment.nil? and @deployment.size > 0
-          @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
-          @deployment['public_key'] = @public_key
-          @deployment['timestamp'] ||= @timestamp
-          @deployment['seed'] ||= @seed
-          @deployment['appname'] ||= @appname
-          @deployment['handle'] ||= @handle
-          @deployment['ssh_public_key'] ||= @ssh_public_key if @ssh_public_key
-          begin
-            # XXX doing this to trigger JSON errors before stomping the stored
-            # file...
-            JSON.pretty_generate(@deployment, max_nesting: false)
-            deploy = File.new("#{deploy_dir}/deployment.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-            MU.log "Getting lock to write #{deploy_dir}/deployment.json", MU::DEBUG
-            deploy.flock(File::LOCK_EX)
-            deploy.puts JSON.pretty_generate(@deployment, max_nesting: false)
-          rescue JSON::NestingError => e
-            MU.log e.inspect, MU::ERR, details: @deployment
-            raise MuError, "Got #{e.message} trying to save deployment"
-          rescue Encoding::UndefinedConversionError => e
-            MU.log e.inspect, MU::ERR, details: @deployment
-            raise MuError, "Got #{e.message} at #{e.error_char.dump} (#{e.source_encoding_name} => #{e.destination_encoding_name}) trying to save deployment"
-          end
-          deploy.flock(File::LOCK_UN)
-          deploy.close
-          @need_deploy_flush = false
-          MU::MommaCat.updateLitter(@deploy_id, self)
-        end
-
-        if !@original_config.nil? and @original_config.is_a?(Hash)
-          config = File.new("#{deploy_dir}/basket_of_kittens.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          config.puts JSON.pretty_generate(MU::Config.manxify(@original_config))
-          config.close
-        end
-
-        if !@ssh_private_key.nil?
-          key = File.new("#{deploy_dir}/node_ssh.key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_private_key
-          key.close
-        end
-        if !@ssh_public_key.nil?
-          key = File.new("#{deploy_dir}/node_ssh.pub", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_public_key
-          key.close
-        end
-        if !@ssh_key_name.nil?
-          key = File.new("#{deploy_dir}/ssh_key_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_key_name
-          key.close
-        end
-        if !@environment.nil?
-          env = File.new("#{deploy_dir}/environment_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          env.puts @environment
-          env.close
-        end
-        if !@deploy_secret.nil?
-          secret = File.new("#{deploy_dir}/deploy_secret", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          secret.print @deploy_secret
-          secret.close
-        end
-        if !@secrets.nil?
-          secretdir = "#{deploy_dir}/secrets"
-          if !Dir.exist?(secretdir)
-            MU.log "Creating #{secretdir}", MU::DEBUG
-            Dir.mkdir(secretdir, 0700)
-          end
-          @secrets.each_pair { |type, servers|
-            servers.each_pair { |server, svr_secret|
-              key = File.new("#{secretdir}/#{type}.#{server}", File::CREAT|File::TRUNC|File::RDWR, 0600)
-              key.puts svr_secret
-              key.close
-            }
-          }
-        end
-      }
-
-      # Update groomer copies of this metadata
-      syncLitter(@deployment['servers'].keys, triggering_node: triggering_node, save_only: true) if @deployment.has_key?("servers")
-    end
-
-    # Find one or more resources by their Mu resource name, and return
-    # MommaCat objects for their containing deploys, their BoK config data,
-    # and their deployment data.
-    #
-    # @param type [String]: The type of resource, e.g. "vpc" or "server."
-    # @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
-    # @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
-
     private
-
-    # Check to see whether a given resource name is unique across all
-    # deployments on this Mu server. We only enforce this for certain classes
-    # of names. If the name in question is available, add it to our cache of
-    # said names.  See #{MU::MommaCat.getResourceName}
-    # @param name [String]: The name to attempt to allocate.
-    # @return [Boolean]: True if allocation was successful.
-    def allocateUniqueResourceName(name)
-      raise MuError, "Cannot call allocateUniqueResourceName without an active deployment" if @deploy_id.nil?
-      path = File.expand_path(MU.dataDir+"/deployments")
-      File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
-        existing = []
-        f.flock(File::LOCK_EX)
-        f.readlines.each { |line|
-          existing << line.chomp
-        }
-        begin
-          existing.each { |used|
-            if used.match(/^#{name}:/)
-              if !used.match(/^#{name}:#{@deploy_id}$/)
-                MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN, details: caller
-                return false
-              else
-                return true
-              end
-            end
-          }
-          f.puts name+":"+@deploy_id
-          return true
-        ensure
-          f.flock(File::LOCK_UN)
-        end
-      }
-    end
-
-    ###########################################################################
-    ###########################################################################
-    def self.deploy_dir(deploy_id)
-      raise MuError, "deploy_dir must get a deploy_id if called as class method (from #{caller[0]}; #{caller[1]})" if deploy_id.nil?
-# XXX this will blow up if someone sticks MU in /
-      path = File.expand_path(MU.dataDir+"/deployments")
-      if !Dir.exist?(path)
-        MU.log "Creating #{path}", MU::DEBUG
-        Dir.mkdir(path, 0700)
-      end
-      path = path+"/"+deploy_id
-      return path
-    end
-
-    def self.deploy_exists?(deploy_id)
-      if deploy_id.nil? or deploy_id.empty?
-        MU.log "Got nil deploy_id in MU::MommaCat.deploy_exists?", MU::WARN
-        return
-      end
-      path = File.expand_path(MU.dataDir+"/deployments")
-      if !Dir.exist?(path)
-        Dir.mkdir(path, 0700)
-      end
-      deploy_path = File.expand_path(path+"/"+deploy_id)
-      return Dir.exist?(deploy_path)
-    end
-
 
     def createDeployKey
       key = OpenSSL::PKey::RSA.generate(4096)
@@ -3075,234 +1606,22 @@ MESSAGE_END
       return [key.export, key.public_key.export]
     end
 
-    # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
-    # @return [Hash,Array<Hash>]
-    def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
-      if type.nil?
-        raise MuError, "Can't call getResourceMetadata without a type argument"
-      end
-      _shortclass, _cfg_name, type, _classname = MU::Cloud.getResourceNames(type)
-
-      # first, check our in-memory deploys, which may or may not have been
-      # written to disk yet.
-      littercache = nil
-      begin
-        @@litter_semaphore.synchronize {
-          littercache = @@litters.dup
-        }
-      rescue ThreadError => e
-        # already locked by a parent caller and this is a read op, so this is ok
-        raise e if !e.message.match(/recursive locking/)
-        littercache = @@litters.dup
-      end
-      littercache.each_pair { |deploy, momma|
-        @@deploy_struct_semaphore.synchronize {
-          @deploy_cache[deploy] = {
-            "mtime" => Time.now,
-            "data" => momma.deployment
-          }
-        }
-      }
-
-      deploy_root = File.expand_path(MU.dataDir+"/deployments")
-      MU::MommaCat.deploy_struct_semaphore.synchronize {
-        if Dir.exist?(deploy_root)
-          Dir.entries(deploy_root).each { |deploy|
-            this_deploy_dir = deploy_root+"/"+deploy
-            next if deploy == "." or deploy == ".." or !Dir.exist?(this_deploy_dir)
-            next if deploy_id and deploy_id != deploy
-
-            if !File.size?(this_deploy_dir+"/deployment.json")
-              MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::DEBUG
-              next
-            end
-            if @deploy_cache[deploy].nil? or !use_cache
-              @deploy_cache[deploy] = Hash.new
-            elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
-              MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
-
-              next
-            end
-
-            @deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
-            MU.log "Caching deploy #{deploy}", MU::DEBUG
-            lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
-            lock.flock(File::LOCK_EX)
-            @deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
-
-            begin
-              @deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
-              lock.flock(File::LOCK_UN)
-
-              next if @deploy_cache[deploy].nil? or @deploy_cache[deploy]['data'].nil?
-              # Populate some generable entries that should be in the deploy
-              # data. Also, bounce out if we realize we've found exactly what
-              # we needed already.
-              MU::Cloud.resource_types.values.each { |attrs|
-
-                next if @deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
-                if !attrs[:has_multiples]
-                  @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
-# XXX we don't actually store node names for some resources, need to farm them
-# and fix metadata
-#                 if !mu_name.nil? and nodename == mu_name
-#                   return { deploy => [data] }
-#                 end
-                  }
-                else
-                  @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
-                    next if nodes.nil? or !nodes.is_a?(Hash)
-                    nodes.each_pair { |nodename, data|
-                      next if !data.is_a?(Hash)
-                      data['#MU_NODE_CLASS'] = node_class
-                      if !data.has_key?("cloud") # XXX kludge until old metadata gets fixed
-                        data["cloud"] = MU::Config.defaultCloud
-                      end
-                      data['#MU_NAME'] = nodename
-                      if !mu_name.nil? and nodename == mu_name
-                        return {deploy => [data]} if deploy_id && deploy == deploy_id
-                      end
-                    }
-                  }
-                end
-              }
-            rescue JSON::ParserError => e
-              raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
-            end
-            lock.flock(File::LOCK_UN)
-            lock.close
-          }
-        end
-      }
-
-      matches = {}
-
-      if deploy_id.nil?
-        @deploy_cache.each_key { |deploy|
-          next if !@deploy_cache[deploy].has_key?('data')
-          next if !@deploy_cache[deploy]['data'].has_key?(type)
-          if !name.nil?
-            next if @deploy_cache[deploy]['data'][type][name].nil?
-            matches[deploy] ||= []
-            matches[deploy] << @deploy_cache[deploy]['data'][type][name].dup
-          else
-            matches[deploy] ||= []
-            matches[deploy].concat(@deploy_cache[deploy]['data'][type].values)
-          end
-        }
-        return matches
-      elsif !@deploy_cache[deploy_id].nil?
-        if !@deploy_cache[deploy_id]['data'].nil? and
-            !@deploy_cache[deploy_id]['data'][type].nil?
-          if !name.nil?
-            if !@deploy_cache[deploy_id]['data'][type][name].nil?
-              matches[deploy_id] ||= []
-              matches[deploy_id] << @deploy_cache[deploy_id]['data'][type][name].dup
-            else
-              return matches # nothing, actually
-            end
-          else
-            matches[deploy_id] = @deploy_cache[deploy_id]['data'][type].values
-          end
-        end
-      end
-
-      return matches
-    end
-
     ###########################################################################
     ###########################################################################
-    def loadDeploy(deployment_json_only = false, set_context_to_me: true)
-      MU::MommaCat.deploy_struct_semaphore.synchronize {
-        if File.size?(deploy_dir+"/deployment.json")
-          deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
-          MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
-          # deploy.flock(File::LOCK_EX)
-          begin
-            Timeout::timeout(90) {deploy.flock(File::LOCK_EX)}
-          rescue Timeout::Error
-            raise MuError, "Timed out trying to get an exclusive lock on #{deploy_dir}/deployment.json"
+    def setThreadContextToMe
+      ["appname", "environment", "timestamp", "seed", "handle"].each { |var|
+        @deployment[var] ||= instance_variable_get("@#{var}".to_sym)
+        if @deployment[var]
+          if var != "handle"
+            MU.setVar(var, @deployment[var].upcase)
+          else
+            MU.setVar(var, @deployment[var])
           end
-
-          begin
-            @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
-          rescue JSON::ParserError => e
-            MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR, details: e.message
-          end
-
-          deploy.flock(File::LOCK_UN)
-          deploy.close
-          if set_context_to_me
-            ["appname", "environment", "timestamp", "seed", "handle"].each { |var|
-              @deployment[var] ||= instance_variable_get("@#{var}".to_sym)
-              if @deployment[var]
-                if var != "handle"
-                  MU.setVar(var, @deployment[var].upcase)
-                else
-                  MU.setVar(var, @deployment[var])
-                end
-              else
-                MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
-              end
-            }
-          end
-          @timestamp = @deployment['timestamp']
-          @seed = @deployment['seed']
-          @appname = @deployment['appname']
-          @handle = @deployment['handle']
-
-          return if deployment_json_only
-        end
-        if File.exist?(deploy_dir+"/private_key")
-          @private_key = File.read("#{deploy_dir}/private_key")
-          @public_key = File.read("#{deploy_dir}/public_key")
-        end
-        if File.exist?(deploy_dir+"/basket_of_kittens.json")
-          begin
-            @original_config = JSON.parse(File.read("#{deploy_dir}/basket_of_kittens.json"))
-          rescue JSON::ParserError => e
-            MU.log "JSON parse failed on #{deploy_dir}/basket_of_kittens.json", MU::ERR, details: e.message
-          end
-        end
-        if File.exist?(deploy_dir+"/ssh_key_name")
-          @ssh_key_name = File.read("#{deploy_dir}/ssh_key_name").chomp!
-        end
-        if File.exist?(deploy_dir+"/node_ssh.key")
-          @ssh_private_key = File.read("#{deploy_dir}/node_ssh.key")
-        end
-        if File.exist?(deploy_dir+"/node_ssh.pub")
-          @ssh_public_key = File.read("#{deploy_dir}/node_ssh.pub")
-        end
-        if File.exist?(deploy_dir+"/environment_name")
-          @environment = File.read("#{deploy_dir}/environment_name").chomp!
-        end
-        if File.exist?(deploy_dir+"/deploy_secret")
-          @deploy_secret = File.read("#{deploy_dir}/deploy_secret")
-        end
-        if Dir.exist?("#{deploy_dir}/secrets")
-          @secrets.each_key { |type|
-            Dir.glob("#{deploy_dir}/secrets/#{type}.*") { |filename|
-              server = File.basename(filename).split(/\./)[1]
-
-              @secrets[type][server] = File.read(filename).chomp!
-            }
-          }
+        else
+          MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
         end
       }
     end
-
-    # 2019-06-03 adding things from https://aiweirdness.com/post/185339301987/once-again-a-neural-net-tries-to-name-cats
-    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty chonky norty slonky floofy}
-    @catnouns = %w{bastet biscuits bobcat catnip cheetah chonk dot felix hamb jaguar kitty leopard lion lynx maru mittens moggy neko nip ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba slonk mew quat eek ziggy whiskeridoo cromch monch screm}
-    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline furever fumbs havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal chewie-bean chicken-whiskey fish-especially thelonious-monsieur tom-glitter serendipitous-kill sparky-buttons}
-    @catwords = @catadjs + @catnouns + @catmixed
-
-    @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}
-    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur paladin juliet kaleidoscope romeo}
-    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept kilo lancer night nova november oscar omega pacer quickstrike rogue ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
-    @jaegerwords = @jaegeradjs + @jaegernouns + @jaegermixed
-
-    @words = @catwords + @jaegerwords
 
   end #class
 end #module

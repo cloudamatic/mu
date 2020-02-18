@@ -121,22 +121,18 @@ class Hash
       # custom objects which we might find in here so that we can get away with
       # sorting arrays full of weird, non-primitive types.
       done = []
-#      before_a = on.dup
-#      after_a = on.dup.sort
-#      before_b = with.dup
-#      after_b = with.dup.sort
       on.sort.each { |elt|
         if elt.is_a?(Hash) and elt['name'] or elt['entity']# or elt['cloud_id']
           with.sort.each { |other_elt|
-            if (elt['name'] and other_elt['name'] == elt['name']) or
-               (elt['name'].nil? and !elt["id"].nil? and elt["id"] == other_elt["id"]) or
-               (elt['name'].nil? and elt["id"].nil? and
-                !elt["entity"].nil? and !other_elt["entity"].nil? and
-                 (
-                   (elt["entity"]["id"] and elt["entity"]["id"] == other_elt["entity"]["id"]) or
-                   (elt["entity"]["name"] and elt["entity"]["name"] == other_elt["entity"]["name"])
-                 )
-               )
+            # Figure out what convention this thing is using for resource identification
+            compare_a, compare_b = if elt['name'].nil? and elt["id"].nil? and !elt["entity"].nil? and !other_elt["entity"].nil?
+              [elt["entity"], other_elt["entity"]]
+            else
+              [elt, other_elt]
+            end
+
+            if (compare_a['name'] and compare_b['name'] == compare_a['name']) or
+               (compare_a['name'].nil? and !compare_a["id"].nil? and compare_a["id"] == compare_b["id"])
               break if elt == other_elt
               done << elt
               done << other_elt
@@ -649,7 +645,7 @@ module MU
      !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
     if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
-      hostname = IO.readlines("/etc/hostname")[0].gsub /\n/, ''
+      hostname = IO.readlines("/etc/hostname")[0].gsub(/\n/, '')
 
       hostlines = File.open('/etc/hosts').grep(/.*#{hostname}.*/)
       if hostlines and !hostlines.empty?

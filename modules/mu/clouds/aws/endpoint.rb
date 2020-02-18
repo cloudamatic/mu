@@ -116,15 +116,15 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
             end
 
             if m['integrate_with']
-              role_arn = if m['iam_role']
-                if m['iam_role'].match(/^arn:/)
-                  m['iam_role']
-                else
-                  sib_role = @deploy.findLitterMate(name: m['iam_role'], type: "roles")
-                  sib_role.cloudobj.arn
+#              role_arn = if m['iam_role']
+#                if m['iam_role'].match(/^arn:/)
+#                  m['iam_role']
+#                else
+#                  sib_role = @deploy.findLitterMate(name: m['iam_role'], type: "roles")
+#                  sib_role.cloudobj.arn
 # XXX make this more like get_role_arn in Function, or just use Role.find?
-                end
-              end
+#                end
+#              end
 
               function_obj = nil
 
@@ -198,13 +198,12 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           generate_methods
 
           MU.log "Deploying API Gateway #{@config['name']} to #{@config['deploy_to']}"
-          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
+          MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_deployment(
             rest_api_id: @cloud_id,
             stage_name: @config['deploy_to']
 #            cache_cluster_enabled: false,
 #            cache_cluster_size: 0.5,
           )
-          deployment_id = resp.id
           # this automatically creates a stage with the same name, so we don't
           # have to deal with that
 
@@ -220,11 +219,14 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
  
         end
 
+        @cloud_desc_cache = nil
         # @return [Struct]
-        def cloud_desc
-          MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_rest_api(
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_rest_api(
             rest_api_id: @cloud_id
           )
+          @cloud_desc_cache
         end
 
         # Return the metadata for this API
@@ -241,6 +243,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::Endpoint.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS Endpoint artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
+
           resp = MU::Cloud::AWS.apig(region: region, credentials: credentials).get_rest_apis
           if resp and resp.items
             resp.items.each { |api|
@@ -279,9 +284,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "deploy_to" => {
@@ -538,8 +543,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           ok
         end
 
-        private
-
         def self.cors_option_integrations(path)
           {
             "type" => "OPTIONS",
@@ -585,6 +588,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
             }
           }
         end
+        private_class_method :cors_option_integrations
 
       end
     end

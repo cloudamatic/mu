@@ -64,10 +64,9 @@ module MU
             size = @config['basis']['launch_config']['size']
             @config['image_id'] = @config['basis']['launch_config']['image_id']
           end
-          az = @config['availability_zone']
-          if az.nil?
-            az = MU::Cloud::Google.listAZs(@config['region']).sample
-          end
+# XXX this should create a non-regional instance group
+#          az = @config['availability_zone']
+#          az ||= MU::Cloud::Google.listAZs(@config['region']).sample
 
           metadata = { # :items?
             "startup-script" => @userdata
@@ -170,8 +169,7 @@ module MU
         # Locate an existing ServerPool or ServerPools and return an array containing matching Google resource descriptors for those that match.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching ServerPools
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
 
           regions = if args[:region]
             [args[:region]]
@@ -213,7 +211,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "Google",
             "credentials" => @credentials,
@@ -362,7 +360,7 @@ end
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
-start = Time.now
+#start = Time.now
           pool['project'] ||= MU::Cloud::Google.defaultProject(pool['credentials'])
           if pool['service_account']
             pool['service_account']['cloud'] = "Google"
@@ -373,29 +371,7 @@ start = Time.now
               ok = false
             end
           else
-            user = {
-              "name" => pool['name'],
-              "cloud" => "Google",
-              "project" => pool["project"],
-              "credentials" => pool["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            configurator.insertKitten(user, "users", true)
-            pool['dependencies'] ||= []
-            pool['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: pool["name"],
-              project: pool["project"],
-              credentials: pool["credentials"]
-            )
-            pool['dependencies'] << {
-              "type" => "user",
-              "name" => pool["name"]
-            }
+            pool = MU::Cloud::Google::User.genericServiceAccount(pool, configurator)
           end
 
           pool['named_ports'] ||= []
@@ -458,6 +434,11 @@ start = Time.now
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google ServerPool artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           if !flags["global"]
             ["region_autoscaler", "region_instance_group_manager"].each { |type|

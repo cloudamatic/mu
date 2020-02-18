@@ -113,7 +113,7 @@ module MU
           @habitat_id = parent_id
           begin
             setProjectBilling
-          rescue Exception => e
+          rescue StandardError => e
             MU.log "Failed to set billing account #{@config['billing_acct']} on project #{@cloud_id}: #{e.message}", MU::ERR
             MU::Cloud::Google.resource_manager(credentials: @config['credentials']).delete_project(@cloud_id)
             raise e
@@ -167,10 +167,12 @@ module MU
           end
         end
 
+        @cached_cloud_desc = nil
         # Return the cloud descriptor for the Habitat
         # @return [Google::Apis::Core::Hashable]
-        def cloud_desc
-          @cached_cloud_desc ||= MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
+        def cloud_desc(use_cache: true)
+          return @cached_cloud_desc if @cached_cloud_desc and use_cache
+          @cached_cloud_desc = MU::Cloud::Google::Habitat.find(cloud_id: @cloud_id).values.first
           if @cached_cloud_desc and @cached_cloud_desc.parent
             @habitat_id ||= @cached_cloud_desc.parent.id
           end
@@ -209,7 +211,7 @@ module MU
                billing.billing_account_name.empty?
               return false
             end
-          rescue ::Google::Apis::ClientError => e
+          rescue ::Google::Apis::ClientError
             return false
           end
 
@@ -219,14 +221,15 @@ module MU
         # Remove all Google projects associated with the currently loaded deployment. Try to, anyway.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           resp = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
+
           if resp and resp.projects
             resp.projects.each { |p|
-              if p.labels and p.labels["mu-id"] == MU.deploy_id.downcase and
-                 p.lifecycle_state == "ACTIVE"
+              labelmatch = (p.labels and (p.labels["mu-id"] == MU.deploy_id.downcase and (ignoremaster or p.labels["mu-master-ip"] == MU.mu_public_ip.gsub(/\./, "_"))))
+              flagmatch = (flags and flags['known'] and flags['known'].include?(p.project_id))
+              if (labelmatch or flagmatch) and p.lifecycle_state == "ACTIVE"
                 MU.log "Deleting project #{p.project_id} (#{p.name})", details: p
                 if !noop
                   begin
@@ -291,7 +294,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**args)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
@@ -311,17 +314,17 @@ module MU
                 credentials: @config['credentials'],
                 type: "folders"
               )
-            elsif rootparent
+            elsif args[:rootparent]
               bok['parent'] = {
-                'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+                'id' => args[:rootparent].is_a?(String) ? args[:rootparent] : args[:rootparent].cloud_desc.name
               }
             else
               # org parent is *probably* safe to infer from credentials
             end
           end
 
-          if billing
-            bok['billing_acct'] = billing
+          if args[:billing]
+            bok['billing_acct'] = args[:billing]
           else
             cur_billing = MU::Cloud::Google.billing(credentials: @config['credentials']).get_project_billing_info("projects/"+@cloud_id)
             if cur_billing and cur_billing.billing_account_name
@@ -334,9 +337,9 @@ module MU
 
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "billing_acct" => {

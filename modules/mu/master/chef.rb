@@ -48,7 +48,7 @@ module MU
       def self.deleteOrg(org)
         begin
           Timeout::timeout(45) {
-            response = chefAPI.delete("organizations/#{org}")
+            chefAPI.delete("organizations/#{org}")
           }
           MU.log "Removed Chef organization #{org}", MU::NOTICE
           return true
@@ -82,7 +82,7 @@ module MU
 
         begin
           Timeout::timeout(45) {
-            response = chefAPI.delete("users/#{chef_user}")
+            chefAPI.delete("users/#{chef_user}")
           }
           MU.log "Removed Chef user #{chef_user}", MU::NOTICE
           return true
@@ -200,7 +200,6 @@ module MU
 
         # This organization does not yet exist, create it
         if !existing_org
-          name = org.dup if fullname.nil?
           begin
             org_data = {
               :name => org.dup,
@@ -255,7 +254,7 @@ module MU
               }
               remove_users.each { |user|
                 begin
-                  response = chefAPI.delete("organizations/#{org}/users/#{user}")
+                  chefAPI.delete("organizations/#{org}/users/#{user}")
                   MU.log "Removed Chef user #{user} from organization #{org}", MU::NOTICE
                 rescue Net::HTTPServerException => e
                 end

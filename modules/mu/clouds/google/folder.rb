@@ -48,7 +48,7 @@ module MU
           folder_obj = MU::Cloud::Google.folder(:Folder).new(params)
 
           MU.log "Creating folder #{name_string} under #{parent}", details: folder_obj
-          resp = MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj, parent: parent)
+          MU::Cloud::Google.folder(credentials: @config['credentials']).create_folder(folder_obj, parent: parent)
 
           # Wait for list_folders output to be consistent (for the folder we
           # just created to show up)
@@ -125,10 +125,12 @@ module MU
           nil
         end
 
+        @cached_cloud_desc = nil
         # Return the cloud descriptor for the Folder
         # @return [Google::Apis::Core::Hashable]
-        def cloud_desc
-          @cached_cloud_desc ||= MU::Cloud::Google::Folder.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
+        def cloud_desc(use_cache: true)
+          return @cached_cloud_desc if @cached_cloud_desc and use_cache
+          @cached_cloud_desc = MU::Cloud::Google::Folder.find(cloud_id: @cloud_id, credentials: @config['credentials']).values.first
           @habitat_id ||= @cached_cloud_desc.parent.sub(/^(folders|organizations)\//, "")
           @cached_cloud_desc
         end
@@ -160,7 +162,12 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {}, region: MU.myRegion)
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google Folder artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
           # We can't label GCP folders, and their names are too short to encode
           # Mu deploy IDs, so all we can do is rely on flags['known'] passed in
           # from cleanup, which relies on our metadata to know what's ours.
@@ -293,7 +300,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**args)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials']
@@ -310,9 +317,9 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
               credentials: @config['credentials'],
               type: "folders"
             )
-          elsif rootparent
+          elsif args[:rootparent]
             bok['parent'] = {
-              'id' => rootparent.is_a?(String) ? rootparent : rootparent.cloud_desc.name
+              'id' => args[:rootparent].is_a?(String) ? args[:rootparent] : args[:rootparent].cloud_desc.name
             }
           else
             bok['parent'] = { 'id' => cloud_desc.parent }
@@ -322,9 +329,9 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "display_name" => {

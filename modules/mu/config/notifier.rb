@@ -51,9 +51,9 @@ module MU
 
       # Generic pre-processing of {MU::Config::BasketofKittens::notifiers}, bare and unvalidated.
       # @param notifier [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(notifier, configurator)
+      def self.validate(notifier, _configurator)
         ok = true
 
         if notifier['subscriptions']

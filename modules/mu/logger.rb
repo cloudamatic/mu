@@ -66,13 +66,16 @@ module MU
     def log(msg,
             level=INFO,
             details: nil,
-            html: @html,
-            verbosity: @verbosity,
-            handle: @handle,
-            color: @color,
+            html: nil,
+            verbosity: nil,
+            handle: nil,
+            color: nil,
             deploy: MU.mommacat
     )
       verbosity ||= @verbosity
+      html ||= @html
+      handle ||= @handle
+      color ||= @color
       return if verbosity == MU::Logger::SILENT
       return if verbosity < MU::Logger::LOUD and level == DEBUG
       return if verbosity < MU::Logger::NORMAL and level == INFO
@@ -101,7 +104,7 @@ module MU
         end
         details = PP.pp(details, '') if !details.is_a?(String)
       end
-      details = "<pre>"+details+"</pre>" if @html
+      details = "<pre>"+details+"</pre>" if html
       # We get passed literal quoted newlines sometimes, fix 'em. Get Windows'
       # ugly line feeds too.
       if !details.nil?
@@ -139,7 +142,7 @@ module MU
             @summary << msg
           when DEBUG
             if verbosity >= MU::Logger::LOUD
-              if @html
+              if html
                 html_out "#{time} - #{caller_name} - #{msg}", "orange"
                 html_out "&nbsp;#{details}" if details
               elsif color
@@ -154,7 +157,7 @@ module MU
             end
           when INFO
             if verbosity >= MU::Logger::NORMAL
-              if @html
+              if html
                 html_out "#{time} - #{caller_name} - #{msg}", "green"
               elsif color
                 msgs << "#{time} - #{caller_name} - #{msg}".green.on_black
@@ -162,7 +165,7 @@ module MU
                 msgs << "#{time} - #{caller_name} - #{msg}"
               end
               if verbosity >= MU::Logger::LOUD
-                if @html
+                if html
                   html_out "&nbsp;#{details}"
                 elsif color
                   msgs << "#{details}".white.on_black if details
@@ -174,7 +177,7 @@ module MU
               Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
             end
           when NOTICE
-            if @html
+            if html
               html_out "#{time} - #{caller_name} - #{msg}", "yellow"
             elsif color
               msgs << "#{time} - #{caller_name} - #{msg}".yellow.on_black
@@ -182,7 +185,7 @@ module MU
               msgs << "#{time} - #{caller_name} - #{msg}"
             end
             if verbosity >= MU::Logger::QUIET
-              if @html
+              if html
                 html_out "#{caller_name} - #{msg}"
               elsif color
                 msgs << "#{details}".white.on_black if details
@@ -193,7 +196,7 @@ module MU
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
           when WARN
-            if @html
+            if html
               html_out "#{time} - #{caller_name} - #{msg}", "orange"
             elsif color
               msgs << "#{time} - #{caller_name} - #{msg}".light_red.on_black
@@ -201,7 +204,7 @@ module MU
               msgs << "#{time} - #{caller_name} - #{msg}"
             end
             if verbosity >= MU::Logger::SILENT
-              if @html
+              if html
                 html_out "#{caller_name} - #{msg}"
               elsif color
                 msgs << "#{details}".white.on_black if details
@@ -212,7 +215,7 @@ module MU
             Syslog.log(Syslog::LOG_WARNING, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_WARNING, details.gsub(/%/, '')) if details
           when ERR
-            if @html
+            if html
               html_out "#{time} - #{caller_name} - #{msg}", "red"
               html_out "&nbsp;#{details}" if details
             elsif color
@@ -225,7 +228,7 @@ module MU
             Syslog.log(Syslog::LOG_ERR, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_ERR, details.gsub(/%/, '')) if details
           else
-            if @html
+            if html
               html_out "#{time} - #{caller_name} - #{msg}"
               html_out "&nbsp;#{details}" if details
             elsif color

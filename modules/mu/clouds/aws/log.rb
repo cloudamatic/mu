@@ -203,6 +203,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::Log.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS Log artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
+
           log_groups = self.find(credentials: credentials, region: region).values
           if !log_groups.empty?
             log_groups.each{ |lg|
@@ -227,13 +230,13 @@ module MU
             }
           end
 
-          unless noop
-            MU::Cloud::AWS.iam(credentials: credentials).list_roles.roles.each{ |role|
-              match_string = "#{MU.deploy_id}.*CloudTrail"
+#          unless noop
+#            MU::Cloud::AWS.iam(credentials: credentials).list_roles.roles.each{ |role|
+#              match_string = "#{MU.deploy_id}.*CloudTrail"
               # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
 #              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
-            }
-          end
+#            }
+#          end
         end
 
         # Locate an existing log group.
@@ -264,7 +267,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
@@ -304,9 +307,9 @@ module MU
 
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "retention_period" => {
@@ -357,9 +360,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::logs}, bare and unvalidated.
         # @param log [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(log, configurator)
+        def self.validateConfig(log, _configurator)
           ok = true
 
           if log["filters"] && !log["filters"].empty?

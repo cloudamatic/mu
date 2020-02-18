@@ -100,14 +100,129 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
-      # @param acl [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _acl [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(acl, configurator)
+      def self.validate(_acl, _configurator)
         ok = true
         ok
       end
 
     end
+
+    # FirewallRules can reference other FirewallRules, which means we need to do
+    # an extra pass to make sure we get all intra-stack dependencies correct.
+    # @param acl [Hash]: The configuration hash for the FirewallRule to check
+    # @return [Hash]
+    def resolveIntraStackFirewallRefs(acl, delay_validation = false)
+      acl["rules"].each { |acl_include|
+        if acl_include['sgs']
+          acl_include['sgs'].each { |sg_ref|
+            if haveLitterMate?(sg_ref, "firewall_rules")
+              acl["dependencies"] ||= []
+              found = false
+              acl["dependencies"].each { |dep|
+                if dep["type"] == "firewall_rule" and dep["name"] == sg_ref
+                  dep["no_create_wait"] = true
+                  found = true
+                end
+              }
+              if !found
+                acl["dependencies"] << {
+                  "type" => "firewall_rule",
+                  "name" => sg_ref,
+                  "no_create_wait" => true
+                }
+              end
+              siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
+              if !siblingfw["#MU_VALIDATED"]
+# XXX raise failure somehow
+                insertKitten(siblingfw, "firewall_rules", delay_validation: delay_validation)
+              end
+            end
+          }
+        end
+      }
+      acl
+    end
+
+    # Generate configuration for the general-purpose admin firewall rulesets
+    # (security groups in AWS). Note that these are unique to regions and
+    # individual VPCs (as well as Classic, which is just a degenerate case of
+    # a VPC for our purposes.
+    # @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
+    # @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
+    # @param cloud [String]: The parent resource's cloud plugin identifier
+    # @param region [String]: Cloud provider region, if applicable.
+    # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
+    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil, credentials: nil, rules_only: false)
+      if !cloud or (cloud == "AWS" and !region)
+        raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
+      end
+      hosts = Array.new
+      hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
+      hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
+      hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
+      hosts << "#{admin_ip}/32" if admin_ip
+      hosts.uniq!
+
+      rules = []
+      if cloud == "Google"
+        rules = [
+          { "ingress" => true, "proto" => "all", "hosts" => hosts },
+          { "egress" => true, "proto" => "all", "hosts" => hosts }
+        ]
+      else
+        rules = [
+          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
+        ]
+      end
+
+      resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("FirewallRule")
+
+      if rules_only
+        return rules
+      end
+
+      name = "admin"
+      name += credentials.to_s if credentials
+      realvpc = nil
+      if vpc
+        realvpc = {}
+        ['vpc_name', 'vpc_id'].each { |p|
+          if vpc[p]
+            vpc[p.sub(/^vpc_/, '')] = vpc[p] 
+            vpc.delete(p)
+          end
+        }
+        ['cloud', 'id', 'name', 'deploy_id', 'habitat', 'credentials'].each { |field|
+          realvpc[field] = vpc[field] if !vpc[field].nil?
+        }
+        if !realvpc['id'].nil? and !realvpc['id'].empty?
+          # Stupid kludge for Google cloud_ids which are sometimes URLs and
+          # sometimes not. Requirements are inconsistent from scenario to
+          # scenario.
+          name = name + "-" + realvpc['id'].gsub(/.*\//, "")
+          realvpc['id'] = getTail("id", value: realvpc['id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["id"].is_a?(String)
+        elsif !realvpc['name'].nil?
+          name = name + "-" + realvpc['name']
+        end
+      end
+
+
+      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true, "credentials" => credentials }
+      if cloud == "Google" and acl["vpc"] and acl["vpc"]["habitat"]
+        acl['project'] = acl["vpc"]["habitat"]["id"] || acl["vpc"]["habitat"]["name"]
+      end
+      acl.delete("vpc") if !acl["vpc"]
+      if !resclass.isGlobal? and !region.nil? and !region.empty?
+        acl["region"] = region
+      end
+      @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
+      return {"type" => "firewall_rule", "name" => name}
+    end
+
   end
 end

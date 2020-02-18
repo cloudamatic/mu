@@ -74,10 +74,10 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::collections}, bare and unvalidated.
-      # @param stack [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _stack [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(stack, configurator)
+      def self.validate(_stack, _configurator)
         ok = true
         ok
       end

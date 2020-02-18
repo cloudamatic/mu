@@ -35,7 +35,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          resp = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
+          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
 
           tagDomain
 
@@ -57,11 +57,13 @@ module MU
           waitWhileProcessing # don't return until creation/updating is complete
         end
 
+        @cloud_desc_cache = nil
         # Wrapper for cloud_desc method that deals with finding the AWS
         # domain_name parameter, which isn't what we'd call ourselves if we had
         # our druthers.
-        def cloud_desc
-          if @config['domain_name']
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = if @config['domain_name']
             MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
               domain_name: @config['domain_name']
             ).domain_status
@@ -72,6 +74,7 @@ module MU
           else
             raise MuError, "#{@mu_name} can't find its official Elasticsearch domain name!"
           end
+          @cloud_desc_cache
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -117,25 +120,33 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          list = MU::Cloud::AWS.elasticsearch(region: region).list_domain_names
+          MU.log "AWS::SearchDomain.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
+          list = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).list_domain_names
           if list and list.domain_names and list.domain_names.size > 0
             names = list.domain_names.map { |d| d.domain_name }
             begin
               # why is this API so obnoxious?
               sample = names.slice!(0, (names.length >= 5 ? 5 : names.length))
-              descs = MU::Cloud::AWS.elasticsearch(region: region).describe_elasticsearch_domains(domain_names: sample)
+              descs = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).describe_elasticsearch_domains(domain_names: sample)
 
               descs.domain_status_list.each { |domain|
-                tags = MU::Cloud::AWS.elasticsearch(region: region).list_tags(arn: domain.arn)
+                tags = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).list_tags(arn: domain.arn)
+                deploy_match = false
+                master_match = false
                 tags.tag_list.each { |tag|
                   if tag.key == "MU-ID" and tag.value == MU.deploy_id
-                    MU.log "Deleting ElasticSearch Domain #{domain.domain_name}"
-                    if !noop
-                      MU::Cloud::AWS.elasticsearch(region: region).delete_elasticsearch_domain(domain_name: domain.domain_name)
-                    end
-                    break
+                    deploy_match = true
+                  elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+                    master_match = true
                   end
                 }
+                if deploy_match and (master_match or ignoremaster)
+                  MU.log "Deleting ElasticSearch Domain #{domain.domain_name}"
+                  if !noop
+                    MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).delete_elasticsearch_domain(domain_name: domain.domain_name)
+                  end
+                end
               }
             end while names.size > 0
           end
@@ -143,7 +154,7 @@ module MU
           unless noop
             marker = nil
             begin
-              resp = MU::Cloud::AWS.iam.list_roles(marker: marker)
+              resp = MU::Cloud::AWS.iam(credentials: credentials).list_roles(marker: marker)
               resp.roles.each{ |role|
                 # XXX Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
 #                MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
@@ -181,14 +192,14 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = ["elasticsearch_version", "instance_type"]
 
           versions = begin
             MU::Cloud::AWS.elasticsearch.list_elasticsearch_versions.elasticsearch_versions
-          rescue MuError => e
+          rescue MuError
             ["7.1", "6.8", "6.7", "6.5", "6.4", "6.3", "6.2", "6.0", "5.6"]
           end
           instance_types = begin
@@ -398,7 +409,7 @@ module MU
               MU::Cloud::AWS.cognito_ident(region: dom['region']).describe_identity_pool(
                 identity_pool_id: dom['cognito']['identity_pool_id']
               )
-            rescue ::Aws::CognitoIdentity::Errors::ValidationException, Aws::CognitoIdentity::Errors::ResourceNotFoundException => e
+            rescue ::Aws::CognitoIdentity::Errors::ValidationException, Aws::CognitoIdentity::Errors::ResourceNotFoundException
               MU.log "Cognito identity pool #{dom['cognito']['identity_pool_id']} malformed or does not exist in SearchDomain '#{dom['name']}'", MU::ERR
               ok = false
             end
@@ -406,7 +417,7 @@ module MU
               MU::Cloud::AWS.cognito_user(region: dom['region']).describe_user_pool(
                 user_pool_id: dom['cognito']['user_pool_id']
               )
-            rescue ::Aws::CognitoIdentityProvider::Errors::InvalidParameterException, Aws::CognitoIdentityProvider::Errors::ResourceNotFoundException => e
+            rescue ::Aws::CognitoIdentityProvider::Errors::InvalidParameterException, Aws::CognitoIdentityProvider::Errors::ResourceNotFoundException
               MU.log "Cognito identity pool #{dom['cognito']['user_pool_id']} malformed or does not exist in SearchDomain '#{dom['name']}'", MU::ERR
               ok = false
             end
@@ -426,7 +437,7 @@ module MU
                 if !found
                   MU.log "IAM role #{dom['cognito']['role_arn']} exists, but not does have the AmazonESCognitoAccess policy attached. SearchDomain '#{dom['name']}' may not have necessary Cognito permissions.", MU::WARN
                 end
-              rescue Aws::IAM::Errors::NoSuchEntity => e
+              rescue Aws::IAM::Errors::NoSuchEntity
                 MU.log "IAM role #{dom['cognito']['role_arn']} malformed or does not exist in SearchDomain '#{dom['name']}'", MU::ERR
                 ok = false
               end
@@ -626,7 +637,7 @@ module MU
           # modify an existing group. AWS bug, workaround is to just apply
           # this in groom phase exclusively.
           if @config['cognito'] and !ext.nil?
-            myrole = setIAMPolicies
+            setIAMPolicies
 
             if ext.nil? or !ext.cognito_options.enabled or
                ext.cognito_options.user_pool_id != @config['cognito']['user_pool_id'] or

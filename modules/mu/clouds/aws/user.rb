@@ -37,7 +37,7 @@ module MU
             if !@config['use_if_exists']
               raise MuError, "IAM user #{@mu_name} already exists and use_if_exists is false"
             end
-          rescue Aws::IAM::Errors::NoSuchEntity => e
+          rescue Aws::IAM::Errors::NoSuchEntity
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
             MU.log "Creating IAM user #{@config['path']}/#{@mu_name}"
             tags = get_tag_params
@@ -120,7 +120,7 @@ module MU
 
           if @config['attachable_policies']
             configured_policies = @config['attachable_policies'].map { |p|
-              id = if p.is_a?(MU::Config::Ref)
+              if p.is_a?(MU::Config::Ref)
                 p.cloud_id
               else
                 p = MU::Config::Ref.get(p)
@@ -189,9 +189,9 @@ module MU
         # Remove all users associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+          MU.log "AWS::User.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           # XXX this doesn't belong here; maybe under roles, maybe as its own stupid first-class resource
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_policies(
@@ -257,7 +257,7 @@ module MU
                   }
                   retry
                 rescue ::Aws::IAM::Errors::NoSuchEntity
-rescue Exception => e
+rescue StandardError => e
 MU.log e.inspect, MU::ERR, details: policy
                 end
               end
@@ -275,14 +275,17 @@ MU.log e.inspect, MU::ERR, details: policy
             ).tags
             has_nodelete = false
             has_ourdeploy = false
+            has_ourmaster = false
             tags.each { |tag|
               if tag.key == "MU-ID" and tag.value == MU.deploy_id
                 has_ourdeploy = true
+              elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+                has_ourmaster = true
               elsif tag.key == "MU-NO-DELETE" and tag.value == "true"
                 has_nodelete = true
               end
             }
-            if has_ourdeploy and !has_nodelete
+            if has_ourdeploy and !has_nodelete and (ignoremaster or has_ourmaster)
               MU.log "Deleting IAM user #{u.path}#{u.user_name}"
               if !@noop
                 begin
@@ -296,7 +299,7 @@ MU.log e.inspect, MU::ERR, details: policy
                       group_name: g.group_name
                     )
                   }
-                  profile = MU::Cloud::AWS.iam(credentials: credentials).get_login_profile(
+                  MU::Cloud::AWS.iam(credentials: credentials).get_login_profile(
                     user_name: u.user_name
                   )
                   MU.log "Deleting IAM login profile for #{u.user_name}"
@@ -381,7 +384,7 @@ MU.log e.inspect, MU::ERR, details: policy
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
             "credentials" => @credentials,
@@ -457,9 +460,9 @@ MU.log e.inspect, MU::ERR, details: policy
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           polschema = MU::Config::Role.schema["properties"]["policies"]
           polschema.deep_merge!(MU::Cloud::AWS::Role.condition_schema)

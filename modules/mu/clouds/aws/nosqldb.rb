@@ -164,6 +164,8 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::NoSQLDb.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
           resp = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).list_tables
           if resp and resp.table_names
             resp.table_names.each { |table|
@@ -178,16 +180,23 @@ module MU
               begin
                 tags = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).list_tags_of_resource(resource_arn: desc.table_arn)
                 if tags and tags.tags
+                  deploy_match = false
+                  master_match = false
                   tags.tags.each { |tag|
                     if tag.key == "MU-ID" and tag.value == MU.deploy_id
-                      MU.log "Deleting DynamoDB table #{desc.table_name}"
-                      if !noop
-                        MU::Cloud::AWS.dynamo(credentials: credentials, region: region).delete_table(table_name: desc.table_name)
-                      end
+                      deploy_match = true
+                    elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+                      master_match = true
                     end
                   }
+                  if deploy_match and (master_match or ignoremaster)
+                    MU.log "Deleting DynamoDB table #{desc.table_name}"
+                    if !noop
+                      MU::Cloud::AWS.dynamo(credentials: credentials, region: region).delete_table(table_name: desc.table_name)
+                    end
+                  end
                 end
-              rescue Aws::DynamoDB::Errors::ResourceNotFoundException => e
+              rescue Aws::DynamoDB::Errors::ResourceNotFoundException
               end
 
             }
@@ -236,9 +245,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = ["attributes"]
 
 
@@ -360,9 +369,9 @@ module MU
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::nosqldbs}, bare and unvalidated.
 
         # @param db [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(db, configurator)
+        def self.validateConfig(db, _configurator)
           ok = true
 
           partition = nil
@@ -398,8 +407,6 @@ module MU
 
           ok
         end
-
-        private
 
       end
     end

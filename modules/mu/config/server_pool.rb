@@ -178,7 +178,7 @@ module MU
         pool['ingress_rules'] ||= []
         pool['vault_access'] ||= []
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(pool)
+        ok = false if !MU::Config::Server.checkVaultRefs(pool)
 
         if !pool['scrub_mu_isms'] and pool["cloud"] != "Azure"
           pool['dependencies'] << configurator.adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'], credentials: pool['credentials'])
@@ -202,7 +202,7 @@ module MU
 #            ok = false if !insertKitten(alarm, "alarms")
 #          }
 #        end
-        if pool["basis"]["server"] != nil
+        if pool["basis"] and pool["basis"]["server"]
           pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
         end
         if !pool['static_ip'].nil? and !pool['ip'].nil?

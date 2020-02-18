@@ -39,7 +39,7 @@ module MU
             if !@config['use_if_exists']
               raise MuError, "IAM group #{@mu_name} already exists and use_if_exists is false"
             end
-          rescue Aws::IAM::Errors::NoSuchEntity => e
+          rescue Aws::IAM::Errors::NoSuchEntity
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
             MU.log "Creating IAM group #{@config['path']}#{@mu_name}"
             MU::Cloud::AWS.iam(credentials: @config['credentials']).create_group(
@@ -99,7 +99,7 @@ module MU
 
           if @config['attachable_policies']
             configured_policies = @config['attachable_policies'].map { |p|
-              id = if p.is_a?(MU::Config::Ref)
+              if p.is_a?(MU::Config::Ref)
                 p.cloud_id
               else
                 p = MU::Config::Ref.get(p)
@@ -150,13 +150,15 @@ module MU
           cloud_desc.arn
         end
 
-
+        @cloud_desc_cache = nil
         # Fetch the AWS API description of this group
         # return [Struct]
-        def cloud_desc
-          MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
             group_name: @mu_name
           )
+          @cloud_desc_cache
         end
 
         # Return the metadata for this group configuration
@@ -183,9 +185,11 @@ module MU
         # Remove all groups associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+          MU.log "AWS::Group.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS Group artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
+
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_groups(
             path_prefix: "/"+MU.deploy_id+"/"
           )
@@ -259,7 +263,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
@@ -315,9 +319,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           polschema = MU::Config::Role.schema["properties"]["policies"]
           polschema.deep_merge!(MU::Cloud::AWS::Role.condition_schema)

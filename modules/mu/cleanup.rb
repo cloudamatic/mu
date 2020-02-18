@@ -25,8 +25,6 @@ module MU
   # Routines for removing cloud resources.
   class Cleanup
 
-    home = Etc.getpwuid(Process.uid).dir
-
     @deploy_id = nil
     @noop = false
     @onlycloud = false
@@ -81,7 +79,7 @@ module MU
             MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
           end
           @mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user, delay_descriptor_load: true)
-        rescue Exception => e
+        rescue StandardError => e
           MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
           MU.setVar("deploy_id", deploy_id)
 
@@ -90,6 +88,7 @@ module MU
 
       regionsused = @mommacat.regionsUsed if @mommacat
       credsused = @mommacat.credsUsed if @mommacat
+      habitatsused = @mommacat.habitatsUsed if @mommacat
 
       if !@skipcloud
         creds = {}
@@ -112,7 +111,6 @@ module MU
         }
 
         parent_thread_id = Thread.current.object_id
-        deleted_nodes = 0
         cloudthreads = []
         keyname = "deploy-#{MU.deploy_id}"
         had_failures = false
@@ -127,7 +125,6 @@ module MU
               next if credsused and !credsused.include?(credset)
               global_vs_region_semaphore = Mutex.new
               global_done = {}
-              habitats_done = {}
               regionthreads = []
               acct_regions.each { |r|
                 if regionsused
@@ -172,10 +169,13 @@ module MU
                   # CloudFormation sometimes fails internally.
                   projectthreads = []
                   projects.each { |project|
-                    next if !habitatclass.isLive?(project, credset)
                     if habitats and !habitats.empty? and project != ""
                       next if !habitats.include?(project)
                     end
+                    if habitatsused and !habitatsused.empty? and project != ""
+                      next if !habitatsused.include?(project)
+                    end
+                    next if !habitatclass.isLive?(project, credset)
 
                     projectthreads << Thread.new {
                       MU.dupGlobals(parent_thread_id)
@@ -192,7 +192,6 @@ module MU
                         "skipsnapshots" => @skipsnapshots,
                       }
                       types_in_order.each { |t|
-                        shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(t)
                         begin
                           skipme = false
                           global_vs_region_semaphore.synchronize {
@@ -424,8 +423,12 @@ module MU
 
     end
 
-    private
-
+    # Wrapper for dynamically invoking resource type cleanup methods.
+    # @param type [String]:
+    # @param credset [String]:
+    # @param provider [String]:
+    # @param flags [Hash]:
+    # @param region [String]:
     def self.call_cleanup(type, credset, provider, flags, region)
       if @mommacat.nil? or @mommacat.numKittens(types: [type]) > 0
         if @mommacat
@@ -458,6 +461,7 @@ module MU
       else
         true
       end
+
     end
   end #class
 end #module

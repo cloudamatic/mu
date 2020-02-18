@@ -126,7 +126,7 @@ module MU
           seedsize = 1 + (retries/10).abs
           seed = (0...seedsize+1).map { ('a'..'z').to_a[rand(26)] }.join
           deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
-        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu" or seed[0] == seed[1]
+        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
         MU.setVar("deploy_id", deploy_id)
         MU.setVar("appname", @appname.upcase)
         MU.setVar("environment", @environment.upcase)
@@ -140,7 +140,7 @@ module MU
 
       @fromName = MU.muCfg['mu_admin_email']
 
-      MU::Cloud.resource_types.each { |cloudclass, data|
+      MU::Cloud.resource_types.values.each { |data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
           @main_config[data[:cfg_plural]].each { |resource|
             if force_cloudformation
@@ -154,7 +154,7 @@ module MU
               end
             end
           }
-          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(data[:cfg_plural])
+          _shortclass, _cfg_name, _cfg_plural, classname = MU::Cloud.getResourceNames(data[:cfg_plural])
           @main_config[data[:cfg_plural]].each { |resource|
             resource["#MU_CLOUDCLASS"] = classname
           }
@@ -274,7 +274,7 @@ module MU
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_create_container")
 #          Thread.abort_on_exception = false
-          MU::Cloud.resource_types.each { |cloudclass, data|
+          MU::Cloud.resource_types.values.each { |data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
                 data[:instance].include?(:create)
@@ -288,7 +288,7 @@ module MU
           MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "mu_groom_container")
 #          Thread.abort_on_exception = false
-          MU::Cloud.resource_types.each { |cloudclass, data|
+          MU::Cloud.resource_types.values.each { |data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0 and
                 data[:instance].include?(:groom)
@@ -311,7 +311,9 @@ module MU
 
         @mommacat.save!
 
-      rescue Exception => e
+      rescue StandardError => e
+        MU.log e.class.name, MU::ERR, details: caller
+
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and
              t.thread_variable_get("name") != "main_thread" and
@@ -338,6 +340,8 @@ module MU
             @nocleanup = true # so we don't run this again later
           end
         end
+
+
         @reraise_thread.raise MuError, e.inspect, e.backtrace if @reraise_thread
         Thread.current.exit
       ensure
@@ -596,7 +600,6 @@ MESSAGE_END
       return if services.nil?
 
       parent_thread_id = Thread.current.object_id
-      parent_thread = Thread.current
       services.uniq!
       services.each do |service|
         begin
@@ -639,14 +642,14 @@ MESSAGE_END
               else
                 raise e
               end
-            rescue Exception => e
+            rescue StandardError => e
               MU::MommaCat.unlockAll
               @main_thread.raise MuError, "Error instantiating object from #{myservice["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
               raise e
             end
             begin
               run_this_method = myservice['#MUOBJECT'].method(mode)
-            rescue Exception => e
+            rescue StandardError => e
               MU::MommaCat.unlockAll
               @main_thread.raise MuError, "Error invoking #{myservice["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
               raise e
@@ -703,7 +706,7 @@ MESSAGE_END
               @my_threads.reject! { |thr| !thr.alive? }
               sleep 10+Random.rand(20)
               retry
-            rescue Exception => e
+            rescue StandardError => e
               MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
               MU::MommaCat.unlockAll
               Thread.list.each do |t|

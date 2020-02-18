@@ -34,10 +34,10 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::msg_queues}, bare and unvalidated.
-      # @param queue [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _queue [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(queue, configurator)
+      def self.validate(_queue, _configurator)
         ok = true
         ok
       end

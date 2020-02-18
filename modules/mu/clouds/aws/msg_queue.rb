@@ -53,14 +53,14 @@ module MU
           new_attrs = genQueueAttrs
 
           changed = false
-          new_attrs.each_pair { |k, v|
+          new_attrs.each_pair { |k, _v|
             if !cur_attrs.has_key?(k) or cur_attrs[k] != new_attrs[k]
               changed = true
             end
           }
           if changed
             MU.log "Updating SQS queue #{@mu_name}", MU::NOTICE, details: new_attrs
-            resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).set_queue_attributes(
+            MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).set_queue_attributes(
               queue_url: @cloud_id,
               attributes: new_attrs
             )
@@ -74,10 +74,13 @@ module MU
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sqs:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":"+@cloud_id
         end
 
+        @cloud_desc_cache = nil
         # Retrieve the AWS descriptor for this SQS queue. AWS doesn't exactly
         # provide one; if you want real information for SQS ask notify()
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
-        def cloud_desc
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+
           if !@cloud_id
             resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).list_queues(
               queue_name_prefix: @mu_name
@@ -92,11 +95,12 @@ module MU
           end
 
           return nil if !@cloud_id
-          MU::Cloud::AWS::MsgQueue.find(
+          @cloud_desc_cache = MU::Cloud::AWS::MsgQueue.find(
             cloud_id: @cloud_id.dup,
             region: @config['region'],
             credentials: @config['credentials']
           )
+          @cloud_desc_cache
         end
 
         # Return the metadata for this MsgQueue rule
@@ -130,6 +134,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::MsgQueue.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS MsgQueue artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
+
           resp = MU::Cloud::AWS.sqs(credentials: credentials, region: region).list_queues(
             queue_name_prefix: MU.deploy_id
           )
@@ -182,7 +189,7 @@ module MU
                 args[:cloud_id] = resp.queue_url if resp and resp.queue_url
               end
             end
-          rescue ::Aws::SQS::Errors::NonExistentQueue => e
+          rescue ::Aws::SQS::Errors::NonExistentQueue
           end
 
           # Go fetch its attributes
@@ -211,9 +218,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "max_msg_size" => {
@@ -382,7 +389,7 @@ module MU
             end
             begin
               MU::Cloud::AWS.kms(region: queue['region']).describe_key(key_id: queue['kms']['key_id'])
-            rescue Aws::KMS::Errors::NotFoundException => e
+            rescue Aws::KMS::Errors::NotFoundException
               MU.log "KMS key '#{queue['kms']['key_id']}' specified in Queue '#{queue['name']}' was not found.", MU::ERR, details: "Key IDs are of the form bf64a093-2c3d-46fa-0d4f-8232fa7ed53. Keys can be created at https://console.aws.amazon.com/iam/home#/encryptionKeys/#{queue['region']}"
               ok = false
             end

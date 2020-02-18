@@ -68,8 +68,7 @@ module MU
         # Locate an existing Database or Databases and return an array containing matching GCP resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -110,7 +109,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          skipsnapshots||= flags["skipsnapshots"]
+
 #          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
 #          if instances and instances.items
 #            instances.items.each { |instance|
@@ -121,9 +120,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {}
           [toplevel_required, schema]
@@ -131,9 +130,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
         # @param db [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(db, configurator)
+        def self.validateConfig(db, _configurator)
           ok = true
 
           if db["create_cluster"]
@@ -143,8 +142,6 @@ module MU
 
           ok
         end
-
-        private
 
       end #class
     end #class

@@ -53,7 +53,6 @@ module MU
         def groom
 
           if @config['peers']
-            count = 0
             @config['peers'].each { |peer|
               if peer['vpc']['name']
                 peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs", habitat: peer['vpc']['project'])
@@ -113,17 +112,16 @@ module MU
         # Describe this VPC
         # @return [Hash]
         def notify
-          base = {}
           base = MU.structToHash(cloud_desc)
           base["cloud_id"] = @cloud_id.name
           base.merge!(@config.to_h)
           base
         end
-#
+
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
-        def cloud_desc
-          if @cloud_desc_cache
+        def cloud_desc(use_cache: true)
+          if @cloud_desc_cache and use_cache
             return @cloud_desc_cache
           end
           @cloud_desc_cache = MU::Cloud::Azure::VPC.find(cloud_id: @cloud_id, resource_group: @resource_group).values.first
@@ -192,10 +190,9 @@ module MU
         # @param use_cache [Boolean]: If available, use saved deployment metadata to describe subnets, instead of querying the cloud API
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets(use_cache: false)
-          desc = cloud_desc
           @subnets = []
 
-          MU::Cloud::Azure.network(credentials: @credentials).subnets.list(@resource_group, cloud_desc.name).each { |subnet|
+          MU::Cloud::Azure.network(credentials: @credentials).subnets.list(@resource_group, cloud_desc(use_cache: use_cache).name).each { |subnet|
             subnet_cfg = {
               "cloud_id" => subnet.name,
               "mu_name" => subnet.name,
@@ -334,7 +331,7 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         # XXX add flag to return the diff between @config and live cloud
-        def toKitten(rootparent: nil, billing: nil)
+        def toKitten(**_args)
           return nil if cloud_desc.name == "default" # parent project builds these
           bok = {
             "cloud" => "Azure",
@@ -346,9 +343,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config = nil)
+        def self.schema(_config = nil)
           toplevel_required = []
           schema = {
             "peers" => {
@@ -522,7 +519,6 @@ MU.structToHash(ext_vpc).diff(MU.structToHash(vpc_obj))
           # this is slow, so maybe thread it
           rtb_map = {}
           routethreads = []
-          create_nat_gateway = false
           @config['route_tables'].each { |rtb_cfg|
             routethreads << Thread.new(rtb_cfg) { |rtb|
               rtb_name = @mu_name+"-"+rtb['name'].upcase
@@ -573,6 +569,9 @@ MU.structToHash(ext_vpc).diff(MU.structToHash(vpc_obj))
                 routename = rtb_name+"-"+route['destination_network'].gsub(/[^a-z0-9]/i, "_")
                 route_obj.next_hop_type = if route['gateway'] == "#NAT" and @config['bastion']
                   routename = rtb_name+"-NAT"
+                  if @config['bastion'].is_a?(Hash) and !@config['bastion']['id'] and !@config['bastion']['deploy_id']
+                    @config['bastion']['deploy_id'] = @deploy.deploy_id
+                  end
                   bastion_ref = MU::Config::Ref.get(@config['bastion'])
                   if bastion_ref.kitten and bastion_ref.kitten.cloud_desc
                     iface_id = Id.new(bastion_ref.kitten.cloud_desc.network_profile.network_interfaces.first.id)
@@ -718,8 +717,6 @@ MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
           loadSubnets
         end
 
-        protected
-
         # Subnets are almost a first-class resource. So let's kinda sorta treat
         # them like one. This should only be invoked on objects that already
         # exists in the cloud layer.
@@ -772,8 +769,8 @@ MU.structToHash(ext_subnet).diff(MU.structToHash(subnet_obj))
           end
 
           # Describe this VPC Subnet from the cloud platform's perspective
-          def cloud_desc
-            return @cloud_desc_cache if !@cloud_desc_cache.nil?
+          def cloud_desc(use_cache: true)
+            return @cloud_desc_cache if @cloud_desc_cache and use_cache
             @cloud_desc_cache = MU::Cloud::Azure.network(credentials: @parent.credentials).subnets.get(@parent.resource_group, @parent.cloud_desc.name, @cloud_id.to_s)
             @cloud_desc_cache
           end

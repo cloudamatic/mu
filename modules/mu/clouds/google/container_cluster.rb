@@ -250,7 +250,7 @@ module MU
           @config['master_az'] = @config['region']
           parent_arg = "projects/"+@config['project']+"/locations/"+@config['master_az']
 
-          cluster = MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
+          MU::Cloud::Google.container(credentials: @config['credentials']).create_project_location_cluster(
             parent_arg,
             requestobj
           )
@@ -277,11 +277,9 @@ module MU
 
           me = cloud_desc
 
-          parent_arg = "projects/"+@config['project']+"/locations/"+me.location
-
           # Enable/disable basic auth
           authcfg = {}
-          action = nil
+
           if @config['master_user'] and (me.master_auth.username != @config['master_user'] or !me.master_auth.password)
             authcfg[:username] = @config['master_user']
             authcfg[:password] = Password.pronounceable(16..18)
@@ -368,15 +366,24 @@ module MU
             }
           end
 
+          # map from GKE Kuberentes addon parameter names to our BoK equivalent
+          # fields so we can check all these programmatically
+          addon_map = {
+            :horizontal_pod_autoscaling => 'horizontal_pod_autoscaling',
+            :http_load_balancing => 'http_load_balancing',
+            :kubernetes_dashboard => 'dashboard',
+            :network_policy_config => 'network_policy_addon'
+          }
+
           if @config['kubernetes']
-            if (me.addons_config.horizontal_pod_autoscaling.disabled and @config['kubernetes']['horizontal_pod_autoscaling']) or
-               (!me.addons_config.horizontal_pod_autoscaling and !@config['kubernetes']['horizontal_pod_autoscaling']) or
-               (me.addons_config.http_load_balancing.disabled and @config['kubernetes']['http_load_balancing']) or
-               (!me.addons_config.http_load_balancing and !@config['kubernetes']['http_load_balancing']) or
-               (me.addons_config.kubernetes_dashboard.disabled and @config['kubernetes']['dashboard']) or
-               (!me.addons_config.kubernetes_dashboard and !@config['kubernetes']['dashboard']) or
-               (me.addons_config.network_policy_config.disabled and @config['kubernetes']['network_policy_addon']) or
-               (!me.addons_config.network_policy_config and !@config['kubernetes']['network_policy_addon'])
+            have_changes = false
+            addon_map.each_pair { |param, bok_param|
+              if (me.addons_config.send(param).disabled and @config['kubernetes'][bok_param]) or
+                 (!me.addons_config.send(param) and !@config['kubernetes'][bok_param])
+                have_changes = true
+              end
+            }
+            if have_changes
               updates << { :desired_addons_config => MU::Cloud::Google.container(:AddonsConfig).new(
                 horizontal_pod_autoscaling: MU::Cloud::Google.container(:HorizontalPodAutoscaling).new(
                   disabled: !@config['kubernetes']['horizontal_pod_autoscaling']
@@ -471,9 +478,7 @@ module MU
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ContainerClusters
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
-          location = args[:region] || args[:availability_zone] || "-"
+          args = MU::Cloud::Google.findLocationArgs(args)
 
           found = {}
 
@@ -486,7 +491,7 @@ module MU
             found[args[:cloud_id]] = resp if resp
           else
             resp = begin
-              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/#{location}")
+              MU::Cloud::Google.container(credentials: args[:credentials]).list_project_location_clusters("projects/#{args[:project]}/locations/#{args[:location]}")
             rescue ::Google::Apis::ClientError => e
               raise e if !e.message.match(/forbidden:/)
             end
@@ -503,7 +508,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
 
           bok = {
             "cloud" => "Google",
@@ -739,7 +744,6 @@ module MU
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          skipsnapshots = flags["skipsnapshots"]
 
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
@@ -756,7 +760,9 @@ module MU
           clusters.uniq.each { |cluster|
             if !cluster.resource_labels or (
                  !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i) and
-                 cluster.resource_labels['mu-id'] != MU.deploy_id.downcase
+                 (cluster.resource_labels['mu-id'] != MU.deploy_id.downcase or
+                  (!ignoremaster and cluster.resource_labels['mu-master-ip'] != MU.mu_public_ip.gsub(/\./, "_"))
+                 )
                )
               next
             end
@@ -1037,29 +1043,7 @@ module MU
               ok = false
             end
           else
-            user = {
-              "name" => cluster['name'],
-              "cloud" => "Google",
-              "project" => cluster["project"],
-              "credentials" => cluster["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            configurator.insertKitten(user, "users", true)
-            cluster['dependencies'] ||= []
-            cluster['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: cluster["name"],
-              project: cluster["project"],
-              credentials: cluster["credentials"]
-            )
-            cluster['dependencies'] << {
-              "type" => "user",
-              "name" => user["name"]
-            }
+            cluster = MU::Cloud::Google::User.genericServiceAccount(cluster, configurator)
           end
 
           if cluster['dependencies']
@@ -1223,6 +1207,7 @@ module MU
           @@server_config[credentials][az] = MU::Cloud::Google.container(credentials: credentials).get_project_location_server_config(parent_arg)
           @@server_config[credentials][az]
         end
+        private_class_method :defaults
 
         def writeKubeConfig
           kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"

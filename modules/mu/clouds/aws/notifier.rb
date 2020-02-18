@@ -66,12 +66,17 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::Notifier.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS Notifier artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
+
           MU::Cloud::AWS.sns(region: region, credentials: credentials).list_topics.topics.each { |topic|
             if topic.topic_arn.match(MU.deploy_id)
               # We don't have a way to tag our SNS topics, so we will delete any topic that has the MU-ID in its ARN. 
               # This may fail to find notifier groups in some cases (eg. cache_cluster) so we might want to delete from each API as well.
-              MU::Cloud::AWS.sns(region: region, credentials: credentials).delete_topic(topic_arn: topic.topic_arn)
-              MU.log "Deleted SNS topic: #{topic.topic_arn}"
+              MU.log "Deleting SNS topic: #{topic.topic_arn}"
+              if !noop
+                MU::Cloud::AWS.sns(region: region, credentials: credentials).delete_topic(topic_arn: topic.topic_arn)
+              end
             end
           }
         end
@@ -116,9 +121,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "subscriptions" => {
@@ -143,9 +148,9 @@ module MU
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::notifier}, bare and unvalidated.
 
         # @param notifier [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(notifier, configurator)
+        def self.validateConfig(notifier, _configurator)
           ok = true
 
           if notifier['subscriptions']

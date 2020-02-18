@@ -17,6 +17,65 @@ module MU
     # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/server.rb
     class Server
 
+      # Verify that a server or server_pool has a valid LDAP config referencing
+      # valid Vaults for credentials.
+      # @param server [Hash]
+      def self.checkVaultRefs(server)
+        ok = true
+        server['vault_access'] = [] if server['vault_access'].nil?
+        server['groomer'] ||= self.defaultGroomer
+        groomclass = MU::Groomer.loadGroomer(server['groomer'])
+
+        begin
+          if !server['active_directory'].nil?
+            ["domain_admin_vault", "domain_join_vault"].each { |vault_class|
+              server['vault_access'] << {
+                  "vault" => server['active_directory'][vault_class]['vault'],
+                  "item" => server['active_directory'][vault_class]['item']
+              }
+              item = groomclass.getSecret(
+                  vault: server['active_directory'][vault_class]['vault'],
+                  item: server['active_directory'][vault_class]['item'],
+              )
+              ["username_field", "password_field"].each { |field|
+                if !item.has_key?(server['active_directory'][vault_class][field])
+                  ok = false
+                  MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory'][vault_class]['vault']}:#{server['active_directory'][vault_class]['item']}", MU::ERR
+                end
+              }
+            }
+          end
+
+          if !server['windows_auth_vault'].nil?
+            server['use_cloud_provider_windows_password'] = false
+
+            server['vault_access'] << {
+                "vault" => server['windows_auth_vault']['vault'],
+                "item" => server['windows_auth_vault']['item']
+            }
+            item = groomclass.getSecret(
+              vault: server['windows_auth_vault']['vault'],
+              item: server['windows_auth_vault']['item']
+            )
+            ["password_field", "ec2config_password_field", "sshd_password_field"].each { |field|
+              if !item.has_key?(server['windows_auth_vault'][field])
+                MU.log "No value named #{field} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}, will use a generated password.", MU::NOTICE
+                server['windows_auth_vault'].delete(field)
+              end
+            }
+          end
+          # Check all of the non-special ones while we're at it
+          server['vault_access'].each { |v|
+            next if v['vault'] == "splunk" and v['item'] == "admin_user"
+            item = groomclass.getSecret(vault: v['vault'], item: v['item'])
+          }
+        rescue MuError
+          MU.log "Can't load a Chef Vault I was configured to use. Does it exist?", MU::ERR
+          ok = false
+        end
+        return ok
+      end
+
       # Generate schema for a storage volume
       # @return [Hash]
       def self.storage_primitive
@@ -332,9 +391,8 @@ module MU
           },
           "userdata_script" => userdata_primitive,
           "windows_admin_username" => {
-              "type" => "string",
-              "default" => "Administrator",
-              "description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
+            "type" => "string",
+            "description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
           },
           "windows_auth_vault" => {
               "type" => "object",
@@ -370,60 +428,30 @@ module MU
               }
           },
           "ssh_user" => {
-              "type" => "string",
-              "default" => "root",
-              "default_if" => [
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "windows",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "win2k12",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "win2k12r2",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "win2k16",
-                      "set" => "Administrator"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "ubuntu",
-                      "set" => "ubuntu"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "ubuntu14",
-                      "set" => "ubuntu"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "centos7",
-                      "set" => "centos"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "rhel7",
-                      "set" => "ec2-user"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "rhel71",
-                      "set" => "ec2-user"
-                  },
-                  {
-                      "key_is" => "platform",
-                      "value_is" => "amazon",
-                      "set" => "ec2-user"
-                  }
-              ]
+            "type" => "string",
+            "default" => "root",
+            "default_if" => [
+              {
+                "key_is" => "platform",
+                "value_is" => "centos",
+                "set" => "centos"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "centos6",
+                "set" => "centos"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "centos7",
+                "set" => "centos"
+              },
+              {
+                "key_is" => "platform",
+                "value_is" => "centos8",
+                "set" => "centos"
+              }
+            ]
           },
           "use_cloud_provider_windows_password" => {
               "type" => "boolean",
@@ -595,7 +623,7 @@ module MU
         server['ingress_rules'] ||= []
         server['vault_access'] ||= []
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(server)
+        ok = false if !MU::Config::Server.checkVaultRefs(server)
 
         if server["cloud"] != "Azure"
           server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])

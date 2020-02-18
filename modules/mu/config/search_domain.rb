@@ -47,10 +47,10 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::search_domains}, bare and unvalidated.
-      # @param dom [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _dom [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(dom, configurator)
+      def self.validate(_dom, _configurator)
         ok = true
         # This resource basically only exists in AWS, so the validation lives
         # there. If some other provider comes up with it we can factor

@@ -246,7 +246,7 @@ module MU
           end
 
           security_groups.uniq!
-          resp = MU::Cloud::AWS.efs(region: region).modify_mount_target_security_groups(
+          MU::Cloud::AWS.efs(region: region).modify_mount_target_security_groups(
             mount_target_id: cloud_id,
             security_groups: security_groups
           )
@@ -254,7 +254,6 @@ module MU
 
         # Register a description of this storage pool with this deployment's metadata.
         def notify
-          deploy_struct = {}
           storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
             creation_token: @mu_name
           ).file_systems.first
@@ -355,6 +354,8 @@ module MU
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::StoragePool.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
           supported_regions = %w{us-west-2 us-east-1 eu-west-1}
           if supported_regions.include?(region)
             begin 
@@ -367,7 +368,6 @@ module MU
             end
 
             our_pools = []
-            our_replication_group_ids = []
 
             if !storage_pools.empty?
               storage_pools.each{ |pool|
@@ -445,9 +445,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "ingress_rules" => {
@@ -515,7 +515,6 @@ module MU
           ok
         end
 
-        private
       end #class
     end #class
   end

@@ -101,11 +101,11 @@ module MU
         def initialize(*args)
           if args.first.is_a?(String)
             @raw = args.first
-            junk, junk, @subscription, junk, @resource_group, junk, @provider, @resource_type, @name = @raw.split(/\//)
+            _junk, _junk2, @subscription, _junk3, @resource_group, _junk4, @provider, @resource_type, @name = @raw.split(/\//)
             if @subscription.nil? or @resource_group.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
               # Not everything has a resource group
               if @raw.match(/^\/subscriptions\/#{Regexp.quote(@subscription)}\/providers/)
-                junk, junk, @subscription, junk, @provider, @resource_type, @name = @raw.split(/\//)
+                _junk, _junk2, @subscription, _junk3, @provider, @resource_type, @name = @raw.split(/\//)
                 if @subscription.nil? or @provider.nil? or @resource_type.nil? or @name.nil?
                   raise MuError, "Failed to parse Azure resource id string #{@raw} (got subscription: #{@subscription}, provider: #{@provider}, resource_type: #{@resource_type}, name: #{@name}"
                 end
@@ -266,7 +266,7 @@ module MU
         
         begin
           sdk_response = MU::Cloud::Azure.subs(credentials: credentials).subscriptions().list_locations(subscription)
-        rescue Exception => e
+        rescue StandardError => e
           MU.log e.inspect, MU::ERR, details: e.backtrace
           #pp "Error Getting the list of regions from Azure" #TODO: SWITCH THIS TO MU LOG
           if @@regions and @@regions.size > 0
@@ -378,7 +378,7 @@ module MU
         rg_obj = MU::Cloud::Azure.resources(:ResourceGroup).new
         rg_obj.location = region
         rg_obj.tags = MU::MommaCat.listStandardTags
-        rg_obj.tags.reject! { |k, v| v.nil? }
+        rg_obj.tags.reject! { |_k, v| v.nil? }
 
         MU::Cloud::Azure.resources(credentials: credentials).resource_groups.list.each { |rg|
           if rg.name == name and rg.location == region and rg.tags == rg_obj.tags
@@ -519,7 +519,7 @@ module MU
           end
           return @@metadata
 
-        rescue Timeout::Error => e
+        rescue Timeout::Error
           # MU.log "Timeout querying Azure Metadata"
           return nil
         rescue
@@ -906,7 +906,6 @@ module MU
 # END SDK STUBS
 
 # BEGIN SDK CLIENT
-      private
 
       @@authorization_api = {}
       @@subscriptions_api = {}
@@ -967,7 +966,7 @@ module MU
             begin
               modelpath = "::Azure::#{api}::Mgmt::#{profile}::#{@subclass}"
               @api = Object.const_get(modelpath).new(@cred_obj)
-            rescue NameError => e
+            rescue NameError
               raise MuError, "Unable to locate a profile #{profile} of Azure API #{api}. I tried:\n#{stdpath}\n#{modelpath}"
             end
           end
@@ -1017,6 +1016,7 @@ module MU
           # @param arguments [Array]
           def method_missing(method_sym, *arguments)
             MU.log "Calling #{@parentname}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
+            retries = 0
             begin
               if !arguments.nil? and arguments.size == 1
                 retval = @myobject.method(method_sym).call(arguments[0])
@@ -1025,9 +1025,16 @@ module MU
               else
                 retval = @myobject.method(method_sym).call
               end
-            rescue ::Net::ReadTimeout, ::Faraday::TimeoutError => e
+            rescue ::Net::ReadTimeout, ::Faraday::TimeoutError, ::Faraday::ConnectionFailed => e
               sleep 5
-              retry
+              if retries < 12
+                MU.log e.message+" calling #{@parentname}.#{@myname}.#{method_sym.to_s}(#{arguments.map { |a| a.to_s }.join(", ")})", MU::DEBUG, details: caller
+                retries += 1
+                retry
+              else
+                MU.log e.message+" calling #{@parentname}.#{@myname}.#{method_sym.to_s}(#{arguments.map { |a| a.to_s }.join(", ")})", MU::ERR, details: caller
+                raise e
+              end
             rescue ::MsRestAzure::AzureOperationError, ::MsRest::HttpOperationError => e
               MU.log "Error calling #{@parent.api.class.name}.#{@myname}.#{method_sym.to_s}", MU::DEBUG, details: arguments
               begin

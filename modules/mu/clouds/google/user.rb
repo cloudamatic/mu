@@ -187,21 +187,35 @@ module MU
           end
         end
 
+        @cloud_desc_cache = nil
         # Retrieve the cloud descriptor for this resource.
         # @return [Google::Apis::Core::Hashable]
-        def cloud_desc
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
           if @config['type'] == "interactive" or !@config['type']
              @config['type'] ||= "interactive"
             if !@config['external']
-              return MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
+              @cloud_desc_cache = MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
             else
               return nil
             end
           else
             @config['type'] ||= "service"
-            MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
+            # this often fails even when it succeeded earlier, so try to be
+            # resilient on GCP's behalf
+            retries = 0
+            begin
+              @cloud_desc_cache = MU::Cloud::Google.iam(credentials: @config['credentials']).get_project_service_account(@cloud_id)
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/notFound:/) and retries < 10
+                sleep 3
+                retries += 1
+                retry
+              end
+            end
           end
 
+          @cloud_desc_cache
         end
 
         # Return the metadata for this user configuration
@@ -232,11 +246,16 @@ module MU
         # Remove all users associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          my_domains = MU::Cloud::Google.getDomains(credentials)
+        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+          MU::Cloud::Google.getDomains(credentials)
           my_org = MU::Cloud::Google.getOrg(credentials)
+
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
+          MU.log "Placeholder: Google User artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
           # We don't have a good way of tagging directory users, so we rely
           # on the known parameter, which is pulled from deployment metadata
@@ -319,7 +338,7 @@ module MU
               MU::Cloud::Google.iam(credentials: args[:credentials]).list_project_service_accounts(
                 "projects/"+args[:project]
               )
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError
               MU.log "Do not have permissions to retrieve service accounts for project #{args[:project]}", MU::WARN
             end
 
@@ -382,7 +401,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           if MU::Cloud::Google::User.cannedServiceAcctName?(@cloud_id)
             return nil
           end
@@ -441,9 +460,9 @@ module MU
        end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "name" => {
@@ -517,9 +536,9 @@ If we are binding (rather than creating) a user and no roles are specified, we w
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::users}, bare and unvalidated.
         # @param user [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(user, configurator)
+        def self.validateConfig(user, _configurator)
           ok = true
 
           my_domains = MU::Cloud::Google.getDomains(user['credentials'])
@@ -621,7 +640,42 @@ If we are binding (rather than creating) a user and no roles are specified, we w
           ok
         end
 
-        private
+        # Create and inject a service account on behalf of the parent resource.
+        # Return the modified parent configuration hash with references to the
+        # new addition.
+        # @param parent [Hash]
+        # @param configurator [MU::Config]
+        # @return [Hash]
+        def self.genericServiceAccount(parent, configurator)
+          user = {
+            "name" => parent['name'],
+            "cloud" => "Google",
+            "project" => parent["project"],
+            "credentials" => parent["credentials"],
+            "type" => "service"
+          }
+          if user["name"].length < 6
+            user["name"] += Password.pronounceable(6)
+          end
+          if parent['roles']
+            user['roles'] = parent['roles'].dup
+          end
+          configurator.insertKitten(user, "users", true)
+          parent['dependencies'] ||= []
+          parent['service_account'] = MU::Config::Ref.get(
+            type: "users",
+            cloud: "Google",
+            name: user["name"],
+            project: user["project"],
+            credentials: user["credentials"]
+          )
+          parent['dependencies'] << {
+            "type" => "user",
+            "name" => user["name"]
+          }
+
+          parent
+        end
 
       end
     end

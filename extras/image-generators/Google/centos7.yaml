@@ -4,7 +4,6 @@
   - name: centos7
     cloud: Google
     image_id: "centos-cloud/centos-7"
-    platform: centos6
     ssh_user: centos
     size: g1-small
     associate_public_ip: true
@@ -16,3 +15,4 @@
     create_image:
       image_then_destroy: true
       public: true
+      family: mu-centos-7

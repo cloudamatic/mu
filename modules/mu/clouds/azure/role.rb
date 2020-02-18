@@ -65,8 +65,8 @@ module MU
         end
 
         # Assign this role object to a given principal (create a RoleAssignment)
-        # @param principal [MU::Cloud::Azure::Id]
-        def assignTo(principal)
+        # @param principal_id [MU::Cloud::Azure::Id]
+        def assignTo(principal_id)
           MU::Cloud::Azure::Role.assignTo(principal_id, role_id: @cloud_id)
         end
 
@@ -145,7 +145,7 @@ module MU
             begin
               resp = MU::Cloud::Azure.authorization(credentials: args[:credentials]).role_definitions.get(scope, id_str)
               found[Id.new(resp.id)] = resp
-            rescue MsRestAzure::AzureOperationError => e
+            rescue MsRestAzure::AzureOperationError
               # this is fine, we're doing a blind search after all
             end
           else
@@ -155,7 +155,7 @@ module MU
               end
             }
             if args[:role_name]
-              @@role_list_cache[scope].each_pair { |key, role|
+              @@role_list_cache[scope].values.each { |role|
                 begin
                   if role.role_name == args[:role_name]
                     found[Id.new(role.id)] = role
@@ -183,9 +183,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
           }
@@ -194,16 +194,14 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::roles}, bare and unvalidated.
         # @param role [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(role, configurator)
+        def self.validateConfig(role, _configurator)
           ok = true
           role['region'] ||= MU::Cloud::Azure.myRegion(role['credentials'])
 
           ok
         end
-
-        private
 
       end
     end

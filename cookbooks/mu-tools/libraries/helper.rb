@@ -49,7 +49,6 @@ module Mutools
     @authorizer = nil
     def set_gcp_cfg_params
       begin
-        require "google/cloud"
         require "googleauth"
         @project ||= get_google_metadata("project/project-id")
         @authorizer ||= ::Google::Auth.get_application_default(['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
@@ -202,6 +201,8 @@ module Mutools
           Chef::Log.info("Fetching deploy secret: #{gsutil} cp gs://#{bucket}/#{filename} -")
           cmd = if File.exist?("/usr/bin/python2.7")
             %Q{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
+          elsif File.exist?("/opt/rh/python27/root/usr/bin/python")
+            %Q{CLOUDSDK_PYTHON=/opt/rh/python27/root/usr/bin/python #{gsutil} cp gs://#{bucket}/#{filename} -}
           else
             %Q{#{gsutil} cp gs://#{bucket}/#{filename} -}
           end

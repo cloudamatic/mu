@@ -113,7 +113,7 @@ module MU
                 }
               rescue MU::Groomer::RunError => e
                 MU.log "Proceeding after failed initial Groomer run, but #{member.instance_id} may not behave as expected!", MU::WARN, details: e.inspect
-              rescue Exception => e
+              rescue StandardError => e
                 if !member.nil? and !done
                   MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
                   MU::MommaCat.unlockAll
@@ -293,7 +293,7 @@ module MU
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_or_update_tags(tag_conf)
             current.instances.each { |instance|
               tag_conf[:tags].each { |t|
-                MU::MommaCat.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'], credentials: @config['credentials'])
               }
             }
           end
@@ -305,13 +305,11 @@ module MU
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
           asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
-          tg_arns = []
           if asg_options[:target_group_arns]
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
               target_group_arns: asg_options[:target_group_arns]
             )
-            tg_arns = asg_options[:target_group_arns].dup
             asg_options.delete(:target_group_arns)
           end
 
@@ -365,7 +363,6 @@ module MU
                 policy_params[:target_tracking_configuration].delete(:preferred_target_group)
                 if policy_params[:target_tracking_configuration][:predefined_metric_specification] and
                    policy_params[:target_tracking_configuration][:predefined_metric_specification][:predefined_metric_type] == "ALBRequestCountPerTarget"
-                  lb_path = nil
                   lb = @deploy.deployment["loadbalancers"].values.first
                   if @deploy.deployment["loadbalancers"].size > 1
                     MU.log "Multiple load balancers attached to Autoscale group #{@mu_name}, guessing wildly which one to use for TargetTrackingScaling policy", MU::WARN
@@ -415,7 +412,7 @@ module MU
               }
               if !policy_already_correct
                 MU.log "Putting scaling policy #{policy_name} for #{@mu_name}", MU::NOTICE, details: policy_params
-                resp = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_scaling_policy(policy_params)
+                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_scaling_policy(policy_params)
               end
 
             }
@@ -423,12 +420,15 @@ module MU
 
         end
 
+        @cloud_desc_cache = nil
         # Retrieve the AWS descriptor for this Autoscale group
         # @return [OpenStruct]
-        def cloud_desc
-          MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(
             auto_scaling_group_names: [@mu_name]
           ).auto_scaling_groups.first
+          @cloud_desc_cache
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -486,7 +486,7 @@ module MU
       # Reverse-map our cloud description into a runnable config hash.
       # We assume that any values we have in +@config+ are placeholders, and
       # calculate our own accordingly based on what's live in the cloud.
-      def toKitten(rootparent: nil, billing: nil, habitats: nil)
+      def toKitten(**_args)
         bok = {
           "cloud" => "AWS",
           "credentials" => @config['credentials'],
@@ -504,7 +504,7 @@ module MU
             bok['tags'] ||= []
             bok['tags'] << { "key" => tag.key, "value" => tag.value }
           }
-          realname = MU::Adoption.tagsToName(bok['tags'])
+          realname = MU::Adoption.tagsToName(bok['tags'], basename: @cloud_id)
           if realname
             bok['name'] = realname
             bok['name'].gsub!(/[^a-zA-Z0-9_\-]/, "_")
@@ -512,25 +512,45 @@ module MU
         end
         bok['name'] ||= @cloud_id
 
-#        if cloud_desc.vpc_id
-#          bok['vpc'] = MU::Config::Ref.get(
-#            id: cloud_desc.vpc_id,
-#            cloud: "AWS",
-#            credentials: @credentials,
-#            type: "vpcs",
-#          )
-#        end
+        bok['min_size'] = cloud_desc.min_size
+        bok['max_size'] = cloud_desc.max_size
 
-        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+        if cloud_desc.launch_configuration_name
+          launch = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @credentials).describe_launch_configurations(
+            launch_configuration_names: [cloud_desc.launch_configuration_name]
+          ).launch_configurations.first
+          bok['basis'] = {
+            "launch_config" => {
+              "image_id" => launch.image_id,
+              "name" => bok['name'],
+              "size" => launch.instance_type
+            }
+          }
+        end
+
+        if cloud_desc.vpc_zone_identifier and
+           !cloud_desc.vpc_zone_identifier.empty?
+          nets = cloud_desc.vpc_zone_identifier.split(/,/)
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
+          bok['vpc'] = MU::Config::Ref.get(
+            id: resp.vpc_id,
+            cloud: "AWS",
+            credentials: @credentials,
+            type: "vpcs",
+            subnets: nets.map { |s| { "subnet_id" => s } }
+          )
+        end
+
+#        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
 
         bok
       end
 
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
 
           term_policies = MU::Cloud::AWS.credConfig ? MU::Cloud::AWS.autoscale.describe_termination_policy_types.termination_policy_types : ["AllocationStrategy", "ClosestToNextInstanceHour", "Default", "NewestInstance", "OldestInstance", "OldestLaunchConfiguration", "OldestLaunchTemplate"]
@@ -846,7 +866,7 @@ module MU
                 next if !s[time]
                 begin
                   Time.parse(s[time])
-                rescue Exception => e
+                rescue StandardError => e
                   MU.log "Failed to parse #{time} '#{s[time]}' in scheduled action for AutoScale group #{pool['name']}: #{e.message}", MU::ERR
                   ok = false
                 end
@@ -1054,6 +1074,8 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          MU.log "AWS::ServerPool.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+
           filters = [{name: "key", values: ["MU-ID"]}]
           if !ignoremaster
             filters << {name: "key", values: ["MU-MASTER-IP"]}
@@ -1134,7 +1156,6 @@ module MU
           instance_secret = Password.random(50)
           @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
-          nodes_name = @deploy.getResourceName(@config['basis']["launch_config"]["name"])
           if !@config['basis']['launch_config']["server"].nil?
             #XXX this isn't how we find these; use findStray or something
             if @deploy.deployment["images"].nil? or @deploy.deployment["images"][@config['basis']['launch_config']["server"]].nil?
@@ -1205,7 +1226,7 @@ module MU
                   vol.delete("encrypted")
                 end
               end
-              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              mapping, _cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
               storage << mapping
             }
           end
@@ -1322,7 +1343,7 @@ module MU
             MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_launch_configuration(launch_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
             if lc_attempts > 3
-              MU.log "Got error while creating #{@mu_name} Launch Config#{@config['credentials'] ? " with credentials #{@config['credentials']}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,v | k == :user_data }
+              MU.log "Got error while creating #{@mu_name} Launch Config#{@config['credentials'] ? " with credentials #{@config['credentials']}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,_v | k == :user_data }
             end
             sleep 5
             lc_attempts += 1
@@ -1411,7 +1432,7 @@ module MU
                   if lb_name == lb['concurrent_load_balancer']
                     lbs << deployed_lb["awsname"] # XXX check for classic
                     if deployed_lb.has_key?("targetgroups")
-                      deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
+                      deployed_lb["targetgroups"].values.each { |tg_arn|
                         tg_arns << tg_arn
                       }
                     end
@@ -1464,7 +1485,6 @@ module MU
 
 
           if @config['basis']["server"]
-            nodes_name = @deploy.getResourceName(@config['basis']["server"])
             srv_name = @config['basis']["server"]
 # XXX cloudformation bits
             if @deploy.deployment['servers'] != nil and
@@ -1473,7 +1493,6 @@ module MU
             end
           elsif @config['basis']["instance_id"]
             # TODO should go fetch the name tag or something
-            nodes_name = @deploy.getResourceName(@config['basis']["instance_id"].gsub(/-/, ""))
 # XXX cloudformation bits
             asg_options[:instance_id] = @config['basis']["instance_id"]
           end

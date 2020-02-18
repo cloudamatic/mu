@@ -15,7 +15,7 @@ action :create do
   devicename = device
 
   if set_gcp_cfg_params
-    devicename.gsub!(/.*?\//, "")
+    devicename= devicename.gsub(/.*?\//, "")
     device = "/dev/disk/by-id/google-"+devicename
   end
 

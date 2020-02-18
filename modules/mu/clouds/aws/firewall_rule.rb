@@ -54,13 +54,12 @@ module MU
 
             secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
-          rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
+          rescue Aws::EC2::Errors::InvalidGroupDuplicate
             MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
             filters = [{name: "group-name", values: [groupname]}]
             filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
 
             secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(filters: filters).security_groups.first
-            deploy_id = @deploy.deploy_id if !@deploy_id.nil?
             if secgroup.nil?
               raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
             end
@@ -69,24 +68,24 @@ module MU
 
           begin
             MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(group_ids: [secgroup.group_id])
-          rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+          rescue Aws::EC2::Errors::InvalidGroupNotFound
             MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
             sleep 10
             retry
           end
 
           MU::Cloud::AWS.createStandardTags(secgroup.group_id, region: @config['region'], credentials: @config['credentials'])
-          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(secgroup.group_id, key, value, region: @config['region'], credentials: @config['credentials'])
             }
           end
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
             }
           end
 
@@ -180,7 +179,7 @@ module MU
                 ip_permissions: ec2_rule
               )
             end
-          rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
+          rescue Aws::EC2::Errors::InvalidPermissionDuplicate
             MU.log "Attempt to add duplicate rule to #{@cloud_id}", MU::DEBUG, details: ec2_rule
             # Ensure that, at least, the description field gets updated on
             # existing rules
@@ -246,7 +245,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
             "credentials" => @config['credentials'],
@@ -513,14 +512,18 @@ module MU
                     if eni_resp and eni_resp.data and
                        eni_resp.data.network_interfaces
                       eni_resp.data.network_interfaces.each { |iface|
-                        iface_groups = iface.groups.map { |sg| sg.group_id }
+                        iface_groups = iface.groups.map { |if_sg| if_sg.group_id }
                         iface_groups.delete(sg.group_id)
                         iface_groups << default_sg if iface_groups.empty?
-                        MU.log "Attempting to remove #{sg.group_id} from ENI #{iface.network_interface_id}"
-                        MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
-                          network_interface_id: iface.network_interface_id,
-                          groups: iface_groups
-                        )
+                        MU.log "Attempting to remove #{sg.group_id} (#{sg.group_name}) from ENI #{iface.network_interface_id}"
+                        begin
+                          MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                            network_interface_id: iface.network_interface_id,
+                            groups: iface_groups
+                          )
+                        rescue ::Aws::EC2::Errors::AuthFailure
+                          MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
+                        end
                       }
                     end
                   end
@@ -537,9 +540,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
             "rules" => {

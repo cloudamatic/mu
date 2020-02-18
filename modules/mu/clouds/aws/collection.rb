@@ -61,7 +61,7 @@ module MU
                 ]
             }
 
-            keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
+            keypairname, _ssh_private_key, _ssh_public_key = @deploy.SSHKey
 
             parameters = Array.new
             if !@config["parameters"].nil?
@@ -108,7 +108,7 @@ module MU
             end
 
             MU.log "Creating CloudFormation stack '#{@config['name']}'", details: stack_descriptor
-            res = MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).create_stack(stack_descriptor);
+            MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).create_stack(stack_descriptor);
 
             sleep(10);
             stack_response = MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).describe_stacks({:stack_name => stack_name}).stacks.first
@@ -135,7 +135,7 @@ module MU
           end
 
           if flag == "FAIL" then
-            stack_response = MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).delete_stack({:stack_name => stack_name})
+            MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).delete_stack({:stack_name => stack_name})
             exit 1
           end
 
@@ -150,14 +150,14 @@ module MU
                 when "AWS::EC2::Instance"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   instance_name = MU.deploy_id+"-"+@config['name']+"-"+resource.logical_resource_id
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
 
                   instance = MU::Cloud::AWS::Server.notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
 
-                  MU::MommaCat.addHostToSSHConfig(
+                  MU::Master.addHostToSSHConfig(
                       instance_name,
                       instance["private_ip_address"],
                       instance["private_dns_name"],
@@ -168,23 +168,23 @@ module MU
                       key_name: instance["key_name"]
                   )
 
-                  mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
+                  mu_zone, _junk = MU::Cloud::DNSZone.find(name: "mu")
                   if !mu_zone.nil?
                     MU::Cloud::AWS::DNSZone.genericMuDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
                   else
-                    MU::MommaCat.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
+                    MU::Master.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
                   end
 
                 when "AWS::EC2::SecurityGroup"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   MU::Cloud::AWS::FirewallRule.notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
                 when "AWS::EC2::Subnet"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   data = {
                       "collection" => @config["name"],
                       "subnet_id" => resource.physical_resource_id,
@@ -192,7 +192,7 @@ module MU
                   @deploy.notify("subnets", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::VPC"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                   data = {
                       "collection" => @config["name"],
                       "vpc_id" => resource.physical_resource_id,
@@ -200,10 +200,10 @@ module MU
                   @deploy.notify("vpcs", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::InternetGateway"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
                 when "AWS::EC2::RouteTable"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
 
                 # The rest of these aren't anything we act on
                 when "AWS::EC2::Route"
@@ -243,6 +243,9 @@ module MU
         # @param wait [Boolean]: Block on the removal of this stack; AWS deletion will continue in the background otherwise if false.
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false, credentials: nil, flags: {})
+          MU.log "AWS::Collection.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS Collection artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
+
 # XXX needs to check tags instead of name- possible?
           resp = MU::Cloud::AWS.cloudformation(credentials: credentials, region: region).describe_stacks
           resp.stacks.each { |stack|
@@ -257,7 +260,6 @@ module MU
                 MU::Cloud::AWS.cloudformation(credentials: credentials, region: region).delete_stack(stack_name: stack.stack_name)
               end
               if wait
-                last_status = ""
                 max_retries = 10
                 retries = 0
                 mystack = nil
@@ -272,10 +274,9 @@ module MU
                       MU.log "Couldn't delete CloudFormation stack #{stack.stack_name}", MU::ERR, details: mystack.stack_status_reason
                       return
                     end
-                    last_status = mystack.stack_status_reason
                     MU.log "Waiting for CloudFormation stack #{stack.stack_name} to delete (#{stack.stack_status})...", MU::NOTICE
                   end
-                rescue Aws::CloudFormation::Errors::ValidationError => e
+                rescue Aws::CloudFormation::Errors::ValidationError
                   # this is ok, it means deletion finally succeeded
 
                 end while !desc.nil? and desc.size > 0 and retries < max_retries
@@ -317,19 +318,19 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {}
           [toplevel_required, schema]
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::collections}, bare and unvalidated.
-        # @param stack [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _stack [Hash]: The resource to process and validate
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(stack, configurator)
+        def self.validateConfig(_stack, _configurator)
           true
         end
 

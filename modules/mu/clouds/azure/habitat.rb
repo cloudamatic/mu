@@ -59,8 +59,10 @@ module MU
         def groom
         end
 
+        @cached_cloud_desc = nil
         # Return the cloud descriptor for the Habitat
-        def cloud_desc
+        def cloud_desc(use_cache: true)
+          return @cached_cloud_desc if @cached_cloud_desc and use_cache
           @cached_cloud_desc ||= MU::Cloud::Azure::Habitat.find(cloud_id: @cloud_id).values.first
 #          @habitat_id ||= @cached_cloud_desc.parent.id if @cached_cloud_desc
           @cached_cloud_desc
@@ -131,7 +133,7 @@ module MU
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil)
+        def toKitten(**args)
           bok = {
             "cloud" => "Azure",
             "credentials" => @config['credentials']
@@ -141,9 +143,9 @@ module MU
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
           schema = {
           }
@@ -152,9 +154,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::habitats}, bare and unvalidated.
         # @param habitat [Hash]: The resource to process and validate
-        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(habitat, configurator)
+        def self.validateConfig(habitat, _configurator)
           ok = true
           habitat['region'] ||= MU::Cloud::Azure.myRegion(habitat['credentials'])
 

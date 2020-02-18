@@ -36,8 +36,7 @@ def validateClouds(cfg)
         cfg[cloud]["default"]["default"] = true
         found_default = true
       else
-        missing_alias = false
-        cfg[cloud].each_pair { |acctalias, acct|
+        cfg[cloud].values.each { |acct|
           if acct["default"]
             if found_default
               puts "Multiple accounts have 'default' set in #{cloud}"
@@ -205,7 +204,7 @@ def cfgPath
     end
   end
   home = Etc.getpwuid(Process.uid).dir
-  username = Etc.getpwuid(Process.uid).name
+  Etc.getpwuid(Process.uid).name # validates existence of a username
   if Process.uid == 0 and !in_gem
     if ENV.include?('MU_INSTALLDIR')
       ENV['MU_INSTALLDIR']+"/etc/mu.yaml"

@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.1.3'
-  s.date        = '2020-01-31'
+  s.version     = '3.1.4'
+  s.date        = '2020-02-14'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -35,31 +35,31 @@ EOF
   s.homepage    =
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
-  s.add_runtime_dependency 'erubis', "~> 2.7"
-  s.add_runtime_dependency 'inifile', "~> 3.0"
-  s.add_runtime_dependency 'bundler', "~> 1.17"
-  s.add_runtime_dependency 'yard', "~> 0.9"
-  s.add_runtime_dependency 'ruby-graphviz', "~> 1.2"
+  s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency "aws-sdk-core", "< 3"
+  s.add_runtime_dependency 'azure_sdk', "~> 0.52"
+  s.add_runtime_dependency 'bundler', "~> 1.17"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
-  s.add_runtime_dependency 'simple-password-gen', "~> 0.1"
-  s.add_runtime_dependency 'optimist', "~> 3.0"
-  s.add_runtime_dependency 'json-schema', "~> 2.8"
-  s.add_runtime_dependency 'colorize', "~> 0.8"
   s.add_runtime_dependency 'color', "~> 1.8"
-  s.add_runtime_dependency 'netaddr', '~> 2.0'
-  s.add_runtime_dependency 'nokogiri', "~> 1.10"
-  s.add_runtime_dependency 'solve', '~> 4.0'
+  s.add_runtime_dependency 'colorize', "~> 0.8"
+  s.add_runtime_dependency 'erubis', "~> 2.7"
+  s.add_runtime_dependency 'google-api-client', "~> 0.36.4"
+  s.add_runtime_dependency 'googleauth', "~> 0.6"
+  s.add_runtime_dependency 'inifile', "~> 3.0"
+  s.add_runtime_dependency 'json-schema', "~> 2.8"
   s.add_runtime_dependency 'net-ldap', "~> 0.16"
   s.add_runtime_dependency 'net-ssh', "~> 4.2"
   s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
-  s.add_runtime_dependency 'googleauth', "~> 0.6"
-  s.add_runtime_dependency 'google-api-client', "~> 0.36.4"
-  s.add_runtime_dependency 'rubocop', '~> 0.58'
-  s.add_runtime_dependency 'addressable', '~> 2.5'
-  s.add_runtime_dependency 'slack-notifier', "~> 2.3"
-  s.add_runtime_dependency 'azure_sdk', "~> 0.37"
+  s.add_runtime_dependency 'netaddr', '~> 2.0'
+  s.add_runtime_dependency 'nokogiri', "~> 1.10"
+  s.add_runtime_dependency 'optimist', "~> 3.0"
   s.add_runtime_dependency 'rack', "~> 2.0"
-  s.add_runtime_dependency 'thin', "~> 1.7"
+  s.add_runtime_dependency 'ruby-graphviz', "~> 1.2"
+  s.add_runtime_dependency 'rubocop', '~> 0.58'
   s.add_runtime_dependency 'rubyzip', "~> 2.0"
+  s.add_runtime_dependency 'simple-password-gen', "~> 0.1"
+  s.add_runtime_dependency 'slack-notifier', "~> 2.3"
+  s.add_runtime_dependency 'solve', '~> 4.0'
+  s.add_runtime_dependency 'thin', "~> 1.7"
+  s.add_runtime_dependency 'yard', "~> 0.9"
 end

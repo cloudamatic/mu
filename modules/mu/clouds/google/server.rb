@@ -87,7 +87,7 @@ module MU
             img = fetchImage(image_id, credentials: credentials)
             return DateTime.new if img.nil?
             return DateTime.parse(img.creation_timestamp)
-          rescue ::Google::Apis::ClientError => e
+          rescue ::Google::Apis::ClientError
           end
 
           return DateTime.new
@@ -247,15 +247,22 @@ next if !create
             subnet_cfg = config['vpc']['subnets'].sample
 
           end
+
           subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
           if subnet.nil?
-            raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
+            if config['vpc']['name']
+              subnet = vpc.getSubnet(name: config['vpc']['name']+subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
+            end
+            if subnet.nil?
+              raise MuError, "Couldn't find subnet details for #{subnet_cfg['subnet_name'] || subnet_cfg['subnet_id']} while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
+            end
           end
 
           base_iface_obj = {
             :network => vpc.url,
             :subnetwork => subnet.url
           }
+
           if config['associate_public_ip']
             base_iface_obj[:access_configs] = [
               MU::Cloud::Google.compute(:AccessConfig).new
@@ -348,7 +355,7 @@ next if !create
             desc[:labels]["name"] = @mu_name.downcase
 
             if @config['network_tags'] and @config['network_tags'].size > 0
-              desc[:tags] = U::Cloud::Google.compute(:Tags).new(
+              desc[:tags] = MU::Cloud::Google.compute(:Tags).new(
                 items: @config['network_tags']
               )
             end
@@ -369,7 +376,7 @@ next if !create
                 sleep 10
               end
             rescue ::Google::Apis::ClientError => e
-              MU.log e.message, MU::ERR
+              MU.log e.message+" inserting instance into #{@project_id}/#{@config['availability_zone']}", MU::ERR, details: instanceobj
               raise e
             end while @cloud_id.nil?
 
@@ -394,7 +401,7 @@ next if !create
 
             notify
 
-          rescue Exception => e
+          rescue StandardError => e
             if !cloud_desc.nil? and !done
               MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
               MU::MommaCat.unlockAll
@@ -445,7 +452,7 @@ next if !create
           )
           begin
             sleep 5
-          end while cloud_desc.status != "TERMINATED" # means STOPPED
+          end while cloud_desc(use_cache: false).status != "TERMINATED" # means STOPPED
         end
 
         # Ask the Google API to start this node
@@ -462,30 +469,30 @@ next if !create
         end
 
         # Ask the Google API to restart this node
-        # XXX unimplemented
-        def reboot(hard = false)
+        # @param _hard [Boolean]: [IGNORED] Force a stop/start. This is the only available way to restart an instance in Google, so this flag is ignored.
+        def reboot(_hard = false)
           return if @cloud_id.nil?
-
+          stop
+          start
         end
 
         # Figure out what's needed to SSH into this server.
         # @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
         def getSSHConfig
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 # XXX add some awesome alternate names from metadata and make sure they end
 # up in MU::MommaCat's ssh config wangling
-          ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
           return nil if @config.nil? or @deploy.nil?
 
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-          if !@config["vpc"].nil? and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+          if !@config["vpc"].nil? and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
 
             if !@nat.nil?
               if @nat.cloud_desc.nil?
                 MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
               end
-              foo, bar, baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
+              _foo, _bar, _baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
               if nat_ssh_user.nil? and !nat_ssh_host.nil?
                 MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
                 nat_ssh_user = "root"
@@ -512,26 +519,24 @@ next if !create
             @cloud_id = instance_id
           end
 
-          instance = cloud_desc
-
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          node, _config, deploydata = describe(cloud_id: @cloud_id)
           instance = cloud_desc
           raise MuError, "Couldn't find instance of #{@mu_name} (#{@cloud_id})" if !instance
           return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
 
 #          MU::Cloud::AWS.createStandardTags(@cloud_id, region: @config['region'])
-#          MU::MommaCat.createTag(@cloud_id, "Name", node, region: @config['region'])
+#          MU::Cloud::AWS.createTag(@cloud_id, "Name", node, region: @config['region'])
 #
 #          if @config['optional_tags']
 #            MU::MommaCat.listOptionalTags.each { |key, value|
-#              MU::MommaCat.createTag(@cloud_id, key, value, region: @config['region'])
+#              MU::Cloud::AWS.createTag(@cloud_id, key, value, region: @config['region'])
 #            }
 #          end
 #
 #          if !@config['tags'].nil?
 #            @config['tags'].each { |tag|
-#              MU::MommaCat.createTag(@cloud_id, tag['key'], tag['value'], region: @config['region'])
+#              MU::Cloud::AWS.createTag(@cloud_id, tag['key'], tag['value'], region: @config['region'])
 #            }
 #          end
 #          MU.log "Tagged #{node} (#{@cloud_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG
@@ -609,8 +614,8 @@ next if !create
             @named = true
           end
 
-          nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-          if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+          _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
+          if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
           end
@@ -641,8 +646,8 @@ next if !create
         # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
-          args[:project] ||= args[:habitat]
-          args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+          args = MU::Cloud::Google.findLocationArgs(args)
+
           if !args[:region].nil? and MU::Cloud::Google.listRegions.include?(args[:region])
             regions = [args[:region]]
           else
@@ -720,9 +725,6 @@ next if !create
         # Return a description of this resource appropriate for deployment
         # metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
         def notify
-          node, config, deploydata = describe(cloud_id: @cloud_id, update_cache: true)
-          deploydata = {} if deploydata.nil?
-
           if cloud_desc.nil?
             raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
           end
@@ -783,7 +785,7 @@ next if !create
 
           MU::MommaCat.lock(@cloud_id+"-groom")
           
-          node, config, deploydata = describe(cloud_id: @cloud_id)
+          node, _config, deploydata = describe(cloud_id: @cloud_id)
 
           if node.nil? or node.empty?
             raise MuError, "MU::Cloud::Google::Server.groom was called without a mu_name"
@@ -859,9 +861,9 @@ next if !create
                 project: @project_id,
                 exclude_storage: img_cfg['image_exclude_storage'],
                 make_public: img_cfg['public'],
-                tags: @config['tags'],
+                tags: @tags,
                 zone: @config['availability_zone'],
-                family: @config['family'],
+                family: img_cfg['family'],
                 credentials: @config['credentials']
             )
             @deploy.notify("images", @config['name'], {"image_id" => image_id})
@@ -897,50 +899,50 @@ next if !create
             raise MuError, "Failed to find instance '#{instance_id}' in createImage"
           end
 
-          labels = {}
-          MU::MommaCat.listStandardTags.each_pair { |key, value|
-            if !value.nil?
-              labels[key.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
-            end
-          }
+          labels = Hash[tags.keys.map { |k|
+            [k.downcase, tags[k].downcase.gsub(/[^-_a-z0-9]/, '-')] }
+          ]
+          labels["name"] = name
 
           bootdisk = nil
           threads = []
           parent_thread_id = Thread.current.object_id
-          instance[instance_id].disks.each { |disk|
-            threads << Thread.new {
-              Thread.abort_on_exception = false
-              MU.dupGlobals(parent_thread_id)
-              if disk.boot
-                bootdisk = disk.source
-              else
-                snapobj = MU::Cloud::Google.compute(:Snapshot).new(
-                  name: name+"-"+disk.device_name,
-                  description: "Mu image created from #{name} (#{disk.device_name})"
-                )
-                diskname = disk.source.gsub(/.*?\//, "")
-                MU.log "Creating snapshot of #{diskname} in #{zone}", MU::NOTICE, details: snapobj
-                snap = MU::Cloud::Google.compute(credentials: credentials).create_disk_snapshot(
-                  project,
-                  zone,
-                  diskname,
-                  snapobj
-                )
-                MU::Cloud::Google.compute(credentials: credentials).set_snapshot_labels(
-                  project,
-                  snap.name,
-                  MU::Cloud::Google.compute(:GlobalSetLabelsRequest).new(
-                    label_fingerprint: snap.label_fingerprint,
-                    labels: labels.merge({
-                      "mu-device-name" => disk.device_name,
-                      "mu-parent-image" => name,
-                      "mu-orig-zone" => zone
-                    })
+          if !exclude_storage
+            instance[instance_id].disks.each { |disk|
+              threads << Thread.new {
+                Thread.abort_on_exception = false
+                MU.dupGlobals(parent_thread_id)
+                if disk.boot
+                  bootdisk = disk.source
+                else
+                  snapobj = MU::Cloud::Google.compute(:Snapshot).new(
+                    name: name+"-"+disk.device_name,
+                    description: "Mu image created from #{name} (#{disk.device_name})"
                   )
-                )
-              end
+                  diskname = disk.source.gsub(/.*?\//, "")
+                  MU.log "Creating snapshot of #{diskname} in #{zone}", MU::NOTICE, details: snapobj
+                  snap = MU::Cloud::Google.compute(credentials: credentials).create_disk_snapshot(
+                    project,
+                    zone,
+                    diskname,
+                    snapobj
+                  )
+                  MU::Cloud::Google.compute(credentials: credentials).set_snapshot_labels(
+                    project,
+                    snap.name,
+                    MU::Cloud::Google.compute(:GlobalSetLabelsRequest).new(
+                      label_fingerprint: snap.label_fingerprint,
+                      labels: labels.merge({
+                        "mu-device-name" => disk.device_name,
+                        "mu-parent-image" => name,
+                        "mu-orig-zone" => zone
+                      })
+                    )
+                  )
+                end
+              }
             }
-          }
+          end
           threads.each do |t|
             t.join
           end
@@ -954,10 +956,28 @@ next if !create
           }
           image_desc[:family] = family if family
 
-          newimage = MU::Cloud::Google.compute(credentials: @config['credentials']).insert_image(
+          MU.log "Creating image of #{name}", MU::NOTICE, details: image_desc
+          newimage = MU::Cloud::Google.compute(credentials: credentials).insert_image(
             project,
             MU::Cloud::Google.compute(:Image).new(image_desc)
           )
+
+          if make_public
+            MU.log "Making image #{newimage.name} public"
+            MU::Cloud::Google.compute(credentials: credentials).set_image_iam_policy(
+              project,
+              newimage.name,
+              MU::Cloud::Google.compute(:GlobalSetPolicyRequest).new(
+                bindings: [
+                  MU::Cloud::Google.compute(:Binding).new(
+                    members: ["allAuthenticatedUsers"],
+                    role: "roles/compute.imageUser"
+                  )
+                ],
+              )
+            )
+          end
+
           newimage.name
         end
 
@@ -966,7 +986,7 @@ next if !create
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
-          mu_name, config, deploydata = describe(cloud_id: @cloud_id)
+          describe(cloud_id: @cloud_id)
 
           if !cloud_desc
             raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
@@ -1017,7 +1037,7 @@ next if !create
             description: description,
             zone: @config['availability_zone'],
 #            type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
-            type: "projects/#{@project_id}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
+            type: "projects/#{@project_id}/zones/#{@config['availability_zone']}/diskTypes/#{type}",
 # Other values include pd-ssd and local-ssd
             name: resname
           )
@@ -1045,7 +1065,7 @@ next if !create
           )
 
           MU.log "Attaching disk #{resname} to #{@cloud_id} at #{devname}"
-          attachment = MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
+          MU::Cloud::Google.compute(credentials: @config['credentials']).attach_disk(
             @project_id,
             @config['availability_zone'],
             @cloud_id,
@@ -1064,7 +1084,7 @@ next if !create
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
-        def toKitten(rootparent: nil, billing: nil, habitats: nil)
+        def toKitten(**_args)
           bok = {
             "cloud" => "Google",
             "credentials" => @config['credentials'],
@@ -1189,16 +1209,19 @@ next if !create
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
           return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
-          skipsnapshots = flags["skipsnapshots"]
-          onlycloud = flags["onlycloud"]
+
 # XXX make damn sure MU.deploy_id is set
+          filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
+          if !ignoremaster and MU.mu_public_ip
+            filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
+          end
 
           MU::Cloud::Google.listAZs(region).each { |az|
             disks = []
             resp = MU::Cloud::Google.compute(credentials: credentials).list_instances(
               flags["project"],
               az,
-              filter: "description eq #{MU.deploy_id}"
+              filter: filter
             )
             if !resp.items.nil? and resp.items.size > 0
               resp.items.each { |instance|
@@ -1209,7 +1232,7 @@ next if !create
                     disks << disk if !disk.auto_delete
                   }
                 end
-                deletia = MU::Cloud::Google.compute(credentials: credentials).delete_instance(
+                MU::Cloud::Google.compute(credentials: credentials).delete_instance(
                   flags["project"],
                   az,
                   instance.name
@@ -1247,6 +1270,10 @@ next if !create
           toplevel_required = []
           schema = {
             "roles" => MU::Cloud::Google::User.schema(config)[1]["roles"],
+            "windows_admin_username" => {
+              "type" => "string",
+              "default" => "Administrator"
+            },
             "create_image" => {
               "properties" => {
                 "family" => {
@@ -1419,32 +1446,7 @@ next if !create
               ok = false
             end
           else
-            user = {
-              "name" => server['name'],
-              "cloud" => "Google",
-              "project" => server["project"],
-              "credentials" => server["credentials"],
-              "type" => "service"
-            }
-            if user["name"].length < 6
-              user["name"] += Password.pronounceable(6)
-            end
-            if server['roles']
-              user['roles'] = server['roles'].dup
-            end
-            configurator.insertKitten(user, "users", true)
-            server['dependencies'] ||= []
-            server['service_account'] = MU::Config::Ref.get(
-              type: "users",
-              cloud: "Google",
-              name: user["name"],
-              project: user["project"],
-              credentials: user["credentials"]
-            )
-            server['dependencies'] << {
-              "type" => "user",
-              "name" => user["name"]
-            }
+            server = MU::Cloud::Google::User.genericServiceAccount(server, configurator)
           end
 
           subnets = nil
@@ -1509,7 +1511,7 @@ next if !create
             img_project = Regexp.last_match[1]
             img_name = Regexp.last_match[2]
             begin
-              img = MU::Cloud::Google.compute(credentials: server['credentials']).get_image(img_project, img_name)
+              MU::Cloud::Google.compute(credentials: server['credentials']).get_image(img_project, img_name)
               snaps = MU::Cloud::Google.compute(credentials: server['credentials']).list_snapshots(
                 img_project,
                 filter: "name eq #{img_name}-.*"
@@ -1547,8 +1549,6 @@ next if !create
 
           ok
         end
-
-        private
 
       end #class
     end #class

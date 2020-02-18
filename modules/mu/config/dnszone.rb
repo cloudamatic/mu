@@ -312,15 +312,15 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::dnszones}, bare and unvalidated.
-      # @param zone [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _zone [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(zone, configurator)
+      def self.validate(_zone, _configurator)
         ok = true
-        ok
-      end
 # TODO non-local VPCs are valid, but require an account field, which insertKitten doesn't know anything about
 # if !zone['account'].nil? and zone['account'] != MU.account_number
+        ok
+      end
 
     end
   end

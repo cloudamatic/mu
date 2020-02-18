@@ -3,10 +3,14 @@ Style:
 Layout:
   Enabled: false
 
-# Yeah, we do these. Wanna fight?
-Metrics/LineLength:
+# The alternative code doesn't seem to work
+Lint/UriEscapeUnescape:
   Enabled: false
-Lint/StringConversionInInterpolation:
+
+# Yeah, we do these. Wanna fight?
+Layout/LineLength:
+  Enabled: false
+Lint/RedundantStringCoercion:
   Enabled: false
 Lint/Loop:
   Enabled: false
@@ -19,6 +23,8 @@ Lint/LiteralAsCondition:
 Lint/EnsureReturn:
   Enabled: false
 Lint/EmptyEnsure:
+  Enabled: false
+Lint/SuppressedException:
   Enabled: false
 
 # Complaining about these will get you mocked

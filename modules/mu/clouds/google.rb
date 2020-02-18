@@ -52,6 +52,17 @@ module MU
         [:url]
       end
 
+      # Most of our resource implementation +find+ methods have to mangle their
+      # args to make sure they've extracted a project or location argument from
+      # other available information. This does it for them.
+      # @return [Hash]
+      def self.findLocationArgs(**args)
+        args[:project] ||= args[:habitat]
+        args[:project] ||= MU::Cloud::Google.defaultProject(args[:credentials])
+        args[:location] ||= args[:region] || args[:availability_zone] || "-"
+        args
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure
@@ -141,10 +152,9 @@ module MU
       def self.habitat(cloudobj, nolookup: false, deploy: nil)
         @@habmap ||= {}
 # XXX whaddabout config['habitat'] HNNNGH
-
         return nil if !cloudobj.cloudclass.canLiveIn.include?(:Habitat)
 
-# XXX users are assholes because they're valid two different ways ugh ugh
+# XXX these are assholes because they're valid two different ways ugh ugh
         return nil if [MU::Cloud::Google::Group, MU::Cloud::Google::Folder].include?(cloudobj.cloudclass)
         if cloudobj.config and cloudobj.config['project']
           if nolookup
@@ -154,7 +164,6 @@ module MU
             return @@habmap[cloudobj.config['project']]
           end
           deploy ||= cloudobj.deploy if cloudobj.respond_to?(:deploy)
-
           projectobj = projectLookup(cloudobj.config['project'], deploy, raise_on_fail: false)
 
           if projectobj
@@ -363,7 +372,7 @@ module MU
         cfg = credConfig(credentials)
         return if !cfg or !cfg['project']
         flags["project"] ||= cfg['project']
-        name = deploy_id+"-secret"
+
         resp = MU::Cloud::Google.storage(credentials: credentials).list_objects(
           adminBucketName(credentials),
           prefix: deploy_id
@@ -420,7 +429,7 @@ module MU
 MU.log e.message, MU::WARN, details: e.inspect
           if e.inspect.match(/body: "Not Found"/)
             raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
-          elsif e.message.match(/notFound: |Unknown user:/)
+          elsif e.message.match(/notFound: |Unknown user:|conflict: /)
             if retries < 5
               sleep 5
               retries += 1
@@ -429,7 +438,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               raise e
             end
           elsif e.inspect.match(/The metadata for object "null" was edited during the operation/)
-            MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::WARN, details: aclobj
+            MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::DEBUG, details: aclobj
             sleep 10
             retry
           else
@@ -540,7 +549,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               listRegions(credentials: credentials)
               listInstanceTypes(credentials: credentials)
               listProjects(credentials)
-            rescue ::Google::Apis::ClientError => e
+            rescue ::Google::Apis::ClientError
               MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
               @@authorizers.delete(credentials)
               return nil
@@ -717,7 +726,6 @@ MU.log e.message, MU::WARN, details: e.inspect
             raise e
           end
 
-          regions = []
           result.items.each { |region|
             @@regions[region.name] = []
             region.zones.each { |az|
@@ -846,7 +854,7 @@ MU.log e.message, MU::WARN, details: e.inspect
           if subclass.nil?
             begin
               @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: use_scopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials, auth_error_quiet: true)
-            rescue Signet::AuthorizationError => e
+            rescue Signet::AuthorizationError
               MU.log "Falling back to read-only access to DirectoryService API for credential set '#{credentials}'", MU::WARN
               @@admin_directory_api[credentials] ||= MU::Cloud::Google::GoogleEndpoint.new(api: "AdminDirectoryV1::DirectoryService", scopes: readscopes, masquerade: MU::Cloud::Google.credConfig(credentials)['masquerade_as'], credentials: credentials)
               @@readonly[credentials] ||= {}
@@ -1052,8 +1060,6 @@ MU.log e.message, MU::WARN, details: e.inspect
         @@customer_ids_cache[credentials]
       end
 
-      private
-
       # Wrapper class for Google APIs, so that we can catch some common
       # transient endpoint errors without having to spray rescues all over the
       # codebase.
@@ -1109,12 +1115,13 @@ MU.log e.message, MU::WARN, details: e.inspect
         # @param filter [String]: The Compute API filter string to use to isolate appropriate resources
         def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}", credentials: nil)
           list_sym = "list_#{type.sub(/y$/, "ie")}s".to_sym
+          credentials ||= @credentials
           resp = nil
           begin
             if region
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, region, filter: filter, mu_gcp_enable_apis: false)
+              resp = MU::Cloud::Google.compute(credentials: credentials).send(list_sym, project, region, filter: filter, mu_gcp_enable_apis: false)
             else
-              resp = MU::Cloud::Google.compute(credentials: @credentials).send(list_sym, project, filter: filter, mu_gcp_enable_apis: false)
+              resp = MU::Cloud::Google.compute(credentials: credentials).send(list_sym, project, filter: filter, mu_gcp_enable_apis: false)
             end
 
           rescue ::Google::Apis::ClientError => e
@@ -1137,9 +1144,9 @@ MU.log e.message, MU::WARN, details: e.inspect
                     resp = nil
                     failed = false
                     if region
-                      resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, region, obj.name)
+                      resp = MU::Cloud::Google.compute(credentials: credentials).send(delete_sym, project, region, obj.name)
                     else
-                      resp = MU::Cloud::Google.compute(credentials: @credentials).send(delete_sym, project, obj.name)
+                      resp = MU::Cloud::Google.compute(credentials: credentials).send(delete_sym, project, obj.name)
                     end
 
                     if resp.error and resp.error.errors and resp.error.errors.size > 0
@@ -1195,11 +1202,19 @@ MU.log e.message, MU::WARN, details: e.inspect
             retval = nil
             retries = 0
             wait_backoff = 5
-            if next_page_token
-              if arguments.size == 1 and arguments.first.is_a?(Hash)
-                arguments[0][:page_token] = next_page_token
-              else
-                arguments << { :page_token => next_page_token }
+            if next_page_token 
+              if method_sym != :list_entry_log_entries
+                if arguments.size == 1 and arguments.first.is_a?(Hash)
+                  arguments[0][:page_token] = next_page_token
+                else
+                  arguments << { :page_token => next_page_token }
+                end
+              elsif arguments.first.class == ::Google::Apis::LoggingV2::ListLogEntriesRequest
+                arguments[0] = ::Google::Apis::LoggingV2::ListLogEntriesRequest.new(
+                  resource_names: arguments.first.resource_names,
+                  filter: arguments.first.filter,
+                  page_token: next_page_token
+                )
               end
             end
             begin
@@ -1318,7 +1333,6 @@ MU.log e.message, MU::WARN, details: e.inspect
             if retval.class.name.match(/.*?::Operation$/)
 
               retries = 0
-              orig_target = retval.name
 
               # Check whether the various types of +Operation+ responses say
               # they're done, without knowing which specific API they're from
@@ -1390,7 +1404,7 @@ MU.log e.message, MU::WARN, details: e.inspect
               # take advantage.
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
-              had_been_found = false
+#              had_been_found = false
               if method_sym.to_s.match(/^(insert|create|patch)_/)
                 get_method = method_sym.to_s.gsub(/^(insert|patch|create_disk|create)_/, "get_").to_sym
                 cloud_id = if retval.respond_to?(:target_link)
@@ -1417,7 +1431,7 @@ MU.log e.message, MU::WARN, details: e.inspect
 #if method_sym == :insert_instance
 #MU.log "actual_resource", MU::WARN, details: actual_resource
 #end
-                had_been_found = true
+#                had_been_found = true
                 if actual_resource.respond_to?(:status) and
                   ["PROVISIONING", "STAGING", "PENDING", "CREATING", "RESTORING"].include?(actual_resource.status)
                   retries = 0
@@ -1440,6 +1454,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             if overall_retval
               if method_sym.to_s.match(/^list_(.*)/)
                 require 'google/apis/iam_v1'
+                require 'google/apis/logging_v2'
                 what = Regexp.last_match[1].to_sym
                 whatassign = (Regexp.last_match[1]+"=").to_sym
                 if overall_retval.class == ::Google::Apis::IamV1::ListServiceAccountsResponse
@@ -1451,7 +1466,7 @@ MU.log e.message, MU::WARN, details: e.inspect
                     newarray = retval.public_send(what) + overall_retval.public_send(what)
                     overall_retval.public_send(whatassign, newarray)
                   end
-                else
+                elsif !retval.respond_to?(:next_page_token) or retval.next_page_token.nil? or retval.next_page_token.empty?
                   MU.log "Not sure how to append #{method_sym.to_s} results to #{overall_retval.class.name} (apparently #{what.to_s} and #{whatassign.to_s} aren't it), returning first page only", MU::WARN, details: retval
                   return retval
                 end

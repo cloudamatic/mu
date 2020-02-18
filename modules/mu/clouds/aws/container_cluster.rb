@@ -181,8 +181,8 @@ module MU
             main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
             tagme << main_sg.cloud_id if main_sg
             MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
-            MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme, credentials: @config['credentials'])
-            MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb, credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(tagme, "kubernetes.io/cluster/#{@mu_name}", "shared", credentials: @config['credentials'])
+            MU::Cloud::AWS.createTag(tagme_elb, "kubernetes.io/cluster/elb", @mu_name, credentials: @config['credentials'])
 
             if @config['flavor'] == "Fargate"
               fargate_subnets = []
@@ -268,7 +268,18 @@ module MU
               authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
               MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
 # maybe guard this mess
-              %x{#{authmap_cmd}}
+              retries = 0
+              begin
+                puts %x{#{authmap_cmd}}
+                if $?.exitstatus != 0
+                  if retries >= 10
+                    raise MuError, "Failed to apply #{authmap_cmd}"
+                  end
+                  sleep 10
+                  retries += 1 
+                end
+              end while $?.exitstatus != 0
+
             end
 
 # and this one
@@ -309,21 +320,22 @@ module MU
               end
             end
   
-            serverpool.listNodes.each { |node|
+            threads = []
+            serverpool.listNodes.each { |mynode|
               resources = resource_lookup[node.cloud_desc.instance_type]
-              t = Thread.new {
+              threads << Thread.new(mynode) { |node|
                 ident_doc = nil
                 ident_doc_sig = nil
                 if !node.windows?
                   session = node.getSSHSession(10, 30)
                   ident_doc = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/document/")
                   ident_doc_sig = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/signature/")
-                else
-                  begin
-                    session = node.getWinRMSession(1, 60)
-                  rescue Exception # XXX
-                    session = node.getSSHSession(1, 60)
-                  end
+#                else
+#                  begin
+#                    session = node.getWinRMSession(1, 60)
+#                  rescue StandardError # XXX
+#                    session = node.getSSHSession(1, 60)
+#                  end
                 end
                 MU.log "Identity document for #{node}", MU::DEBUG, details: ident_doc
                 MU.log "Identity document signature for #{node}", MU::DEBUG, details: ident_doc_sig
@@ -353,6 +365,9 @@ module MU
                 MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_container_instance(params)
   
               }
+            }
+            threads.each { |t|
+              t.join
             }
           end
 
@@ -387,7 +402,6 @@ module MU
             # Reorganize things so that we have services and task definitions
             # mapped to the set of containers they must contain
             tasks = {}
-            created_generic_loggroup = false
 
             @config['containers'].each { |c|
               service_name = c['service'] ? @mu_name+"-"+c['service'].upcase : @mu_name
@@ -653,7 +667,7 @@ module MU
             listme = services.slice!(0, (services.length >= 10 ? 10 : services.length))
             if services.size > 0
               tasks_defined.concat(
-                tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_services(
+                MU::Cloud::AWS.ecs(region: region, credentials: credentials).describe_services(
                   cluster: cluster,
                   services: listme
                 ).services.map { |s| s.task_definition }
@@ -693,7 +707,6 @@ module MU
               cluster: cluster,
               tasks: task_ids
             ).tasks.each { |t|
-              task_name = t.task_definition_arn.sub(/^.*?:task-definition\/([^\/:]+)$/, '\1')
               t.containers.each { |c|
                 containers[c.name] ||= {}
                 containers[c.name][t.desired_status] ||= {
@@ -736,10 +749,12 @@ MU.log c.name, MU::NOTICE, details: t
           to_return
         end
 
+        @cloud_desc_cache = nil
         # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
         # @return [OpenStruct]
-        def cloud_desc
-          if @config['flavor'] == "EKS" or
+        def cloud_desc(use_cache: true)
+          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_desc_cache = if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
               name: @cloud_id
@@ -751,6 +766,7 @@ MU.log c.name, MU::NOTICE, details: t
             )
             resp.clusters.first
           end
+          @cloud_desc_cache
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -857,8 +873,10 @@ MU.log c.name, MU::NOTICE, details: t
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
+          MU.log "AWS::ContainerCluster.cleanup: need to support flags['known']", MU::DEBUG, details: flags
+          MU.log "Placeholder: AWS ContainerCluster artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
+          resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
 
           if resp and resp.cluster_arns and resp.cluster_arns.size > 0
             resp.cluster_arns.each { |arn|
@@ -902,10 +920,10 @@ MU.log c.name, MU::NOTICE, details: t
                 if !noop
 # TODO de-register container instances
                   begin
-                  deletion = MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
-                    cluster: cluster
-                  )
-                  rescue Aws::ECS::Errors::ClusterContainsTasksException => e
+                    MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
+                      cluster: cluster
+                    )
+                  rescue Aws::ECS::Errors::ClusterContainsTasksException
                     sleep 5
                     retry
                   end
@@ -1059,9 +1077,9 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         # Cloud-specific configuration properties.
-        # @param config [MU::Config]: The calling MU::Config object
+        # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
-        def self.schema(config)
+        def self.schema(_config)
           toplevel_required = []
 
           schema = {
@@ -1950,7 +1968,7 @@ MU.log c.name, MU::NOTICE, details: t
                   "name" => cluster['name']
                 }
               ]
-              worker_pool["run_list"] = ["mu-tools::eks"]
+              worker_pool["run_list"] = ["recipe[mu-tools::eks]"]
 							worker_pool["run_list"].concat(cluster["run_list"]) if cluster["run_list"]
               MU::Config::Server.common_properties.keys.each { |k|
                 if cluster[k] and !worker_pool[k]
@@ -1998,8 +2016,11 @@ MU.log c.name, MU::NOTICE, details: t
           ok
         end
 
-        private
-
+        # Delete a Fargate profile, needed both for cleanup and regroom updates
+        # @param profile [String]:
+        # @param cluster [String]:
+        # @param region [String]:
+        # @param credentials [String]:
         def self.purge_fargate_profile(profile, cluster, region, credentials)
           check = begin
             MU::Cloud::AWS.eks(region: region, credentials: credentials).delete_fargate_profile(

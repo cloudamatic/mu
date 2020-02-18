@@ -57,10 +57,10 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::endpoints}, bare and unvalidated.
-      # @param endpoint [Hash]: The resource to process and validate
-      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @param _endpoint [Hash]: The resource to process and validate
+      # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(endpoint, configurator)
+      def self.validate(_endpoint, _configurator)
         ok = true
 
         ok
