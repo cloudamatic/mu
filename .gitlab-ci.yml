@@ -138,10 +138,10 @@ Docker Build:
     - Gem Build
   before_script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - IMGS="`docker images -a --filter=dangling=true -q`"
-    - test "$IMGS" != "" && docker rmi $(docker images -a --filter=dangling=true -q)
-    - PROCS="`docker ps --filter=status=exited --filter=status=created -q`"
-    - test "$PROCS" != "" && docker rm $(docker ps --filter=status=exited --filter=status=created -q)
+#    - IMGS="`docker images -a --filter=dangling=true -q`"
+#    - test "$IMGS" != "" && docker rmi $(docker images -a --filter=dangling=true -q)
+#    - PROCS="`docker ps --filter=status=exited --filter=status=created -q`"
+#    - test "$PROCS" != "" && docker rm $(docker ps --filter=status=exited --filter=status=created -q)
     - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME || true
     - export MU_VERSION=$(grep '\.version' cloud-mu.gemspec | grep -o "'[^']*'" | tr -d "\'")
     - export OS=$(grep 'FROM' Dockerfile | grep -o " [a-zA-Z0-9:]*" | tr -d " " | tr ":" "-")

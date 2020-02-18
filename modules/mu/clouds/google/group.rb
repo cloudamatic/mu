@@ -213,15 +213,15 @@ module MU
 
           bok['name'] = cloud_desc.name
           bok['cloud_id'] = cloud_desc.email
-          bok['members'] = members
-          members.each { |m|
-            bok['members'] << MU::Config::Ref.get(
-              id: m,
-              cloud: "Google",
-              credentials: @config['credentials'],
-              type: "users"
-            )
-          }
+          bok['members'] = members.dup
+#          bok['members'] = members.map { |m|
+#            MU::Config::Ref.get(
+#              id: m,
+#              cloud: "Google",
+#              credentials: @config['credentials'],
+#              type: "users"
+#            )
+#          }
           group_roles = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
           if group_roles["group"] and group_roles["group"][bok['cloud_id']] and
              group_roles["group"][bok['cloud_id']].size > 0
