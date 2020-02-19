@@ -159,6 +159,8 @@ Docker Build:
   except:
     variables:
     - $IMAGE_BUILD
+  tags: 
+  - mu-docker-build
   retry: 2
 
 Parser Test With Gem:
