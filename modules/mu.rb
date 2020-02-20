@@ -305,11 +305,15 @@ module MU
   # @param ignoreme [Array<Exception>]: Exception classes which can be silently ignored
   # @param on_retry [Proc]: Optional block of code to invoke during retries
   # @param always [Proc]: Optional block of code to invoke before returning or failing, a bit like +ensure+
-  def self.retrier(catchme = [StandardError], wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil)
+  # @param loop_if [Proc]: Optional block of code to invoke which will cause our block to be rerun until true
+  def self.retrier(catchme = nil, wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil, loop_if: nil)
+
+    loop_if ||= Proc.new { false }
 
     retries = 0
     begin
       yield(retries, wait) if block_given?
+      sleep wait if loop_if.call
     rescue StandardError => e
       if catchme and catchme.include?(e.class)
         if max > 0 and retries >= max
@@ -340,7 +344,8 @@ module MU
         always.call if always and always.is_a?(Proc)
         raise e
       end
-    end
+    end while loop_if.call
+
     always.call if always and always.is_a?(Proc)
   end
 
