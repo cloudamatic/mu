@@ -263,6 +263,7 @@ module MU
       end while newguy.nil?
 
       @@mu_global_thread_semaphore.synchronize {
+        MU.dupGlobals(Thread.current.object_id, target_thread: newguy)
         @@mu_global_threads << newguy
       }
 
@@ -293,6 +294,54 @@ module MU
         super message
       end
     end
+  end
+
+  # Boilerplate retry block executor, for making cloud API calls which might
+  # fail transiently.
+  #
+  # @param catchme [Array<Exception>]: Exception classes which should be caught and retried
+  # @param wait [Integer]: Number of seconds to wait between retries
+  # @param max [Integer]: Maximum number of retries; if less than 1, will retry indefinitely
+  # @param ignoreme [Array<Exception>]: Exception classes which can be silently ignored
+  # @param on_retry [Proc]: Optional block of code to invoke during retries
+  # @param always [Proc]: Optional block of code to invoke before returning or failing, a bit like +ensure+
+  def self.retrier(catchme = [StandardError], wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil)
+
+    retries = 0
+    begin
+      yield(retries, wait) if block_given?
+    rescue StandardError => e
+      if catchme and catchme.include?(e.class)
+        if max > 0 and retries >= max
+          always.call if always and always.is_a?(Proc)
+          raise e
+        end
+
+        retries += 1
+        loglevel = ((retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
+        logmsg = e.message+" (attempt "+retries.to_s
+        logmsg += (max > 0 ? "/"+max.to_s : "") + ")"
+
+        if on_retry and on_retry.is_a?(Proc)
+          on_retry.call
+        end
+
+        if retries == max-1
+          MU.log logmsg, MU::WARN, details: caller
+          sleep wait # wait extra on the final attempt
+        else
+          MU.log logmsg, loglevel
+        end
+
+        sleep wait
+        retry
+      elsif ignoreme and ignoreme.include?(e.class)
+      else
+        always.call if always and always.is_a?(Proc)
+        raise e
+      end
+    end
+    always.call if always and always.is_a?(Proc)
   end
 
   if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
@@ -394,20 +443,20 @@ module MU
   @@global_var_semaphore = Mutex.new
 
   # Set one of our global per-thread variables.
-  def self.setVar(name, value)
+  def self.setVar(name, value, target_thread: Thread.current)
     @@global_var_semaphore.synchronize {
-      @@globals[Thread.current.object_id] ||= Hash.new
-      @@globals[Thread.current.object_id][name] ||= Hash.new
-      @@globals[Thread.current.object_id][name] = value
+      @@globals[target_thread.object_id] ||= Hash.new
+      @@globals[target_thread.object_id][name] ||= Hash.new
+      @@globals[target_thread.object_id][name] = value
     }
   end
 
   # Copy the set of global variables in use by another thread, typically our
   # parent thread.
-  def self.dupGlobals(parent_thread_id)
+  def self.dupGlobals(parent_thread_id, target_thread: Thread.current)
     @@globals[parent_thread_id] ||= {}
     @@globals[parent_thread_id].each_pair { |name, value|
-      setVar(name, value)
+      setVar(name, value, target_thread: target_thread)
     }
   end
 

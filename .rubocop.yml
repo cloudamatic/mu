@@ -3,6 +3,25 @@ Style:
 Layout:
   Enabled: false
 
+# The default value of 15 is absurdly low
+Metrics/AbcSize:
+  Max: 60
+# The default value of 6 is absurdly low
+Metrics/CyclomaticComplexity:
+  Max: 30
+# The default value of 7 is absurdly low
+Metrics/PerceivedComplexity:
+  Max: 35
+# The default value of 10 is absurdly low
+Metrics/MethodLength:
+  Max: 200
+# The default value of 25 is absurdly low
+Metrics/BlockLength:
+  Max: 100
+# The default value of 100 is absurdly low
+Metrics/ClassLength:
+  Max: 1000
+
 # The alternative code doesn't seem to work
 Lint/UriEscapeUnescape:
   Enabled: false

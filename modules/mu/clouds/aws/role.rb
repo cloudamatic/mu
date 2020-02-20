@@ -201,7 +201,11 @@ module MU
         def arn
           desc = cloud_desc
           if desc["role"]
-            desc["role"].arn
+            if desc['role'].is_a?(Hash)
+              desc["role"][:arn] # why though
+            else
+              desc["role"].arn
+            end
           else
             nil
           end

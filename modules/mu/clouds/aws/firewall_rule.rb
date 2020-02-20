@@ -484,58 +484,46 @@ module MU
             next if sg.group_name == "default"
             MU.log "Removing EC2 Security Group #{sg.group_name}"
 
-            retries = 0
-            begin
-              MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_security_group(group_id: sg.group_id) if !noop
-            rescue Aws::EC2::Errors::CannotDelete => e
-              MU.log e.message, MU::WARN
-            rescue Aws::EC2::Errors::InvalidGroupNotFound
-              MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
-            rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
-              if retries < 10
-                MU.log "EC2 Security Group #{sg.group_name} is still in use, waiting...", MU::NOTICE
-                # try to get out from under loose network interfaces with which
-                # we're associated
-                if sg.vpc_id
-                  # get the default SG for this VPC
-                  default_resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
-                    filters: [
-                      { name: "group-name", values: ["default"] },
-                      { name: "vpc-id", values: [sg.vpc_id] }
-                    ]
-                  ).security_groups
-                  if default_resp and default_resp.size == 1
-                    default_sg = default_resp.first.group_id
-                    eni_resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
-                      filters: [ {name: "group-id", values: [sg.group_id]} ]
-                    )
-                    if eni_resp and eni_resp.data and
-                       eni_resp.data.network_interfaces
-                      eni_resp.data.network_interfaces.each { |iface|
-                        iface_groups = iface.groups.map { |if_sg| if_sg.group_id }
-                        iface_groups.delete(sg.group_id)
-                        iface_groups << default_sg if iface_groups.empty?
-                        MU.log "Attempting to remove #{sg.group_id} (#{sg.group_name}) from ENI #{iface.network_interface_id}"
-                        begin
-                          MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
-                            network_interface_id: iface.network_interface_id,
-                            groups: iface_groups
-                          )
-                        rescue ::Aws::EC2::Errors::AuthFailure
-                          MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
-                        end
-                      }
-                    end
+            on_retry = Proc.new {
+              # try to get out from under loose network interfaces with which
+              # we're associated
+              if sg.vpc_id
+                default_sg = MU::Cloud::AWS::VPC.getDefaultSg(sg.vpc_id, region: region, credentials: credentials)
+                if default_sg
+                  eni_resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
+                    filters: [ {name: "group-id", values: [sg.group_id]} ]
+                  )
+                  if eni_resp and eni_resp.data and
+                     eni_resp.data.network_interfaces
+                    eni_resp.data.network_interfaces.each { |iface|
+                      iface_groups = iface.groups.map { |if_sg| if_sg.group_id }
+                      iface_groups.delete(sg.group_id)
+                      iface_groups << default_sg if iface_groups.empty?
+                      MU.log "Attempting to remove #{sg.group_id} (#{sg.group_name}) from ENI #{iface.network_interface_id}"
+                      begin
+                        MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                          network_interface_id: iface.network_interface_id,
+                          groups: iface_groups
+                        )
+                      rescue ::Aws::EC2::Errors::AuthFailure
+                        MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
+                      end
+                    }
                   end
                 end
-
-                sleep 10
-                retries = retries + 1
-                retry
-              else
-                MU.log "Failed to delete #{sg.group_name}", MU::ERR
               end
+            }
+
+            if !noop
+              MU.retrier([Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse], ignoreme: [Aws::EC2::Errors::InvalidGroupNotFound], max: 10, wait: 10, on_retry: on_retry) { |retries, wait|
+                begin
+                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_security_group(group_id: sg.group_id)
+                rescue Aws::EC2::Errors::CannotDelete => e
+                  MU.log e.message, MU::WARN
+                end
+              }
             end
+
           }
         end
 
