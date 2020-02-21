@@ -302,7 +302,7 @@ module MU
   # @param catchme [Array<Exception>]: Exception classes which should be caught and retried
   # @param wait [Integer]: Number of seconds to wait between retries
   # @param max [Integer]: Maximum number of retries; if less than 1, will retry indefinitely
-  # @param ignoreme [Array<Exception>]: Exception classes which can be silently ignored
+  # @param ignoreme [Array<Exception>]: Exception classes which can be silently treated as success. This will override any +loop_if+ block and return automatically (after invoking +always+, if the latter was specified).
   # @param on_retry [Proc]: Optional block of code to invoke during retries
   # @param always [Proc]: Optional block of code to invoke before returning or failing, a bit like +ensure+
   # @param loop_if [Proc]: Optional block of code to invoke which will cause our block to be rerun until true
@@ -340,6 +340,8 @@ module MU
         sleep wait
         retry
       elsif ignoreme and ignoreme.include?(e.class)
+        always.call if always and always.is_a?(Proc)
+        return
       else
         always.call if always and always.is_a?(Proc)
         raise e
