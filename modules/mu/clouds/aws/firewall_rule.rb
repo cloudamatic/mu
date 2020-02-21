@@ -382,9 +382,8 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          filters = nil
-          if flags and flags["vpc_id"]
-            filters = [
+          filters = if flags and flags["vpc_id"]
+            [
               {name: "vpc-id", values: [flags["vpc_id"]]}
             ]
           else
@@ -394,6 +393,7 @@ module MU
             if !ignoremaster
               filters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
             end
+            filters
           end
 
           # Some services create sneaky rogue ENIs which then block removal of
@@ -408,75 +408,8 @@ module MU
             MU.log "Revoking rules in EC2 Security Group #{sg.group_name} (#{sg.group_id})"
 
             if !noop
-              ingress_to_revoke = Array.new
-              egress_to_revoke = Array.new
-              sg.ip_permissions.each { |hole|
-                ingress_to_revoke << MU.structToHash(hole)
-                ingress_to_revoke.each { |rule|
-                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs] .size == 0
-                    rule.delete(:user_id_group_pairs)
-                  elsif !rule[:user_id_group_pairs].nil?
-                    rule[:user_id_group_pairs].each { |group_ref|
-                      group_ref = MU.structToHash(group_ref)
-                      group_ref.delete(:group_name) if group_ref[:group_id]
-                    }
-                  end
-
-                  if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
-                    rule.delete(:ip_ranges)
-                  end
-
-                  if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
-                    rule.delete(:prefix_list_ids)
-                  end
-                  
-                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
-                    rule.delete(:ipv_6_ranges)
-                  end
-                }
-              }
-              sg.ip_permissions_egress.each { |hole|
-                egress_to_revoke << MU.structToHash(hole)
-                egress_to_revoke.each { |rule|
-                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
-                    rule.delete(:user_id_group_pairs)
-                  elsif !rule[:user_id_group_pairs].nil?
-                    rule[:user_id_group_pairs].each { |group_ref|
-                      group_ref = MU.structToHash(group_ref)
-                      group_ref.delete(:group_name) if group_ref[:group_id]
-                    }
-                  end
-
-                  if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
-                    rule.delete(:ip_ranges)
-                  end
-
-                  if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
-                    rule.delete(:prefix_list_ids)
-                  end
-
-                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
-                    rule.delete(:ipv_6_ranges)
-                  end
-                }
-              }
-              begin
-
-                if ingress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).revoke_security_group_ingress(
-                      group_id: sg.group_id,
-                      ip_permissions: ingress_to_revoke
-                  )
-                end
-                if egress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).revoke_security_group_egress(
-                      group_id: sg.group_id,
-                      ip_permissions: egress_to_revoke
-                  )
-                end
-              rescue Aws::EC2::Errors::InvalidPermissionNotFound
-                MU.log "Rule in #{sg.group_id} disappeared before I could remove it", MU::WARN
-              end
+              revoke_rules(sg, region: region, credentials: credentials)
+              revoke_rules(sg, egress: true, region: region, credentials: credentials)
             end
           }
 
@@ -515,7 +448,7 @@ module MU
             }
 
             if !noop
-              MU.retrier([Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse], ignoreme: [Aws::EC2::Errors::InvalidGroupNotFound], max: 10, wait: 10, on_retry: on_retry) { |retries, wait|
+              MU.retrier([Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse], ignoreme: [Aws::EC2::Errors::InvalidGroupNotFound], max: 10, wait: 10, on_retry: on_retry) {
                 begin
                   MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_security_group(group_id: sg.group_id)
                 rescue Aws::EC2::Errors::CannotDelete => e
@@ -526,6 +459,58 @@ module MU
 
           }
         end
+
+        def self.revoke_rules(sg, egress: false, region: MU.myregion, credentials: nil)
+          holes = sg.call(egress ? :ip_permission_egress : :ip_permissions)
+
+          to_revoke = []
+
+          holes.each { |hole|
+            to_revoke << MU.structToHash(hole)
+            to_revoke.each { |rule|
+              if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
+                rule.delete(:user_id_group_pairs)
+              elsif !rule[:user_id_group_pairs].nil?
+                rule[:user_id_group_pairs].each { |group_ref|
+                  group_ref = MU.structToHash(group_ref)
+                  group_ref.delete(:group_name) if group_ref[:group_id]
+                }
+              end
+
+              if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
+                rule.delete(:ip_ranges)
+              end
+
+              if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
+                rule.delete(:prefix_list_ids)
+              end
+
+              if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                rule.delete(:ipv_6_ranges)
+              end
+            }
+          }
+
+          if to_revoke.size > 0
+            begin
+              if egress
+                MU::Cloud::AWS.ec2(credentials: credentials, region: region).revoke_security_group_egress(
+                  group_id: sg.group_id,
+                  ip_permissions: to_revoke
+                )
+              else
+                MU::Cloud::AWS.ec2(credentials: credentials, region: region).revoke_security_group_ingress(
+                  group_id: sg.group_id,
+                  ip_permissions: to_revoke
+                )
+              end
+            rescue Aws::EC2::Errors::InvalidPermissionNotFound
+              MU.log "Rule in #{sg.group_id} disappeared before I could remove it", MU::WARN
+            end
+          end
+
+        end
+        private_class_method :revoke_rules
 
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
@@ -707,32 +692,7 @@ module MU
 
         private
 
-        #########################################################################
-        # Manufacture an EC2 security group. The second parameter, rules, is an
-        # "ingress_rules" structure parsed and validated by MU::Config.
-        #########################################################################
-        def setRules(rules, add_to_self: false, ingress: true, egress: false)
-          describe
-          # XXX warn about attempt to set rules before we exist
-          return if rules.nil? or rules.size == 0 or !@cloud_id
-
-          # add_to_self means that this security is a "member" of its own rules
-          # (which is to say, objects that have this SG are allowed in my these
-          # rules)
-          if add_to_self
-            rules.each { |rule|
-              if rule['sgs'].nil? or !rule['sgs'].include?(@cloud_id)
-                new_rule = rule.clone
-                new_rule.delete('hosts')
-                rule['sgs'] = Array.new if rule['sgs'].nil?
-                rule['sgs'] << @cloud_id
-              end
-            }
-          end
-
-          ec2_rules = convertToEc2(rules)
-          ext_permissions = MU.structToHash(cloud_desc.ip_permissions)
-
+        def purge_extraneous_rules(ec2_rules, ext_permissions)
           # Purge any old rules that we're sure we created (check the comment)
           # but which are no longer configured.
           ext_permissions.each { |ext_rule|
@@ -769,97 +729,110 @@ module MU
                 ip_permissions: [ext_rule]
               )
             end
-
           }
+        end
 
-          # Creating an empty security group is ok, so don't freak out if we get
-          # a null rule list.
-          if !ec2_rules.nil?
-            ec2_rules.uniq!
-            retries = 0
-            ec2_rules.each { |rule|
-              haverule = nil
-              different = false
-              ext_permissions.each { |ext_rule|
-                if rule[:from_port] == ext_rule[:from_port] and
-                   rule[:to_port] == ext_rule[:to_port] and
-                   rule[:ip_protocol] == ext_rule[:ip_protocol]
-                  haverule = ext_rule
-                  ext_rule.keys.each { |k|
-                    if ext_rule[k].nil? or ext_rule[k] == []
-                      haverule.delete(k)
-                    end
-                    different = true if rule[k] != ext_rule[k]
-                  }
-                  break
-                end
-              }
-              if haverule and !different
-                MU.log "Security Group rule already up-to-date in #{@mu_name}", MU::DEBUG, details: rule
-                next
-              end
+        #########################################################################
+        # Manufacture an EC2 security group. The second parameter, rules, is an
+        # "ingress_rules" structure parsed and validated by MU::Config.
+        #########################################################################
+        def setRules(rules, add_to_self: false, ingress: true, egress: false)
+          describe
+          # XXX warn about attempt to set rules before we exist
+          return if rules.nil? or rules.size == 0 or !@cloud_id
 
-              MU.log "Setting #{ingress ? "ingress" : "egress"} rule in Security Group #{@mu_name} (#{@cloud_id})", MU::NOTICE, details: rule
-              begin
-
-                if ingress
-                  if haverule
-                    begin
-                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_ingress(
-                        group_id: @cloud_id,
-                        ip_permissions: [haverule]
-                      )
-                    rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
-                    end
-                  end
-                  begin
-                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
-                      group_id: @cloud_id,
-                      ip_permissions: [rule]
-                    )
-                  rescue Aws::EC2::Errors::InvalidParameterCombination => e
-                    MU.log "FirewallRule #{@mu_name} had a bogus rule: #{e.message}", MU::ERR, details: rule
-                    raise e
-                  end
-                end
-
-                if egress
-                  if haverule
-                    begin
-                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_egress(
-                        group_id: @cloud_id,
-                        ip_permissions: [haverule]
-                      )
-                    rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
-                    end
-                  end
-                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
-                    group_id: @cloud_id,
-                    ip_permissions: [rule]
-                  )
-                end
-
-              rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-                MU.log "#{@mu_name} (#{@cloud_id}) does not yet exist", MU::WARN
-                retries = retries + 1
-                if retries < 10
-                  sleep 10
-                  retry
-                else
-                  raise MuError, "#{@mu_name} does not exist", e.backtrace
-                end
-              rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
-                MU.log "Attempt to add duplicate rule to #{@mu_name}", MU::DEBUG, details: rule
+          # add_to_self means that this security is a "member" of its own rules
+          # (which is to say, objects that have this SG are allowed in my these
+          # rules)
+          if add_to_self
+            rules.each { |rule|
+              if rule['sgs'].nil? or !rule['sgs'].include?(@cloud_id)
+                new_rule = rule.clone
+                new_rule.delete('hosts')
+                rule['sgs'] = Array.new if rule['sgs'].nil?
+                rule['sgs'] << @cloud_id
               end
             }
           end
 
+          ec2_rules = convertToEc2(rules)
+          return if ec2_rules.nil?
+
+          ext_permissions = MU.structToHash(cloud_desc.ip_permissions)
+
+          purge_extraneous_rules(ec2_rules, ext_permissions)
+
+          ec2_rules.uniq!
+          ec2_rules.each { |rule|
+            haverule = nil
+            different = false
+            ext_permissions.each { |ext_rule|
+              if rule[:from_port] == ext_rule[:from_port] and
+                 rule[:to_port] == ext_rule[:to_port] and
+                 rule[:ip_protocol] == ext_rule[:ip_protocol]
+                haverule = ext_rule
+                ext_rule.keys.each { |k|
+                  if ext_rule[k].nil? or ext_rule[k] == []
+                    haverule.delete(k)
+                  end
+                  different = true if rule[k] != ext_rule[k]
+                }
+                break
+              end
+            }
+            if haverule and !different
+              MU.log "Security Group rule already up-to-date in #{@mu_name}", MU::DEBUG, details: rule
+              next
+            end
+
+            MU.log "Setting #{ingress ? "ingress" : "egress"} rule in Security Group #{@mu_name} (#{@cloud_id})", MU::NOTICE, details: rule
+
+            MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound], max: 10, wait: 10, ignoreme: [Aws::EC2::Errors::InvalidPermissionDuplicate]) {
+              if ingress
+                if haverule
+                  begin
+                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_ingress(
+                      group_id: @cloud_id,
+                      ip_permissions: [haverule]
+                    )
+                  rescue Aws::EC2::Errors::InvalidPermissionNotFound
+                  end
+                end
+                begin
+                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
+                    group_id: @cloud_id,
+                    ip_permissions: [rule]
+                  )
+                rescue Aws::EC2::Errors::InvalidParameterCombination => e
+                  MU.log "FirewallRule #{@mu_name} had a bogus rule: #{e.message}", MU::ERR, details: rule
+                  raise e
+                end
+              end
+
+              if egress
+                if haverule
+                  begin
+                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_egress(
+                      group_id: @cloud_id,
+                      ip_permissions: [haverule]
+                    )
+                  rescue Aws::EC2::Errors::InvalidPermissionNotFound
+                  end
+                end
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
+                  group_id: @cloud_id,
+                  ip_permissions: [rule]
+                )
+              end
+            }
+          }
+
         end
 
-        #########################################################################
-        # Convert our config languages description of firewall rules into Amazon's.
-        # This rule structure is as defined in MU::Config.
-        #########################################################################
+        #######################################################################
+        # Convert our config languages description of firewall rules into
+        # Amazon's. Our rule structure is as defined in MU::Config.
+        #######################################################################
         def convertToEc2(rules)
           ec2_rules = []
           if rules != nil
@@ -983,8 +956,8 @@ module MU
               ec2_rules << ec2_rule
             }
           end
-          ec2_rules.uniq!
-          return ec2_rules
+
+          ec2_rules.uniq
         end
 
       end #class

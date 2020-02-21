@@ -1990,14 +1990,14 @@ MU.log c.name, MU::NOTICE, details: t
           if !existing_svcs.include?(service_name)
             MU.log "Creating Service #{service_name}"
 
-            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
+            MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
           else
             service_params[:service] = service_params[:service_name].dup
             service_params.delete(:service_name)
             service_params.delete(:launch_type)
             MU.log "Updating Service #{service_name}", MU::NOTICE, details: service_params
 
-            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
+            MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
           end
         end
 
