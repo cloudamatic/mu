@@ -450,20 +450,18 @@ module MU
         # Describe subnets associated with this VPC. We'll compose identifying
         # information similar to what MU::Cloud.describe builds for first-class
         # resources.
-        # XXX this is weaksauce. Subnets should be objects with their own methods
-        # that work like first-class objects. How would we enforce that?
-        # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
+        # @return [Array<MU::Cloud::AWS::VPC::Subnet>]
         def loadSubnets
-          if @cloud_id
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(
-              filters: [
-                { name: "vpc-id", values: [@cloud_id] }
-              ]
-            )
-            if resp.nil? or resp.subnets.nil? or resp.subnets.size == 0
-              MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
-              return []
-            end
+          return [] if !@cloud_id
+
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(
+            filters: [
+              { name: "vpc-id", values: [@cloud_id] }
+            ]
+          )
+          if resp.nil? or resp.subnets.nil? or resp.subnets.empty?
+            MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
+            return []
           end
 
           @subnetcachesemaphore.synchronize {
@@ -474,23 +472,21 @@ module MU
             # metadata. Like ya do.
             if !@config.nil? and @config.has_key?("subnets")
               @config['subnets'].each { |subnet|
-                subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+                subnet['mu_name'] ||= @mu_name+"-"+subnet['name']
                 subnet['region'] = @config['region']
                 subnet['credentials'] = @config['credentials']
-                if !resp.nil? and !resp.data.nil? and !resp.data.subnets.nil?
-                  resp.data.subnets.each { |desc|
-                    if desc.cidr_block == subnet["ip_block"]
-                      subnet["tags"] = MU.structToHash(desc.tags)
-                      subnet["cloud_id"] = desc.subnet_id
-                      break
-                    end
-                  }
-                end
+                resp.subnets.each { |desc|
+                  if desc.cidr_block == subnet["ip_block"]
+                    subnet["tags"] = MU.structToHash(desc.tags)
+                    subnet["cloud_id"] = desc.subnet_id
+                    break
+                  end
+                }
 
                 if subnet["cloud_id"] and !ext_ids.include?(subnet["cloud_id"])
                   @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
                 elsif !subnet["cloud_id"]
-                  resp.data.subnets.each { |desc|
+                  resp.subnets.each { |desc|
                     if desc.cidr_block == subnet["ip_block"]
                       subnet['cloud_id'] = desc.subnet_id
                       @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
@@ -503,21 +499,21 @@ module MU
 
             # Of course we might be loading up a dummy subnet object from a
             # foreign or non-Mu-created VPC and subnet. So make something up.
-            if !resp.nil? and @subnets.empty?
-              resp.data.subnets.each { |desc|
-                subnet = {}
-                subnet["ip_block"] = desc.cidr_block
-                subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+            if @subnets.empty?
+              resp.subnets.each { |desc|
+                subnet = {
+                  "ip_block" => desc.cidr_block,
+                  "tags" => MU.structToHash(desc.tags),
+                  "cloud_id" => desc.subnet_id,
+                  'region' => @config['region'],
+                  'credentials' => @config['credentials'],
+                }
+                subnet['name'] = subnet["ip_block"].gsub(/[\.\/]/, "_")
                 subnet['mu_name'] = @mu_name+"-"+subnet['name']
-                subnet["tags"] = MU.structToHash(desc.tags)
-                subnet["cloud_id"] = desc.subnet_id
-                subnet['region'] = @config['region']
-                subnet['credentials'] = @config['credentials']
-                if !ext_ids.include?(desc.subnet_id)
-                  @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
-                end
+                @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
               }
             end
+
             return @subnets
           }
         end
@@ -1352,14 +1348,14 @@ module MU
             vpc_peering_connection_ids: [peering_id]
           ).vpc_peering_connections.first
 
-          loop_condition = Proc.new {
+          loop_if = Proc.new {
             cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
               vpc_peering_connection_ids: [peering_id]
             ).vpc_peering_connections.first
             ((can_auto_accept and cnxn.status.code == "pending-acceptance") or (cnxn.status.code != "active" and cnxn.status.code != "pending-acceptance"))
           }
 
-          MU.retrier(wait: 5, loop_if: loop_condition, ignoreme: [Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists, Aws::EC2::Errors::RouteAlreadyExists]) {
+          MU.retrier(wait: 5, loop_if: loop_if, ignoreme: [Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists, Aws::EC2::Errors::RouteAlreadyExists]) {
             if cnxn.status.code == "pending-acceptance"
               if can_auto_accept
                 MU.log "Auto-accepting peering connection #{peering_id} from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}", MU::NOTICE
@@ -1524,12 +1520,12 @@ module MU
 
                 resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
 
-                loop_condition = Proc.new {
+                loop_if = Proc.new {
                   resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
                   (resp.state != "deleted" and resp.state != "failed")
                 }
 
-                MU.retrier([Aws::EmptyStructure, NoMethodError], ignoreme: [Aws::EC2::Errors::NatGatewayMalformed, Aws::EC2::Errors::NatGatewayNotFound], max: 50, loop_if: loop_condition) { |retries, _wait|
+                MU.retrier([Aws::EmptyStructure, NoMethodError], ignoreme: [Aws::EC2::Errors::NatGatewayMalformed, Aws::EC2::Errors::NatGatewayNotFound], max: 50, loop_if: loop_if) { |retries, _wait|
                   MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if retries % 3 == 0
                 }
 
@@ -1569,12 +1565,12 @@ module MU
               threads << Thread.new {
                 MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id])
                 resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
-                MU.retrier([Aws::EmptyStructure, NoMethodError], ignoreme: [Aws::EC2::Errors::InvalidVpcEndpointIdNotFound, Aws::EC2::Errors::VpcEndpointIdMalformed], max: 20, wait: 10) { |retries, wait|
-                  while resp.state != "deleted"
-                    MU.log "Waiting for VPC endpoint #{endpoint.vpc_endpoint_id} to delete" if retries % 5 == 0
-                    sleep wait*3
-                    resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
-                  end
+                loop_if = Proc.new {
+                  resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+                  resp.state != "deleted"
+                }
+                MU.retrier([Aws::EmptyStructure, NoMethodError], ignoreme: [Aws::EC2::Errors::InvalidVpcEndpointIdNotFound, Aws::EC2::Errors::VpcEndpointIdMalformed], max: 20, wait: 10, loop_if: loop_if) { |retries, _wait|
+                  MU.log "Waiting for VPC endpoint #{endpoint.vpc_endpoint_id} to delete" if retries % 5 == 0
                 }
               }
             }

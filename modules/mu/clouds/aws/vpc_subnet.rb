@@ -102,7 +102,8 @@ module MU
           return [] if @config['subnets'].nil? or @config['subnets'].empty?
           nat_gateways = []
 
-          allocation_ids = []
+          @eip_allocation_ids ||= []
+
           subnetthreads = Array.new
 
           azs = MU::Cloud::AWS.listAZs(region: @config['region'], credentials: @config['credentials'])
@@ -113,22 +114,21 @@ module MU
 
             subnetthreads << Thread.new {
               resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_subnet(
-                  vpc_id: @cloud_id,
-                  cidr_block: subnet['ip_block'],
-                  availability_zone: az
+                vpc_id: @cloud_id,
+                cidr_block: subnet['ip_block'],
+                availability_zone: az
               ).subnet
               subnet_id = subnet['subnet_id'] = resp.subnet_id
 
               tag_me(subnet_id, @mu_name+"-"+subnet['name'])
 
-              MU.retrier([Aws::EC2::Errors::InvalidSubnetIDNotFound, NoMethodError], wait: 5) { |retries, wait|
-                begin
-                  if !resp or resp.state != "available"
-                    MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to become available", MU::NOTICE if retries > 0 and (retries % 3) == 0
-                    sleep wait
-                    resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                  end
-                end while !resp or resp.state != "available"
+              loop_if = Proc.new {
+                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+                (!resp or resp.state != "available")
+              }
+
+              MU.retrier([Aws::EC2::Errors::InvalidSubnetIDNotFound, NoMethodError], wait: 5, loop_if: loop_if) { |retries, _wait|
+                MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to become available", MU::NOTICE if retries > 0 and (retries % 3) == 0
               }
 
               if !subnet['route_table'].nil?
@@ -136,64 +136,16 @@ module MU
                 @config['route_tables'].each { |tbl|
                   routes[tbl['name']] = tbl
                 }
-                if routes.nil? or routes[subnet['route_table']].nil?
-                  MU.log "Subnet #{subnet_name} references non-existent route #{subnet['route_table']}", MU::ERR, details: @deploy.deployment['vpcs']
-                  raise MuError, "deploy failure"
+                if routes[subnet['route_table']].nil?
+                  raise "Subnet #{subnet_name} references nonexistent route #{subnet['route_table']}"
                 end
                 MU.log "Associating Route Table '#{subnet['route_table']}' (#{routes[subnet['route_table']]['route_table_id']}) with #{subnet_name}"
                 MU.retrier([Aws::EC2::Errors::InvalidRouteTableIDNotFound], wait: 10, max: 10) {
                   MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).associate_route_table(
-                      route_table_id: routes[subnet['route_table']]['route_table_id'],
-                      subnet_id: subnet_id
+                    route_table_id: routes[subnet['route_table']]['route_table_id'],
+                    subnet_id: subnet_id
                   )
                 }
-              end
-
-              MU.retrier([Aws::EC2::Errors::InvalidSubnetIDNotFound], wait: 10, max: 10) {
-                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-              }
-
-              if subnet['is_public'] && subnet['create_nat_gateway']
-                MU::MommaCat.lock("nat-gateway-eipalloc")
-                filters = [{name: "domain", values: ["vpc"]}]
-                eips = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(filters: filters).addresses
-                allocation_id = nil
-                eips.each { |eip|
-                  next if !eip.association_id.nil? and !eip.association_id.empty?
-                  if (eip.private_ip_address.nil? || eip.private_ip_address.empty?) and MU::MommaCat.lock(eip.allocation_id, true, true)
-                    if !allocation_ids.include?(eip.allocation_id)
-                      allocation_id = eip.allocation_id
-                      break
-                    end
-                  end
-                }
-
-                if allocation_id.nil?
-                  allocation_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).allocate_address(domain: "vpc").allocation_id
-                  MU::MommaCat.lock(allocation_id, false, true)
-                end
-
-                allocation_ids << allocation_id
-                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_nat_gateway(
-                  subnet_id: subnet['subnet_id'],
-                  allocation_id: allocation_id,
-                ).nat_gateway
-
-                nat_gateway_id = resp.nat_gateway_id
-                MU::MommaCat.unlock("nat-gateway-eipalloc")
-
-                ensure_unlock = Proc.new { MU::MommaCat.unlock(allocation_id, true) }
-                MU.retrier([Aws::EmptyStructure, NoMethodError], wait: 5, max: 30, always: ensure_unlock) { |retries, wait|
-                  begin
-                    MU.log "Waiting for nat gateway #{nat_gateway_id} to become available (EIP allocation: #{allocation_id})" if retries % 5 == 0
-                    sleep wait*5
-                    resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
-                  end while resp.class != Aws::EC2::Types::NatGateway or resp.state == "pending"
-                }
-
-                raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
-                nat_gateways << {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
-                tag_me(nat_gateway_id)
               end
 
               if subnet.has_key?("map_public_ips")
@@ -205,6 +157,10 @@ module MU
                     }
                   )
                 }
+              end
+
+              if subnet['is_public'] and subnet['create_nat_gateway']
+                nat_gateways << create_nat_gateway(subnet)
               end
 
               if subnet["enable_traffic_logging"]
@@ -227,6 +183,67 @@ module MU
           }
 
           nat_gateways
+        end
+
+        def allocate_eip_for_nat
+          MU::MommaCat.lock("nat-gateway-eipalloc")
+
+          eips = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(
+            filters: [
+              {
+                name: "domain",
+                values: ["vpc"]
+              }
+            ]
+          ).addresses
+
+          allocation_id = nil
+          eips.each { |eip|
+            next if !eip.association_id.nil? and !eip.association_id.empty?
+            if (eip.private_ip_address.nil? || eip.private_ip_address.empty?) and MU::MommaCat.lock(eip.allocation_id, true, true)
+              if !@eip_allocation_ids.include?(eip.allocation_id)
+                allocation_id = eip.allocation_id
+                break
+              end
+            end
+          }
+
+          if allocation_id.nil?
+            allocation_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).allocate_address(domain: "vpc").allocation_id
+            MU::MommaCat.lock(allocation_id, false, true)
+          end
+
+          @eip_allocation_ids << allocation_id
+
+          MU::MommaCat.unlock("nat-gateway-eipalloc")
+
+          allocation_id
+        end
+
+        def create_nat_gateway(subnet)
+          allocation_id = allocate_eip_for_nat
+
+          nat_gateway_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_nat_gateway(
+            subnet_id: subnet['subnet_id'],
+            allocation_id: allocation_id,
+          ).nat_gateway.nat_gateway_id
+
+          ensure_unlock = Proc.new { MU::MommaCat.unlock(allocation_id, true) }
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
+          loop_if = Proc.new {
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
+            resp.class != Aws::EC2::Types::NatGateway or resp.state == "pending"
+          }
+
+          MU.retrier([Aws::EmptyStructure, NoMethodError], wait: 5, max: 30, always: ensure_unlock, loop_if: loop_if) { |retries, _wait|
+            MU.log "Waiting for nat gateway #{nat_gateway_id} to become available (EIP allocation: #{allocation_id})" if retries % 5 == 0
+          }
+
+          raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
+
+          tag_me(nat_gateway_id)
+
+          {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
         end
 
         # Remove all subnets associated with the currently loaded deployment.
