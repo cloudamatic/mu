@@ -327,7 +327,7 @@ module MU
         logmsg += (max > 0 ? "/"+max.to_s : "") + ")"
 
         if on_retry and on_retry.is_a?(Proc)
-          on_retry.call
+          on_retry.call(e)
         end
 
         if retries == max-1

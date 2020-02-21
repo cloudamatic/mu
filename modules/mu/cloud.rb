@@ -1344,8 +1344,10 @@ module MU
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
         def dependencies(use_cache: false, debug: false)
-          @dependencies = {} if @dependencies.nil?
-          @loadbalancers = [] if @loadbalancers.nil?
+          @dependencies ||= {}
+          @loadbalancers ||= []
+          @firewall_rules ||= []
+
           if @config.nil?
             return [@dependencies, @vpc, @loadbalancers]
           end
@@ -1561,6 +1563,42 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           end
 
           return [@dependencies, @vpc, @loadbalancers]
+        end
+
+        # Using the automatically-defined +@vpc+ from {dependencies} in
+        # conjunction with our config, return our configured subnets.
+        # @return [Array<MU::Cloud::VPC::Subnet>]
+        def mySubnets
+          dependencies
+          if !@vpc or !@config["vpc"]
+            return nil
+          end
+
+          if !@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty?
+            return @vpc.subnets if !@config["vpc"]["subnets"]
+          end
+
+          subnets = []
+          @config["vpc"]["subnets"].each { |subnet|
+            subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+            raise MuError, "Couldn't find a live subnet for #{self.to_s} matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+            subnets << subnet_obj
+          }
+
+          subnets
+        end
+
+        # @return [Array<MU::Cloud::FirewallRule>]
+        def myFirewallRules
+          dependencies
+
+          rules = []
+          if @dependencies.has_key?("firewall_rule")
+            rules = @dependencies['firewall_rule'].values
+          end
+# XXX what other ways are these specified?
+
+          rules
         end
 
         # Defaults any resources that don't declare their release-readiness to

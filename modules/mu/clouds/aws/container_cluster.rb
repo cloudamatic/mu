@@ -39,123 +39,82 @@ module MU
         def create
           if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
-            subnet_ids = []
-            @config["vpc"]["subnets"].each { |subnet|
-              subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-              raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
-              subnet_ids << subnet_obj.cloud_id
+
+            subnet_ids = mySubnets.map { |s| s.cloud_id }
+
+            params = {
+              :name => @mu_name,
+              :version => @config['kubernetes']['version'],
+              :role_arn => @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").arn,
+              :resources_vpc_config => {
+                :security_group_ids => myFirewallRules.map { |fw| fw.cloud_id },
+                :subnet_ids => subnet_ids
+              }
             }
-
-            role_arn = @deploy.findLitterMate(name: @config['name']+"controlplane", type: "roles").arn
-
-            security_groups = []
-            if @dependencies.has_key?("firewall_rule")
-              @dependencies['firewall_rule'].values.each { |sg|
-                security_groups << sg.cloud_id
+            if @config['logging'] and @config['logging'].size > 0
+              params[:logging] = {
+                :cluster_logging => [
+                  {
+                    :types => @config['logging'],
+                    :enabled => true
+                  }
+                ]
               }
             end
+            params.delete(:version) if params[:version] == "latest"
 
-            resp = nil
-            begin
-              params = {
-                :name => @mu_name,
-                :version => @config['kubernetes']['version'],
-                :role_arn => role_arn,
-                :resources_vpc_config => {
-                  :security_group_ids => security_groups,
-                  :subnet_ids => subnet_ids
-                }
-              }
-              if @config['logging'] and @config['logging'].size > 0
-                params[:logging] = {
-                  :cluster_logging => [
-                    {
-                      :types => @config['logging'],
-                      :enabled => true
-                    }
-                  ]
-                }
-              end
-              params.delete(:version) if params[:version] == "latest"
-
-              MU.log "Creating EKS cluster #{@mu_name}", details: params
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(params)
-            rescue Aws::EKS::Errors::UnsupportedAvailabilityZoneException => e
-              # this isn't the dumbest thing we've ever done, but it's up there
+            on_retry = Proc.new { |e|
+              # soul-crushing, yet effective
               if e.message.match(/because (#{Regexp.quote(@config['region'])}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
                 bad_az = Regexp.last_match(1)
                 deletia = nil
-                subnet_ids.each { |subnet|
-                  subnet_obj = @vpc.getSubnet(cloud_id: subnet)
-                  if subnet_obj.az == bad_az
-                    deletia = subnet
+                mySubnets.each { |subnet|
+                  if subnet.az == bad_az
+                    deletia = subnet.cloud_id
                     break
                   end
                 }
                 raise e if deletia.nil?
                 MU.log "#{bad_az} does not have EKS capacity. Dropping #{deletia} from ContainerCluster '#{@config['name']}' and retrying.", MU::NOTICE
-                subnet_ids.delete(deletia)
-                retry
+                params[:resources_vpc_config][:subnet_ids].delete(deletia)
               end
-            rescue Aws::EKS::Errors::InvalidParameterException => e
-              if e.message.match(/role with arn: #{Regexp.quote(role_arn)}.*?(could not be assumed|does not exist)/i)
-                sleep 5
-                retry
-              else
-                MU.log e.message, MU::WARN, details: params
-                sleep 5
-                retry
-              end
-            end
+            }
 
-            status = nil
-            retries = 0
-            begin
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
-                name: @mu_name
-              )
-              status = resp.cluster.status
-              if status == "FAILED"
+            MU.retrier([Aws::EKS::Errors::UnsupportedAvailabilityZoneException, Aws::EKS::Errors::InvalidParameterException], on_retry: on_retry, max: subnet_ids.size) {
+              MU.log "Creating EKS cluster #{@mu_name}", details: params
+              MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(params)
+            }
+            @cloud_id = @mu_name
+
+            loop_if = Proc.new {
+              cloud_desc(use_cache: false).status != "ACTIVE"
+            }
+
+            MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 30, max: 60, loop_if: loop_if) { |retries, _wait|
+              if cloud_desc.status == "FAILED"
                 raise MuError, "EKS cluster #{@mu_name} had FAILED status"
               end
               if retries > 0 and (retries % 3) == 0 and status != "ACTIVE"
                 MU.log "Waiting for EKS cluster #{@mu_name} to become active (currently #{status})", MU::NOTICE
               end
-              sleep 30
-              retries += 1
-            rescue Aws::EKS::Errors::ResourceNotFoundException => e
-              if retries < 30
-                if retries > 0 and (retries % 3) == 0
-                  MU.log "Got #{e.message} trying to describe EKS cluster #{@mu_name}, waiting and retrying", MU::WARN, details: resp
-                end
-                sleep 30
-                retries += 1
-                retry
-              else
-                raise e
-              end
-            end while status != "ACTIVE"
+            }
 
             MU.log "Creation of EKS cluster #{@mu_name} complete"
           else
             MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
               cluster_name: @mu_name
             )
-
+            @cloud_id = @mu_name
           end
-          @cloud_id = @mu_name
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          serverpool = if ['EKS', 'ECS'].include?(@config['flavor'])
-            @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
-          end
-          resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
-
+          # EKS or Fargate-EKS: do Kubernetes things
           if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
+
             # This will be needed if a loadbalancer has never been created in
             # this account; EKS applications might want one, but will fail in
             # confusing ways if this hasn't been done.
@@ -166,238 +125,16 @@ module MU
             rescue ::Aws::IAM::Errors::InvalidInput
             end
 
-            kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-eks.erb"))
-            configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
-            tagme = [@vpc.cloud_id]
-            tagme_elb = []
-            @vpc.subnets.each { |s|
-              tagme << s.cloud_id
-              tagme_elb << s.cloud_id if !s.private?
-            }
-            rtbs = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-              filters: [ { name: "vpc-id", values: [@vpc.cloud_id] } ]
-            ).route_tables
-            tagme.concat(rtbs.map { |r| r.route_table_id } )
-            main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
-            tagme << main_sg.cloud_id if main_sg
-            MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
-            MU::Cloud::AWS.createTag(tagme, "kubernetes.io/cluster/#{@mu_name}", "shared", credentials: @config['credentials'])
-            MU::Cloud::AWS.createTag(tagme_elb, "kubernetes.io/cluster/elb", @mu_name, credentials: @config['credentials'])
+            apply_kubernetes_tags
+            create_fargate_kubernetes_profile if @config['flavor'] == "Fargate"
+            apply_kubernetes_resources
 
-            if @config['flavor'] == "Fargate"
-              fargate_subnets = []
-              @config["vpc"]["subnets"].each { |subnet|
-                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
-                next if !subnet_obj.private?
-                fargate_subnets << subnet_obj.cloud_id
-              }
-              podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
-              poolnum = 0
-              poolthreads =[]
-              @config['kubernetes_pools'].each { |selectors|
-                profname = @mu_name+"-"+poolnum.to_s
-                poolnum += 1
-                desc = {
-                  :fargate_profile_name => profname,
-                  :cluster_name => @mu_name,
-                  :pod_execution_role_arn => podrole_arn,
-                  :selectors => selectors,
-                  :subnets => fargate_subnets.sort,
-                  :tags => @tags
-                }
-                begin
-                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
-                    cluster_name: @mu_name,
-                    fargate_profile_name: profname
-                  )
-                  if resp and resp.fargate_profile
-                    old_desc = MU.structToHash(resp.fargate_profile, stringify_keys: true)
-                    new_desc = MU.structToHash(desc, stringify_keys: true)
-                    ["created_at", "status", "fargate_profile_arn"].each { |k|
-                      old_desc.delete(k)
-                    }
-                    old_desc["subnets"].sort!
-                    if !old_desc.eql?(new_desc)
-                      MU.log "Deleting Fargate profile #{profname} in order to apply changes", MU::WARN, details: desc 
-                      MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profname, @mu_name, @config['region'], @credentials)
-                    else
-                      next
-                    end
-                  end
-                rescue Aws::EKS::Errors::ResourceNotFoundException
-                  # This is just fine!
-                end
-                MU.log "Creating EKS Fargate profile #{profname}", details: desc
-                resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
-                begin
-                  resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
-                    cluster_name: @mu_name,
-                    fargate_profile_name: profname
-                  )
-                  sleep 1 if resp.fargate_profile.status == "CREATING"
-                end while resp.fargate_profile.status == "CREATING"
-                MU.log "Creation of EKS Fargate profile #{profname} complete"
-              }
-            end
-
-            me = cloud_desc
-            @endpoint = me.endpoint
-            @cacert = me.certificate_authority.data
-            @cluster = @mu_name
-            if @config['flavor'] != "Fargate"
-              resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
-              @worker_role_arn = resp.role.arn
-            end
-            kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
-            gitlab_helper = @deploy.deploy_dir+"/gitlab-eks-helper-#{@config['name']}.sh"
-            
-            File.open(kube_conf, "w"){ |k|
-              k.puts kube.result(binding)
-            }
-            gitlab = ERB.new(File.read(MU.myRoot+"/extras/gitlab-eks-helper.sh.erb"))
-            File.open(gitlab_helper, "w"){ |k|
-              k.puts gitlab.result(binding)
-            }
-
-            if @config['flavor'] != "Fargate"
-              eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
-              File.open(eks_auth, "w"){ |k|
-                k.puts configmap.result(binding)
-              }
-              authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
-              MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
-# maybe guard this mess
-              retries = 0
-              begin
-                puts %x{#{authmap_cmd}}
-                if $?.exitstatus != 0
-                  if retries >= 10
-                    raise MuError, "Failed to apply #{authmap_cmd}"
-                  end
-                  sleep 10
-                  retries += 1 
-                end
-              end while $?.exitstatus != 0
-
-            end
-
-# and this one
-            admin_user_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
-            admin_role_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
-            MU.log "Configuring Kubernetes admin-user and role", MU::NOTICE, details: admin_user_cmd+"\n"+admin_role_cmd
-            %x{#{admin_user_cmd}}
-            %x{#{admin_role_cmd}}
-
-            if @config['kubernetes_resources']
-              MU::Master.applyKubernetesResources(
-                @config['name'], 
-                @config['kubernetes_resources'],
-                kubeconfig: kube_conf,
-                outputdir: @deploy.deploy_dir
-              )
-            end
-
-            MU.log %Q{How to interact with your EKS cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
           elsif @config['flavor'] != "Fargate"
-            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
-              cluster: @mu_name
-            })
-            existing = {}
-            if resp
-              uuids = []
-              resp.container_instance_arns.each { |arn|
-                uuids << arn.sub(/^.*?:container-instance\//, "")
-              }
-              if uuids.size > 0
-                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_container_instances({
-                  cluster: @mu_name,
-                  container_instances: uuids
-                })
-                resp.container_instances.each { |i|
-                  existing[i.ec2_instance_id] = i
-                }
-              end
-            end
-  
-            threads = []
-            serverpool.listNodes.each { |mynode|
-              resources = resource_lookup[node.cloud_desc.instance_type]
-              threads << Thread.new(mynode) { |node|
-                ident_doc = nil
-                ident_doc_sig = nil
-                if !node.windows?
-                  session = node.getSSHSession(10, 30)
-                  ident_doc = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/document/")
-                  ident_doc_sig = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/signature/")
-#                else
-#                  begin
-#                    session = node.getWinRMSession(1, 60)
-#                  rescue StandardError # XXX
-#                    session = node.getSSHSession(1, 60)
-#                  end
-                end
-                MU.log "Identity document for #{node}", MU::DEBUG, details: ident_doc
-                MU.log "Identity document signature for #{node}", MU::DEBUG, details: ident_doc_sig
-                params = {
-                  :cluster => @mu_name,
-                  :instance_identity_document => ident_doc,
-                  :instance_identity_document_signature => ident_doc_sig,
-                  :total_resources => [
-                    {
-                      :name => "CPU",
-                      :type => "INTEGER",
-                      :integer_value => resources["vcpu"].to_i
-                    },
-                    {
-                      :name => "MEMORY",
-                      :type => "INTEGER",
-                      :integer_value => (resources["memory"]*1024*1024).to_i
-                    }
-                  ]
-                }
-                if !existing.has_key?(node.cloud_id)
-                  MU.log "Registering ECS instance #{node} in cluster #{@mu_name}", details: params
-                else
-                  params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
-                  MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
-                end
-                MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_container_instance(params)
-  
-              }
-            }
-            threads.each { |t|
-              t.join
-            }
+            manage_ecs_workers
           end
 
+          # ECS: manage containers/services/tasks
           if @config['flavor'] != "EKS" and @config['containers']
-
-            security_groups = []
-            if @dependencies.has_key?("firewall_rule")
-              @dependencies['firewall_rule'].values.each { |sg|
-                security_groups << sg.cloud_id
-              }
-            end
-
-            tasks_registered = 0
-            retries = 0
-            svc_resp = begin
-              MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
-                cluster: arn
-              )
-            rescue Aws::ECS::Errors::ClusterNotFoundException => e
-              if retries < 10
-                sleep 5
-                retries += 1
-                retry
-              else
-                raise e
-              end
-            end
-            existing_svcs = svc_resp.service_arns.map { |s|
-              s.gsub(/.*?:service\/(.*)/, '\1')
-            }
 
             # Reorganize things so that we have services and task definitions
             # mapped to the set of containers they must contain
@@ -409,238 +146,35 @@ module MU
               tasks[service_name] << c
             }
 
-            tasks.each_pair { |service_name, containers|
-              launch_type = @config['flavor'] == "ECS" ? "EC2" : "FARGATE"
-              cpu_total = 0
-              mem_total = 0
-              role_arn = nil
-              lbs = []
+            existing_svcs = list_ecs_services
 
-              container_definitions = containers.map { |c|
-                container_name = @mu_name+"-"+c['name'].upcase
+            tasks.each_pair { |service_name, containers|
+              role_arn = nil
+
+              container_definitions, role, lbs = get_ecs_container_definitions(containers)
+              role_arn ||= role
+
+              cpu_total = mem_total = 0
+              containers.each { |c|
                 cpu_total += c['cpu']
                 mem_total += c['memory']
-
-                if c["role"] and !role_arn
-                  found = MU::MommaCat.findStray(
-                    @config['cloud'],
-                    "role",
-                    cloud_id: c["role"]["id"],
-                    name: c["role"]["name"],
-                    deploy_id: c["role"]["deploy_id"] || @deploy.deploy_id,
-                    dummy_ok: false
-                  )
-                  if found
-                    found = found.first
-                    if found and found.cloudobj
-                      role_arn = found.cloudobj.arn
-                    end
-                  else
-                    raise MuError, "Unable to find execution role from #{c["role"]}"
-                  end
-                end
-                
-                if c['loadbalancers'] != []
-                  c['loadbalancers'].each {|lb|
-                    found = @deploy.findLitterMate(name: lb['name'], type: "loadbalancer")
-                    if found
-                      MU.log "Mapping LB #{found.mu_name} to service #{c['name']}", MU::INFO
-                      if found.cloud_desc.type != "classic"
-                        elb_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
-                            load_balancer_arn: found.cloud_desc.load_balancer_arn
-                          })
-                          matching_target_groups = []
-                          elb_groups.target_groups.each { |tg|
-                            if tg.port.to_i == lb['container_port'].to_i
-                              matching_target_groups << {
-                                arn: tg['target_group_arn'],
-                                name: tg['target_group_name']
-                              }
-                            end 
-                          }
-                          if matching_target_groups.length >= 1
-                            MU.log "#{matching_target_groups.length} matching target groups found. Mapping #{container_name} to target group #{matching_target_groups.first['name']}", MU::INFO
-                            lbs << {
-                              container_name: container_name,
-                              container_port: lb['container_port'],
-                              target_group_arn: matching_target_groups.first[:arn]
-                            }
-                          else
-                            raise MuError, "No matching target groups found"
-                          end
-                      elsif @config['flavor'] == "Fargate" && found.cloud_desc.type == "classic"
-                        raise MuError, "Classic Load Balancers are not supported with Fargate."
-                      else
-                        MU.log "Mapping Classic LB #{found.mu_name} to service #{container_name}", MU::INFO
-                        lbs << {
-                          container_name: container_name,
-                          container_port: lb['container_port'],
-                          load_balancer_name: found.mu_name
-                        }
-                      end
-                    else
-                      raise MuError, "Unable to find loadbalancers from #{c["loadbalancers"].first['name']}"
-                    end
-                  }
-                end
-
-                params = {
-                  name: @mu_name+"-"+c['name'].upcase,
-                  image: c['image'],
-                  memory: c['memory'],
-                  cpu: c['cpu']
-                }
-                if !@config['vpc']
-                  c['hostname'] ||= @mu_name+"-"+c['name'].upcase
-                end
-                [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options, :port_mappings, :repository_credentials, :mount_points, :environment, :volumes_from, :secrets, :depends_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check, :resource_requirements].each { |param|
-                  if c.has_key?(param.to_s)
-                    params[param] = if !c[param.to_s].nil? and (c[param.to_s].is_a?(Hash) or c[param.to_s].is_a?(Array))
-                      MU.strToSym(c[param.to_s])
-                    else
-                      c[param.to_s]
-                    end
-                  end
-                }
-                if @config['vpc']
-                  [:hostname, :dns_servers, :dns_search_domains, :links].each { |param|
-                    if params[param]
-                      MU.log "Container parameter #{param.to_s} not supported in VPC clusters, ignoring", MU::WARN
-                      params.delete(param)
-                    end
-                  }
-                end
-                if @config['flavor'] == "Fargate"
-                  [:privileged, :docker_security_options].each { |param|
-                    if params[param]
-                      MU.log "Container parameter #{param.to_s} not supported in Fargate clusters, ignoring", MU::WARN
-                      params.delete(param)
-                    end
-                  }
-                end
-                if c['log_configuration']
-                  log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
-                  if log_obj
-                    c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
-                  end
-                  params[:log_configuration] = MU.strToSym(c['log_configuration'])
-                end
-                params
               }
-
               cpu_total = 2 if cpu_total == 0
               mem_total = 2 if mem_total == 0
 
-              task_params = {
-                family: @deploy.deploy_id,
-                container_definitions: container_definitions,
-                requires_compatibilities: [launch_type]
-              }
+              task_def = register_ecs_task(container_definitions, service_name, cpu_total, mem_total, role_arn: role_arn)
 
-              if @config['volumes']
-                task_params[:volumes] = []
-                @config['volumes'].each { |v|
-                  vol = { :name => v['name'] }
-                  if v['type'] == "host"
-                    vol[:host] = {}
-                    if v['host_volume_source_path']
-                      vol[:host][:source_path] = v['host_volume_source_path']
-                    end
-                  elsif v['type'] == "docker"
-                    vol[:docker_volume_configuration] = MU.strToSym(v['docker_volume_configuration'])
-                  else
-                    raise MuError, "Invalid volume type '#{v['type']}' specified in ContainerCluster '#{@mu_name}'"
-                  end
-                  task_params[:volumes] << vol
-                }
-              end
-
-              if role_arn
-                task_params[:execution_role_arn] = role_arn
-                task_params[:task_role_arn] = role_arn
-              end
-              if @config['flavor'] == "Fargate"
-                task_params[:network_mode] = "awsvpc"
-                task_params[:cpu] = cpu_total.to_i.to_s
-                task_params[:memory] = mem_total.to_i.to_s
-              end
-
-              tasks_registered += 1
-              MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
-
-# XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
-              resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
-
-              task_def = resp.task_definition.task_definition_arn
-              service_params = {
-                :cluster => @mu_name,
-                :desired_count => @config['instance_count'], # XXX this makes no sense
-                :service_name => service_name,
-                :launch_type => launch_type,
-                :task_definition => task_def,
-                :load_balancers => lbs
-              }
-              if @config['vpc']
-                subnet_ids = []
-                all_public = true
-
-                subnets =
-                  if @config["vpc"]["subnets"].empty?
-                    @vpc.subnets
-                  else
-                    subnet_objects= []
-                    @config["vpc"]["subnets"].each { |subnet|
-                      sobj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
-                      if sobj.nil?
-                        MU.log "Got nil result from @vpc.getSubnet(cloud_id: #{subnet["subnet_id"]}, name: #{subnet["subnet_name"]})", MU::WARN
-                      else
-                        subnet_objects << sobj
-                      end
-                    }
-                    subnet_objects
-                  end
-
-                subnets.each { |subnet_obj|
-                  subnet_ids << subnet_obj.cloud_id
-                  all_public = false if subnet_obj.private?
-                }
-
-                service_params[:network_configuration] = {
-                  :awsvpc_configuration => {
-                    :subnets => subnet_ids,
-                    :security_groups => security_groups,
-                    :assign_public_ip => all_public ? "ENABLED" : "DISABLED"
-                  }
-                }
-              end
-
-              if !existing_svcs.include?(service_name)
-                MU.log "Creating Service #{service_name}"
-
-                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
-              else
-                service_params[:service] = service_params[:service_name].dup
-                service_params.delete(:service_name)
-                service_params.delete(:launch_type)
-                MU.log "Updating Service #{service_name}", MU::NOTICE, details: service_params
-
-                resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
-              end
-              existing_svcs << service_name 
+              create_update_ecs_service(task_def, service_name, lbs, existing_svcs)
+              existing_svcs << service_name
             }
 
-            max_retries = 10
-            retries = 0
-            if tasks_registered > 0
-              retry_me = false
-              begin
-                retry_me = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @config['region'], credentials: @config['credentials'])
-                retries += 1
-                sleep 15 if retry_me
-              end while retry_me and retries < max_retries
-              tasks = nil
+            if tasks.size > 0
+              tasks_failing = false
+              MU.retrier(wait: 15, max: 10, loop_if: Proc.new { tasks_failing }){
+                tasks_failing = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @config['region'], credentials: @config['credentials'])
+              }
 
-              if retry_me
+              if tasks_failing
                 MU.log "Not all tasks successfully launched in cluster #{@mu_name}", MU::WARN
               end
             end
@@ -890,13 +424,12 @@ MU.log c.name, MU::NOTICE, details: t
                   svc_resp.service_arns.each { |svc_arn|
                     svc_name = svc_arn.gsub(/.*?:service\/(.*)/, '\1')
                     MU.log "Deleting Service #{svc_name} from ECS Cluster #{cluster}"
-                    if !noop
-                      MU::Cloud::AWS.ecs(region: region, credentials: credentials).delete_service(
-                        cluster: arn,
-                        service: svc_name,
-                        force: true # man forget scaling up and down if we're just deleting the cluster
-                      )
-                    end
+                    next if noop
+                    MU::Cloud::AWS.ecs(region: region, credentials: credentials).delete_service(
+                      cluster: arn,
+                      service: svc_name,
+                      force: true # man forget scaling up and down if we're just deleting the cluster
+                    )
                   }
                 end
 
@@ -907,13 +440,12 @@ MU.log c.name, MU::NOTICE, details: t
                   instances.container_instance_arns.each { |instance_arn|
                     uuid = instance_arn.sub(/^.*?:container-instance\//, "")
                     MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
-                    if !noop
-                      resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({
-                        cluster: cluster,
-                        container_instance: uuid,
-                        force: true, 
-                      })
-                    end
+                    next if noop
+                    resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({
+                      cluster: cluster,
+                      container_instance: uuid,
+                      force: true, 
+                    })
                   }
                 end
                 MU.log "Deleting ECS Cluster #{cluster}"
@@ -1709,7 +1241,7 @@ MU.log c.name, MU::NOTICE, details: t
 
           cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)
 
-          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
+          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(cluster['region'])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
           end
@@ -1869,7 +1401,8 @@ MU.log c.name, MU::NOTICE, details: t
 
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
-            std_ami = getStandardImage(cluster["flavor"], cluster['region'], version: cluster['kubernetes']['version'], gpu: cluster['gpu'])
+            version = cluster["kubernetes"] ? cluster['kubernetes']['version'] : nil
+            std_ami = getStandardImage(cluster["flavor"], cluster['region'], version: version, gpu: cluster['gpu'])
             cluster["host_image"] ||= std_ami
             if cluster["host_image"] != std_ami
               if cluster["flavor"] == "ECS"
@@ -2033,28 +1566,440 @@ MU.log c.name, MU::NOTICE, details: t
             sleep 10
             retry
           end
-          sleep 5
-          retries = 0
-          begin
-            begin
+
+          loop_if = Proc.new {
             check = MU::Cloud::AWS.eks(region: region, credentials: credentials).describe_fargate_profile(
               cluster_name: cluster,
               fargate_profile_name: profile
             )
-            rescue Aws::EKS::Errors::ResourceNotFoundException
-              break
-            end
+            check.fargate_profile.status == "DELETING"
+          }
 
+          MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 30, max: 40, loop_if: loop_if) { |_retries, _wait|
             if check.fargate_profile.status != "DELETING"
-              MU.log "Failed to delete Fargate EKS profile #{profile}", MU::ERR, details: check
               break
-            end
-            if retries > 0 and (retries % 3) == 0
+            elsif retries > 0 and (retries % 3) == 0
               MU.log "Waiting for Fargate EKS profile #{profile} to delete (status #{check.fargate_profile.status})", MU::NOTICE
             end
-            sleep 30
-            retries += 1
-          end while retries < 40
+          }
+        end
+
+        private
+
+        def apply_kubernetes_resources
+          kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig-eks.erb"))
+          configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
+          @endpoint = cloud_desc.endpoint
+          @cacert = cloud_desc.certificate_authority.data
+          @cluster = @mu_name
+          if @config['flavor'] != "Fargate"
+            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
+            @worker_role_arn = resp.role.arn
+          end
+          kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
+          gitlab_helper = @deploy.deploy_dir+"/gitlab-eks-helper-#{@config['name']}.sh"
+          
+          File.open(kube_conf, "w"){ |k|
+            k.puts kube.result(binding)
+          }
+          gitlab = ERB.new(File.read(MU.myRoot+"/extras/gitlab-eks-helper.sh.erb"))
+          File.open(gitlab_helper, "w"){ |k|
+            k.puts gitlab.result(binding)
+          }
+
+          if @config['flavor'] != "Fargate"
+            eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
+            File.open(eks_auth, "w"){ |k|
+              k.puts configmap.result(binding)
+            }
+            authmap_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
+
+            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", MU::NOTICE, details: authmap_cmd
+
+            MU.retrier(max: 10, wait: 10, loop_if: Proc.new {$?.exitstatus != 0}){
+              puts %x{#{authmap_cmd}}
+            }
+            raise MuError, "Failed to apply #{authmap_cmd}" if $?.exitstatus != 0
+          end
+
+          admin_user_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
+          admin_role_cmd = %Q{#{MU::Master.kubectl} --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
+          MU.log "Configuring Kubernetes admin-user and role", MU::NOTICE, details: admin_user_cmd+"\n"+admin_role_cmd
+          %x{#{admin_user_cmd}}
+          %x{#{admin_role_cmd}}
+
+          if @config['kubernetes_resources']
+            MU::Master.applyKubernetesResources(
+              @config['name'], 
+              @config['kubernetes_resources'],
+              kubeconfig: kube_conf,
+              outputdir: @deploy.deploy_dir
+            )
+          end
+
+          MU.log %Q{How to interact with your EKS cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
+        end
+
+        def create_fargate_kubernetes_profile
+          fargate_subnets = mySubnets.map { |s| s.cloud_id }
+
+          podrole_arn = @deploy.findLitterMate(name: @config['name']+"pods", type: "roles").arn
+          poolnum = 0
+
+          @config['kubernetes_pools'].each { |selectors|
+            profname = @mu_name+"-"+poolnum.to_s
+            poolnum += 1
+            desc = {
+              :fargate_profile_name => profname,
+              :cluster_name => @mu_name,
+              :pod_execution_role_arn => podrole_arn,
+              :selectors => selectors,
+              :subnets => fargate_subnets.sort,
+              :tags => @tags
+            }
+            begin
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                cluster_name: @mu_name,
+                fargate_profile_name: profname
+              )
+              if resp and resp.fargate_profile
+                old_desc = MU.structToHash(resp.fargate_profile, stringify_keys: true)
+                new_desc = MU.structToHash(desc, stringify_keys: true)
+                ["created_at", "status", "fargate_profile_arn"].each { |k|
+                  old_desc.delete(k)
+                }
+                old_desc["subnets"].sort!
+                if !old_desc.eql?(new_desc)
+                  MU.log "Deleting Fargate profile #{profname} in order to apply changes", MU::WARN, details: desc 
+                  MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profname, @mu_name, @config['region'], @credentials)
+                else
+                  next
+                end
+              end
+            rescue Aws::EKS::Errors::ResourceNotFoundException
+              # This is just fine!
+            end
+            MU.log "Creating EKS Fargate profile #{profname}", details: desc
+            resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
+            begin
+              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+                cluster_name: @mu_name,
+                fargate_profile_name: profname
+              )
+              sleep 1 if resp.fargate_profile.status == "CREATING"
+            end while resp.fargate_profile.status == "CREATING"
+            MU.log "Creation of EKS Fargate profile #{profname} complete"
+          }
+        end
+
+        def apply_kubernetes_tags
+          tagme = [@vpc.cloud_id]
+          tagme_elb = []
+          @vpc.subnets.each { |s|
+            tagme << s.cloud_id
+            tagme_elb << s.cloud_id if !s.private?
+          }
+          rtbs = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+            filters: [ { name: "vpc-id", values: [@vpc.cloud_id] } ]
+          ).route_tables
+          tagme.concat(rtbs.map { |r| r.route_table_id } )
+          main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
+          tagme << main_sg.cloud_id if main_sg
+          MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
+          MU::Cloud::AWS.createTag(tagme, "kubernetes.io/cluster/#{@mu_name}", "shared", credentials: @config['credentials'])
+          MU::Cloud::AWS.createTag(tagme_elb, "kubernetes.io/cluster/elb", @mu_name, credentials: @config['credentials'])
+        end
+
+        def manage_ecs_workers
+          resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
+            cluster: @mu_name
+          })
+          existing = {}
+          if resp
+            uuids = []
+            resp.container_instance_arns.each { |arn|
+              uuids << arn.sub(/^.*?:container-instance\//, "")
+            }
+            if uuids.size > 0
+              resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_container_instances({
+                cluster: @mu_name,
+                container_instances: uuids
+              })
+              resp.container_instances.each { |i|
+                existing[i.ec2_instance_id] = i
+              }
+            end
+          end
+
+          threads = []
+          resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
+          serverpool = if ['EKS', 'ECS'].include?(@config['flavor'])
+            @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
+          end
+          serverpool.listNodes.each { |mynode|
+            resources = resource_lookup[node.cloud_desc.instance_type]
+            threads << Thread.new(mynode) { |node|
+              ident_doc = nil
+              ident_doc_sig = nil
+              if !node.windows?
+                session = node.getSSHSession(10, 30)
+                ident_doc = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/document/")
+                ident_doc_sig = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/signature/")
+#                else
+#                  begin
+#                    session = node.getWinRMSession(1, 60)
+#                  rescue StandardError # XXX
+#                    session = node.getSSHSession(1, 60)
+#                  end
+              end
+              MU.log "Identity document for #{node}", MU::DEBUG, details: ident_doc
+              MU.log "Identity document signature for #{node}", MU::DEBUG, details: ident_doc_sig
+              params = {
+                :cluster => @mu_name,
+                :instance_identity_document => ident_doc,
+                :instance_identity_document_signature => ident_doc_sig,
+                :total_resources => [
+                  {
+                    :name => "CPU",
+                    :type => "INTEGER",
+                    :integer_value => resources["vcpu"].to_i
+                  },
+                  {
+                    :name => "MEMORY",
+                    :type => "INTEGER",
+                    :integer_value => (resources["memory"]*1024*1024).to_i
+                  }
+                ]
+              }
+              if !existing.has_key?(node.cloud_id)
+                MU.log "Registering ECS instance #{node} in cluster #{@mu_name}", details: params
+              else
+                params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
+                MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
+              end
+              MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_container_instance(params)
+
+            }
+          }
+          threads.each { |t|
+            t.join
+          }
+        end
+
+        def get_ecs_loadbalancers(container_name)
+          lbs = []
+
+          if @loadbalancers and !@loadbalancers.empty?
+            @loadbalancers.each {|lb|
+              MU.log "Mapping LB #{lb.mu_name} to service #{c['name']}", MU::INFO
+              if lb.cloud_desc.type != "classic"
+                elb_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
+                    load_balancer_arn: lb.cloud_desc.load_balancer_arn
+                  })
+                  matching_target_groups = []
+                  elb_groups.target_groups.each { |tg|
+                    if tg.port.to_i == lb['container_port'].to_i
+                      matching_target_groups << {
+                        arn: tg['target_group_arn'],
+                        name: tg['target_group_name']
+                      }
+                    end 
+                  }
+                  if matching_target_groups.length >= 1
+                    MU.log "#{matching_target_groups.length} matching target groups lb. Mapping #{container_name} to target group #{matching_target_groups.first['name']}", MU::INFO
+                    lbs << {
+                      container_name: container_name,
+                      container_port: lb['container_port'],
+                      target_group_arn: matching_target_groups.first[:arn]
+                    }
+                  else
+                    raise MuError, "No matching target groups lb"
+                  end
+              elsif @config['flavor'] == "Fargate" && lb.cloud_desc.type == "classic"
+                raise MuError, "Classic Load Balancers are not supported with Fargate."
+              else
+                MU.log "Mapping Classic LB #{lb.mu_name} to service #{container_name}", MU::INFO
+                lbs << {
+                  container_name: container_name,
+                  container_port: lb['container_port'],
+                  load_balancer_name: lb.mu_name
+                }
+              end
+            }
+          end
+
+          lbs
+        end
+
+        def get_ecs_container_definitions(containers)
+          role_arn = nil
+          lbs = []
+
+          defs = containers.map { |c|
+            container_name = @mu_name+"-"+c['name'].upcase
+            lbs.concat(get_ecs_loadbalancers(container_name))
+
+            if c["role"] and !role_arn
+              found = MU::MommaCat.findStray(
+                @config['cloud'],
+                "role",
+                cloud_id: c["role"]["id"],
+                name: c["role"]["name"],
+                deploy_id: c["role"]["deploy_id"] || @deploy.deploy_id,
+                dummy_ok: false
+              )
+              if found
+                found = found.first
+                if found and found.cloudobj
+                  role_arn = found.cloudobj.arn
+                end
+              else
+                raise MuError, "Unable to find execution role from #{c["role"]}"
+              end
+            end
+
+            params = {
+              name: @mu_name+"-"+c['name'].upcase,
+              image: c['image'],
+              memory: c['memory'],
+              cpu: c['cpu']
+            }
+            if !@config['vpc']
+              c['hostname'] ||= @mu_name+"-"+c['name'].upcase
+            end
+            [:essential, :hostname, :start_timeout, :stop_timeout, :user, :working_directory, :disable_networking, :privileged, :readonly_root_filesystem, :interactive, :pseudo_terminal, :links, :entry_point, :command, :dns_servers, :dns_search_domains, :docker_security_options, :port_mappings, :repository_credentials, :mount_points, :environment, :volumes_from, :secrets, :depends_on, :extra_hosts, :docker_labels, :ulimits, :system_controls, :health_check, :resource_requirements].each { |param|
+              if c.has_key?(param.to_s)
+                params[param] = if !c[param.to_s].nil? and (c[param.to_s].is_a?(Hash) or c[param.to_s].is_a?(Array))
+                  MU.strToSym(c[param.to_s])
+                else
+                  c[param.to_s]
+                end
+              end
+            }
+            if @config['vpc']
+              [:hostname, :dns_servers, :dns_search_domains, :links].each { |param|
+                if params[param]
+                  MU.log "Container parameter #{param.to_s} not supported in VPC clusters, ignoring", MU::WARN
+                  params.delete(param)
+                end
+              }
+            end
+            if @config['flavor'] == "Fargate"
+              [:privileged, :docker_security_options].each { |param|
+                if params[param]
+                  MU.log "Container parameter #{param.to_s} not supported in Fargate clusters, ignoring", MU::WARN
+                  params.delete(param)
+                end
+              }
+            end
+            if c['log_configuration']
+              log_obj = @deploy.findLitterMate(name: c['log_configuration']['options']['awslogs-group'], type: "logs")
+              if log_obj
+                c['log_configuration']['options']['awslogs-group'] = log_obj.mu_name
+              end
+              params[:log_configuration] = MU.strToSym(c['log_configuration'])
+            end
+            params
+          }
+
+          [defs, role_arn, lbs]
+        end
+
+        def register_ecs_task(container_definitions, service_name, cpu_total = 2, mem_total = 2, role_arn: nil)
+          task_params = {
+            family: @deploy.deploy_id,
+            container_definitions: container_definitions,
+            requires_compatibilities: [@config['flavor'] == "ECS" ? "EC2" : "FARGATE"]
+          }
+
+          if @config['volumes']
+            task_params[:volumes] = []
+            @config['volumes'].each { |v|
+              vol = { :name => v['name'] }
+              if v['type'] == "host"
+                vol[:host] = {}
+                if v['host_volume_source_path']
+                  vol[:host][:source_path] = v['host_volume_source_path']
+                end
+              elsif v['type'] == "docker"
+                vol[:docker_volume_configuration] = MU.strToSym(v['docker_volume_configuration'])
+              else
+                raise MuError, "Invalid volume type '#{v['type']}' specified in ContainerCluster '#{@mu_name}'"
+              end
+              task_params[:volumes] << vol
+            }
+          end
+
+          if role_arn
+            task_params[:execution_role_arn] = role_arn
+            task_params[:task_role_arn] = role_arn
+          end
+          if @config['flavor'] == "Fargate"
+            task_params[:network_mode] = "awsvpc"
+            task_params[:cpu] = cpu_total.to_i.to_s
+            task_params[:memory] = mem_total.to_i.to_s
+          end
+
+          MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
+
+# XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
+          resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
+
+          resp.task_definition.task_definition_arn
+        end
+
+        def list_ecs_services
+          svc_resp = nil
+          MU.retrier([Aws::ECS::Errors::ClusterNotFoundException], wait: 5, max: 10){
+            svc_resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
+              cluster: arn
+            )
+          }
+
+          svc_resp.service_arns.map { |s|
+            s.gsub(/.*?:service\/(.*)/, '\1')
+          }
+        end
+
+        def create_update_ecs_service(task_def, service_name, lbs, existing_svcs)
+          service_params = {
+            :cluster => @mu_name,
+            :desired_count => @config['instance_count'], # XXX this makes no sense
+            :service_name => service_name,
+            :launch_type => @config['flavor'] == "ECS" ? "EC2" : "FARGATE",
+            :task_definition => task_def,
+            :load_balancers => lbs
+          }
+          if @config['vpc']
+            subnet_ids = []
+            all_public = true
+
+            mySubnets.each { |subnet|
+              subnet_ids << subnet.cloud_id
+              all_public = false if subnet.private?
+            }
+
+            service_params[:network_configuration] = {
+              :awsvpc_configuration => {
+                :subnets => subnet_ids,
+                :security_groups => myFirewallRules.map { |fw| fw.cloud_id },
+                :assign_public_ip => all_public ? "ENABLED" : "DISABLED"
+              }
+            }
+          end
+
+          if !ext_services.include?(service_name)
+            MU.log "Creating Service #{service_name}"
+
+            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
+          else
+            service_params[:service] = service_params[:service_name].dup
+            service_params.delete(:service_name)
+            service_params.delete(:launch_type)
+            MU.log "Updating Service #{service_name}", MU::NOTICE, details: service_params
+
+            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
+          end
         end
 
       end
