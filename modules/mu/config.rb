@@ -180,8 +180,19 @@ module MU
       $file_format = MU::Config.guessFormat(path)
       $yaml_refs = {}
       erb = ERB.new(File.read(path), nil, "<>")
+      erb.filename = path
 
-      raw_text = erb.result(erb_binding)
+      begin
+        raw_text = erb.result(erb_binding)
+      rescue NameError => e
+        loc = e.backtrace[0].sub(/:(\d+):.*/, ':\1')
+        msg = if e.message.match(/wrong constant name Config.getTail PLACEHOLDER ([^\s]+) REDLOHECALP/)
+          "Variable '#{Regexp.last_match[1]}' referenced in config, but not defined. Missing required parameter?"
+        else
+          e.message
+        end
+        raise ValidationError, msg+" at "+loc
+      end
       raw_json = nil
 
       # If we're working in YAML, do some magic to make includes work better.
