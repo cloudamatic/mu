@@ -5,7 +5,7 @@ Layout:
 
 # The default value of 15 is absurdly low
 Metrics/AbcSize:
-  Max: 60
+  Max: 75
 # The default value of 6 is absurdly low
 Metrics/CyclomaticComplexity:
   Max: 30
@@ -15,6 +15,7 @@ Metrics/PerceivedComplexity:
 # The default value of 10 is absurdly low
 Metrics/MethodLength:
   Max: 200
+  ExcludedMethods: ["schema"]
 # The default value of 25 is absurdly low
 Metrics/BlockLength:
   Max: 100

@@ -546,10 +546,8 @@ MU.log c.name, MU::NOTICE, details: t
             resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: [args[:cloud_id]])
             if resp.clusters and resp.clusters.size > 0
               found[args[:cloud_id]] = resp.clusters.first
-            end
-
-            # XXX name collision is possible here
-            if found.size == 0
+            else
+              # XXX misses due to name collision are possible here
               desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: args[:cloud_id])
               found[args[:cloud_id]] = desc.cluster if desc and desc.cluster
             end
