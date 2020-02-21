@@ -170,7 +170,7 @@ module MU
 
             if tasks.size > 0
               tasks_failing = false
-              MU.retrier(wait: 15, max: 10, loop_if: Proc.new { tasks_failing }){
+              MU.retrier(wait: 15, max: 10, loop_if: Proc.new { tasks_failing }){ |retries, _wait|
                 tasks_failing = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @config['region'], credentials: @config['credentials'])
               }
 
@@ -410,59 +410,115 @@ MU.log c.name, MU::NOTICE, details: t
           MU.log "AWS::ContainerCluster.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS ContainerCluster artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
+          purge_ecs_clusters(noop: noop, region: region, credentials: credentials)
+
+          purge_eks_clusters(noop: noop, region: region, credentials: credentials)
+
+        end
+
+        def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil)
+          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
+          resp = begin
+            MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
+          rescue Aws::EKS::Errors::AccessDeniedException
+            # EKS isn't actually live in this region, even though SSM lists
+            # base images for it
+            return
+          end
+
+          return if !resp or !resp.clusters
+
+          resp.clusters.each { |cluster|
+            if cluster.match(/^#{MU.deploy_id}-/)
+
+              desc = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
+                name: cluster
+              ).cluster
+
+              profiles = MU::Cloud::AWS.eks(region: region, credentials: credentials).list_fargate_profiles(
+                cluster_name: cluster
+              )
+              if profiles and profiles.fargate_profile_names
+                profiles.fargate_profile_names.each { |profile|
+                  MU.log "Deleting Fargate EKS profile #{profile}"
+                  next if noop
+                  MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profile, cluster, region, credentials)
+                }
+              end
+
+              remove_kubernetes_tags(cluster, desc)
+
+              MU.log "Deleting EKS Cluster #{cluster}"
+              next if noop
+              MU::Cloud::AWS.eks(credentials: credentials, region: region).delete_cluster(
+                name: cluster
+              )
+              loop_if = Proc.new {
+                MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
+                  name: cluster
+                ).cluster.status
+              }
+              MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 60, loop_if: loop_if){ |retries, _wait|
+                if retries > 0 and (retries % 3) == 0
+                  MU.log "Waiting for EKS cluster #{cluster} to finish deleting (status #{status})", MU::NOTICE
+                end
+              }
+#                  MU::Cloud::AWS::Server.removeIAMProfile(cluster)
+            end
+          }
+        end
+        private_class_method :purge_eks_clusters
+
+        def self.purge_ecs_clusters(noop: false, region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
 
-          if resp and resp.cluster_arns and resp.cluster_arns.size > 0
-            resp.cluster_arns.each { |arn|
-              if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
-                cluster = Regexp.last_match[1]
+          return if !resp or !resp.cluster_arns or resp.cluster_arns.empty?
 
-                svc_resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
-                  cluster: arn
-                )
-                if svc_resp and svc_resp.service_arns
-                  svc_resp.service_arns.each { |svc_arn|
-                    svc_name = svc_arn.gsub(/.*?:service\/(.*)/, '\1')
-                    MU.log "Deleting Service #{svc_name} from ECS Cluster #{cluster}"
-                    next if noop
-                    MU::Cloud::AWS.ecs(region: region, credentials: credentials).delete_service(
-                      cluster: arn,
-                      service: svc_name,
-                      force: true # man forget scaling up and down if we're just deleting the cluster
-                    )
-                  }
-                end
+          resp.cluster_arns.each { |arn|
+            if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
+              cluster = Regexp.last_match[1]
 
-                instances = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_container_instances({
-                  cluster: cluster
-                })
-                if instances
-                  instances.container_instance_arns.each { |instance_arn|
-                    uuid = instance_arn.sub(/^.*?:container-instance\//, "")
-                    MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
-                    next if noop
-                    resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({
-                      cluster: cluster,
-                      container_instance: uuid,
-                      force: true, 
-                    })
-                  }
-                end
-                MU.log "Deleting ECS Cluster #{cluster}"
-                if !noop
-# TODO de-register container instances
-                  begin
-                    MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
-                      cluster: cluster
-                    )
-                  rescue Aws::ECS::Errors::ClusterContainsTasksException
-                    sleep 5
-                    retry
-                  end
-                end
+              svc_resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
+                cluster: arn
+              )
+              if svc_resp and svc_resp.service_arns
+                svc_resp.service_arns.each { |svc_arn|
+                  svc_name = svc_arn.gsub(/.*?:service\/(.*)/, '\1')
+                  MU.log "Deleting Service #{svc_name} from ECS Cluster #{cluster}"
+                  next if noop
+                  MU::Cloud::AWS.ecs(region: region, credentials: credentials).delete_service(
+                    cluster: arn,
+                    service: svc_name,
+                    force: true # man forget scaling up and down if we're just deleting the cluster
+                  )
+                }
               end
-            }
-          end
+
+              instances = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_container_instances({
+                cluster: cluster
+              })
+              if instances
+                instances.container_instance_arns.each { |instance_arn|
+                  uuid = instance_arn.sub(/^.*?:container-instance\//, "")
+                  MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
+                  next if noop
+                  resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).deregister_container_instance({
+                    cluster: cluster,
+                    container_instance: uuid,
+                    force: true, 
+                  })
+                }
+              end
+              MU.log "Deleting ECS Cluster #{cluster}"
+              next if noop
+              MU.retrier([Aws::ECS::Errors::ClusterContainsTasksException], wait: 5){
+# TODO de-register container instances
+                MU::Cloud::AWS.ecs(credentials: credentials, region: region).delete_cluster(
+                  cluster: cluster
+                )
+              }
+            end
+          }
 
           tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
             family_prefix: MU.deploy_id
@@ -478,84 +534,8 @@ MU.log c.name, MU::NOTICE, details: t
               end
             }
           end
-
-          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
-
-          resp = begin
-            MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
-          rescue Aws::EKS::Errors::AccessDeniedException
-            # EKS isn't actually live in this region, even though SSM lists
-            # base images for it
-            return
-          end
-
-
-          if resp and resp.clusters
-            resp.clusters.each { |cluster|
-              if cluster.match(/^#{MU.deploy_id}-/)
-
-                desc = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
-                  name: cluster
-                ).cluster
-
-                profiles = MU::Cloud::AWS.eks(region: region, credentials: credentials).list_fargate_profiles(
-                  cluster_name: cluster
-                )
-                if profiles and profiles.fargate_profile_names
-                  profiles.fargate_profile_names.each { |profile|
-                    MU.log "Deleting Fargate EKS profile #{profile}"
-                    next if noop
-                    MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profile, cluster, region, credentials)
-                  }
-                end
-
-                untag = []
-                untag << desc.resources_vpc_config.vpc_id
-                subnets = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_subnets(
-                  filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
-                ).subnets
-
-                # subnets
-                untag.concat(subnets.map { |s| s.subnet_id } )
-                rtbs = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_route_tables(
-                  filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
-                ).route_tables
-                untag.concat(rtbs.map { |r| r.route_table_id } )
-                untag.concat(desc.resources_vpc_config.subnet_ids)
-                untag.concat(desc.resources_vpc_config.security_group_ids)
-                MU.log "Removing Kubernetes tags from VPC resources for #{cluster}", details: untag
-                if !noop
-                  MU::Cloud::AWS.removeTag("kubernetes.io/cluster/#{cluster}", "shared", untag)
-                  MU::Cloud::AWS.removeTag("kubernetes.io/cluster/elb", cluster, untag)
-                end
-                MU.log "Deleting EKS Cluster #{cluster}"
-                if !noop
-                  MU::Cloud::AWS.eks(credentials: credentials, region: region).delete_cluster(
-                    name: cluster
-                  )
-                  begin
-                    status = nil
-                    retries = 0
-                    begin
-                      deletion = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
-                        name: cluster
-                      )
-                      status = deletion.cluster.status
-                      if retries > 0 and (retries % 3) == 0
-                        MU.log "Waiting for EKS cluster #{cluster} to finish deleting (status #{status})", MU::NOTICE
-                      end
-                      retries += 1
-                      sleep 30
-                    end while status
-                  rescue Aws::EKS::Errors::ResourceNotFoundException
-                    # this is what we want
-                  end
-#                  MU::Cloud::AWS::Server.removeIAMProfile(cluster)
-                end
-              end
-            }
-          end
         end
+        private_class_method :purge_ecs_clusters
 
         # Locate an existing container_cluster.
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching container_clusters.
@@ -577,14 +557,14 @@ MU.log c.name, MU::NOTICE, details: t
             next_token = nil
             begin
               resp = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).list_clusters(next_token: next_token)
-              if resp and resp.cluster_arns and resp.cluster_arns.size > 0
-                names = resp.cluster_arns.map { |a| a.sub(/.*?:cluster\//, '') }
-                descs = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: names)
-                if descs and descs.clusters
-                  descs.clusters.each { |c|
-                    found[c.cluster_name] = c
-                  }
-                end
+              break if !resp or !resp.cluster_arns
+              next_token = resp.next_token
+              names = resp.cluster_arns.map { |a| a.sub(/.*?:cluster\//, '') }
+              descs = MU::Cloud::AWS.ecs(region: args[:region], credentials: args[:credentials]).describe_clusters(clusters: names)
+              if descs and descs.clusters
+                descs.clusters.each { |c|
+                  found[c.cluster_name] = c
+                }
               end
             end while next_token
 
@@ -592,14 +572,12 @@ MU.log c.name, MU::NOTICE, details: t
             next_token = nil
             begin
               resp = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).list_clusters(next_token: next_token)
-              if resp and resp.clusters
-                resp.clusters.each { |c|
-                puts c
-                  desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: c)
-                  found[c] = desc.cluster if desc and desc.cluster
-                }
-                next_token = resp.next_token
-              end
+              break if !resp or !resp.clusters
+              resp.clusters.each { |c|
+                desc = MU::Cloud::AWS.eks(region: args[:region], credentials: args[:credentials]).describe_cluster(name: c)
+                found[c] = desc.cluster if desc and desc.cluster
+              }
+              next_token = resp.next_token
             rescue Aws::EKS::Errors::AccessDeniedException
               # not all regions support EKS
             end while next_token
@@ -1575,7 +1553,7 @@ MU.log c.name, MU::NOTICE, details: t
             check.fargate_profile.status == "DELETING"
           }
 
-          MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 30, max: 40, loop_if: loop_if) { |_retries, _wait|
+          MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 30, max: 40, loop_if: loop_if) {
             if check.fargate_profile.status != "DELETING"
               break
             elsif retries > 0 and (retries % 3) == 0
@@ -1691,6 +1669,29 @@ MU.log c.name, MU::NOTICE, details: t
             MU.log "Creation of EKS Fargate profile #{profname} complete"
           }
         end
+
+        def self.remove_kubernetes_tags(cluster, desc)
+          untag = []
+          untag << desc.resources_vpc_config.vpc_id
+          subnets = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_subnets(
+            filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
+          ).subnets
+
+          # subnets
+          untag.concat(subnets.map { |s| s.subnet_id } )
+          rtbs = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_route_tables(
+            filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
+          ).route_tables
+          untag.concat(rtbs.map { |r| r.route_table_id } )
+          untag.concat(desc.resources_vpc_config.subnet_ids)
+          untag.concat(desc.resources_vpc_config.security_group_ids)
+          MU.log "Removing Kubernetes tags from VPC resources for #{cluster}", details: untag
+          if !noop
+            MU::Cloud::AWS.removeTag("kubernetes.io/cluster/#{cluster}", "shared", untag)
+            MU::Cloud::AWS.removeTag("kubernetes.io/cluster/elb", cluster, untag)
+          end
+        end
+        private_class_method :remove_kubernetes_tags
 
         def apply_kubernetes_tags
           tagme = [@vpc.cloud_id]
@@ -1988,7 +1989,7 @@ MU.log c.name, MU::NOTICE, details: t
             }
           end
 
-          if !ext_services.include?(service_name)
+          if !existing_svcs.include?(service_name)
             MU.log "Creating Service #{service_name}"
 
             resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)

@@ -1194,15 +1194,17 @@ module MU
           ifaces.each { |iface|
             if iface.vpc_id
               default_sg = MU::Cloud::AWS::VPC.getDefaultSg(iface.vpc_id, region: region, credentials: credentials)
-              if default_sg and (iface.groups.size > 1 or iface.groups.first.group_id != default_sg)
+              if default_sg and (iface.groups.size > 1 or (iface.groups.size == 1 and iface.groups.first.group_id != default_sg))
                 MU.log "Removing extra security groups from ENI #{iface.network_interface_id}"
-                begin
-                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
-                    network_interface_id: iface.network_interface_id,
-                    groups: [default_sg]
-                  )
-                rescue ::Aws::EC2::Errors::AuthFailure
-                  MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
+                if !noop
+                  begin
+                    MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
+                      network_interface_id: iface.network_interface_id,
+                      groups: [default_sg]
+                    )
+                  rescue ::Aws::EC2::Errors::AuthFailure
+                    MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
+                  end
                 end
               end
             end
@@ -1246,7 +1248,7 @@ module MU
         # @param region [String]
         # @param credentials [String]
         # @return [String]
-        def getDefaultSg(vpc_id, region: MU.curRegion, credentials: nil)
+        def self.getDefaultSg(vpc_id, region: MU.curRegion, credentials: nil)
           default_sg_resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
             filters: [
               { name: "group-name", values: ["default"] },
