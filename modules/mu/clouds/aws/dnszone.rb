@@ -503,14 +503,14 @@ module MU
             if (delete and e.message.match(/but it was not found/)) or
                (!delete and e.message.match(/(it|name) already exists/))
               MU.log e.message, MU::DEBUG, details: params
-              break
+              return
             elsif e.class == Aws::Route53::Errors::InvalidChangeBatch
               raise MuError, "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}"
             end
           }
 
           change_id = nil
-          MU.retrier([Aws::Route53::Errors::PriorRequestNotComplete, Aws::Route53::Errors::InvalidChangeBatch], wait: 15, max: 10) {
+          MU.retrier([Aws::Route53::Errors::PriorRequestNotComplete, Aws::Route53::Errors::InvalidChangeBatch], wait: 15, max: 10, on_retry: on_retry) {
             change_id = MU::Cloud::AWS.route53.change_resource_record_sets(params).change_info.id
           }
 

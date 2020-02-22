@@ -261,7 +261,6 @@ module MU
 
           subnets.each { |subnet|
             on_retry = Proc.new {
-              puts noop.to_s+" "+subnet.subnet_id+" "+region+" "+credentials
               MU::Cloud::AWS::VPC.purge_interfaces(noop, [{name: "subnet-id", values: [subnet.subnet_id]}], region: region, credentials: credentials)
             }
 

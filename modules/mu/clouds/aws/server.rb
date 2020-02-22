@@ -2117,193 +2117,98 @@ module MU
           }
         end
 
+        def self.getAddresses(instance = nil, id: nil, region: MU.curRegion, credentials: nil)
+          return nil if !instance and !id
+
+          instance ||= find(cloud_id: id, region: region, credentials: credentials).values.first
+          return if !instance
+
+          ips = []
+          names = []
+          instance.network_interfaces.each { |iface|
+            iface.private_ip_addresses.each { |ip|
+              ips << ip.private_ip_address
+              names << ip.private_dns_name
+              if ip.association
+                ips << ip.association.public_ip
+                names << ip.association.public_dns_name
+              end
+            }
+          }
+
+          [ips, names]
+        end
+
         # Terminate an instance.
         # @param instance [OpenStruct]: The cloud provider's description of the instance.
         # @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.terminateInstance(instance: nil, noop: false, id: nil, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, credentials: nil)
-          ips = Array.new
-          if !instance
-            if id
-              begin
-                resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [id])
-              rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
-                MU.log "Instance #{id} no longer exists", MU::WARN
-              end
-              if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-                instance = resp.reservations.first.instances.first
-                ips << instance.public_ip_address if !instance.public_ip_address.nil?
-                ips << instance.private_ip_address if !instance.private_ip_address.nil?
-              end
-            else
-              MU.log "You must supply an instance handle or id to terminateInstance", MU::ERR
-            end
-          else
-            id = instance.instance_id
+          if !id and !instance
+            MU.log "You must supply an instance handle or id to terminateInstance", MU::ERR
+            return
           end
-          if !MU.deploy_id.empty?
-            deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+MU.deploy_id)
-            if Dir.exist?(deploy_dir) and !noop
-              FileUtils.touch("#{deploy_dir}/.cleanup-"+id)
-            end
-          end
+          instance ||= find(cloud_id: id, region: region, credentials: credentials).values.first
+          return if !instance
+
+          id ||= instance.instance_id
+          MU::MommaCat.lock(".cleanup-"+id)
+
+          ips, names = getAddresses(instance, region: region, credentials: credentials)
+          targets = ips +names
 
           server_obj = MU::MommaCat.findStray(
-              "AWS",
-              "servers",
-              region: region,
-              deploy_id: deploy_id,
-              cloud_id: id,
-              mu_name: mu_name
+            "AWS",
+            "servers",
+            region: region,
+            deploy_id: deploy_id,
+            cloud_id: id,
+            mu_name: mu_name,
+            dummy_ok: true
           ).first
 
-          begin
-            MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [id])
-          rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
-            MU.log "Instance #{id} no longer exists", MU::DEBUG
-          end
-
-          if !server_obj.nil? and MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
-            # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
-            cleaned_dns = false
-            mu_name = server_obj.mu_name
-            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: credentials).values.first
-            if !mu_zone.nil?
-              zone_rrsets = []
-              rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: mu_zone.id)
-              rrsets.resource_record_sets.each{ |record|
-                zone_rrsets << record
-              }
-
-            # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
-              while rrsets.next_record_name && rrsets.next_record_type
-                rrsets = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
-                rrsets.resource_record_sets.each{ |record|
-                  zone_rrsets << record
-                }
-              end
-            end
-            if !onlycloud and !mu_name.nil?
-              # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
-              if !zone_rrsets.nil? and !zone_rrsets.empty?
-                zone_rrsets.each { |rrset|
-                  if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
-                    rrset.resource_records.each { |record|
-                      MU::Cloud::DNSZone.genericMuDNSEntry(name: mu_name, target: record.value, cloudclass: MU::Cloud::Server, delete: true)
-                      cleaned_dns = true
-                    }
-                  end
-                }
-              end
-
-							if !noop
-                if !server_obj.nil? and !server_obj.config.nil?
-			            MU.mommacat.notify(MU::Cloud::Server.cfg_plural, server_obj.config['name'], {}, mu_name: server_obj.mu_name, remove: true) if MU.mommacat
-								end
-							end
-
-              # If we didn't manage to find this instance's Route53 entry by sifting
-              # deployment metadata, see if we can get it with the Name tag.
-              if !mu_zone.nil? and !cleaned_dns and !instance.nil?
-                instance.tags.each { |tag|
-                  if tag.key == "Name"
-                    zone_rrsets.each { |rrset|
-                      if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
-                        rrset.resource_records.each { |record|
-                          MU::Cloud::DNSZone.genericMuDNSEntry(name: tag.value, target: record.value, cloudclass: MU::Cloud::Server, delete: true) if !noop
-                        }
-                      end
-                    }
-                  end
-                }
-              end
-            end
-          end
-
-          if ips.size > 0 and !onlycloud
-            known_hosts_files = [Etc.getpwuid(Process.uid).dir+"/.ssh/known_hosts"]
-            if Etc.getpwuid(Process.uid).name == "root" and !MU.inGem?
-              begin
-                known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
-              rescue ArgumentError
-                # we're in a non-nagios environment and that's ok
-              end
-            end
-            known_hosts_files.each { |known_hosts|
-              next if !File.exist?(known_hosts)
-              MU.log "Cleaning up #{ips} from #{known_hosts}"
-              if !noop
-                File.open(known_hosts, File::CREAT|File::RDWR, 0644) { |f|
-                  f.flock(File::LOCK_EX)
-                  newlines = Array.new
-                  f.readlines.each { |line|
-                    ip_match = false
-                    ips.each { |ip|
-                      if line.match(/(^|,| )#{ip}( |,)/)
-                        MU.log "Expunging #{ip} from #{known_hosts}"
-                        ip_match = true
-                      end
-                    }
-                    newlines << line if !ip_match
-                  }
-                  f.rewind
-                  f.truncate(0)
-                  f.puts(newlines)
-                  f.flush
-                  f.flock(File::LOCK_UN)
-                }
-              end
+          if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
+            targets.each { |target|
+              MU::Cloud::DNSZone.genericMuDNSEntry(name: server_obj.mu_name, target: target, cloudclass: MU::Cloud::Server, delete: true, noop: noop)
             }
           end
 
-          return if instance.nil?
+          if targets.size > 0 and !onlycloud
+            MU::Master.removeInstanceFromEtcHosts(server_obj.mu_name) if !noop
+            targets.each { |target|
+              next if !target.match(/^\d+\.\d+\.\d+\.\d+$/)
+              MU::Master.removeIPFromSSHKnownHosts(target, noop: noop)
+            }
+          end
 
-          name = ""
-          instance.tags.each { |tag|
-            name = tag.value if tag.key == "Name"
+          on_retry = Proc.new {
+            if instance.state.name == "terminated"
+              MU.log "#{instance.instance_id} (#{server_obj.mu_name}) has already been terminated, skipping"
+              return
+            end
           }
 
-          if instance.state.name == "terminated"
-            MU.log "#{instance.instance_id} (#{name}) has already been terminated, skipping"
-          else
-            if instance.state.name == "terminating"
-              MU.log "#{instance.instance_id} (#{name}) already terminating, waiting"
-            elsif instance.state.name != "running" and instance.state.name != "pending" and instance.state.name != "stopping" and instance.state.name != "stopped"
-              MU.log "#{instance.instance_id} (#{name}) is in state #{instance.state.name}, waiting"
-            else
-              MU.log "Terminating #{instance.instance_id} (#{name}) #{noop}"
-              if !noop
-                begin
-                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_instance_attribute(
-                      instance_id: instance.instance_id,
-                      disable_api_termination: {value: false}
-                  )
-                  MU::Cloud::AWS.ec2(credentials: credentials, region: region).terminate_instances(instance_ids: [instance.instance_id])
-                    # Small race window here with the state changing from under us
-                rescue Aws::EC2::Errors::IncorrectInstanceState => e
-                  resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [id])
-                  if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-                    instance = resp.reservations.first.instances.first
-                    if !instance.nil? and instance.state.name != "terminated" and instance.state.name != "terminating"
-                      sleep 5
-                      retry
-                    end
-                  end
-                rescue Aws::EC2::Errors::InternalError => e
-                  MU.log "Error #{e.inspect} while Terminating instance #{instance.instance_id} (#{name}), retrying", MU::WARN, details: e.inspect
-                  sleep 5
-                  retry
-                end
-              end
-            end
-            while instance.state.name != "terminated" and !noop
-              sleep 30
-              instance_response = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id])
-              instance = instance_response.reservations.first.instances.first
-            end
-            MU.log "#{instance.instance_id} (#{name}) terminated" if !noop
+          loop_if = Proc.new {
+            instance_response = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id])
+            instance = instance_response.reservations.first.instances.first
+            instance.state.name != "terminated"
+          }
+
+          MU.log "Terminating #{instance.instance_id} (#{server_obj.mu_name})"
+          if !noop
+            MU.retrier([Aws::EC2::Errors::IncorrectInstanceState, Aws::EC2::Errors::InternalError], wait: 30, max: 60, loop_if: loop_if, on_retry: on_retry) {
+              MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_instance_attribute(
+                instance_id: instance.instance_id,
+                disable_api_termination: {value: false}
+              )
+              MU::Cloud::AWS.ec2(credentials: credentials, region: region).terminate_instances(instance_ids: [instance.instance_id])
+            }
           end
+
+          MU.log "#{instance.instance_id} (#{server_obj.mu_name}) terminated" if !noop
+          MU::MommaCat.unlock(".cleanup-"+id)
+
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this

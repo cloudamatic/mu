@@ -976,8 +976,15 @@ module MU
                         nil
                       elsif !mu_name.nil?
                         mu_name
+                      # AWS-style tags
+                      elsif descriptor.respond_to?(:tags) and
+                            descriptor.tags.is_a?(Array) and
+                            descriptor.tags.first.respond_to?(:key) and
+                            descriptor.tags.map { |t| t.key }.include?("Name")
+                        descriptor.tags.select { |t| t.key == "Name" }.first.value
                       else
                         try = nil
+                        # Various GCP fields
                         [:display_name, :name, (resourceclass.cfg_name+"_name").to_sym].each { |field|
                           if descriptor.respond_to?(field) and descriptor.send(field).is_a?(String)
                             try = descriptor.send(field)
