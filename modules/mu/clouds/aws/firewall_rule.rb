@@ -461,7 +461,7 @@ module MU
         end
 
         def self.revoke_rules(sg, egress: false, region: MU.myregion, credentials: nil)
-          holes = sg.call(egress ? :ip_permission_egress : :ip_permissions)
+          holes = sg.send(egress ? :ip_permissions_egress : :ip_permissions)
 
           to_revoke = []
 

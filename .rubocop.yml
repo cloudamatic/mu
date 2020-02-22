@@ -30,7 +30,7 @@ Metrics/BlockNesting:
 # Default of 5 is reasonable, but we have some longer cases that are also
 # reasonable
 Metrics/ParameterLists:
-  Max: 6
+  Enabled: false
 
 # The alternative code doesn't seem to work
 Lint/UriEscapeUnescape:
