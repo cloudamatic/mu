@@ -490,7 +490,7 @@ module MU
         # Unless we're planning on associating a different IP later, set up a
         # DNS entry for this thing and let it sync in the background. We'll come
         # back to it later.
-        if @config['static_ip'].nil? && !@named
+        if @config['static_ip'].nil? and !@named
           MU::MommaCat.nameKitten(self)
           @named = true
         end
@@ -507,7 +507,7 @@ module MU
         # by default.
         MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
           instance_id: @cloud_id,
-          disable_api_termination: {:value => true}
+          disable_api_termination: { value: true}
         )
 
         tagVolumes
@@ -518,50 +518,7 @@ module MU
           notify
         end
 
-        MU.log "EC2 instance #{@mu_name} has id #{@cloud_id}", MU::DEBUG
-
-        if (@config['groom'].nil? or @config['groom']) and !@groomer.haveBootstrapped?
-          MU.retrier([BootstrapTempFail], wait: 45) {
-            if windows? 
-              # kick off certificate generation early; WinRM will need it
-              @deploy.nodeSSLCerts(self)
-              @deploy.nodeSSLCerts(self, true) if @config.has_key?("basis")
-              session = getWinRMSession(50, 60, reboot_on_problems: true)
-              initialWinRMTasks(session)
-              begin
-                session.close
-              rescue StandardError
-                # session.close is allowed to fail- we're probably rebooting
-              end
-            else
-              session = getSSHSession(40, 30)
-              initialSSHTasks(session)
-            end
-          }
-        end
-
-        # See if this node already exists in our config management. If it
-        # does, we're done.
-
-        if MU.inGem?
-          MU.log "Deploying from a gem, not grooming"
-
-          finish.call(true)
-        elsif @config['groom'].nil? or @config['groom']
-
-          if @groomer.haveBootstrapped?
-            MU.log "Node #{@mu_name} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
-          else
-            begin
-              @groomer.bootstrap
-            rescue MU::Groomer::RunError
-              finish.call(false)
-            end
-          end
-
-          @groomer.saveDeployData
-        end
-
+        bootstrapGroomer
 
         # Make sure we got our name written everywhere applicable
         if !@named
@@ -570,137 +527,75 @@ module MU
         end
 
         finish.call(true)
-      end
-
-      # postBoot
+      end #postboot 
 
       # Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
       # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
       def self.find(**args)
         ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
 
-        if !args[:region].nil?
-          regions = [args[:region]]
-        else
-          regions = MU::Cloud::AWS.listRegions
-        end
+        regions = args[:region].nil? ? MU::Cloud::AWS.listRegions : [[args[:region]]]
 
         found = {}
         search_semaphore = Mutex.new
         search_threads = []
 
-        if !ip and !args[:cloud_id] and !args[:tag_value]
-          regions.each { |r|
-            search_threads << Thread.new {
-              MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(
-                filters: [
-                  {
-                    name: "instance-state-name",
-                    values: ["running", "pending", "stopped"]
-                  }
-                ]
-              ).reservations.each { |resp|
-                if !resp.nil? and !resp.instances.nil?
+        base_filter = { name: "instance-state-name", values: ["running", "pending", "stopped"] }
+        searches = []
+
+        if args[:cloud_id]
+          searches << {
+            :instance_ids => [args[:cloud_id]],
+            :filters => [base_filter]
+          }
+        end
+
+        if ip
+          ["ip-address", "private-ip-address"].each { |ip_type|
+            searches << {
+              filters: [base_filter,  {name: ip_type, values: [ip]} ],
+            }
+          }
+        end
+
+        if args[:tag_value] and args[:tag_key]
+          searches << {
+            filters: [
+              base_filter,
+              {name: ip_type, values: [ip]},
+              {name: "tag:#{args[:tag_key]}", values: [args[:tag_value]]},
+            ]
+          }
+        end
+
+        if searches.empty?
+          searches << { filters: [base_filter] }
+        end
+
+        regions.each { |r|
+          searches.each { |search|
+            search_threads << Thread.new(search) { |params|
+
+              MU.retrier([Aws::EC2::Errors::InvalidInstanceIDNotFound], wait: 5, max: 5) {
+                MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(params).reservations.each { |resp|
+                  next if resp.nil? or resp.instances.nil?
                   resp.instances.each { |i|
                     search_semaphore.synchronize {
                       found[i.instance_id] = i
                     }
                   }
-                end
+                }
               }
             }
           }
-
+        }
+        done_threads = []
+        begin
           search_threads.each { |t|
-            t.join
+            joined = t.join(2)
+            done_threads << joined if !joined.nil?
           }
-
-          return found
-        end
-
-        # If we got an instance id, go get it
-        if args[:cloud_id]
-          regions.each { |r|
-            search_threads << Thread.new {
-              MU.log "Hunting for instance with cloud id '#{args[:cloud_id]}' in #{r}", MU::DEBUG
-              retries = 0
-              begin
-                MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(
-                  instance_ids: [args[:cloud_id]],
-                  filters: [
-                    {
-                      name: "instance-state-name",
-                      values: ["running", "pending", "stopped"]
-                    }
-                  ]
-                ).reservations.each { |resp|
-                  if !resp.nil? and !resp.instances.nil?
-                    resp.instances.each { |i|
-                      search_semaphore.synchronize {
-                        found[i.instance_id] = i
-                      }
-                    }
-                  end
-                }
-              rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-                retries += 1
-                if retries <= 5
-                  sleep 5
-                else
-                  raise MuError, "#{e.inspect} in region #{r}"
-                end
-              end
-            }
-          }
-          done_threads = []
-          begin
-            search_threads.each { |t|
-              joined = t.join(2)
-              done_threads << joined if !joined.nil?
-            }
-          end while found.size < 1 and done_threads.size != search_threads.size
-        end
-
-        return found if found.size > 0
-
-        # Ok, well, let's try looking it up by IP then
-        if !ip.nil?
-          MU.log "Hunting for instance by IP '#{ip}'", MU::DEBUG
-          ["ip-address", "private-ip-address"].each { |filter|
-            regions.each { |r|
-              response = MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(
-                filters: [
-                  {name: filter, values: [ip]},
-                  {name: "instance-state-name", values: ["running", "pending", "stopped"]}
-                ]
-              ).reservations.first
-              response.instances.each { |i|
-                found[i.instance_id] = i
-              }
-            }
-          }
-        end
-
-        return found if found.size > 0
-
-        # Fine, let's try it by tag.
-        if args[:tag_value]
-          MU.log "Searching for instance by tag '#{args[:tag_key]}=#{args[:tag_value]}'", MU::DEBUG
-          regions.each { |r|
-            MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(
-              filters: [
-                {name: "tag:#{args[:tag_key]}", values: [args[:tag_value]]},
-                {name: "instance-state-name", values: ["running", "pending", "stopped"]}
-              ]
-            ).reservations.each { |resp|
-              if !resp.nil? and resp.instances.size > 0
-                resp.instances.each { |i|
-                  found[i.instance_id] = i
-                }
-              end
-            }
-          }
-        end
+        end while found.size < 1 and done_threads.size != search_threads.size
 
         return found
       end
@@ -2101,6 +1996,46 @@ module MU
         end
 
         private
+
+        def bootstrapGroomer
+          if (@config['groom'].nil? or @config['groom']) and !@groomer.haveBootstrapped?
+            MU.retrier([BootstrapTempFail], wait: 45) {
+              if windows? 
+                # kick off certificate generation early; WinRM will need it
+                @deploy.nodeSSLCerts(self)
+                @deploy.nodeSSLCerts(self, true) if @config.has_key?("basis")
+                session = getWinRMSession(50, 60, reboot_on_problems: true)
+                initialWinRMTasks(session)
+                begin
+                  session.close
+                rescue StandardError
+                  # session.close is allowed to fail- we're probably rebooting
+                end
+              else
+                session = getSSHSession(40, 30)
+                initialSSHTasks(session)
+              end
+            }
+          end
+
+          # See if this node already exists in our config management. If it
+          # does, we're done.
+
+          if MU.inGem?
+            MU.log "Deploying from a gem, not grooming"
+          elsif @config['groom'].nil? or @config['groom']
+            if @groomer.haveBootstrapped?
+              MU.log "Node #{@mu_name} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
+            else
+              begin
+                @groomer.bootstrap
+              rescue MU::Groomer::RunError
+                finish.call(false)
+              end
+            end
+            @groomer.saveDeployData
+          end
+        end
 
         def saveCredentials
           win_admin_password = nil

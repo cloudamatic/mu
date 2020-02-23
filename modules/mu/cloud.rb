@@ -1606,6 +1606,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                 end
               end
             }
+          end
 
           return [@dependencies, @vpc, @loadbalancers]
         end
@@ -1628,9 +1629,9 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             @config["vpc"]["subnets"].uniq!
           end
 
-          if !@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty? and
-             (!@config["vpc"]["subnet_id"] or
-            return @vpc.subnets if !@config["vpc"]["subnets"]
+          if (!@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty?) and
+             !@config["vpc"]["subnet_id"]
+            return @vpc.subnets
           end
 
           subnets = []
