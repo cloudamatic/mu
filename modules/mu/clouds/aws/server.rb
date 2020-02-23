@@ -262,8 +262,6 @@ module MU
         return @config
       end
 
-
-
       # Create an Amazon EC2 instance.
       def createEc2Instance
         node = @config['mu_name']
@@ -383,34 +381,24 @@ module MU
           }]
         end
 
-        MU.log "Creating EC2 instance #{node}"
-        MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
+        MU.log "Creating EC2 instance #{node}", details: instance_descriptor
 #				if instance_descriptor[:block_device_mappings].empty?
 #					instance_descriptor.delete(:block_device_mappings)
 #				end
 
-        retries = 0
-        instance = begin
-          response = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
-          if response and response.instances and response.instances.size > 0
-            response.instances.first
-          else
-            MU.log "Got a confusing response from run_instances", MU::ERR, details: response
-          end
+        instance = resp = nil
+        loop_if = Proc.new {
+          instance = resp.instances.first if resp and resp.instances
+          instance
+        }
+
+        begin
+          MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if) {
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+          }
         rescue Aws::EC2::Errors::InvalidRequest => e
           MU.log e.message, MU::ERR, details: instance_descriptor
           raise e
-        rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
-          if retries < 10
-            if retries > 7
-              MU.log "Seeing #{e.inspect} while trying to launch #{node}, retrying a few more times...", MU::WARN, details: instance_descriptor
-            end
-            sleep 10
-            retries = retries + 1
-            retry
-          else
-            raise MuError, e.inspect
-          end
         end
 
         MU.log "#{node} (#{instance.instance_id}) coming online"
@@ -1345,11 +1333,6 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           MU::MommaCat.lock(@cloud_id+"-groom")
-          node, _config, deploydata = describe(cloud_id: @cloud_id)
-
-          if node.nil? or node.empty?
-            raise MuError, "MU::Cloud::AWS::Server.groom was called without a mu_name"
-          end
 
           # Make double sure we don't lose a cached mu_windows_name value.
           if windows? or !@config['active_directory'].nil?
@@ -1399,45 +1382,7 @@ module MU
           end
 
           if !@config['create_image'].nil? and !@config['image_created']
-            img_cfg = @config['create_image']
-            # Scrub things that don't belong on an AMI
-            session = getSSHSession
-            sudo = purgecmd = ""
-            sudo = "sudo" if @config['ssh_user'] != "root"
-            if windows?
-              purgecmd = "rm -rf /cygdrive/c/mu_installed_chef"
-            else
-              purgecmd = "rm -rf /opt/mu_installed_chef"
-            end
-            if img_cfg['image_then_destroy']
-              if windows?
-                purgecmd = "rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates /cygdrive/c/mu_installed_chef"
-                # session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
-              else
-                purgecmd = "#{sudo} rm -rf /var/lib/cloud/instances/i-* /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
-              end
-            end
-            session.exec!(purgecmd)
-            session.close
-            ami_ids = MU::Cloud::AWS::Server.createImage(
-                name: @mu_name,
-                instance_id: @cloud_id,
-                storage: @config['storage'],
-                exclude_storage: img_cfg['image_exclude_storage'],
-                copy_to_regions: img_cfg['copy_to_regions'],
-                make_public: img_cfg['public'],
-                region: @config['region'],
-                tags: @config['tags'],
-                credentials: @config['credentials']
-            )
-            @deploy.notify("images", @config['name'], ami_ids)
-            @config['image_created'] = true
-            if img_cfg['image_then_destroy']
-              MU::Cloud::AWS::Server.waitForAMI(ami_ids[@config['region']], region: @config['region'], credentials: @config['credentials'])
-              MU.log "AMI #{ami_ids[@config['region']]} ready, removing source node #{node}"
-              MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
-              destroy
-            end
+            createImage
           end
 
           MU::MommaCat.unlock(@cloud_id+"-groom")
@@ -1821,60 +1766,37 @@ module MU
         # @param type [String]: Cloud storage type of the volume, if applicable
         # @param delete_on_termination [Boolean]: Value of delete_on_termination flag to set
         def addVolume(dev, size, type: "gp2", delete_on_termination: false)
-          if @cloud_id.nil? or @cloud_id.empty?
-            MU.log "#{self} didn't have a cloud id, couldn't determine 'active?' status", MU::ERR
-            return true
+
+          if setDeleteOntermination(dev, delete_on_termination)
+            MU.log "A volume #{device} already attached to #{self}, skipping", MU::NOTICE
+            return
           end
-          az = nil
-          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(
-            instance_ids: [@cloud_id]
-          ).reservations.each { |resp|
-            if !resp.nil? and !resp.instances.nil?
-              resp.instances.each { |instance|
-                az = instance.placement.availability_zone
-                mappings = MU.structToHash(instance.block_device_mappings)
-                mappings.each { |vol|
-                  if vol[:ebs]
-                    vol[:ebs].delete(:attach_time)
-                    vol[:ebs].delete(:status)
-                  end
-                }
-                mappings.each { |vol|
-                  if vol[:device_name] == dev
-                    MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
-                    if vol[:ebs][:delete_on_termination] != delete_on_termination
-                      vol[:ebs][:delete_on_termination] = delete_on_termination
-                      MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
-                      MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
-                        instance_id: @cloud_id,
-                        block_device_mappings: mappings
-                      )
-                    end
-                    return
-                  end
-                }
-              }
-            end
-          }
+
           MU.log "Creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
           creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_volume(
-            availability_zone: az,
+            availability_zone: cloud_desc.placement.availability_zone,
             size: size,
             volume_type: type
           )
-          begin
-            sleep 3
+
+          MU.retrier(wait: 3, loop_if: Proc.new {
             creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
             if !["creating", "available"].include?(creation.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
-          end while creation.state != "available"
+            creation.state != "available"
+          })
+
 
           if @deploy
-            MU::MommaCat.listStandardTags.each_pair { |key, value|
-              MU::Cloud::AWS.createTag(creation.volume_id, key, value, region: @config['region'], credentials: @config['credentials'])
-            }
-            MU::Cloud::AWS.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS.createStandardTags(
+              resource_id,
+              region: @config['region'],
+              credentials: @config['credentials'],
+              optional: @config['optional_tags'],
+              nametag: @mu_name+"-"+dev.upcase,
+              othertags: @config['tags']
+            )
           end
 
           attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_volume(
@@ -1893,29 +1815,7 @@ module MU
 
           # Set delete_on_termination, which for some reason is an instance
           # attribute and not on the attachment
-          mappings = MU.structToHash(cloud_desc.block_device_mappings)
-          changed = false
-
-          mappings.each { |mapping|
-            if mapping[:ebs]
-              mapping[:ebs].delete(:attach_time)
-              mapping[:ebs].delete(:status)
-            end
-            if mapping[:device_name] == dev and 
-               mapping[:ebs][:delete_on_termination] != delete_on_termination
-              changed = true
-              mapping[:ebs][:delete_on_termination] = delete_on_termination
-            end
-          }
-
-          if changed
-            MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
-              instance_id: @cloud_id,
-              block_device_mappings: mappings
-            )
-          end
-
+          setDeleteOntermination(dev, delete_on_termination)
         end
 
         # Determine whether the node in question exists at the Cloud provider
@@ -1988,52 +1888,42 @@ module MU
             @eips_used << elastic_ip.public_ip
             MU.log "Associating Elastic IP #{elastic_ip.public_ip} with #{instance_id}", details: elastic_ip
           }
-          attempts = 0
-          begin
-            if classic
-              resp = MU::Cloud::AWS.ec2(region: region).associate_address(
-                  instance_id: instance_id,
-                  public_ip: elastic_ip.public_ip
-              )
-            else
-              resp = MU::Cloud::AWS.ec2(region: region).associate_address(
-                  instance_id: instance_id,
-                  allocation_id: elastic_ip.allocation_id,
-                  allow_reassociation: false
-              )
-            end
-          rescue Aws::EC2::Errors::IncorrectInstanceState => e
-            attempts = attempts + 1
-            if attempts < 6
-              MU.log "Got #{e.message} associating #{elastic_ip.allocation_id} with #{instance_id}, retrying", MU::WARN
-              sleep 5
-              retry
-            end
-            raise MuError "#{e.message} associating #{elastic_ip.allocation_id} with #{instance_id}"
-          rescue Aws::EC2::Errors::ResourceAlreadyAssociated => e
-            # A previous association attempt may have succeeded, albeit slowly.
-            resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(
-                allocation_ids: [elastic_ip.allocation_id]
-            )
-            first_addr = resp.addresses.first
-            if !first_addr.nil? and first_addr.instance_id == instance_id
-              MU.log "#{elastic_ip.public_ip} already associated with #{instance_id}", MU::WARN
-            else
-              MU.log "#{elastic_ip.public_ip} shows as already associated!", MU::ERR, details: resp
-              raise MuError, "#{elastic_ip.public_ip} shows as already associated with #{first_addr.instance_id}!"
-            end
-          end
 
-          instance = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
-          waited = false
-          if instance.public_ip_address != elastic_ip.public_ip
-            waited = true
-            begin
-              sleep 10
-              MU.log "Waiting for Elastic IP association of #{elastic_ip.public_ip} to #{instance_id} to take effect", MU::NOTICE
-              instance = MU::Cloud::AWS.ec2(region: region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
-            end while instance.public_ip_address != elastic_ip.public_ip
-          end
+          on_retry = Proc.new { |e|
+            if e.class == Aws::EC2::Errors::ResourceAlreadyAssociated
+              # A previous association attempt may have succeeded, albeit slowly.
+              resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(
+                allocation_ids: [elastic_ip.allocation_id]
+              )
+              first_addr = resp.addresses.first
+              if first_addr and first_addr.instance_id != instance_id
+                raise MuError, "Tried to associate #{elastic_ip.public_ip} with #{instance_id}, but it's already associated with #{first_addr.instance_id}!"
+              end
+            end
+          }
+
+          MU.retrier([Aws::EC2::Errors::IncorrectInstanceState, Aws::EC2::Errors::ResourceAlreadyAssociated], wait: 5, max: 6, on_retry: on_retry) {
+            if classic
+              MU::Cloud::AWS.ec2(region: region).associate_address(
+                instance_id: instance_id,
+                public_ip: elastic_ip.public_ip
+              )
+            else
+              MU::Cloud::AWS.ec2(region: region).associate_address(
+                instance_id: instance_id,
+                allocation_id: elastic_ip.allocation_id,
+                allow_reassociation: false
+              )
+            end
+          }
+
+          loop_if = Proc.new {
+            instance = find(cloud_id: instnace_id, region: region, credentials: credentials).values.first
+            instance.public_ip_address != elastic_ip.public_ip
+          }
+          MU.retrier(loop_if: loop_if, wait: 10, max: 3) {
+            MU.log "Waiting for Elastic IP association of #{elastic_ip.public_ip} to #{instance_id} to take effect", MU::NOTICE
+          }
 
           MU.log "Elastic IP #{elastic_ip.public_ip} now associated with #{instance_id}" if waited
 
@@ -2117,6 +2007,12 @@ module MU
           }
         end
 
+        # Return an instance's AWS-assigned IP addresses and hostnames.
+        # @param instance [OpenStruct]
+        # @param id [String]
+        # @param region [String]
+        # @param credentials [@String]
+        # @return [Array<Array>]
         def self.getAddresses(instance = nil, id: nil, region: MU.curRegion, credentials: nil)
           return nil if !instance and !id
 
@@ -2509,10 +2405,11 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_volumes(volume_ids: [volume.volume_id])
             volume = resp.data.volumes.first
           end
-          name = ""
+          name = nil
           volume.tags.each { |tag|
             name = tag.value if tag.key == "Name"
           }
+          name ||= volume.volume_id
 
           MU.log("Deleting volume #{volume.volume_id} (#{name})")
           if !noop
@@ -2535,31 +2432,84 @@ module MU
               end
             end
 
-            retries = 0
             begin
-              MU::Cloud::AWS.ec2(region: region, credentials: credentials).delete_volume(volume_id: volume.volume_id)
-            rescue Aws::EC2::Errors::IncorrectState => e
-              MU.log "Volume #{volume.volume_id} (#{name}) in incorrect state (#{e.message}), will retry", MU::WARN
-              sleep 30
-              retry
-            rescue Aws::EC2::Errors::InvalidVolumeNotFound
-              MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
+              MU.retrier([Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::VolumeInUse], ignoreme: [Aws::EC2::Errors::InvalidVolumeNotFound], wait: 30, max: 10){
+                MU::Cloud::AWS.ec2(region: region, credentials: credentials).delete_volume(volume_id: volume.volume_id)
+              }
             rescue Aws::EC2::Errors::VolumeInUse
-              if retries < 10
-                volume.attachments.each { |attachment|
-                  MU.log "#{volume.volume_id} is attached to #{attachment.instance_id} as #{attachment.device}", MU::NOTICE
-                }
-                MU.log "Volume '#{name}' is still attached, waiting...", MU::NOTICE
-                sleep 30
-                retries = retries + 1
-                retry
-              else
-                MU.log "Failed to delete #{name}", MU::ERR
-              end
+              MU.log "Failed to delete #{name}", MU::ERR
             end
+
           end
         end
         private_class_method :delete_volume
+
+        private
+
+        def setDeleteOntermination(device, delete_on_termination = false)
+          mappings = MU.structToHash(cloud_desc.block_device_mappings)
+          mappings.each { |vol|
+            if vol[:ebs]
+              vol[:ebs].delete(:attach_time)
+              vol[:ebs].delete(:status)
+            end
+            if vol[:device_name] == device
+              if vol[:ebs][:delete_on_termination] != delete_on_termination
+                vol[:ebs][:delete_on_termination] = delete_on_termination
+                MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+                  instance_id: @cloud_id,
+                  block_device_mappings: mappings
+                )
+              end
+              return true
+            end
+          }
+
+          false
+        end
+
+        def createImage
+          img_cfg = @config['create_image']
+          # Scrub things that don't belong on an AMI
+          session = getSSHSession
+          sudo = purgecmd = ""
+          sudo = "sudo" if @config['ssh_user'] != "root"
+          if windows?
+            purgecmd = "rm -rf /cygdrive/c/mu_installed_chef"
+          else
+            purgecmd = "rm -rf /opt/mu_installed_chef"
+          end
+          if img_cfg['image_then_destroy']
+            if windows?
+              purgecmd = "rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates /cygdrive/c/mu_installed_chef"
+              # session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
+            else
+              purgecmd = "#{sudo} rm -rf /var/lib/cloud/instances/i-* /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
+            end
+          end
+          session.exec!(purgecmd)
+          session.close
+          ami_ids = MU::Cloud::AWS::Server.createImage(
+              name: @mu_name,
+              instance_id: @cloud_id,
+              storage: @config['storage'],
+              exclude_storage: img_cfg['image_exclude_storage'],
+              copy_to_regions: img_cfg['copy_to_regions'],
+              make_public: img_cfg['public'],
+              region: @config['region'],
+              tags: @config['tags'],
+              credentials: @config['credentials']
+          )
+          @deploy.notify("images", @config['name'], ami_ids)
+          @config['image_created'] = true
+          if img_cfg['image_then_destroy']
+            MU::Cloud::AWS::Server.waitForAMI(ami_ids[@config['region']], region: @config['region'], credentials: @config['credentials'])
+            MU.log "AMI #{ami_ids[@config['region']]} ready, removing source node #{node}"
+            MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
+            destroy
+          end
+        end
 
       end #class
     end #class
