@@ -800,29 +800,6 @@ next if !create
 
 #          punchAdminNAT
 
-#          MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
-
-          # If we have a loadbalancer configured, attach us to it
-#          if !@config['loadbalancers'].nil?
-#            if @loadbalancers.nil?
-#              raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
-#            end
-#            @loadbalancers.each { |lb|
-#              lb.registerNode(@cloud_id)
-#            }
-#          end
-
-          # Let us into any databases we depend on.
-          # This is probelmtic with autscaling - old ips are not removed, and access to the database can easily be given at the BoK level
-          # if @dependencies.has_key?("database")
-            # @dependencies['database'].values.each { |db|
-              # db.allowHost(@deploydata["private_ip_address"]+"/32")
-              # if @deploydata["public_ip_address"]
-                # db.allowHost(@deploydata["public_ip_address"]+"/32")
-              # end
-            # }
-          # end
-
           @groomer.saveDeployData
 
           begin

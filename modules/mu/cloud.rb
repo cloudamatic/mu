@@ -1562,6 +1562,51 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             }
           end
 
+          # Munge in external resources referenced by the existing_deploys
+          # keyword
+          if @config["existing_deploys"] && !@config["existing_deploys"].empty?
+            @config["existing_deploys"].each { |ext_deploy|
+              if ext_deploy["cloud_id"]
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  cloud_id: ext_deploy["cloud_id"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+  
+                MU.log "Couldn't find existing resource #{ext_deploy["cloud_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: found.mu_name, triggering_node: @mu_name)
+              elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+                MU.log "#{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}"
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  deploy_id: ext_deploy["deploy_id"],
+                  mu_name: ext_deploy["mu_name"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+  
+                MU.log "Couldn't find existing resource #{ext_deploy["mu_name"]}/#{ext_deploy["deploy_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: ext_deploy["mu_name"], triggering_node: @mu_name)
+              else
+                MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              end
+            }
+          end
+
+          if @config['dns_records'] && !@config['dns_records'].empty?
+            @config['dns_records'].each { |dnsrec|
+              if dnsrec.has_key?("name")
+                if dnsrec['name'].start_with?(@deploy.deploy_id.downcase) && !dnsrec['name'].start_with?(@mu_name.downcase)
+                  MU.log "DNS records for #{@mu_name} seem to be wrong, deleting from current config", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              end
+            }
+
           return [@dependencies, @vpc, @loadbalancers]
         end
 
@@ -1574,7 +1619,17 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             return nil
           end
 
-          if !@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty?
+          if @config["vpc"]["subnet_id"] or @config["vpc"]["subnet_name"]
+            @config["vpc"]["subnets"] ||= []
+            subnet_block = {}
+            subnet_block["subnet_id"] = @config["vpc"]["subnet_id"] if @config["vpc"]["subnet_id"]
+            subnet_block["subnet_name"] = @config["vpc"]["subnet_name"] if @config["vpc"]["subnet_name"]
+            @config["vpc"]["subnets"] << subnet_block
+            @config["vpc"]["subnets"].uniq!
+          end
+
+          if !@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty? and
+             (!@config["vpc"]["subnet_id"] or
             return @vpc.subnets if !@config["vpc"]["subnets"]
           end
 
