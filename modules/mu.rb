@@ -306,14 +306,22 @@ module MU
   # @param on_retry [Proc]: Optional block of code to invoke during retries
   # @param always [Proc]: Optional block of code to invoke before returning or failing, a bit like +ensure+
   # @param loop_if [Proc]: Optional block of code to invoke which will cause our block to be rerun until true
-  def self.retrier(catchme = nil, wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil, loop_if: nil)
+  # @param loop_msg [String]: Message to display every third attempt
+  def self.retrier(catchme = nil, wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil, loop_if: nil, loop_msg: nil)
 
     loop_if ||= Proc.new { false }
 
     retries = 0
     begin
+      retries += 1
+      loglevel = ((retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
+      log_attempts = retries.to_s
+      log_attempts += (max > 0 ? "/"+max.to_s : "")
       yield(retries, wait) if block_given?
-      sleep wait if loop_if.call
+      if loop_if.call
+        MU.log loop_msg, loglevel, details: log_attempts if loop_msg
+        sleep wait
+      end
     rescue StandardError => e
       if catchme and catchme.include?(e.class)
         if max > 0 and retries >= max
@@ -321,20 +329,15 @@ module MU
           raise e
         end
 
-        retries += 1
-        loglevel = ((retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
-        logmsg = e.message+" (attempt "+retries.to_s
-        logmsg += (max > 0 ? "/"+max.to_s : "") + ")"
-
         if on_retry and on_retry.is_a?(Proc)
           on_retry.call(e)
         end
 
         if retries == max-1
-          MU.log logmsg, MU::WARN, details: caller
+          MU.log e.message, MU::WARN, details: caller
           sleep wait # wait extra on the final attempt
         else
-          MU.log logmsg, loglevel
+          MU.log e.message, loglevel, details: log_attempts
         end
 
         sleep wait

@@ -282,7 +282,7 @@ module MU
 
         instance_descriptor[:iam_instance_profile] = getIAMProfile
 
-        security_groups = myFirewallRules
+        security_groups = myFirewallRules.map { |fw| fw.cloud_id }
         if security_groups.size > 0
           instance_descriptor[:security_group_ids] = security_groups
         else
@@ -327,11 +327,11 @@ module MU
         instance = resp = nil
         loop_if = Proc.new {
           instance = resp.instances.first if resp and resp.instances
-          instance
+          resp.nil? or resp.instances.nil? or instance.nil?
         }
 
         begin
-          MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if) {
+          MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if, loop_msg: "Waiting for run_instances to return #{@mu_name}") {
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
           }
         rescue Aws::EC2::Errors::InvalidRequest => e
@@ -447,7 +447,7 @@ module MU
         node, _config, deploydata = describe(cloud_id: @cloud_id)
         @mu_name ||= node
 
-        raise MuError, "Couldn't find instance #{@mu_name} (#{@cloud_id})" if !instance
+        raise MuError, "Couldn't find instance #{@mu_name} (#{@cloud_id})" if !cloud_desc
         return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
         return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
         finish = Proc.new { |status|
@@ -533,7 +533,7 @@ module MU
       def self.find(**args)
         ip ||= args[:flags]['ip'] if args[:flags] and args[:flags]['ip']
 
-        regions = args[:region].nil? ? MU::Cloud::AWS.listRegions : [[args[:region]]]
+        regions = args[:region].nil? ? MU::Cloud::AWS.listRegions : [args[:region]]
 
         found = {}
         search_semaphore = Mutex.new
@@ -1585,15 +1585,16 @@ module MU
           end
 
           on_retry = Proc.new {
+            instance = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id]).reservations.first.instances.first
             if instance.state.name == "terminated"
               MU.log "#{instance.instance_id} (#{server_obj.mu_name}) has already been terminated, skipping"
+              MU::MommaCat.unlock(".cleanup-"+id)
               return
             end
           }
 
           loop_if = Proc.new {
-            instance_response = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id])
-            instance = instance_response.reservations.first.instances.first
+            instance = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id]).reservations.first.instances.first
             instance.state.name != "terminated"
           }
 
@@ -2143,7 +2144,7 @@ module MU
 
                 MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_network_interface(
                   network_interface_id: iface.network_interface_id,
-                  instance_id: instance.instance_id,
+                  instance_id: cloud_desc.instance_id,
                   device_index: device_index
                 )
                 device_index = device_index + 1

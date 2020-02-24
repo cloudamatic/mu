@@ -1637,7 +1637,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           subnets = []
           @config["vpc"]["subnets"].each { |subnet|
             subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-            raise MuError, "Couldn't find a live subnet for #{self.to_s} matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+            raise MuError, "Couldn't find a live subnet for #{self.to_s} matching #{subnet} in #{@vpc.to_s} (#{@vpc.subnets.map { |s| s.name }.join(",")})" if subnet_obj.nil?
             subnets << subnet_obj
           }
 
