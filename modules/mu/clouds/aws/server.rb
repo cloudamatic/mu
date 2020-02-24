@@ -270,10 +270,9 @@ module MU
 
       # Create an Amazon EC2 instance.
       def createEc2Instance
-        node = @config['mu_name']
 
         instance_descriptor = {
-          :image_id => @config["ami_id"],
+          :image_id => @config["image_id"],
           :key_name => @deploy.ssh_key_name,
           :instance_type => @config["size"],
           :disable_api_termination => true,
@@ -299,7 +298,7 @@ module MU
           if subnet.nil?
             raise MuError, "Got null subnet id out of #{@config['vpc']}"
           end
-          MU.log "Deploying #{node} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
+          MU.log "Deploying #{@mu_name} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
           punchAdminNAT
           instance_descriptor[:subnet_id] = subnet.cloud_id
         end
@@ -308,7 +307,7 @@ module MU
           instance_descriptor[:user_data] = Base64.encode64(@userdata)
         end
 
-        MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'], credentials: @config['credentials'])
+        MU::Cloud::AWS::Server.waitForAMI(@config["image_id"], region: @config['region'], credentials: @config['credentials'])
 
         instance_descriptor[:block_device_mappings] = MU::Cloud::AWS::Server.configureBlockDevices(image_id: @config["image_id"], storage: @config['storage'], region: @config['region'], credentials: @credentials)
 
@@ -323,7 +322,7 @@ module MU
           }]
         end
 
-        MU.log "Creating EC2 instance #{node}", details: instance_descriptor
+        MU.log "Creating EC2 instance #{@mu_name}", details: instance_descriptor
 
         instance = resp = nil
         loop_if = Proc.new {
@@ -340,7 +339,7 @@ module MU
           raise e
         end
 
-        MU.log "#{node} (#{instance.instance_id}) coming online"
+        MU.log "#{@mu_name} (#{instance.instance_id}) coming online"
 
         instance
       end
@@ -887,9 +886,9 @@ module MU
               @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?, timeout: @config['groomer_timeout'])
             end
           rescue MU::Groomer::RunError => e
-            MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN, details: e.message
+            MU.log "Proceeding after failed initial Groomer run, but #{@mu_name} may not behave as expected!", MU::WARN, details: e.message
           rescue StandardError => e
-            MU.log "Caught #{e.inspect} on #{node} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
+            MU.log "Caught #{e.inspect} on #{@mu_name} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
           end
 
           if !@config['create_image'].nil? and !@config['image_created']
@@ -1787,6 +1786,50 @@ module MU
           size
         end
 
+        # Boilerplate generation of an instance role
+        # @param server [Hash]: The BoK-style config hash for a +Server+ or +ServerPool+
+        # @param configurator [MU::Config]
+        def self.generateStandardRole(server, configurator)
+          role = {
+            "name" => server["name"],
+            "credentials" => server["credentials"],
+            "can_assume" => [
+              {
+                "entity_id" => "ec2.amazonaws.com",
+                "entity_type" => "service"
+              }
+            ],
+            "policies" => [
+              {
+                "name" => "MuSecrets",
+                "permissions" => ["s3:GetObject"],
+                "targets" => [
+                  {
+                    "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(server['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(server['credentials'])+'/Mu_CA.pem'
+                  }
+                ]
+              }
+            ]
+          }
+          if server['iam_policies']
+            role['iam_policies'] = server['iam_policies'].dup
+          end
+          if server['canned_iam_policies']
+            role['import'] = server['canned_iam_policies'].dup
+          end
+          if server['iam_role']
+# XXX maybe break this down into policies and add those?
+          end
+
+          configurator.insertKitten(role, "roles")
+
+          server["dependencies"] ||= []
+          server["dependencies"] << {
+            "type" => "role",
+            "name" => server["name"]
+          }
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
         # @param server [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -1807,43 +1850,7 @@ module MU
               ok = false
             end
           else
-            role = {
-              "name" => server["name"],
-              "credentials" => server["credentials"],
-              "can_assume" => [
-                {
-                  "entity_id" => "ec2.amazonaws.com",
-                  "entity_type" => "service"
-                }
-              ],
-              "policies" => [
-                {
-                  "name" => "MuSecrets",
-                  "permissions" => ["s3:GetObject"],
-                  "targets" => [
-                    {
-                      "identifier" => 'arn:'+(MU::Cloud::AWS.isGovCloud?(server['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(server['credentials'])+'/Mu_CA.pem'
-                    }
-                  ]
-                }
-              ]
-            }
-            if server['iam_policies']
-              role['iam_policies'] = server['iam_policies'].dup
-            end
-            if server['canned_iam_policies']
-              role['import'] = server['canned_iam_policies'].dup
-            end
-            if server['iam_role']
-# XXX maybe break this down into policies and add those?
-            end
-
-            configurator.insertKitten(role, "roles")
-            server["dependencies"] ||= []
-            server["dependencies"] << {
-              "type" => "role",
-              "name" => server["name"]
-            }
+            generateStandardRole(server, configurator)
           end
           if !server['create_image'].nil?
             if server['create_image'].has_key?('copy_to_regions') and
@@ -1855,12 +1862,12 @@ module MU
             end
           end
 
-          server['ami_id'] ||= server['image_id']
+          server['image_id'] ||= server['ami_id']
 
-          if server['ami_id'].nil?
+          if server['image_id'].nil?
             img_id = MU::Cloud.getStockImage("AWS", platform: server['platform'], region: server['region'])
             if img_id
-              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: img_id, prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+              server['image_id'] = configurator.getTail("server"+server['name']+"AMI", value: img_id, prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
             else
               MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
               ok = false
@@ -1869,20 +1876,14 @@ module MU
 
           if !server["loadbalancers"].nil?
             server["loadbalancers"].each { |lb|
-              if lb["concurrent_load_balancer"] != nil
+              lb["name"] ||= lb["concurrent_load_balancer"]
+              if lb["name"]
                 server["dependencies"] << {
-                    "type" => "loadbalancer",
-                    "name" => lb["concurrent_load_balancer"]
+                  "type" => "loadbalancer",
+                  "name" => lb["name"]
                 }
               end
             }
-          end
-
-          if !server["vpc"].nil?
-            if server["vpc"]["subnet_name"].nil? and server["vpc"]["subnet_id"].nil? and server["vpc"]["subnet_pref"].nil?
-              MU.log "A server VPC block must specify a target subnet", MU::ERR
-              ok = false
-            end
           end
 
           ok
@@ -2044,7 +2045,7 @@ module MU
           if windows?
             if @config['use_cloud_provider_windows_password']
               win_admin_password = getWindowsAdminPassword
-            elsif @config['windows_auth_vault'] && !@config['windows_auth_vault'].empty?
+            elsif @config['windows_auth_vault'] and !@config['windows_auth_vault'].empty?
               if @config["windows_auth_vault"].has_key?("password_field")
                 win_admin_password = @groomer.getSecret(
                   vault: @config['windows_auth_vault']['vault'],
@@ -2091,35 +2092,36 @@ module MU
           end
         end
 
-        def configureNetworking
-          has_elastic_ip = false
+        def haveElasticIP?
           if !cloud_desc.public_ip_address.nil?
             begin
               resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(public_ips: [cloud_desc.public_ip_address])
               if resp.addresses.size > 0 and resp.addresses.first.instance_id == @cloud_id
-                has_elastic_ip = true
+                return true
               end
             rescue Aws::EC2::Errors::InvalidAddressNotFound
               # XXX this is ok to ignore, it means the public IP isn't Elastic
             end
           end
 
+          false
+        end
+
+        def configureNetworking
+          if !@config['static_ip'].nil?
+            if !@config['static_ip']['ip'].nil?
+              MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: @vpc.nil?, ip: @config['static_ip']['ip'])
+            elsif !haveElasticIP?
+              MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: @vpc.nil?)
+            end
+          end
+
           if !@vpc.nil? and @config.has_key?("vpc")
             subnet = @vpc.getSubnet(cloud_id: cloud_desc.subnet_id)
 
-            if !subnet.private? or (!@config['static_ip'].nil? and !@config['static_ip']['assign_ip'].nil?)
-              if !@config['static_ip'].nil?
-                if !@config['static_ip']['ip'].nil?
-                  MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: false, ip: @config['static_ip']['ip'])
-                elsif !has_elastic_ip
-                  MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id)
-                end
-              end
-            end
-
             _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
             if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
-              raise MuError, "#{node} is in a private subnet (#{subnet}), but has no bastion host configured, and I have no other route to it"
+              raise MuError, "#{@mu_name} is in a private subnet (#{subnet}), but has no bastion host configured, and I have no other route to it"
             end
 
             # If we've asked for additional subnets (and this @config is not a
@@ -2148,35 +2150,23 @@ module MU
               }
               cloud_desc(use_cache: false)
             end
-          elsif !@config['static_ip'].nil?
-            if !@config['static_ip']['ip'].nil?
-              MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: true, ip: @config['static_ip']['ip'])
-            elsif !has_elastic_ip
-              MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: true)
-            end
           end
 
-          @config["private_dns_name"] = cloud_desc.private_dns_name
-          @config["public_dns_name"] = cloud_desc.public_dns_name
-          @config["private_ip_address"] = cloud_desc.private_ip_address
-          @config["public_ip_address"] = cloud_desc.public_ip_address
-
-          canonical_name = cloud_desc.public_dns_name
-          canonical_name = cloud_desc.private_dns_name if !canonical_name or nat_ssh_host != nil
-          @config['canonical_name'] = canonical_name
+          [:private_dns_name, :public_dns_name, :private_ip_address, :public_ip_address].each { |field|
+            @config[field.to_s] = cloud_desc.send(field)
+          }
 
           if !@config['add_private_ips'].nil?
             cloud_desc.network_interfaces.each { |int|
               if int.private_ip_address == cloud_desc.private_ip_address and int.private_ip_addresses.size < (@config['add_private_ips'] + 1)
                 MU.log "Adding #{@config['add_private_ips']} extra private IP addresses to #{cloud_desc.instance_id}"
                 MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).assign_private_ip_addresses(
-                    network_interface_id: int.network_interface_id,
-                    secondary_private_ip_address_count: @config['add_private_ips'],
-                    allow_reassignment: false
+                  network_interface_id: int.network_interface_id,
+                  secondary_private_ip_address_count: @config['add_private_ips'],
+                  allow_reassignment: false
                 )
               end
             }
-            notify
           end
         end
 
@@ -2222,7 +2212,7 @@ module MU
                 alarm["ok_actions"]  = [topic_arn]
               end
 
-              alarm_name = alarm_obj ? alarm_obj.cloud_id : "#{node}-#{alarm['name']}".upcase
+              alarm_name = alarm_obj ? alarm_obj.cloud_id : "#{@mu_name}-#{alarm['name']}".upcase
 
               MU::Cloud::AWS::Alarm.setAlarm(
                 name: alarm_name,
@@ -2333,7 +2323,7 @@ module MU
           @config['image_created'] = true
           if img_cfg['image_then_destroy']
             MU::Cloud::AWS::Server.waitForAMI(ami_ids[@config['region']], region: @config['region'], credentials: @config['credentials'])
-            MU.log "AMI #{ami_ids[@config['region']]} ready, removing source node #{node}"
+            MU.log "AMI #{ami_ids[@config['region']]} ready, removing source node #{@mu_name}"
             MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
             destroy
           end
