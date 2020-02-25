@@ -161,7 +161,7 @@ Docker Build:
     variables:
     - $IMAGE_BUILD
   tags: 
-  - mu-docker-build
+  - docker-build
   retry: 2
 
 Parser Test With Gem:
