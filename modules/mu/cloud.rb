@@ -1994,7 +1994,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           # @param timeout [Integer]:
           # @param winrm_retries [Integer]:
           # @param reboot_on_problems [Boolean]:
-          def getWinRMSession(max_retries = 40, retry_interval = 60, timeout: 30, winrm_retries: 5, reboot_on_problems: false)
+          def getWinRMSession(max_retries = 40, retry_interval = 60, timeout: 30, winrm_retries: 2, reboot_on_problems: false)
             _nat_ssh_key, _nat_ssh_user, _nat_ssh_host, canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
             @mu_name ||= @config['mu_name']
 
@@ -2018,7 +2018,8 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             retries = 0
             rebootable_fails = 0
             begin
-              MU.log "Calling WinRM on #{@mu_name}", MU::DEBUG, details: opts
+              loglevel = retries > 0 ? MU::NOTICE : MU::DEBUG
+              MU.log "Calling WinRM on #{@mu_name}", loglevel, details: opts
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
                 retry_limit: winrm_retries,
@@ -2026,10 +2027,16 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
                 transport: :ssl,
                 operation_timeout: timeout,
-                client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
-                client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               }
+              if retries % 2 == 0
+                opts[:client_cert] = "#{MU.mySSLDir}/#{@mu_name}-winrm.crt"
+                opts[:client_key] = "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
+              else
+                opts[:user] = @config['windows_admin_username']
+                opts[:password] = getWindowsAdminPassword
+              end
               conn = WinRM::Connection.new(opts)
+              conn.logger.level = :debug if retries > 2
               MU.log "WinRM connection to #{@mu_name} created", MU::DEBUG, details: conn
               shell = conn.shell(:powershell)
               shell.run('ipconfig') # verify that we can do something

@@ -517,7 +517,8 @@ module MU
           notify
         end
 
-        bootstrapGroomer
+        getIAMProfile
+        finish.call(false) if !bootstrapGroomer
 
         # Make sure we got our name written everywhere applicable
         if !@named
@@ -882,6 +883,7 @@ module MU
           end
 
           begin
+            getIAMProfile
             if @config['groom'].nil? or @config['groom']
               @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?, timeout: @config['groomer_timeout'])
             end
@@ -1359,13 +1361,13 @@ module MU
         # @param ip [String]: Request a specific IP address.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.associateElasticIp(instance_id, classic: false, ip: nil, region: MU.curRegion)
+        def self.associateElasticIp(instance_id, classic: false, ip: nil, region: MU.curRegion, credentials: nil)
           MU.log "associateElasticIp called: #{instance_id}, classic: #{classic}, ip: #{ip}, region: #{region}", MU::DEBUG
           elastic_ip = nil
           @eip_semaphore.synchronize {
             if !ip.nil?
               filters = [{name: "public-ip", values: [ip]}]
-              resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(filters: filters)
+              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses(filters: filters)
               if @eips_used.include?(ip)
                 is_free = false
                 resp.addresses.each { |address|
@@ -1398,7 +1400,7 @@ module MU
           on_retry = Proc.new { |e|
             if e.class == Aws::EC2::Errors::ResourceAlreadyAssociated
               # A previous association attempt may have succeeded, albeit slowly.
-              resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(
+              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses(
                 allocation_ids: [elastic_ip.allocation_id]
               )
               first_addr = resp.addresses.first
@@ -1410,12 +1412,12 @@ module MU
 
           MU.retrier([Aws::EC2::Errors::IncorrectInstanceState, Aws::EC2::Errors::ResourceAlreadyAssociated], wait: 5, max: 6, on_retry: on_retry) {
             if classic
-              MU::Cloud::AWS.ec2(region: region).associate_address(
+              MU::Cloud::AWS.ec2(region: region, credentials: credentials).associate_address(
                 instance_id: instance_id,
                 public_ip: elastic_ip.public_ip
               )
             else
-              MU::Cloud::AWS.ec2(region: region).associate_address(
+              MU::Cloud::AWS.ec2(region: region, credentials: credentials).associate_address(
                 instance_id: instance_id,
                 allocation_id: elastic_ip.allocation_id,
                 allow_reassociation: false
@@ -1424,14 +1426,14 @@ module MU
           }
 
           loop_if = Proc.new {
-            instance = find(cloud_id: instnace_id, region: region, credentials: credentials).values.first
+            instance = find(cloud_id: instance_id, region: region, credentials: credentials).values.first
             instance.public_ip_address != elastic_ip.public_ip
           }
           MU.retrier(loop_if: loop_if, wait: 10, max: 3) {
             MU.log "Waiting for Elastic IP association of #{elastic_ip.public_ip} to #{instance_id} to take effect", MU::NOTICE
           }
 
-          MU.log "Elastic IP #{elastic_ip.public_ip} now associated with #{instance_id}" if waited
+          MU.log "Elastic IP #{elastic_ip.public_ip} now associated with #{instance_id}"
 
           return elastic_ip.public_ip
         end
@@ -1570,14 +1572,14 @@ module MU
             dummy_ok: true
           ).first
 
-          if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
+          if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud? and server_obj
             targets.each { |target|
               MU::Cloud::DNSZone.genericMuDNSEntry(name: server_obj.mu_name, target: target, cloudclass: MU::Cloud::Server, delete: true, noop: noop)
             }
           end
 
           if targets.size > 0 and !onlycloud
-            MU::Master.removeInstanceFromEtcHosts(server_obj.mu_name) if !noop
+            MU::Master.removeInstanceFromEtcHosts(server_obj.mu_name) if !noop and server_obj
             targets.each { |target|
               next if !target.match(/^\d+\.\d+\.\d+\.\d+$/)
               MU::Master.removeIPFromSSHKnownHosts(target, noop: noop)
@@ -1587,7 +1589,7 @@ module MU
           on_retry = Proc.new {
             instance = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_instances(instance_ids: [instance.instance_id]).reservations.first.instances.first
             if instance.state.name == "terminated"
-              MU.log "#{instance.instance_id} (#{server_obj.mu_name}) has already been terminated, skipping"
+              MU.log "#{instance.instance_id}#{server_obj ? " ("+server_obj.mu_name+")" : ""} has already been terminated, skipping"
               MU::MommaCat.unlock(".cleanup-"+id)
               return
             end
@@ -1598,7 +1600,7 @@ module MU
             instance.state.name != "terminated"
           }
 
-          MU.log "Terminating #{instance.instance_id} (#{server_obj.mu_name})"
+          MU.log "Terminating #{instance.instance_id}#{server_obj ? " ("+server_obj.mu_name+")" : ""}"
           if !noop
             MU.retrier([Aws::EC2::Errors::IncorrectInstanceState, Aws::EC2::Errors::InternalError], wait: 30, max: 60, loop_if: loop_if, on_retry: on_retry) {
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_instance_attribute(
@@ -1609,7 +1611,7 @@ module MU
             }
           end
 
-          MU.log "#{instance.instance_id} (#{server_obj.mu_name}) terminated" if !noop
+          MU.log "#{instance.instance_id}#{server_obj ? " ("+server_obj.mu_name+")" : ""} terminated" if !noop
           MU::MommaCat.unlock(".cleanup-"+id)
 
         end
@@ -2032,11 +2034,13 @@ module MU
               begin
                 @groomer.bootstrap
               rescue MU::Groomer::RunError
-                finish.call(false)
+                return false
               end
             end
             @groomer.saveDeployData
           end
+
+          true
         end
 
         def saveCredentials
@@ -2111,9 +2115,9 @@ module MU
         def configureNetworking
           if !@config['static_ip'].nil?
             if !@config['static_ip']['ip'].nil?
-              MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: @vpc.nil?, ip: @config['static_ip']['ip'])
+              MU::Cloud::AWS::Server.associateElasticIp(@cloud_id, classic: @vpc.nil?, ip: @config['static_ip']['ip'])
             elsif !haveElasticIP?
-              MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: @vpc.nil?)
+              MU::Cloud::AWS::Server.associateElasticIp(@cloud_id, classic: @vpc.nil?)
             end
           end
 
@@ -2130,7 +2134,13 @@ module MU
             # extra interfaces to accomodate.
             if !@config['vpc']['subnets'].nil? and @config['basis'].nil?
               device_index = 1
-              @vpc.subnets.each { |s|
+              mySubnets.each { |s|
+                next if s.cloud_id == cloud_desc.subnet_id
+
+                if cloud_desc.placement.availability_zone != s.az
+                  MU.log "Cannot create interface in subnet #{s.to_s} for #{@mu_name} due to AZ mismatch", MU::WARN
+                  next
+                end
                 MU.log "Adding network interface on subnet #{s.cloud_id} for #{@mu_name}"
                 iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: s.cloud_id).network_interface
                 MU::Cloud::AWS.createStandardTags(

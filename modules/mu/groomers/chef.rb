@@ -329,7 +329,7 @@ module MU
             }
           else
             MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
-            winrm = @server.getWinRMSession(haveBootstrapped? ? 1 : max_retries)
+            winrm = @server.getWinRMSession(haveBootstrapped? ? 2 : max_retries)
             if @server.windows? and @server.windowsRebootPending?(winrm)
               # Windows frequently gets stuck here
               if retries > 5
@@ -623,9 +623,15 @@ module MU
             kb.config[:winrm_port] = 5986
             kb.config[:session_timeout] = timeout
             kb.config[:operation_timeout] = timeout
-            kb.config[:winrm_authentication_protocol] = :cert
-            kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
-            kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
+            if retries % 2 == 0
+              kb.config[:winrm_authentication_protocol] = :cert
+              kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
+              kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
+            else
+              kb.config[:winrm_authentication_protocol] = :basic
+              kb.config[:winrm_user] = @server.config['windows_admin_username']
+              kb.config[:winrm_password] = @server.getWindowsAdminPassword
+            end
 #          kb.config[:ca_trust_file] = "#{MU.mySSLDir}/Mu_CA.pem"
             # XXX ca_trust_file doesn't work for some reason, so we have to set the below for now
             kb.config[:winrm_ssl_verify_mode] = :verify_none
