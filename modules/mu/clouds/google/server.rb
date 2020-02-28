@@ -164,19 +164,26 @@ module MU
         def self.diskConfig(config, create = true, disk_as_url = true, credentials: nil)
           disks = []
           if config['image_id'].nil? and config['basis'].nil?
-            pp config.keys
             raise MuError, "Can't generate disk configuration for server #{config['name']} without an image ID or basis specified"
           end
 
           img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'], credentials: credentials)
 
-# XXX slurp settings from /dev/sda or w/e by convention?
+#          if img.source_disk and img.source_disk.match(/projects\/([^\/]+)\/zones\/([^\/]+)\/disks\/(.*)/)
+#            _junk, proj, az, name = Regexp.last_match
+#            disk_desc = MU::Cloud::Google.compute(credentials: credentials).get_disk(proj, az, name)
+#            pp disk_desc
+#            raise "nah"
+#          end
+
           disktype = "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-standard"
-          disktype = "pd-standard" if !disk_as_url
-# disk_type: projects/project/zones/#{config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
+
+
+          disktype.gsub!(/.*?\/([^\/])$/, '\1') if !disk_as_url
+
           imageobj = MU::Cloud::Google.compute(:AttachedDiskInitializeParams).new(
             source_image: img.self_link,
-            disk_size_gb: 10, # this is binary? 2gb, that says
+            disk_size_gb: img.disk_size_gb,
             disk_type: disktype,
           )
           disks << MU::Cloud::Google.compute(:AttachedDisk).new(
@@ -329,7 +336,7 @@ next if !create
             end
             metadata["startup-script"] = @userdata if @userdata and !@userdata.empty?
 
-            deploykey = @config['ssh_user']+":"+@deploy.ssh_public_key
+            deploykey = @config["ssh_user"]+":"+@deploy.ssh_public_key
             if metadata["ssh-keys"]
               metadata["ssh-keys"] += "\n"+deploykey
             else
@@ -994,8 +1001,89 @@ next if !create
         end
 
         # return [String]: A password string.
-        def getWindowsAdminPassword
+        def getWindowsAdminPassword(use_cache: true)
+          @config['windows_auth_vault'] ||= {
+            "vault" => @mu_name,
+            "item" => "windows_credentials",
+            "password_field" => "password"
+          }
+
+          if use_cache
+            begin
+              win_admin_password = @groomer.getSecret(
+                vault: @config['windows_auth_vault']['vault'],
+                item: @config['windows_auth_vault']['item'],
+                field: @config["windows_auth_vault"]["password_field"]
+              )
+              return win_admin_password if win_admin_password
+            rescue MU::Groomer::MuNoSuchSecret, MU::Groomer::RunError
+            end
+          end
+
+          require 'openssl/oaep'
+          timeout = 300
+
+          serial_out = nil
+          key = OpenSSL::PKey::RSA.generate 2048
+
+          missing_response = Proc.new {
+            !serial_out or !serial_out.contents or serial_out.contents.empty? or JSON.parse(serial_out.contents)["userName"] != @config['windows_admin_username']
+          }
+
+          did_metadata = false
+          MU.retrier(loop_if: missing_response, wait: 10, max: timeout/10) {
+            serial_out = MU::Cloud::Google.compute(credentials: @credentials).get_instance_serial_port_output(@project_id, @config['availability_zone'], @cloud_id, port: 4)
+            if missing_response.call and
+               !cloud_desc(use_cache: false).metadata.items.map { |i| i.key }.include?("windows-keys")
+              keybytes = Base64.decode64(key.public_key.export.gsub(/-----(?:BEGIN|END) PUBLIC KEY-----/, ''))
+              modulus = keybytes.byteslice(33,256)
+              exponent = keybytes.byteslice(291,3)
+              keydata = {
+                "userName" => @config['windows_admin_username'],
+                "modulus" => Base64.strict_encode64(modulus),
+                "exponent" => Base64.strict_encode64(exponent),
+                "email" => MU.muCfg['mu_admin_email'],
+                "expireOn" => (Time.now.utc+timeout).strftime('%Y-%m-%dT%H:%M:%SZ')
+              }
+
+              new_items = cloud_desc.metadata.items.map { |item|
+                MU::Cloud::Google.compute(:Metadata)::Item.new(
+                  key: item.key,
+                  value: item.value
+                )
+              }
+              new_items.reject! { |item| item.key == "windows-keys" }
+              new_items << MU::Cloud::Google.compute(:Metadata)::Item.new(
+                key: "windows-keys",
+                value: JSON.generate(keydata)
+              )
+              new_metadata = MU::Cloud::Google.compute(:Metadata).new(
+                fingerprint: cloud_desc(use_cache: false).metadata.fingerprint,
+                items: new_items
+              )
+
+              MU::Cloud::Google.compute(credentials: @credentials).set_instance_metadata(@project_id, @config['availability_zone'], @cloud_id, new_metadata)
+            end
+          }
+
+          return nil if missing_response.call
+
+          pwdata = JSON.parse(serial_out.contents)
+          if pwdata['encryptedPassword'] and pwdata['userName'] == @config['windows_admin_username']
+            decrypted_pw = key.private_decrypt_oaep(Base64.strict_decode64(pwdata['encryptedPassword']))
+            creds = {
+              "username" => @config['windows_admin_username'],
+              "password" => decrypted_pw,
+              "sshd_username" => "sshd_service",
+              "sshd_password" => decrypted_pw
+            }
+            @groomer.saveSecret(vault: @mu_name, item: "windows_credentials", data: creds, permissions: "name:#{@mu_name}")
+            return decrypted_pw
+          end
+
+          nil
         end
+
 
         # Add a volume to this instance
         # @param dev [String]: Device name to use when attaching to instance

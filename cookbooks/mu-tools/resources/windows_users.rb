@@ -195,48 +195,49 @@ action :config do
   else
     # We want to run ec2config as admin user so Windows userdata executes as admin, however the local admin account doesn't have Logon As a Service right. Domain privileges are set separately
 
-    cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
-      source "ntrights"
-    end
-    [new_resource.ssh_user, new_resource.ec2config_user].each { |usr|
-			pass = if usr == new_resource.ec2config_user
-				new_resource.ec2config_password
-			elsif usr == new_resource.ssh_user
-				new_resource.ssh_password
-			end
-
-      user usr do
-        password pass
-      end
-
-      group "Administrators" do
-        action :modify
-        members usr
-        append true
-      end
-
-      %w{SeDenyRemoteInteractiveLogonRight SeDenyInteractiveLogonRight SeServiceLogonRight}.each { |privilege|
-        batch "Grant local user #{usr} logon as service right" do
-          code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
-        end
-      }
-
-			# XXX user resource seems not to really be setting password, or is setting			# in such a way that the user is being required to change it. Workaround.
-      powershell_script "Adjust local account params for #{usr}" do
-				code <<-EOH
-					(([adsi]('WinNT://./#{usr}, user')).psbase.invoke('SetPassword', '#{pass}'))
-				EOH
-      end
-
-      if usr == new_resource.ssh_user
-
-        %w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
-          batch "Grant local user #{usr} logon as service right" do
-            code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
-          end
-        }
-					
-      end
-    }
+#    cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
+#      source "ntrights"
+#    end
+#    [new_resource.ssh_user, new_resource.ec2config_user].each { |usr|
+#			pass = if usr == new_resource.ec2config_user
+#				new_resource.ec2config_password
+#			elsif usr == new_resource.ssh_user
+#				new_resource.ssh_password
+#			end
+#
+#      user usr do
+#        password pass
+#        action :modify
+#      end
+#
+#      group "Administrators" do
+#        action :modify
+#        members usr
+#        append true
+#      end
+#
+#      %w{SeDenyRemoteInteractiveLogonRight SeDenyInteractiveLogonRight SeServiceLogonRight}.each { |privilege|
+#        batch "Grant local user #{usr} logon as service right" do
+#          code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
+#        end
+#      }
+#
+#			# XXX user resource seems not to really be setting password, or is setting			# in such a way that the user is being required to change it. Workaround.
+#      powershell_script "Adjust local account params for #{usr}" do
+#				code <<-EOH
+#					(([adsi]('WinNT://./#{usr}, user')).psbase.invoke('SetPassword', '#{pass}'))
+#				EOH
+#      end
+#
+#      if usr == new_resource.ssh_user
+#
+#        %w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
+#          batch "Grant local user #{usr} logon as service right" do
+#            code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
+#          end
+#        }
+#					
+#      end
+#    }
   end
 end

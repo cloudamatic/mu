@@ -52,6 +52,7 @@ EOF
   s.add_runtime_dependency 'net-ssh-multi', '~> 1.2', '>= 1.2.1'
   s.add_runtime_dependency 'netaddr', '~> 2.0'
   s.add_runtime_dependency 'nokogiri', "~> 1.10"
+  s.add_runtime_dependency 'openssl-oaep', "~> 0.1"
   s.add_runtime_dependency 'optimist', "~> 3.0"
   s.add_runtime_dependency 'rack', "~> 2.0"
   s.add_runtime_dependency 'ruby-graphviz', "~> 1.2"
