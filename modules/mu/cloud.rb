@@ -2029,11 +2029,11 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                 operation_timeout: timeout,
               }
               if retries % 2 == 0
-                opts[:client_cert] = "#{MU.mySSLDir}/#{@mu_name}-winrm.crt"
-                opts[:client_key] = "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
-              else
                 opts[:user] = @config['windows_admin_username']
                 opts[:password] = getWindowsAdminPassword
+              else
+                opts[:client_cert] = "#{MU.mySSLDir}/#{@mu_name}-winrm.crt"
+                opts[:client_key] = "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               end
               conn = WinRM::Connection.new(opts)
               conn.logger.level = :debug if retries > 2

@@ -509,7 +509,8 @@ next if !create
 
           if @config['ssh_user'].nil?
             if windows?
-              @config['ssh_user'] = "Administrator"
+              @config['ssh_user'] = @config['windows_admin_user']
+              @config['ssh_user'] ||= "Administrator"
             else
               @config['ssh_user'] = "root"
             end

@@ -624,13 +624,13 @@ module MU
             kb.config[:session_timeout] = timeout
             kb.config[:operation_timeout] = timeout
             if retries % 2 == 0
-              kb.config[:winrm_authentication_protocol] = :cert
-              kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
-              kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
-            else
               kb.config[:winrm_authentication_protocol] = :basic
               kb.config[:winrm_user] = @server.config['windows_admin_username']
               kb.config[:winrm_password] = @server.getWindowsAdminPassword
+            else
+              kb.config[:winrm_authentication_protocol] = :cert
+              kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
+              kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
             end
 #          kb.config[:ca_trust_file] = "#{MU.mySSLDir}/Mu_CA.pem"
             # XXX ca_trust_file doesn't work for some reason, so we have to set the below for now
