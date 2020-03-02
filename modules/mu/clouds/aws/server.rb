@@ -2321,7 +2321,7 @@ module MU
         def createImage
           img_cfg = @config['create_image']
           # Scrub things that don't belong on an AMI
-          session = getSSHSession
+          session = windows? ? getWinRMSession : getSSHSession
           sudo = purgecmd = ""
           sudo = "sudo" if @config['ssh_user'] != "root"
           if windows?
@@ -2337,7 +2337,11 @@ module MU
               purgecmd = "#{sudo} rm -rf /var/lib/cloud/instances/i-* /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
             end
           end
-          session.exec!(purgecmd)
+          if windows?
+            session.run(purgecmd)
+          else
+            session.exec!(purgecmd)
+          end
           session.close
           ami_ids = MU::Cloud::AWS::Server.createImage(
               name: @mu_name,

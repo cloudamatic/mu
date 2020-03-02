@@ -3,8 +3,8 @@
   vpcs:
   - name: windowsbuild
   servers: 
-  - name: win2k16
-    platform: win2k16
+  - name: win2k19
+    platform: windows
     vpc:
       name: windowsbuild
     size: m4.large
