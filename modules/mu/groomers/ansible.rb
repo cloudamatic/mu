@@ -333,7 +333,6 @@ module MU
           f.puts [play].to_yaml.sub(/ansible_password: \|-?[\n\s]+/, 'ansible_password: ') # Ansible doesn't like this (legal) YAML
           f.flock(File::LOCK_UN)
         }
-        system("cat "+@ansible_path+"/"+@server.config['name']+".yml")
       end
 
       # Synchronize the deployment structure managed by {MU::MommaCat} into some Ansible variables, so that nodes can access this metadata.

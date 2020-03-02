@@ -1016,6 +1016,7 @@ next if !create
                 item: @config['windows_auth_vault']['item'],
                 field: @config["windows_auth_vault"]["password_field"]
               )
+MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
               return win_admin_password if win_admin_password
             rescue MU::Groomer::MuNoSuchSecret, MU::Groomer::RunError
             end
@@ -1034,6 +1035,7 @@ next if !create
           did_metadata = false
           MU.retrier(loop_if: missing_response, wait: 10, max: timeout/10) {
             serial_out = MU::Cloud::Google.compute(credentials: @credentials).get_instance_serial_port_output(@project_id, @config['availability_zone'], @cloud_id, port: 4)
+
             if missing_response.call and
                !cloud_desc(use_cache: false).metadata.items.map { |i| i.key }.include?("windows-keys")
               keybytes = Base64.decode64(key.public_key.export.gsub(/-----(?:BEGIN|END) PUBLIC KEY-----/, ''))
@@ -1079,6 +1081,7 @@ next if !create
               "sshd_password" => decrypted_pw
             }
             @groomer.saveSecret(vault: @mu_name, item: "windows_credentials", data: creds, permissions: "name:#{@mu_name}")
+
             return decrypted_pw
           end
 
@@ -1338,7 +1341,7 @@ next if !create
             "roles" => MU::Cloud::Google::User.schema(config)[1]["roles"],
             "windows_admin_username" => {
               "type" => "string",
-              "default" => "Administrator"
+              "default" => "muadmin"
             },
             "create_image" => {
               "properties" => {
@@ -1504,6 +1507,7 @@ next if !create
           end
 
           if server['service_account']
+            server['service_account'] = server['service_account'].to_h
             server['service_account']['cloud'] = "Google"
             server['service_account']['habitat'] ||= server['project']
             found = MU::Config::Ref.get(server['service_account'])
