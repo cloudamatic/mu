@@ -1,5 +1,6 @@
 # Modules we would like installed to our bundled Python (the RPM "muthon").
 ansible>=2.7
+pywinrm>=0.3.0
 awscli
 gcloud
 azure-cli

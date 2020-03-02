@@ -885,7 +885,7 @@ module MU
           begin
             getIAMProfile
             if @config['groom'].nil? or @config['groom']
-              @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?, timeout: @config['groomer_timeout'])
+              @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: (windows? and @config['groomer'] != "Ansible"), timeout: @config['groomer_timeout'])
             end
           rescue MU::Groomer::RunError => e
             MU.log "Proceeding after failed initial Groomer run, but #{@mu_name} may not behave as expected!", MU::WARN, details: e.message
@@ -1162,7 +1162,26 @@ module MU
         # Retrieves the Cloud provider's randomly generated Windows password
         # Will only work on stock Amazon Windows AMIs or custom AMIs that where created with Administrator Password set to random in EC2Config
         # return [String]: A password string.
-        def getWindowsAdminPassword
+        def getWindowsAdminPassword(use_cache: true)
+          @config['windows_auth_vault'] ||= {
+            "vault" => @mu_name,
+            "item" => "windows_credentials",
+            "password_field" => "password"
+          }
+
+          if use_cache
+            begin
+              win_admin_password = @groomer.getSecret(
+                vault: @config['windows_auth_vault']['vault'],
+                item: @config['windows_auth_vault']['item'],
+                field: @config["windows_auth_vault"]["password_field"]
+              )
+
+              return win_admin_password if win_admin_password
+            rescue MU::Groomer::MuNoSuchSecret, MU::Groomer::RunError
+            end
+          end
+
           if @cloud_id.nil?
             describe
             @cloud_id = cloud_desc.instance_id
@@ -1201,6 +1220,8 @@ module MU
           pem_bytes = File.open("#{ssh_keydir}/#{ssh_key_name}", 'rb') { |f| f.read }
           private_key = OpenSSL::PKey::RSA.new(pem_bytes)
           decrypted_password = private_key.private_decrypt(decoded)
+          saveCredentials(decrypted_password)
+
           return decrypted_password
         end
 
@@ -2043,22 +2064,21 @@ module MU
           true
         end
 
-        def saveCredentials
-          win_admin_password = nil
+        def saveCredentials(win_admin_password = nil)
           ec2config_password = nil
           sshd_password = nil
           if windows?
             if @config['use_cloud_provider_windows_password']
-              win_admin_password = getWindowsAdminPassword
+              win_admin_password ||= getWindowsAdminPassword
             elsif @config['windows_auth_vault'] and !@config['windows_auth_vault'].empty?
               if @config["windows_auth_vault"].has_key?("password_field")
-                win_admin_password = @groomer.getSecret(
+                win_admin_password ||= @groomer.getSecret(
                   vault: @config['windows_auth_vault']['vault'],
                   item: @config['windows_auth_vault']['item'],
                   field: @config["windows_auth_vault"]["password_field"]
                 )
               else
-                win_admin_password = getWindowsAdminPassword
+                win_admin_password ||= getWindowsAdminPassword
               end
 
               if @config["windows_auth_vault"].has_key?("ec2config_password_field")
@@ -2078,9 +2098,9 @@ module MU
               end
             end
 
-            win_admin_password = MU.generateWindowsPassword if win_admin_password.nil?
-            ec2config_password = MU.generateWindowsPassword if ec2config_password.nil?
-            sshd_password = MU.generateWindowsPassword if sshd_password.nil?
+            win_admin_password ||= MU.generateWindowsPassword
+            ec2config_password ||= MU.generateWindowsPassword
+            sshd_password ||= MU.generateWindowsPassword
 
             # We're creating the vault here so when we run
             # MU::Cloud::Server.initialSSHTasks and we need to set the Windows

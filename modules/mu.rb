@@ -349,7 +349,7 @@ module MU
         always.call if always and always.is_a?(Proc)
         raise e
       end
-    end while loop_if.call
+    end while loop_if.call and (max < 1 or retries < max)
 
     always.call if always and always.is_a?(Proc)
   end

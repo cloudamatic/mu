@@ -66,6 +66,7 @@ module MU
       # @param permissions [Boolean]: If true, save the secret under the current active deploy (if any), rather than in the global location for this user
       # @param deploy_dir [String]: If permissions is +true+, save the secret here
       def self.saveSecret(vault: nil, item: nil, data: nil, permissions: false, deploy_dir: nil)
+
         if vault.nil? or vault.empty? or item.nil? or item.empty?
           raise MuError, "Must call saveSecret with vault and item names"
         end
@@ -73,7 +74,6 @@ module MU
           raise MuError, "Ansible vault/item names cannot include forward slashes"
         end
         pwfile = vaultPasswordFile
-        
 
         dir = if permissions
           if deploy_dir
@@ -95,8 +95,9 @@ module MU
         if File.exist?(path)
           MU.log "Overwriting existing vault #{vault} item #{item}"
         end
+
         File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
-          f.write data
+          f.write data.to_yaml
         }
 
         cmd = %Q{#{ansibleExecDir}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
@@ -115,14 +116,23 @@ module MU
       # @param item [String]: The item within the repository to retrieve
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
-      def self.getSecret(vault: nil, item: nil, field: nil)
+      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil)
         if vault.nil? or vault.empty?
           raise MuError, "Must call getSecret with at least a vault name"
         end
-
         pwfile = vaultPasswordFile
-        dir = secret_dir+"/"+vault
-        if !Dir.exist?(dir)
+
+        dir = nil
+        try = [secret_dir+"/"+vault]
+        try << deploy_dir+"/ansible/vaults/"+vault if deploy_dir
+        try << MU.mommacat.deploy_dir+"/ansible/vaults/"+vault if MU.mommacat.deploy_dir
+        try.each { |maybe_dir|
+          if Dir.exist?(maybe_dir) and (item.nil? or File.exist?(maybe_dir+"/"+item))
+            dir = maybe_dir
+            break
+          end
+        }
+        if dir.nil?
           raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
@@ -135,17 +145,23 @@ module MU
           cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
           MU.log cmd
           a = `#{cmd}`
-          # If we happen to have stored recognizeable JSON, return it as parsed,
-          # which is a behavior we're used to from Chef vault. Otherwise, return
-          # a String.
+          # If we happen to have stored recognizeable JSON or YAML, return it
+          # as parsed, which is a behavior we're used to from Chef vault.
+          # Otherwise, return a String.
           begin
             data = JSON.parse(a)
-            if field and data[field]
-              data = data[field]
-            end
           rescue JSON::ParserError
-            data = a
+            begin
+              data = YAML.load(a)
+            rescue Psych::SyntaxError => e
+              data = a
+            end
           end
+          [vault, item, field].each { |tier|
+            if data and data.is_a?(Hash) and tier and data[tier]
+              data = data[tier]
+            end
+          }
         else
           data = []
           Dir.foreach(dir) { |entry|
@@ -160,7 +176,7 @@ module MU
 
       # see {MU::Groomer::Ansible.getSecret}
       def getSecret(vault: nil, item: nil, field: nil)
-        self.class.getSecret(vault: vault, item: item, field: field)
+        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir)
       end
 
       # Delete a Ansible data bag / Vault
@@ -215,7 +231,9 @@ module MU
           play = {
             "hosts" => @server.config['name']
           }
-          play["become"] = "yes" if @server.config['ssh_user'] != "root"
+          if !@server.windows? and @server.config['ssh_user'] != "root"
+            play["become"] = "yes"
+          end
           play["roles"] = override_runlist if @server.config['run_list'] and !@server.config['run_list'].empty?
           play["vars"] = @server.config['ansible_vars'] if @server.config['ansible_vars']
 
@@ -252,6 +270,7 @@ module MU
             sleep 30
             retries += 1
             MU.log "Failed Ansible run, will retry (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE, details: cmd
+
             retry
           else
             tmpfile.unlink if tmpfile
@@ -280,7 +299,7 @@ module MU
           "hosts" => @server.config['name']
         }
 
-        if @server.config['ssh_user'] != "root"
+        if !@server.windows? and @server.config['ssh_user'] != "root"
           play["become"] = "yes"
         end
 
@@ -292,11 +311,29 @@ module MU
           play["vars"] = @server.config['ansible_vars']
         end
 
+        if @server.windows?
+          play["vars"] ||= {}
+          play["vars"]["ansible_connection"] = "winrm"
+          play["vars"]["ansible_winrm_scheme"] = "https"
+          play["vars"]["ansible_winrm_transport"] = "ntlm"
+          play["vars"]["ansible_winrm_server_cert_validation"] = "ignore" # XXX this sucks; use Mu_CA.pem if we can get it to work
+#          play["vars"]["ansible_winrm_ca_trust_path"] = "#{MU.mySSLDir}/Mu_CA.pem"
+          play["vars"]["ansible_user"] = @server.config['windows_admin_username']
+          win_pw = @server.getWindowsAdminPassword
+
+          pwfile = MU::Groomer::Ansible.vaultPasswordFile
+          cmd = %Q{#{MU::Groomer::Ansible.ansibleExecDir}/ansible-vault}
+          output = %x{#{cmd} encrypt_string '#{win_pw.gsub(/'/, "\\\\'")}' --vault-password-file #{pwfile}}
+
+          play["vars"]["ansible_password"] = output
+        end
+
         File.open(@ansible_path+"/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
           f.flock(File::LOCK_EX)
-          f.puts [play].to_yaml
+          f.puts [play].to_yaml.sub(/ansible_password: \|-?[\n\s]+/, 'ansible_password: ') # Ansible doesn't like this (legal) YAML
           f.flock(File::LOCK_UN)
         }
+        system("cat "+@ansible_path+"/"+@server.config['name']+".yml")
       end
 
       # Synchronize the deployment structure managed by {MU::MommaCat} into some Ansible variables, so that nodes can access this metadata.
@@ -388,6 +425,7 @@ module MU
         if !system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
           raise MuError, "Failed Ansible command: #{cmd} encrypt_string <redacted> --name #{name} --vault-password-file"
         end
+        output
       end
 
       # Hunt down and return a path for Ansible executables

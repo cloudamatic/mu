@@ -1762,13 +1762,13 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           def handleWindowsFail(e, retries, rebootable_fails, max_retries: 30, reboot_on_problems: false, retry_interval: 45)
             msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
             if e.class.name == "WinRM::WinRMAuthorizationError" or e.message.match(/execution expired/) and reboot_on_problems
-              if rebootable_fails > 0 and (rebootable_fails % 5) == 0
+              if rebootable_fails > 0 and (rebootable_fails % 7) == 0
                 MU.log "#{@mu_name} still misbehaving, forcing Stop and Start from API", MU::WARN
                 reboot(true) # vicious API stop/start
                 sleep retry_interval*3
                 rebootable_fails = 0
               else
-                if rebootable_fails == 3
+                if rebootable_fails == 5
                   MU.log "#{@mu_name} misbehaving, attempting to reboot from API", MU::WARN
                   reboot # graceful API restart
                   sleep retry_interval*2

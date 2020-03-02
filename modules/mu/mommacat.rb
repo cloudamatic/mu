@@ -1575,6 +1575,7 @@ MESSAGE_END
         MU::Master::SSL.bootstrap
         sans = []
         sans << canonical_ip if canonical_ip
+        sans << resource.mu_name.downcase if resource.mu_name and resource.mu_name != cert_cn
         # XXX were there other names we wanted to include?
         key = MU::Master::SSL.getKey(cert_cn, keysize: keysize)
         cert, pfx_cert = MU::Master::SSL.getCert(cert_cn, "/CN=#{cert_cn}/O=Mu/C=US", sans: sans, pfx: is_windows)
