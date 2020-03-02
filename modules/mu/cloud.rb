@@ -2018,7 +2018,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             retries = 0
             rebootable_fails = 0
             begin
-              loglevel = retries > 0 ? MU::NOTICE : MU::DEBUG
+              loglevel = retries > 4 ? MU::NOTICE : MU::DEBUG
               MU.log "Calling WinRM on #{@mu_name}", loglevel, details: opts
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
