@@ -710,8 +710,8 @@ module MU
 
           int.private_ip_addresses.each { |priv_ip|
             if !priv_ip.primary
-              bok['add_private_ips'] ||= []
-              bok['add_private_ips'] << priv_ip.private_ip_address
+              bok['add_private_ips'] ||= 0
+              bok['add_private_ips'] += 1
             end
             if priv_ip.association and priv_ip.association.public_ip 
               bok['associate_public_ip'] = true

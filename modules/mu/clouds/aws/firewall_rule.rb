@@ -438,6 +438,8 @@ module MU
                           network_interface_id: iface.network_interface_id,
                           groups: iface_groups
                         )
+                      rescue ::Aws::EC2::Errors::InvalidNetworkInterfaceIDNotFound
+                        # fine by me
                       rescue ::Aws::EC2::Errors::AuthFailure
                         MU.log "Permission denied attempting to trim Security Group list for #{iface.network_interface_id}", MU::WARN, details: iface.groups.map { |g| g.group_name }.join(",")+" => default"
                       end
