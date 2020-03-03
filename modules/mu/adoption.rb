@@ -227,6 +227,16 @@ module MU
 
             Thread.abort_on_exception = true
             resources.values.each { |obj_thr|
+              obj_desc = nil
+              begin
+                obj_desc = obj_thr.cloud_desc
+              rescue StandardError
+              ensure
+                if !obj_desc
+                  MU.log cloud+" "+type.to_s+" "+obj_thr.cloud_id+" did not return a cloud descriptor, skipping", MU::WARN
+                  next
+                end
+              end
               threads << Thread.new(obj_thr) { |obj|
 
                 kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)
