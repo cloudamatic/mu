@@ -94,8 +94,8 @@ module MU
               if cloud_desc.status == "FAILED"
                 raise MuError, "EKS cluster #{@mu_name} had FAILED status"
               end
-              if retries > 0 and (retries % 3) == 0 and status != "ACTIVE"
-                MU.log "Waiting for EKS cluster #{@mu_name} to become active (currently #{status})", MU::NOTICE
+              if retries > 0 and (retries % 3) == 0 and cloud_desc.status != "ACTIVE"
+                MU.log "Waiting for EKS cluster #{@mu_name} to become active (currently #{cloud_desc.status})", MU::NOTICE
               end
             }
 
@@ -446,19 +446,23 @@ MU.log c.name, MU::NOTICE, details: t
                 }
               end
 
-              remove_kubernetes_tags(cluster, desc)
+              remove_kubernetes_tags(cluster, desc, region: region, credentials: credentials, noop: noop)
 
               MU.log "Deleting EKS Cluster #{cluster}"
               next if noop
               MU::Cloud::AWS.eks(credentials: credentials, region: region).delete_cluster(
                 name: cluster
               )
+
+              status = nil
               loop_if = Proc.new {
-                MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
+                status != "FAILED"
+              }
+
+              MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 60){ |retries, _wait|
+                status = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
                   name: cluster
                 ).cluster.status
-              }
-              MU.retrier(ignoreme: [Aws::EKS::Errors::ResourceNotFoundException], wait: 60, loop_if: loop_if){ |retries, _wait|
                 if retries > 0 and (retries % 3) == 0
                   MU.log "Waiting for EKS cluster #{cluster} to finish deleting (status #{status})", MU::NOTICE
                 end
@@ -1668,7 +1672,7 @@ MU.log c.name, MU::NOTICE, details: t
           }
         end
 
-        def self.remove_kubernetes_tags(cluster, desc)
+        def self.remove_kubernetes_tags(cluster, desc, region: MU.myRegion, credentials: nil, noop: false)
           untag = []
           untag << desc.resources_vpc_config.vpc_id
           subnets = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_subnets(

@@ -1217,6 +1217,10 @@ module MU
                 rescue Aws::EC2::Errors::OperationNotPermitted => e
                   MU.log "Can't detach #{iface.network_interface_id}: #{e.message}", MU::WARN, details: iface.attachment
                   next
+                rescue Aws::EC2::Errors::IncorrectState => e
+                  MU.log e.message, MU::WARN
+                  sleep 5
+                  retry
                 rescue Aws::EC2::Errors::InvalidAttachmentIDNotFound => e
                   # suits me just fine
                 rescue Aws::EC2::Errors::AuthFailure => e

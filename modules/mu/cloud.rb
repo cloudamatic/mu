@@ -2170,10 +2170,10 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               if params and params[:region]
                 in_msg += " "+params[:region]
               end
-              if params and params[:flags] and params[:flags]["project"]
+              if params and params[:flags] and params[:flags]["project"] and !params[:flags]["project"].empty?
                 in_msg += " project "+params[:flags]["project"]
               end
-              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN, details: e.backtrace
+              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to #{e.class.name}: #{e.message}", MU::WARN, details: e.backtrace
               ok = false
             end
           }

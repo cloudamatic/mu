@@ -380,6 +380,11 @@ module MU
           action = "UPSERT" if overwrite
           action = "DELETE" if delete
 
+          record_sets = MU::Cloud::AWS.route53.list_resource_record_sets(
+            hosted_zone_id: id,
+            start_record_name: name
+          ).resource_record_sets if delete
+
           if type == "R53ALIAS"
             target_zone = id
             target_name = targets[0].downcase
@@ -413,7 +418,15 @@ module MU
             }
           else
             rrsets = []
-            if !targets.nil?
+            if delete
+              record_sets.each { |r|
+                if r.name == name and r.type == type
+                  rrsets = MU.structToHash(r.resource_records)
+                end
+              }
+            end
+
+            if !targets.nil? and (!delete or rrsets.empty?)
               targets.each { |target|
                 rrsets << {value: target}
               }
@@ -425,6 +438,7 @@ module MU
               ttl: ttl,
               resource_records: rrsets
             }
+
 
             if !healthcheck.nil?
               base_rrset[:health_check_id] = healthcheck
@@ -445,12 +459,13 @@ module MU
 
           # Doing an UPSERT with a new set_identifier will fail with a record already exist error, so lets try and get it from an existing record. 
           # This can be an issue with multiple secondary failover records
-          if (location || failover || region || weight) && set_identifier.nil?
-            record_sets = MU::Cloud::AWS.route53.list_resource_record_sets(
+          if (location || failover || region || weight) and set_identifier.nil?
+            record_sets ||= MU::Cloud::AWS.route53.list_resource_record_sets(
               hosted_zone_id: id,
               start_record_name: name
             ).resource_record_sets
 
+          
             record_sets.each { |r|
               if r.name == name
                 if location && location == r.location
@@ -505,7 +520,8 @@ module MU
               MU.log e.message, MU::DEBUG, details: params
               return
             elsif e.class == Aws::Route53::Errors::InvalidChangeBatch
-              raise MuError, "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}"
+              MU.log "Problem managing entry for #{name}", MU::ERR, details: params
+              raise MuError, e.inspect
             end
           }
 

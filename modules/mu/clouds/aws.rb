@@ -423,7 +423,7 @@ end
         end
 
         begin
-          Timeout.timeout(2) do
+          Timeout.timeout(4) do
             instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
             if !instance_id.nil? and instance_id.size > 0
               @@is_in_aws = true

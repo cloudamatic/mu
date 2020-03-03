@@ -567,22 +567,24 @@ module MU
             bok['kubernetes']['network_policy_addon'] = true
           end
 
-          if cloud_desc.ip_allocation_policy.use_ip_aliases
-            bok['ip_aliases'] = true
-          end
-          if cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
-            bok['pod_ip_block'] = cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
-          end
-          if cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
-            bok['services_ip_block'] = cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
-          end
+          if cloud_desc.ip_allocation_policy
+            if cloud_desc.ip_allocation_policy.use_ip_aliases
+              bok['ip_aliases'] = true
+            end
+            if cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
+              bok['pod_ip_block'] = cloud_desc.ip_allocation_policy.cluster_ipv4_cidr_block
+            end
+            if cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
+              bok['services_ip_block'] = cloud_desc.ip_allocation_policy.services_ipv4_cidr_block
+            end
 
-          if cloud_desc.ip_allocation_policy.create_subnetwork
-            bok['custom_subnet'] = {
-              "name" => (cloud_desc.ip_allocation_policy.subnetwork_name || cloud_desc.subnetwork)
-            }
-            if cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
-              bok['custom_subnet']['node_ip_block'] = cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
+            if cloud_desc.ip_allocation_policy.create_subnetwork
+              bok['custom_subnet'] = {
+                "name" => (cloud_desc.ip_allocation_policy.subnetwork_name || cloud_desc.subnetwork)
+              }
+              if cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
+                bok['custom_subnet']['node_ip_block'] = cloud_desc.ip_allocation_policy.node_ipv4_cidr_block
+              end
             end
           end
 
@@ -1188,7 +1190,8 @@ module MU
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
 
           labelset = MU::Cloud::Google.container(:SetLabelsRequest).new(
-            resource_labels: labels
+            resource_labels: labels,
+            label_fingerprint: cloud_desc.label_fingerprint
           )
           MU::Cloud::Google.container(credentials: @config['credentials']).set_project_location_cluster_resource_labels(@cloud_id, labelset)
         end
