@@ -340,7 +340,7 @@ module example.com/cloudfunction
           end
 
           codefile = bok["project"]+"_"+bok["region"]+"_"+bok["name"]+".zip"
-          MU::Cloud::Google::Function.downloadPackage(@cloud_id, codefile, credentials: @config['credentials'])
+          return nil if !MU::Cloud::Google::Function.downloadPackage(@cloud_id, codefile, credentials: @config['credentials'])
           bok['code'] = {
             'zip_file' => codefile
           }
@@ -417,7 +417,12 @@ module example.com/cloudfunction
             bucket = Regexp.last_match[1]
             path = Regexp.last_match[2]
 
-            MU::Cloud::Google.storage(credentials: credentials).get_object(bucket, path, download_dest: zipfile)
+            begin
+              MU::Cloud::Google.storage(credentials: credentials).get_object(bucket, path, download_dest: zipfile)
+            rescue ::Google::Apis::ClientError => e
+              MU.log "Couldn't retrieve gs://#{bucket}/#{path} for #{function_id}", MU::WARN, details: e.inspect
+              return false
+            end
           elsif cloud_desc.source_upload_url
             resp = MU::Cloud::Google.function(credentials: credentials).generate_function_download_url(
               function_id
@@ -428,6 +433,7 @@ module example.com/cloudfunction
               f.close
             end
           end
+          true
         end
 
         # Upload a zipfile to our admin Cloud Storage bucket, for use by
