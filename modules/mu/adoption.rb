@@ -473,7 +473,9 @@ module MU
 
     def resolveReferences(cfg, deploy, parent)
       if cfg.is_a?(MU::Config::Ref)
+        cfg.kitten(deploy) || cfg.kitten
         hashcfg = cfg.to_h
+
         if cfg.kitten(deploy)
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
 
@@ -496,14 +498,14 @@ module MU
               hashcfg.delete("name") if cfg.id and !cfg.deploy_id
             end
           end
-        elsif hashcfg["id"] # reference to raw cloud ids is reasonable
+        elsif hashcfg["id"] and !hashcfg["name"]
           hashcfg.delete("deploy_id")
-          hashcfg.delete("name")
         else
           pp parent.cloud_desc
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
+
         if parent and parent.config
           cred_cfg = MU::Cloud.const_get(parent.cloud).credConfig(parent.credentials)
 

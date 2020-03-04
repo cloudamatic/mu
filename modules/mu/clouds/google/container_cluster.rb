@@ -1031,7 +1031,8 @@ module MU
               type: "habitats"
             )
             if cluster['service_account']['name'] and
-               !cluster['service_account']['id']
+               !cluster['service_account']['id'] and
+               !cluster['service_account']['deploy_id']
               cluster['dependencies'] ||= []
               cluster['dependencies'] << {
                 "type" => "user",
