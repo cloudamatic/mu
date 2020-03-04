@@ -326,7 +326,11 @@ module MU
       if catchme and catchme.include?(e.class)
         if max > 0 and retries >= max
           always.call if always and always.is_a?(Proc)
-          ignoreme.include?(e.class) ? return : raise e
+          if ignoreme.include?(e.class)
+            return
+          else
+            raise e
+          end
         end
 
         if on_retry and on_retry.is_a?(Proc)
