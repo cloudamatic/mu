@@ -305,7 +305,7 @@ module MU
           schema = {
             "storage_class" => {
               "type" => "string",
-              "enum" => ["MULTI_REGIONAL", "REGIONAL", "STANDARD", "NEARLINE", "COLDLINE", "DURABLE_REDUCED_AVAILABILITY"],
+              "enum" => ["MULTI_REGIONAL", "REGIONAL", "STANDARD", "NEARLINE", "COLDLINE", "DURABLE_REDUCED_AVAILABILITY", "ARCHIVE"],
               "default" => "STANDARD"
             },
             "bucket_wide_acls" => {
