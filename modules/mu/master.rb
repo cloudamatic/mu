@@ -738,7 +738,7 @@ module MU
         ssh_conf.puts "  IdentityFile #{NAGIOS_HOME}/.ssh/id_rsa"
         ssh_conf.puts "  StrictHostKeyChecking no"
         ssh_conf.close
-        FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{NAGIOS_HOME}/.ssh/id_rsa")
+        FileUtils.cp("#{Etc.getpwuid(Process.uid).dir}/.ssh/id_rsa", "#{NAGIOS_HOME}/.ssh/id_rsa")
         File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/id_rsa")
         threads = []
 
@@ -751,7 +751,7 @@ module MU
               MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
               next
             end
-            FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
+            FileUtils.cp("#{Etc.getpwuid(Process.uid).dir}/.ssh/#{deploy.ssh_key_name}", "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
             File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
             if deploy.kittens.has_key?("servers")
               deploy.kittens["servers"].values.each { |nodeclasses|

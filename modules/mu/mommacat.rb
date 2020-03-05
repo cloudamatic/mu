@@ -1425,99 +1425,42 @@ MESSAGE_END
       MU::Master::SSL.sign(csr_path, sans, for_user: MU.mu_user)
     end
 
-    # Make sure deployment data is synchronized to/from each node in the
+    # Make sure deployment data is synchronized to/from each +Server+ in the
     # currently-loaded deployment.
+    # @param nodeclasses [Array<String>]
+    # @param triggering_node [String,MU::Cloud::Server]
+    # @param save_only [Boolean]
     def syncLitter(nodeclasses = [], triggering_node: nil, save_only: false)
-# XXX take some config logic to decide what nodeclasses to hit? like, make
-# inferences from dependencies or something?
-
-      return if MU.syncLitterThread
+      return if MU.syncLitterThread # don't run recursively by accident
       return if !Dir.exist?(deploy_dir)
-      svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
-      if !triggering_node.nil? and nodeclasses.size > 0
-        nodeclasses.reject! { |n| n == triggering_node.to_s }
-        return if nodeclasses.size == 0
+
+      if !triggering_node.nil? and triggering_node.is_a?(MU::Cloud::Server)
+        triggering_node = triggering_node.mu_name
       end
 
-      @kitten_semaphore.synchronize {
-        if @kittens.nil? or
-            @kittens[svrs].nil?
-          MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
-          return
-        end
-
-
-        MU.log "Updating these node classes in #{@deploy_id}", MU::DEBUG, details: nodeclasses
-      }
+      litter = findLitterMate(type: "server", return_all: true)
+      return if litter.nil? or litter.empty?
 
       update_servers = []
-      if nodeclasses.nil? or nodeclasses.size == 0
-        litter = findLitterMate(type: "server", return_all: true)
-        return if litter.nil?
-        litter.each_pair { |mu_name, node|
-          if !triggering_node.nil? and (
-               (triggering_node.is_a?(MU::Cloud::Server) and mu_name == triggering_node.mu_name) or
-               (triggering_node.is_a?(String) and mu_name == triggering_node)
-             )
-            next
-          end
-
-          if !node.groomer.nil?
-            update_servers << node
-          end
-        }
-      else
-        litter = {}
-        nodeclasses.each { |nodeclass|
-          mates = findLitterMate(type: "server", name: nodeclass, return_all: true)
-          litter.merge!(mates) if mates
-        }
-        litter.each_pair { |mu_name, node|
-          if !triggering_node.nil? and (
-               (triggering_node.is_a?(MU::Cloud::Server) and mu_name == triggering_node.mu_name) or
-               (triggering_node.is_a?(String) and mu_name == triggering_node)
-             )
-            next
-          end
-
-          if !node.deploydata or !node.deploydata.keys.include?('nodename')
-            details = node.deploydata ? node.deploydata.keys : nil
-            MU.log "#{mu_name} deploy data is missing (possibly retired or mid-bootstrap), so not syncing it", MU::WARN, details: details
-          else
-            update_servers << node
-          end
-        }
-      end
-      return if update_servers.size == 0
-
-      MU.log "Updating these nodes in #{@deploy_id}", MU::DEBUG, details: update_servers.map { |n| n.mu_name }
-
-      update_servers.each { |node|
-        # Not clear where this pollution comes from, but let's stick a temp
-        # fix in here.
-        if node.deploydata['nodename'] != node.mu_name and
-           !node.deploydata['nodename'].nil? and !node.deploydata['nodename'].emty?
-          MU.log "Node #{node.mu_name} had wrong or missing nodename (#{node.deploydata['nodename']}), correcting", MU::WARN
-          node.deploydata['nodename'] = node.mu_name
-          if @deployment[svrs] and @deployment[svrs][node.config['name']] and
-             @deployment[svrs][node.config['name']][node.mu_name]
-            @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
-          end
-          save!
+      litter.each_pair { |mu_name, node|
+        next if mu_name == triggering_node or node.groomer.nil?
+        next if nodeclasses.size > 0 and !nodeclasses.include?(node.config['name'])
+        if !node.deploydata or !node.deploydata.keys.include?('nodename')
+          MU.log "#{mu_name} deploy data is missing (possibly retired or mid-bootstrap), so not syncing it", MU::NOTICE, details: node.deploydata ? node.deploydata.keys : nil
+          next
         end
+        update_servers << node
       }
 
-      # Merge everyone's deploydata together
+      # If we're going to be invoking grooms on things, make sure everyone's
+      # deploydata together, and take node of nodes which don't need an update.
       if !save_only
         skip = []
         update_servers.each { |node|
-          if node.mu_name.nil? or node.deploydata.nil? or node.config.nil?
-            MU.log "Missing mu_name #{node.mu_name}, deploydata, or config from #{node} in syncLitter", MU::ERR, details: node.deploydata
-            next
-          end
 
-          if !@deployment[svrs][node.config['name']].has_key?(node.mu_name) or @deployment[svrs][node.config['name']][node.mu_name] != node.deploydata
-            @deployment[svrs][node.config['name']][node.mu_name] = node.deploydata
+          if @deployment["servers"][node.config['name']][node.mu_name].nil? or
+             @deployment["servers"][node.config['name']][node.mu_name] != node.deploydata
+            @deployment["servers"][node.config['name']][node.mu_name] = node.deploydata
           else
             skip << node
           end
@@ -1525,24 +1468,23 @@ MESSAGE_END
         update_servers = update_servers - skip
       end
 
-      return if MU.inGem? || update_servers.size < 1
+      return if update_servers.empty?
+
+      MU.log "Updating nodes in #{@deploy_id}", MU::DEBUG, details: update_servers.map { |n| n.mu_name }
+
       threads = []
-      parent_thread_id = Thread.current.object_id
       update_servers.each { |sibling|
+        next if sibling.config['groom'].nil? or sibling.config['groom']
         threads << Thread.new {
           Thread.abort_on_exception = true
-          MU.dupGlobals(parent_thread_id)
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            if sibling.config['groom'].nil? or sibling.config['groom']
-              sibling.groomer.saveDeployData
-              sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_only
-            end
+            sibling.groomer.saveDeployData
+            sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_only
           rescue MU::Groomer::RunError => e
-            MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
+            MU.log "Sync of #{sibling.mu_name} failed", MU::WARN, details: e.inspect
           end
-          MU.purgeGlobals
         }
       }
 

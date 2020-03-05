@@ -51,7 +51,7 @@ Signal.trap("URG") do
 end
 
 begin
-  MU::MommaCat.syncMonitoringConfig(false)
+  MU::Master.syncMonitoringConfig(false)
 rescue StandardError => e
   MU.log e.inspect, MU::ERR, details: e.backtrace
   # ...but don't die!
