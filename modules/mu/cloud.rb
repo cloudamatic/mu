@@ -1344,8 +1344,10 @@ module MU
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
         def dependencies(use_cache: false, debug: false)
-          @dependencies = {} if @dependencies.nil?
-          @loadbalancers = [] if @loadbalancers.nil?
+          @dependencies ||= {}
+          @loadbalancers ||= []
+          @firewall_rules ||= []
+
           if @config.nil?
             return [@dependencies, @vpc, @loadbalancers]
           end
@@ -1560,7 +1562,99 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             }
           end
 
+          # Munge in external resources referenced by the existing_deploys
+          # keyword
+          if @config["existing_deploys"] && !@config["existing_deploys"].empty?
+            @config["existing_deploys"].each { |ext_deploy|
+              if ext_deploy["cloud_id"]
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  cloud_id: ext_deploy["cloud_id"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+  
+                MU.log "Couldn't find existing resource #{ext_deploy["cloud_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: found.mu_name, triggering_node: @mu_name)
+              elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+                MU.log "#{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}"
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  deploy_id: ext_deploy["deploy_id"],
+                  mu_name: ext_deploy["mu_name"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+  
+                MU.log "Couldn't find existing resource #{ext_deploy["mu_name"]}/#{ext_deploy["deploy_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: ext_deploy["mu_name"], triggering_node: @mu_name)
+              else
+                MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              end
+            }
+          end
+
+          if @config['dns_records'] && !@config['dns_records'].empty?
+            @config['dns_records'].each { |dnsrec|
+              if dnsrec.has_key?("name")
+                if dnsrec['name'].start_with?(@deploy.deploy_id.downcase) && !dnsrec['name'].start_with?(@mu_name.downcase)
+                  MU.log "DNS records for #{@mu_name} seem to be wrong, deleting from current config", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              end
+            }
+          end
+
           return [@dependencies, @vpc, @loadbalancers]
+        end
+
+        # Using the automatically-defined +@vpc+ from {dependencies} in
+        # conjunction with our config, return our configured subnets.
+        # @return [Array<MU::Cloud::VPC::Subnet>]
+        def mySubnets
+          dependencies
+          if !@vpc or !@config["vpc"]
+            return nil
+          end
+
+          if @config["vpc"]["subnet_id"] or @config["vpc"]["subnet_name"]
+            @config["vpc"]["subnets"] ||= []
+            subnet_block = {}
+            subnet_block["subnet_id"] = @config["vpc"]["subnet_id"] if @config["vpc"]["subnet_id"]
+            subnet_block["subnet_name"] = @config["vpc"]["subnet_name"] if @config["vpc"]["subnet_name"]
+            @config["vpc"]["subnets"] << subnet_block
+            @config["vpc"]["subnets"].uniq!
+          end
+
+          if (!@config["vpc"]["subnets"] or @config["vpc"]["subnets"].empty?) and
+             !@config["vpc"]["subnet_id"]
+            return @vpc.subnets
+          end
+
+          subnets = []
+          @config["vpc"]["subnets"].each { |subnet|
+            subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+            raise MuError, "Couldn't find a live subnet for #{self.to_s} matching #{subnet} in #{@vpc.to_s} (#{@vpc.subnets.map { |s| s.name }.join(",")})" if subnet_obj.nil?
+            subnets << subnet_obj
+          }
+
+          subnets
+        end
+
+        # @return [Array<MU::Cloud::FirewallRule>]
+        def myFirewallRules
+          dependencies
+
+          rules = []
+          if @dependencies.has_key?("firewall_rule")
+            rules = @dependencies['firewall_rule'].values
+          end
+# XXX what other ways are these specified?
+
+          rules
         end
 
         # Defaults any resources that don't declare their release-readiness to
@@ -1668,13 +1762,13 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           def handleWindowsFail(e, retries, rebootable_fails, max_retries: 30, reboot_on_problems: false, retry_interval: 45)
             msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
             if e.class.name == "WinRM::WinRMAuthorizationError" or e.message.match(/execution expired/) and reboot_on_problems
-              if rebootable_fails > 0 and (rebootable_fails % 5) == 0
+              if rebootable_fails > 0 and (rebootable_fails % 7) == 0
                 MU.log "#{@mu_name} still misbehaving, forcing Stop and Start from API", MU::WARN
                 reboot(true) # vicious API stop/start
                 sleep retry_interval*3
                 rebootable_fails = 0
               else
-                if rebootable_fails == 3
+                if rebootable_fails == 5
                   MU.log "#{@mu_name} misbehaving, attempting to reboot from API", MU::WARN
                   reboot # graceful API restart
                   sleep retry_interval*2
@@ -1900,7 +1994,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           # @param timeout [Integer]:
           # @param winrm_retries [Integer]:
           # @param reboot_on_problems [Boolean]:
-          def getWinRMSession(max_retries = 40, retry_interval = 60, timeout: 30, winrm_retries: 5, reboot_on_problems: false)
+          def getWinRMSession(max_retries = 40, retry_interval = 60, timeout: 30, winrm_retries: 2, reboot_on_problems: false)
             _nat_ssh_key, _nat_ssh_user, _nat_ssh_host, canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
             @mu_name ||= @config['mu_name']
 
@@ -1924,7 +2018,8 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             retries = 0
             rebootable_fails = 0
             begin
-              MU.log "Calling WinRM on #{@mu_name}", MU::DEBUG, details: opts
+              loglevel = retries > 4 ? MU::NOTICE : MU::DEBUG
+              MU.log "Calling WinRM on #{@mu_name}", loglevel, details: opts
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
                 retry_limit: winrm_retries,
@@ -1932,10 +2027,16 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
                 transport: :ssl,
                 operation_timeout: timeout,
-                client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
-                client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               }
+              if retries % 2 == 0
+                opts[:user] = @config['windows_admin_username']
+                opts[:password] = getWindowsAdminPassword
+              else
+                opts[:client_cert] = "#{MU.mySSLDir}/#{@mu_name}-winrm.crt"
+                opts[:client_key] = "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
+              end
               conn = WinRM::Connection.new(opts)
+              conn.logger.level = :debug if retries > 2
               MU.log "WinRM connection to #{@mu_name} created", MU::DEBUG, details: conn
               shell = conn.shell(:powershell)
               shell.run('ipconfig') # verify that we can do something
@@ -2069,10 +2170,10 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               if params and params[:region]
                 in_msg += " "+params[:region]
               end
-              if params and params[:flags] and params[:flags]["project"]
+              if params and params[:flags] and params[:flags]["project"] and !params[:flags]["project"].empty?
                 in_msg += " project "+params[:flags]["project"]
               end
-              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to exception: #{e.message}", MU::WARN, details: e.backtrace
+              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to #{e.class.name}: #{e.message}", MU::WARN, details: e.backtrace
               ok = false
             end
           }

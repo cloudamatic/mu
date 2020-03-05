@@ -693,7 +693,7 @@ module MU
           interval = 60
 
           begin
-            resp = cloud_desc
+            resp = cloud_desc(use_cache: false)
 
             if (resp.endpoint.nil? or resp.endpoint.empty?) and
                (resp.endpoints.nil? or resp.endpoints.empty?) and

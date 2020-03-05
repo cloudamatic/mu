@@ -23,7 +23,7 @@ function log
 }
 
 function fetchSecret([string]$file){
-  log "Fetching s3://<%= $mu.adminBucketName %>/$file to $tmp/$file"
+  log "aws.cmd --region $region s3 cp s3://<%= $mu.adminBucketName %>/$file $tmp/$file"
   aws.cmd --region $region s3 cp s3://<%= $mu.adminBucketName %>/$file $tmp/$file
 }
 
@@ -245,6 +245,7 @@ if($ingroup -ne $admin_username){
   net localgroup WinRMRemoteWMIUsers__ /add $admin_username
 }
 
+importCert "$myname-winrm.crt" "root"
 $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1

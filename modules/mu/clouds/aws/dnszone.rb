@@ -369,7 +369,7 @@ module MU
         def self.manageRecord(id, name, type, targets: nil,
             ttl: 7200, delete: false, sync_wait: true, failover: nil,
             healthcheck: nil, region: nil, weight: nil, overwrite: true,
-            location: nil, set_identifier: nil, alias_zone: nil)
+            location: nil, set_identifier: nil, alias_zone: nil, noop: false)
 
           MU.setVar("curRegion", region) if !region.nil?
           zone = MU::Cloud::DNSZone.find(cloud_id: id).values.first
@@ -379,6 +379,11 @@ module MU
           action = "CREATE"
           action = "UPSERT" if overwrite
           action = "DELETE" if delete
+
+          record_sets = MU::Cloud::AWS.route53.list_resource_record_sets(
+            hosted_zone_id: id,
+            start_record_name: name
+          ).resource_record_sets if delete
 
           if type == "R53ALIAS"
             target_zone = id
@@ -413,7 +418,15 @@ module MU
             }
           else
             rrsets = []
-            if !targets.nil?
+            if delete
+              record_sets.each { |r|
+                if r.name == name and r.type == type
+                  rrsets = MU.structToHash(r.resource_records)
+                end
+              }
+            end
+
+            if !targets.nil? and (!delete or rrsets.empty?)
               targets.each { |target|
                 rrsets << {value: target}
               }
@@ -425,6 +438,7 @@ module MU
               ttl: ttl,
               resource_records: rrsets
             }
+
 
             if !healthcheck.nil?
               base_rrset[:health_check_id] = healthcheck
@@ -445,12 +459,13 @@ module MU
 
           # Doing an UPSERT with a new set_identifier will fail with a record already exist error, so lets try and get it from an existing record. 
           # This can be an issue with multiple secondary failover records
-          if (location || failover || region || weight) && set_identifier.nil?
-            record_sets = MU::Cloud::AWS.route53.list_resource_record_sets(
+          if (location || failover || region || weight) and set_identifier.nil?
+            record_sets ||= MU::Cloud::AWS.route53.list_resource_record_sets(
               hosted_zone_id: id,
               start_record_name: name
             ).resource_record_sets
 
+          
             record_sets.each { |r|
               if r.name == name
                 if location && location == r.location
@@ -497,18 +512,23 @@ module MU
             MU.log "Adding DNS record #{name} => #{targets} (#{type}) to #{id}", details: params
           end
 
-          begin
+          return if noop
+
+          on_retry = Proc.new { |e|
+            if (delete and e.message.match(/but it was not found/)) or
+               (!delete and e.message.match(/(it|name) already exists/))
+              MU.log e.message, MU::DEBUG, details: params
+              return
+            elsif e.class == Aws::Route53::Errors::InvalidChangeBatch
+              MU.log "Problem managing entry for #{name}", MU::ERR, details: params
+              raise MuError, e.inspect
+            end
+          }
+
+          change_id = nil
+          MU.retrier([Aws::Route53::Errors::PriorRequestNotComplete, Aws::Route53::Errors::InvalidChangeBatch], wait: 15, max: 10, on_retry: on_retry) {
             change_id = MU::Cloud::AWS.route53.change_resource_record_sets(params).change_info.id
-          rescue Aws::Route53::Errors::PriorRequestNotComplete => e
-            sleep 10
-            retry
-          rescue Aws::Route53::Errors::InvalidChangeBatch, Aws::Route53::Errors::InvalidInput, StandardError => e
-            return if e.message.match(/ but it already exists/) and !delete
-            MU.log "Failed to change DNS records, #{e.inspect}", MU::ERR, details: params
-            raise e if !delete
-            MU.log "Record #{name} (#{type}) in #{id} can't be deleted. Already removed? #{e.inspect}", MU::WARN, details: params if delete
-            return
-          end
+          }
 
           if sync_wait
             attempts = 0
@@ -535,23 +555,27 @@ module MU
         # @param delete [Boolean]: Remove this entry instead of creating it.
         # @param cloudclass [Object]: The resource's Mu class.
         # @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
-        def self.genericMuDNSEntry(name: nil, target: nil, cloudclass: nil, noop: false, delete: false, sync_wait: true)
-          return nil if name.nil? or target.nil? or cloudclass.nil?
-          mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+        def self.genericMuDNSEntry(name: nil, target: nil, cloudclass: nil, noop: false, delete: false, sync_wait: true, credentials: nil)
+          return nil if name.nil? or cloudclass.nil?
+          return nil if target.nil? and !delete
+          mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: credentials).values.first
           raise MuError, "Couldn't isolate platform-mu DNS zone" if mu_zone.nil?
 
           if !mu_zone.nil? and !MU.myVPC.nil?
             subdomain = cloudclass.cfg_name
             dns_name = name.downcase+"."+subdomain
             dns_name += "."+MU.myInstanceId if MU.myInstanceId
+
             record_type = "CNAME"
             record_type = "A" if target.match(/^\d+\.\d+\.\d+\.\d+/)
             ip = nil
 
-            lookup = MU::Cloud::AWS.route53.list_resource_record_sets(
-                hosted_zone_id: mu_zone.id,
-                start_record_name: "#{dns_name}.platform-mu",
-                start_record_type: record_type
+            records = []
+            lookup = MU::Cloud::AWS.route53(credentials: credentials).list_resource_record_sets(
+              hosted_zone_id: mu_zone.id,
+              start_record_name: "#{dns_name}.platform-mu",
+              start_record_type: record_type,
+              max_items: 1
             ).resource_record_sets
 
             lookup.each { |record|
@@ -572,34 +596,14 @@ module MU
 #						MU.log "'#{dns_name}.platform-mu' does not resolve.", MU::DEBUG, details: e.inspect
 #					end
 
-            if ip == target
-              return "#{dns_name}.platform-mu" if !delete
-            elsif noop
-              return nil
+            if ip == target and !delete
+              return "#{dns_name}.platform-mu"
             end
 
             sync_wait = false if delete
 
             record_type = "R53ALIAS" if cloudclass == MU::Cloud::AWS::LoadBalancer
-            attempts = 0
-            begin
-              MU::Cloud::AWS::DNSZone.manageRecord(mu_zone.id, dns_name, record_type, targets: [target], delete: delete, sync_wait: sync_wait)
-            rescue Aws::Route53::Errors::PriorRequestNotComplete => e
-              MU.log "Route53 was still processing a request, waiting", MU::WARN, details: e
-              sleep 15
-              retry
-            rescue Aws::Route53::Errors::InvalidChangeBatch => e
-              if e.inspect.match(/alias target name does not lie within the target zone/) and attempts < 5
-                MU.log e.inspect, MU::WARN
-                sleep 15
-                attempts = attempts + 1
-                retry
-              elsif !e.inspect.match(/(it|name) already exists/)
-                raise MuError, "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}"
-              else
-                MU.log "#{dns_name} already exists", MU::DEBUG, details: e.inspect
-              end
-            end
+            MU::Cloud::AWS::DNSZone.manageRecord(mu_zone.id, dns_name, record_type, targets: [target], delete: delete, sync_wait: sync_wait, noop: noop)
             return "#{dns_name}.platform-mu"
           else
             return nil

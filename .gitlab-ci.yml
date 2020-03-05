@@ -133,7 +133,7 @@ Docker Build:
   stage: Docker Build
   image: docker:stable
   services:
-    - docker:dind
+    - docker:19.03.5-dind
   dependencies:
     - Gem Build
   before_script:
@@ -156,9 +156,12 @@ Docker Build:
     - /^gem-.*$/
     - /^cicd-.*$/
     - /^docker-.*$/
+    - /^hotfix-.*$/
   except:
     variables:
     - $IMAGE_BUILD
+  tags: 
+  - docker-build
   retry: 2
 
 Parser Test With Gem:
@@ -176,6 +179,7 @@ Parser Test With Gem:
     - development
     - /^gem-.*$/
     - /^cicd-.*$/
+    - /^hotfix-.*$/
   except:
     variables:
     - $IMAGE_BUILD
@@ -208,6 +212,7 @@ Test Kitchen:
   only:
   - master
   - development
+  - /^hotfix-.*$/
   when: manual
   
 Smoke Test:
@@ -225,6 +230,7 @@ Smoke Test:
   only:
   - master
   - development
+  - /^hotfix-.*$/
   when: manual
   except:
     variables:
@@ -246,6 +252,7 @@ Gen Docs:
   - master
   - development
   - gen_docs
+  - /^hotfix-.*$/
   retry: 2
   artifacts:
     paths:
@@ -257,7 +264,7 @@ Gen Docs:
 DockerHub Upload:
   stage: Deploy
   services:
-  - docker:dind
+    - docker:19.03.5-dind
   image: docker:stable
   when: on_success
   before_script:
@@ -308,6 +315,7 @@ Upload Gem Manual:
   - development
   - /^gem-.*$/
   - /^cicd-.*$/
+  - /^hotfix-.*$/
   except:
     variables:
     - $IMAGE_BUILD

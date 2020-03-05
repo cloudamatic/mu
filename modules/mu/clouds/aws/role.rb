@@ -201,7 +201,11 @@ module MU
         def arn
           desc = cloud_desc
           if desc["role"]
-            desc["role"].arn
+            if desc['role'].is_a?(Hash)
+              desc["role"][:arn] # why though
+            else
+              desc["role"].arn
+            end
           else
             nil
           end
@@ -290,21 +294,21 @@ end
           if !policy.match(/^#{@deploy.deploy_id}/)
             policy = @mu_name+"-"+policy.upcase
           end
-
-          my_policies = cloud_desc["policies"]
+          my_policies = cloud_desc(use_cache: false)["policies"]
           my_policies ||= []
-          
+
+          seen_policy = false
           my_policies.each { |p|
             if p.policy_name == policy
+              seen_policy = true
               old = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy_version(
                 policy_arn: p.arn,
                 version_id: p.default_version_id
               ).policy_version
 
               doc = JSON.parse URI.decode_www_form_component old.document
-              
               need_update = false
-              
+
               doc["Statement"].each { |s|
                 targets.each { |target|
                   target_string = target
@@ -333,6 +337,10 @@ end
               end
             end
           }
+
+          if !seen_policy
+            MU.log "Was given new targets for policy #{policy}, but I don't see any such policy attached to role #{@cloud_id}", MU::WARN, details: targets
+          end
         end
 
         # Delete an IAM policy, along with attendant versions and attachments.
@@ -525,7 +533,7 @@ end
               end
             rescue ::Aws::IAM::Errors::NoSuchEntity
             end
-            
+
           else
             marker = nil
             begin
@@ -614,7 +622,7 @@ end
 
             return bok if @config['bare_policies']
           end
-          
+
           if desc.tags and desc.tags.size > 0
             bok["tags"] = MU.structToHash(desc.tags, stringify_keys: true)
           end
@@ -838,6 +846,7 @@ end
           else
             raise MuError, "Invalid entitytype '#{entitytype}' passed to MU::Cloud::AWS::Role.bindTo. Must be be one of: user, group, role, instance_profile"
           end
+          cloud_desc(use_cache: false)
         end
 
         # Create an instance profile for EC2 instances, named identically and

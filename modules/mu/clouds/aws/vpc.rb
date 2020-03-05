@@ -18,6 +18,7 @@ module MU
 
       # Creation of Virtual Private Clouds and associated artifacts (routes, subnets, etc).
       class VPC < MU::Cloud::VPC
+        require 'mu/clouds/aws/vpc_subnet'
 
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
@@ -35,78 +36,40 @@ module MU
         def create
           MU.log "Creating VPC #{@mu_name}", details: @config
           resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc(cidr_block: @config['ip_block']).vpc
-          vpc_id = @config['vpc_id'] = resp.vpc_id
+          @cloud_id = resp.vpc_id
+          @config['vpc_id'] = @cloud_id
 
-          MU::Cloud::AWS.createStandardTags(vpc_id, region: @config['region'], credentials: @config['credentials'])
-          MU::Cloud::AWS.createTag(vpc_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
-
-          if @config['tags']
-            @config['tags'].each { |tag|
-              MU::Cloud::AWS.createTag(vpc_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
-            }
-          end
-
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::Cloud::AWS.createTag(vpc_id, key, value, region: @config['region'], credentials: @config['credentials'])
-            }
-          end
+          tag_me
 
           if resp.state != "available"
             begin
-              MU.log "Waiting for VPC #{@mu_name} (#{vpc_id}) to be available", MU::NOTICE
+              MU.log "Waiting for VPC #{@mu_name} (#{@cloud_id}) to be available", MU::NOTICE
               sleep 5
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpcs(vpc_ids: [vpc_id]).vpcs.first
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpcs(vpc_ids: [@cloud_id]).vpcs.first
             end while resp.state != "available"
             # There's a default route table that comes with. Let's tag it.
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
               filters: [
                 {
                   name: "vpc-id",
-                  values: [vpc_id]
+                  values: [@cloud_id]
                 }
               ]
             )
             resp.route_tables.each { |rtb|
-              MU::Cloud::AWS.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'], credentials: @config['credentials'])
-              if @config['tags']
-                @config['tags'].each { |tag|
-                  MU::Cloud::AWS.createTag(rtb.route_table_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
-                }
-              end
-
-              MU::Cloud::AWS.createStandardTags(rtb.route_table_id, region: @config['region'], credentials: @config['credentials'])
-
-              if @config['optional_tags']
-                MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::Cloud::AWS.createTag(rtb.route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
-                }
-              end
+              tag_me(rtb.route_table_id, @mu_name+"-#DEFAULTPRIV")
             }
           end
-          @config['vpc_id'] = vpc_id
-          @cloud_id = vpc_id
 
           if @config['create_internet_gateway']
             MU.log "Creating Internet Gateway #{@mu_name}"
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_internet_gateway
             internet_gateway_id = resp.internet_gateway.internet_gateway_id
             sleep 5
-            MU::Cloud::AWS.createStandardTags(internet_gateway_id, region: @config['region'], credentials: @config['credentials'])
-            MU::Cloud::AWS.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
-            if @config['tags']
-              @config['tags'].each { |tag|
-                MU::Cloud::AWS.createTag(internet_gateway_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
-              }
-            end
 
-            if @config['optional_tags']
-              MU::MommaCat.listOptionalTags.each { |key, value|
-                MU::Cloud::AWS.createTag(internet_gateway_id, key, value, region: @config['region'], credentials: @config['credentials'])
-              }
-            end
+            tag_me(internet_gateway_id)
 
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_internet_gateway(vpc_id: vpc_id, internet_gateway_id: internet_gateway_id)
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_internet_gateway(vpc_id: @cloud_id, internet_gateway_id: internet_gateway_id)
             @config['internet_gateway_id'] = internet_gateway_id
           end
 
@@ -165,236 +128,35 @@ module MU
             )
           end
 
-          nat_gateways = []
-          if !@config['subnets'].nil?
-            allocation_ids = []
-            subnetthreads = Array.new
-            parent_thread_id = Thread.current.object_id
-            azs = []
-            @config['subnets'].each { |subnet|
-              subnet_name = @config['name']+"-"+subnet['name']
-              MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']})", details: subnet
-              azs = MU::Cloud::AWS.listAZs(region: @config['region'], credentials: @config['credentials']) if azs.size == 0
-              if !subnet['availability_zone'].nil?
-                az = subnet['availability_zone']
-              else
-                az = azs.pop
-              end
+          nat_gateways = create_subnets
 
-              subnetthreads << Thread.new {
-                MU.dupGlobals(parent_thread_id)
-                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_subnet(
-                    vpc_id: vpc_id,
-                    cidr_block: subnet['ip_block'],
-                    availability_zone: az
-                ).subnet
-                subnet_id = subnet['subnet_id'] = resp.subnet_id
-                MU::Cloud::AWS.createStandardTags(subnet_id, region: @config['region'], credentials: @config['credentials'])
-                MU::Cloud::AWS.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'], credentials: @config['credentials'])
-                if @config['tags']
-                  @config['tags'].each { |tag|
-                    MU::Cloud::AWS.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
-                  }
-                end
-
-                if @config['optional_tags']
-                  MU::MommaCat.listOptionalTags.each { |key, value|
-                    MU::Cloud::AWS.createTag(subnet_id, key, value, region: @config['region'], credentials: @config['credentials'])
-                  }
-                end
-
-                retries = 0
-                begin
-                  if resp.state != "available"
-                    begin
-                      MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE if retries > 0 and (retries % 3) == 0
-                      sleep 5
-                      resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                    rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-                      sleep 10
-                      retry
-                    end while resp.state != "available"
-                  end
-                rescue NoMethodError => e
-                  if retries <= 3
-                    MU.log "Got bogus Aws::EmptyResponse error on #{subnet_id} (retries used: #{retries}/3)", MU::WARN
-                    retries = retries + 1
-                    sleep 5
-                    resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                    retry
-                  else
-                    raise e
-                  end
-                end
-
-                if !subnet['route_table'].nil?
-                  routes = {}
-                  @config['route_tables'].each { |tbl|
-                    routes[tbl['name']] = tbl
-                  }
-                  if routes.nil? or routes[subnet['route_table']].nil?
-                    MU.log "Subnet #{subnet_name} references non-existent route #{subnet['route_table']}", MU::ERR, details: @deploy.deployment['vpcs']
-                    raise MuError, "deploy failure"
-                  end
-                  MU.log "Associating Route Table '#{subnet['route_table']}' (#{routes[subnet['route_table']]['route_table_id']}) with #{subnet_name}"
-                  retries = 0
-                  begin
-                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).associate_route_table(
-                        route_table_id: routes[subnet['route_table']]['route_table_id'],
-                        subnet_id: subnet_id
-                    )
-                  rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound => e
-                    retries = retries + 1
-                    if retries < 10
-                      sleep 10
-                      retry
-                    else
-                      raise MuError, e.inspect
-                    end
-                  end
-                end
-                retries = 0
-                begin
-                  resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-                  if retries < 10
-                    MU.log "Got #{e.inspect}, waiting and retrying", MU::WARN
-                    sleep 10
-                    retries = retries + 1
-                    retry
-                  end
-                  raise MuError, e.inspect, e.backtrace
-                end
-
-                if subnet['is_public'] && subnet['create_nat_gateway']
-                  MU::MommaCat.lock("nat-gateway-eipalloc")
-                  filters = [{name: "domain", values: ["vpc"]}]
-                  eips = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(filters: filters).addresses
-                  allocation_id = nil
-                  eips.each { |eip|
-                    next if !eip.association_id.nil? and !eip.association_id.empty?
-                    if (eip.private_ip_address.nil? || eip.private_ip_address.empty?) and MU::MommaCat.lock(eip.allocation_id, true, true)
-                      if !allocation_ids.include?(eip.allocation_id)
-                        allocation_id = eip.allocation_id
-                        break
-                      end
-                    end
-                  }
-
-                  if allocation_id.nil?
-                    allocation_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).allocate_address(domain: "vpc").allocation_id
-                    MU::MommaCat.lock(allocation_id, false, true)
-                  end
-
-                  allocation_ids << allocation_id
-                  resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_nat_gateway(
-                    subnet_id: subnet['subnet_id'],
-                    allocation_id: allocation_id,
-                  ).nat_gateway
-
-                  nat_gateway_id = resp.nat_gateway_id
-                  attempts = 0
-                  MU::MommaCat.unlock("nat-gateway-eipalloc")
-                  while resp.class.name != "Aws::EC2::Types::NatGateway" or resp.state == "pending"
-                    MU.log "Waiting for nat gateway #{nat_gateway_id} () to become available (EIP allocation: #{allocation_id})" if attempts % 5 == 0
-                    sleep 30
-                    begin
-                      resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
-                    rescue Aws::EmptyStructure, NoMethodError
-                      sleep 5
-                      retry
-                    end
-                    if attempts > 30
-                      MU::MommaCat.unlock(allocation_id, true)
-                      raise MuError, "Timed out while waiting for NAT Gateway #{nat_gateway_id}: #{resp}"
-                    end
-                    attempts += 1
-                  end
-                  MU::MommaCat.unlock(allocation_id, true)
-
-                  raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
-                  nat_gateways << {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
-                  @tags.each_pair { |k, v|
-                    MU::Cloud::AWS.createTag(nat_gateway_id, k, v, region: @config['region'], credentials: @config['credentials'])
-                  }
-                end
-
-                if subnet.has_key?("map_public_ips")
-                  retries = 0
-                  begin
-                    resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_subnet_attribute(
-                      subnet_id: subnet_id,
-                      map_public_ip_on_launch: {
-                        value: subnet['map_public_ips'],
-                      }
-                    )
-                  rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-                    if retries < 10
-                      MU.log "Got #{e.inspect} while trying to enable map_public_ips on subnet, waiting and retrying", MU::WARN
-                      sleep 10
-                      retries += 1
-                      retry
-                    end
-                    raise MuError, "Got #{e.inspect}, #{e.backtrace} while trying to enable map_public_ips on subnet"
-                  end
-                end
-
-                if subnet["enable_traffic_logging"]
-                  loggroup = @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs")
-                  logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
-                  MU.log "Enabling traffic logging on Subnet #{subnet_name} in VPC #{@mu_name} to log group #{loggroup.mu_name}"
-                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_flow_logs(
-                    resource_ids: [subnet_id],
-                    resource_type: "Subnet",
-                    traffic_type: subnet["traffic_type_to_log"],
-                    log_group_name: loggroup.mu_name,
-                    deliver_logs_permission_arn: logrole.cloudobj.arn
-                  )
-                end
-              }
-            }
-
-            subnetthreads.each { |t|
-              t.join
-            }
-
-            notify
-          end
+          notify
 
           if !nat_gateways.empty?
             nat_gateways.each { |gateway|
               @config['subnets'].each { |subnet|
-                if subnet['is_public'] == false && subnet['availability_zone'] == gateway['availability_zone']
-                  @config['route_tables'].each { |rtb|
-                    if rtb['name'] == subnet['route_table']
-                      rtb['routes'].each { |route|
-                        if route['gateway'] == '#NAT'
-                          route_config = {
-                            :route_table_id => rtb['route_table_id'],
-                            :destination_cidr_block => route['destination_network'],
-                            :nat_gateway_id => gateway['id']
-                          }
+                next if subnet['is_public'] != false or subnet['availability_zone'] != gateway['availability_zone']
 
-                          MU.log "Creating route for #{route['destination_network']} through NAT gatway #{gateway['id']}", details: route_config
-                          nat_retries = 0
-                          begin
-                            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(route_config)
-                          rescue Aws::EC2::Errors::InvalidNatGatewayIDNotFound => e
-                            if nat_retries < 5
-                              nat_retries += 1 
-                              sleep 10
-                              retry
-                            else
-                              raise e
-                            end
-                          rescue Aws::EC2::Errors::RouteAlreadyExists => e
-                            MU.log "Attempt to create duplicate route to #{route['destination_network']} for #{gateway['id']} in #{rtb['route_table_id']}", MU::WARN
-                          end
-                        end
-                      }
-                    end
+                @config['route_tables'].each { |rtb|
+                  next if rtb['name'] != subnet['route_table']
+                  rtb['routes'].each { |route|
+                    next if route['gateway'] != '#NAT'
+                    route_config = {
+                      :route_table_id => rtb['route_table_id'],
+                      :destination_cidr_block => route['destination_network'],
+                      :nat_gateway_id => gateway['id']
+                    }
+
+                    MU.log "Creating route for #{route['destination_network']} through NAT gatway #{gateway['id']}", details: route_config
+                    MU.retrier([Aws::EC2::Errors::InvalidNatGatewayIDNotFound], wait: 10, max: 5) {
+                      begin
+                        resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(route_config)
+                      rescue Aws::EC2::Errors::RouteAlreadyExists
+                        MU.log "Attempt to create duplicate route to #{route['destination_network']} for #{gateway['id']} in #{rtb['route_table_id']}", MU::WARN
+                      end
+                    }
                   }
-                end
+                }
               }
             }
           end
@@ -402,14 +164,14 @@ module MU
           if @config['enable_dns_support']
             MU.log "Enabling DNS support in #{@mu_name}"
             MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_vpc_attribute(
-                vpc_id: vpc_id,
+                vpc_id: @cloud_id,
                 enable_dns_support: {value: @config['enable_dns_support']}
             )
           end
           if @config['enable_dns_hostnames']
             MU.log "Enabling DNS hostnames in #{@mu_name}"
             MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_vpc_attribute(
-                vpc_id: vpc_id,
+                vpc_id: @cloud_id,
                 enable_dns_hostnames: {value: @config['enable_dns_hostnames']}
             )
           end
@@ -438,29 +200,16 @@ module MU
                 dhcp_configurations: dhcpopts
             )
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
-            MU::Cloud::AWS.createStandardTags(dhcpopt_id, region: @config['region'], credentials: @config['credentials'])
-            MU::Cloud::AWS.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'], credentials: @config['credentials'])
+            tag_me(dhcpopt_id)
 
-            if @config['tags']
-              @config['tags'].each { |tag|
-                MU::Cloud::AWS.createTag(dhcpopt_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
-              }
-            end
-
-            if @config['optional_tags']
-              MU::MommaCat.listOptionalTags.each { |key, value|
-                MU::Cloud::AWS.createTag(dhcpopt_id, key, value, region: @config['region'], credentials: @config['credentials'])
-              }
-            end
-
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: vpc_id)
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: @cloud_id)
           end
           notify
 
           if !MU::Cloud::AWS.isGovCloud?(@config['region'])
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: @config['credentials']).values.first
             if !mu_zone.nil?
-              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: @cloud_id, region: @config['region'], credentials: @config['credentials'])
             end
           end
 					loadSubnets
@@ -471,9 +220,6 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          puts @config['region']
-          puts MU::Cloud::AWS.credToAcct(@config['credentials'])
-          puts @cloud_id
           "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":vpc/"+@cloud_id
         end
 
@@ -490,202 +236,7 @@ module MU
           # Generate peering connections
           if !@config['peers'].nil? and @config['peers'].size > 0
             @config['peers'].each { |peer|
-              peer_obj = nil
-              peer_id = nil
-              peer['name'] ||= peer['vpc_name']
-              peer['id'] ||= peer['vpc_id']
-
-              # If we know this to be a sibling VPC elsewhere in our stack,
-              # go fetch it, and fix it if we've been misconfigured with a
-              # duplicate peering connection
-              if peer['vpc']['name'] and !peer['account']
-                peer_obj = @deploy.findLitterMate(name: peer['vpc']['name'], type: "vpcs")
-                if peer_obj
-                  if peer_obj.config['peers']
-                    skipme = false
-                    peer_obj.config['peers'].each { |peerpeer|
-                      if peerpeer['vpc']['name'] == @config['name'] and
-                         (peer['vpc']['name'] <=> @config['name']) == -1
-                        skipme = true
-                        MU.log "VPCs #{peer['vpc']['name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
-# XXX and if deploy_id matches or is unset
-                      end
-                    }
-                  end
-                  next if skipme
-                  peer['account'] = MU::Cloud::AWS.credToAcct(peer_obj.credentials)
-                  peer['vpc']['id'] = peer_obj.cloud_id
-                  peer['vpc']['region'] ||= peer_obj.config['region']
-                end
-              end
-
-              # If we still don't know our peer's vpc identifier, go fishing
-              if !peer_obj
-                tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-                if peer['vpc']['deploy_id'].nil? and peer['vpc']['id'].nil? and tag_key.nil?
-                  peer['vpc']['deploy_id'] = @deploy.deploy_id
-                end
-                peer_obj = MU::MommaCat.findStray(
-                  "AWS",
-                  "vpcs",
-                  deploy_id: peer['vpc']['deploy_id'],
-                  cloud_id: peer['vpc']['id'],
-# XXX we need a credentials argument here... maybe
-                  name: peer['vpc']['name'],
-                  tag_key: tag_key,
-                  tag_value: tag_value,
-                  dummy_ok: true,
-                  region: peer['vpc']['region']
-                )
-MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
-                raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
-                peer_obj = peer_obj.first
-                peer['account'] ||= MU::Cloud::AWS.credToAcct(peer_obj.credentials)
-                peer['vpc']['id'] ||= peer_obj.cloud_id
-                peer['vpc']['region'] ||= peer_obj.config['region']
-              end
-
-              peer_id = peer['vpc']['id']
-              peer['account'] ||= MU::Cloud::AWS.account_number
-
-              # See if the peering connection exists before we bother
-              # creating it.
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
-                filters: [
-                  {
-                    name: "requester-vpc-info.vpc-id",
-                    values: [@cloud_id]
-                  },
-                  {
-                    name: "accepter-vpc-info.vpc-id",
-                    values: [peer_id.to_s]
-                  }
-                ]
-              )
-
-              peering_id = if !resp or !resp.vpc_peering_connections or
-                 resp.vpc_peering_connections.empty?
-
-                MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id} in account #{MU::Cloud::AWS.credToAcct(@config['credentials'])}) to #{peer_id} in account #{peer['account']}", details: peer
-                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc_peering_connection(
-                  vpc_id: @cloud_id,
-                  peer_vpc_id: peer_id,
-                  peer_owner_id: peer['account'],
-                  peer_region: peer['vpc']['region']
-                )
-                resp.vpc_peering_connection.vpc_peering_connection_id
-              else
-                resp.vpc_peering_connections.first.vpc_peering_connection_id
-              end
-
-              peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer['vpc']['id'])
-
-              MU::Cloud::AWS.createStandardTags(peering_id, region: @config['region'], credentials: @config['credentials'])
-              MU::Cloud::AWS.createTag(peering_id, "Name", peering_name, region: @config['region'], credentials: @config['credentials'])
-
-              if @config['optional_tags']
-                MU::MommaCat.listOptionalTags.each { |key, value|
-                  MU::Cloud::AWS.createTag(peering_id, key, value, region: @config['region'], credentials: @config['credentials'])
-                }
-              end
-
-              if @config['tags']
-                @config['tags'].each { |tag|
-                  MU::Cloud::AWS.createTag(peering_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
-                }
-              end
-
-              # Create routes to our new friend.
-              MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@cloud_id, region: @config['region'], credentials: @config['credentials']).each { |rtb_id|
-                my_route_config = {
-                  :route_table_id => rtb_id,
-                  :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
-                  :vpc_peering_connection_id => peering_id
-                }
-                rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-                  route_table_ids: [rtb_id]
-                ).route_tables.first
-                already_exists = false
-                rtbdesc.routes.each { |r|
-                  if r.destination_cidr_block == peer_obj.cloud_desc.cidr_block
-                    if r.vpc_peering_connection_id != peering_id
-                      MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::ERR, details: r
-                      raise MuError, "Can't create route via #{peering_id}, a route to #{peer_obj.cloud_desc.cidr_block} already exists"
-                    else
-                      already_exists = true
-                    end
-                  end
-                }
-                next if already_exists
-
-                MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} in #{peer['vpc']['region']} from VPC #{@config['name']} in #{@config['region']}"
-                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(my_route_config)
-              } # MU::Cloud::AWS::VPC.listAllSubnetRouteTables
-
-              begin
-                cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
-                  vpc_peering_connection_ids: [peering_id]
-                ).vpc_peering_connections.first
-
-                if cnxn.status.code == "pending-acceptance"
-                  if ((!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or $MU_CFG['allow_invade_foreign_vpcs'])
-                    MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}", MU::NOTICE
-                    begin
-                      MU::Cloud::AWS.ec2(region: peer['vpc']['region'], credentials: peer['account']).accept_vpc_peering_connection(
-                        vpc_peering_connection_id: peering_id,
-                      )
-                      if peer['account'] != MU::Cloud::AWS.credToAcct(@config['credentials'])
-                        # this seems to take a while across accounts
-                        sleep 5
-                      end
-                      cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
-                        vpc_peering_connection_ids: [peering_id]
-                      ).vpc_peering_connections.first
-                    rescue Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists => e
-                      MU.log "Attempt to create duplicate peering connection to #{peer_id} from VPC #{@config['name']}", MU::WARN
-                    end
-
-                    # Create routes back from our new friend to us.
-                    MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region'], credentials: peer['account']).uniq.each { |rtb_id|
-                      peer_route_config = {
-                        :route_table_id => rtb_id,
-                        :destination_cidr_block => @config['ip_block'],
-                        :vpc_peering_connection_id => peering_id
-                      }
-                      begin
-                        resp = MU::Cloud::AWS.ec2(region: peer['vpc']['region'], credentials: peer['account']).create_route(peer_route_config)
-                      rescue Aws::EC2::Errors::RouteAlreadyExists => e
-                        rtbdesc = MU::Cloud::AWS.ec2(region: peer['vpc']['region'], credentials: peer['account']).describe_route_tables(
-                          route_table_ids: [rtb_id]
-                        ).route_tables.first
-                        rtbdesc.routes.each { |r|
-                          if r.destination_cidr_block == @config['ip_block']
-                            if r.vpc_peering_connection_id != peering_id
-                              MU.log "Attempt to create duplicate route to VPC #{@config['name']} (#{@config['ip_block']}) from peer VPC #{peer_id}'s route table #{rtb_id}", MU::ERR
-                            end
-                          end
-                        }
-                      end
-                    }
-                  else
-                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@cloud_id}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
-                  end
-                end
-
-                if cnxn.status.code == "failed" or cnxn.status.code == "rejected" or cnxn.status.code == "expired" or cnxn.status.code == "deleted"
-                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@cloud_id} in #{@config['region']}) to #{peer_id} in #{peer['vpc']['region']} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
-                  begin
-                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).delete_vpc_peering_connection(
-                      vpc_peering_connection_id: peering_id
-                    )
-                  rescue Aws::EC2::Errors::InvalidStateTransition => e
-                    # XXX apparently this is normal?
-                  end
-                  raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
-                end
-
-              end while cnxn.status.code != "active" and !((peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']) and cnxn.status.code == "pending-acceptance")
-
+              peerWith(peer)
             }
           end
 
@@ -837,12 +388,9 @@ MU.log "wtf", MU::ERR, details: peer if peer_obj.nil? or peer_obj.first.nil?
               if rtb_desc.associations
                 rtb_desc.associations.each { |assoc|
                   if assoc.subnet_id
-if associations[assoc.subnet_id] and associations[assoc.subnet_id] != rtb['name']
-  MU.log "wait more than one route table association for #{assoc.subnet_id} what", MU::WARN, details: associations[assoc.subnet_id]+" => "+rtb['name']
-end
                     associations[assoc.subnet_id] = rtb['name']
                   elsif assoc.gateway_id
-MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_desc
+                    MU.log " Saw a route table association I don't know how to adopt in #{@cloud_id}", MU::WARN, details: rtb_desc
                   end
                 }
               end
@@ -902,20 +450,18 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
         # Describe subnets associated with this VPC. We'll compose identifying
         # information similar to what MU::Cloud.describe builds for first-class
         # resources.
-        # XXX this is weaksauce. Subnets should be objects with their own methods
-        # that work like first-class objects. How would we enforce that?
-        # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
+        # @return [Array<MU::Cloud::AWS::VPC::Subnet>]
         def loadSubnets
-          if @cloud_id
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(
-              filters: [
-                { name: "vpc-id", values: [@cloud_id] }
-              ]
-            )
-            if resp.nil? or resp.subnets.nil? or resp.subnets.size == 0
-              MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
-              return []
-            end
+          return [] if !@cloud_id
+
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(
+            filters: [
+              { name: "vpc-id", values: [@cloud_id] }
+            ]
+          )
+          if resp.nil? or resp.subnets.nil? or resp.subnets.empty?
+            MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
+            return []
           end
 
           @subnetcachesemaphore.synchronize {
@@ -926,23 +472,21 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
             # metadata. Like ya do.
             if !@config.nil? and @config.has_key?("subnets")
               @config['subnets'].each { |subnet|
-                subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+                subnet['mu_name'] ||= @mu_name+"-"+subnet['name']
                 subnet['region'] = @config['region']
                 subnet['credentials'] = @config['credentials']
-                if !resp.nil? and !resp.data.nil? and !resp.data.subnets.nil?
-                  resp.data.subnets.each { |desc|
-                    if desc.cidr_block == subnet["ip_block"]
-                      subnet["tags"] = MU.structToHash(desc.tags)
-                      subnet["cloud_id"] = desc.subnet_id
-                      break
-                    end
-                  }
-                end
+                resp.subnets.each { |desc|
+                  if desc.cidr_block == subnet["ip_block"]
+                    subnet["tags"] = MU.structToHash(desc.tags)
+                    subnet["cloud_id"] = desc.subnet_id
+                    break
+                  end
+                }
 
                 if subnet["cloud_id"] and !ext_ids.include?(subnet["cloud_id"])
                   @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
                 elsif !subnet["cloud_id"]
-                  resp.data.subnets.each { |desc|
+                  resp.subnets.each { |desc|
                     if desc.cidr_block == subnet["ip_block"]
                       subnet['cloud_id'] = desc.subnet_id
                       @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
@@ -955,21 +499,21 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
 
             # Of course we might be loading up a dummy subnet object from a
             # foreign or non-Mu-created VPC and subnet. So make something up.
-            if !resp.nil? and @subnets.empty?
-              resp.data.subnets.each { |desc|
-                subnet = {}
-                subnet["ip_block"] = desc.cidr_block
-                subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+            if @subnets.empty?
+              resp.subnets.each { |desc|
+                subnet = {
+                  "ip_block" => desc.cidr_block,
+                  "tags" => MU.structToHash(desc.tags),
+                  "cloud_id" => desc.subnet_id,
+                  'region' => @config['region'],
+                  'credentials' => @config['credentials'],
+                }
+                subnet['name'] = subnet["ip_block"].gsub(/[\.\/]/, "_")
                 subnet['mu_name'] = @mu_name+"-"+subnet['name']
-                subnet["tags"] = MU.structToHash(desc.tags)
-                subnet["cloud_id"] = desc.subnet_id
-                subnet['region'] = @config['region']
-                subnet['credentials'] = @config['credentials']
-                if !ext_ids.include?(desc.subnet_id)
-                  @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
-                end
+                @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
               }
             end
+
             return @subnets
           }
         end
@@ -1138,14 +682,14 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, region: MU.myRegion)
           MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, region: region, credentials: credentials)
 
-          if MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
+          if MU::Cloud::AWS::VPC.can_route_to_master_peer?(my_subnets_key, target_subnets_key, instance_id)
             return true
           else
             # The cache can be out of date at times, check again without it
             MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, use_cache: false, region: MU.myRegion)
             MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, use_cache: false, region: region, credentials: credentials)
 
-            return MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
+            return MU::Cloud::AWS::VPC.can_route_to_master_peer?(my_subnets_key, target_subnets_key, instance_id)
           end
 
         end
@@ -1184,7 +728,7 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
         # @param target_subnets_key [String]: The subnet/subnets on the other side of the peered VPC.
         # @param instance_id [String]: The instance ID in the target subnet/subnets.
         # @return [Boolean]
-        def self.have_route_peered_vpc?(source_subnets_key, target_subnets_key, instance_id)
+        def self.can_route_to_master_peer?(source_subnets_key, target_subnets_key, instance_id)
           my_routes = []
           vpc_peer_mapping = {}
 
@@ -1289,17 +833,10 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           end
 
           vpcs = []
-          retries = 0
-          begin
+          MU.retrier([Aws::EC2::Errors::InvalidVpcIDNotFound], wait: 5) {
             resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs(filters: tagfilters, max_results: 1000).vpcs
             vpcs = resp if !resp.empty?
-          rescue Aws::EC2::Errors::InvalidVpcIDNotFound
-            if retries < 5
-              sleep 5
-              retries += 1
-              retry
-            end
-          end
+          }
 
           if !vpcs.empty?
             gwthreads = []
@@ -1492,17 +1029,11 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
                 if route['gateway'] == '#INTERNET'
                   if table['name'] == subnet['route_table']
                     subnet['is_public'] = true
-                    if vpc['create_nat_gateway']
-                      if vpc['nat_gateway_multi_az']
-                        subnet['create_nat_gateway'] = true
-                      else
-                        if nat_gateway_added
-                          subnet['create_nat_gateway'] = false
-                        else
-                          subnet['create_nat_gateway'] = true 
-                          nat_gateway_added = true
-                        end
-                      end
+                    if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added)
+                      subnet['create_nat_gateway'] = true
+                      nat_gateway_added = true
+                    else
+                      subnet['create_nat_gateway'] = false
                     end
                   else
                     subnet['is_public'] = false
@@ -1662,17 +1193,10 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
 
           ifaces.each { |iface|
             if iface.vpc_id
-              default_sg_resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
-                filters: [
-                  { name: "group-name", values: ["default"] },
-                  { name: "vpc-id", values: [iface.vpc_id] }
-                ]
-              ).security_groups
-              if default_sg_resp and default_sg_resp.size == 1
-                default_sg = default_sg_resp.first.group_id
-                if iface.groups.size > 1 or
-                   iface.groups.first.group_id != default_sg
-                  MU.log "Removing extra security groups from ENI #{iface.network_interface_id}"
+              default_sg = MU::Cloud::AWS::VPC.getDefaultSg(iface.vpc_id, region: region, credentials: credentials)
+              if default_sg and (iface.groups.size > 1 or (iface.groups.size == 1 and iface.groups.first.group_id != default_sg))
+                MU.log "Removing extra security groups from ENI #{iface.network_interface_id}"
+                if !noop
                   begin
                     MU::Cloud::AWS.ec2(credentials: credentials, region: region).modify_network_interface_attribute(
                       network_interface_id: iface.network_interface_id,
@@ -1693,6 +1217,10 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
                 rescue Aws::EC2::Errors::OperationNotPermitted => e
                   MU.log "Can't detach #{iface.network_interface_id}: #{e.message}", MU::WARN, details: iface.attachment
                   next
+                rescue Aws::EC2::Errors::IncorrectState => e
+                  MU.log e.message, MU::WARN
+                  sleep 5
+                  retry
                 rescue Aws::EC2::Errors::InvalidAttachmentIDNotFound => e
                   # suits me just fine
                 rescue Aws::EC2::Errors::AuthFailure => e
@@ -1719,8 +1247,168 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           }
         end
 
+        # Fetch the group id of the +default+ security group for the given VPC
+        # @param vpc_id [String]
+        # @param region [String]
+        # @param credentials [String]
+        # @return [String]
+        def self.getDefaultSg(vpc_id, region: MU.curRegion, credentials: nil)
+          default_sg_resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_security_groups(
+            filters: [
+              { name: "group-name", values: ["default"] },
+              { name: "vpc-id", values: [vpc_id] }
+            ]
+          ).security_groups
+          if default_sg_resp and default_sg_resp.size == 1
+            return default_sg_resp.first.group_id
+          end
+          nil
+        end
 
         private
+
+        def peerWith(peer)
+          peer_ref = MU::Config::Ref.get(peer['vpc'])
+          peer_obj = peer_ref.kitten
+          peer_id = peer_ref.cloud_id
+
+          if peer_obj and peer_obj.config['peers']
+            peer_obj.config['peers'].each { |peerpeer|
+              if peerpeer['vpc']['name'] == @config['name'] and
+                 (peer['vpc']['name'] <=> @config['name']) == -1
+                MU.log "VPCs #{peer['vpc']['name']} and #{@config['name']} both declare mutual peering connection, ignoring #{@config['name']}'s redundant declaration", MU::DEBUG
+                return
+# XXX and if deploy_id matches or is unset
+              end
+            }
+
+            peer['account'] ||= MU::Cloud::AWS.credToAcct(peer_obj.credentials)
+          end
+
+          peer['account'] ||= MU::Cloud::AWS.account_number
+
+          # See if the peering connection exists before we bother
+          # creating it.
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
+            filters: [
+              {
+                name: "requester-vpc-info.vpc-id",
+                values: [@cloud_id]
+              },
+              {
+                name: "accepter-vpc-info.vpc-id",
+                values: [peer_id.to_s]
+              }
+            ]
+          )
+
+          peering_id = if !resp or !resp.vpc_peering_connections or
+             resp.vpc_peering_connections.empty?
+
+            MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id} in account #{MU::Cloud::AWS.credToAcct(@config['credentials'])}) to #{peer_id} in account #{peer['account']}", details: peer
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_vpc_peering_connection(
+              vpc_id: @cloud_id,
+              peer_vpc_id: peer_id,
+              peer_owner_id: peer['account'],
+              peer_region: peer_obj.config['region']
+            )
+            resp.vpc_peering_connection.vpc_peering_connection_id
+          else
+            resp.vpc_peering_connections.first.vpc_peering_connection_id
+          end
+
+          peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer_id)
+
+          tag_me(peering_id, peering_name)
+
+          # Create routes to our new friend.
+          MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@cloud_id, region: @config['region'], credentials: @config['credentials']).each { |rtb_id|
+            my_route_config = {
+              :route_table_id => rtb_id,
+              :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
+              :vpc_peering_connection_id => peering_id
+            }
+            rtbdesc = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+              route_table_ids: [rtb_id]
+            ).route_tables.first
+            already_exists = false
+            rtbdesc.routes.each { |r|
+              if r.destination_cidr_block == peer_obj.cloud_desc.cidr_block
+                if r.vpc_peering_connection_id != peering_id
+                  MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::ERR, details: r
+                  raise MuError, "Can't create route via #{peering_id}, a route to #{peer_obj.cloud_desc.cidr_block} already exists"
+                else
+                  already_exists = true
+                end
+              end
+            }
+            next if already_exists
+
+            MU.log "Creating peering route to #{peer_obj.cloud_desc.cidr_block} in #{peer['vpc']['region']} from VPC #{@config['name']} in #{@config['region']}"
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route(my_route_config)
+          } # MU::Cloud::AWS::VPC.listAllSubnetRouteTables
+
+          can_auto_accept = ((!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or $MU_CFG['allow_invade_foreign_vpcs'])
+
+          cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
+            vpc_peering_connection_ids: [peering_id]
+          ).vpc_peering_connections.first
+
+          loop_if = Proc.new {
+            cnxn = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
+              vpc_peering_connection_ids: [peering_id]
+            ).vpc_peering_connections.first
+            ((can_auto_accept and cnxn.status.code == "pending-acceptance") or (cnxn.status.code != "active" and cnxn.status.code != "pending-acceptance"))
+          }
+
+          MU.retrier(wait: 5, loop_if: loop_if, ignoreme: [Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists, Aws::EC2::Errors::RouteAlreadyExists]) {
+            if cnxn.status.code == "pending-acceptance"
+              if can_auto_accept
+                MU.log "Auto-accepting peering connection #{peering_id} from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}", MU::NOTICE
+                MU::Cloud::AWS.ec2(region: peer_obj.config['region'], credentials: peer['account']).accept_vpc_peering_connection(
+                  vpc_peering_connection_id: peering_id,
+                )
+
+                # Create routes back from our new friend to us.
+                MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer_obj.config['region'], credentials: peer['account']).uniq.each { |rtb_id|
+                  peer_route_config = {
+                    :route_table_id => rtb_id,
+                    :destination_cidr_block => @config['ip_block'],
+                    :vpc_peering_connection_id => peering_id
+                  }
+                  resp = MU::Cloud::AWS.ec2(region: peer_obj.config['region'], credentials: peer['account']).create_route(peer_route_config)
+                }
+              else
+                MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@cloud_id}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
+              end
+            end
+
+            if ["failed", "rejected", "expired", "deleted"].include?(cnxn.status.code)
+              MU.log "VPC peering connection from VPC #{@config['name']} (#{@cloud_id} in #{@config['region']}) to #{peer_id} in #{peer_obj.config['region']} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
+              begin
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).delete_vpc_peering_connection(
+                  vpc_peering_connection_id: peering_id
+                )
+              rescue Aws::EC2::Errors::InvalidStateTransition
+                # XXX apparently this is normal?
+              end
+              raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
+            end
+
+          }
+
+        end
+
+        def tag_me(resource_id = @cloud_id, name = @mu_name)
+          MU::Cloud::AWS.createStandardTags(
+            resource_id,
+            region: @config['region'],
+            credentials: @config['credentials'],
+            optional: @config['optional_tags'],
+            nametag: name,
+            othertags: @config['tags']
+          )
+        end
 
         # Helper method for manufacturing route tables. Expect to be called from
         # {MU::Cloud::AWS::VPC#create} or {MU::Cloud::AWS::VPC#groom}.
@@ -1733,21 +1421,9 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_route_table(vpc_id: vpc_id).route_table
           route_table_id = rtb['route_table_id'] = resp.route_table_id
           sleep 5
-          MU::Cloud::AWS.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase, credentials: @config['credentials'])
 
-          if @config['tags']
-            @config['tags'].each { |tag|
-              MU::Cloud::AWS.createTag(route_table_id, tag['key'], tag['value'], credentials: @config['credentials'])
-            }
-          end
+          tag_me(route_table_id, vpc_name+"-"+rtb['name'].upcase)
 
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::Cloud::AWS.createTag(route_table_id, key, value, region: @config['region'], credentials: @config['credentials'])
-            }
-          end
-
-          MU::Cloud::AWS.createStandardTags(route_table_id, credentials: @config['credentials'])
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?
               route_config = {
@@ -1840,36 +1516,25 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           ).nat_gateways
 
           threads = []
-          parent_thread_id = Thread.current.object_id
+
           if !gateways.empty?
             gateways.each { |gateway|
+              next if noop
+              MU.log "Deleting NAT Gateway #{gateway.nat_gateway_id}"
               threads << Thread.new {
-                MU.dupGlobals(parent_thread_id)
-                MU.log "Deleting NAT Gateway #{gateway.nat_gateway_id}"
-                if !noop
-                  begin
-                    MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_nat_gateway(nat_gateway_id: gateway.nat_gateway_id)
-                    resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+                MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_nat_gateway(nat_gateway_id: gateway.nat_gateway_id)
 
-                    attempts = 0
-                    while resp.state != "deleted" and resp.state != "failed"
-                      MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if attempts % 2 == 0
-                      sleep 30
-                      begin
-                        resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
-                      rescue Aws::EmptyStructure, NoMethodError
-                        sleep 5
-                        retry
-                      rescue Aws::EC2::Errors::NatGatewayNotFound
-                        MU.log "NAT gateway #{gateway.nat_gateway_id} already deleted", MU::NOTICE
-                      end
-                      MU.log "Timed out while waiting for NAT Gateway to delete #{gateway.nat_gateway_id}: #{resp}", MU::WARN if attempts > 50
-                      attempts += 1
-                    end
-                  rescue Aws::EC2::Errors::NatGatewayMalformed
-                    MU.log "NAT Gateway #{gateway.nat_gateway_id} was already deleted", MU::NOTICE
-                  end
-                end
+                resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+
+                loop_if = Proc.new {
+                  resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+                  (resp.state != "deleted" and resp.state != "failed")
+                }
+
+                MU.retrier([Aws::EmptyStructure, NoMethodError], ignoreme: [Aws::EC2::Errors::NatGatewayMalformed, Aws::EC2::Errors::NatGatewayNotFound], max: 50, loop_if: loop_if) { |retries, _wait|
+                  MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if retries % 3 == 0
+                }
+
               }
             }
           end
@@ -1898,38 +1563,21 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           ).vpc_endpoints
 
           threads = []
-          parent_thread_id = Thread.current.object_id
+
           if !vpc_endpoints.empty?
             vpc_endpoints.each { |endpoint|
+              MU.log "Deleting VPC endpoint #{endpoint.vpc_endpoint_id}"
+              next if noop
               threads << Thread.new {
-                MU.dupGlobals(parent_thread_id)
-                MU.log "Deleting VPC endpoint #{endpoint.vpc_endpoint_id}"
-                if !noop
-                  begin
-                    MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id])
-                    resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
-
-                    attempts = 0
-                    while resp.state != "deleted"
-                      MU.log "Waiting for VPC endpoint #{endpoint.vpc_endpoint_id} to delete" if attempts % 5 == 0
-                      sleep 30
-                      begin
-                        resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
-                      rescue Aws::EmptyStructure, NoMethodError
-                        sleep 5
-                        retry
-                      rescue Aws::EC2::Errors::InvalidVpcEndpointIdNotFound
-                        MU.log "VPC endpoint #{endpoint.vpc_endpoint_id} already deleted", MU::NOTICE
-                      end
-                      MU.log "Timed out while waiting for VPC endpoint to delete #{endpoint.vpc_endpoint_id}: #{resp}", MU::WARN if attempts > 50
-                      attempts += 1
-                    end
-                  rescue Aws::EC2::Errors::VpcEndpointIdMalformed
-                    MU.log "VPC endpoint #{endpoint.vpc_endpoint_id} was already deleted", MU::NOTICE
-                  rescue Aws::EC2::Errors::InvalidVpcEndpointIdNotFound
-                    MU.log "VPC endpoint #{endpoint.vpc_endpoint_id} already deleted", MU::NOTICE
-                  end
-                end
+                MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id])
+                resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+                loop_if = Proc.new {
+                  resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+                  resp.state != "deleted"
+                }
+                MU.retrier([Aws::EmptyStructure, NoMethodError], ignoreme: [Aws::EC2::Errors::InvalidVpcEndpointIdNotFound, Aws::EC2::Errors::VpcEndpointIdMalformed], max: 20, wait: 10, loop_if: loop_if) { |retries, _wait|
+                  MU.log "Waiting for VPC endpoint #{endpoint.vpc_endpoint_id} to delete" if retries % 5 == 0
+                }
               }
             }
           end
@@ -2001,56 +1649,6 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
         end
         private_class_method :purge_routetables
 
-        # Remove all subnets associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
-          resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_subnets(
-              filters: tagfilters
-          )
-          subnets = resp.data.subnets
-
-          return if subnets.nil? or subnets.size == 0
-
-          retries = 0
-          subnets.each { |subnet|
-            MU.log "Deleting Subnet #{subnet.subnet_id}"
-            begin
-              if subnet.state != "available"
-                MU.log "Waiting for #{subnet.subnet_id} to be in a removable state...", MU::NOTICE
-                sleep 30
-              else
-                MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_subnet(subnet_id: subnet.subnet_id) if !noop
-              end
-            rescue Aws::EC2::Errors::DependencyViolation => e
-              # We're often stuck waiting for an RDS database or something else
-              # that takes 5-ever to delete.
-              if retries < 19
-                loglevel = (retries > 0 and (retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
-                MU.log "#{e.message} (retry #{retries.to_s}/20)", loglevel
-                if loglevel == MU::NOTICE
-                  MU::Cloud::AWS::VPC.purge_interfaces(noop, [{name: "subnet-id", values: [subnet.subnet_id]}], region: region, credentials: credentials)
-                end
-                sleep 30
-                retries = retries + 1
-                retry
-              elsif retries < 20
-                MU.log "#{e.message} (final attempt)", MU::WARN
-                sleep 60
-                retries = retries + 1
-                retry
-              else
-                raise e
-              end
-            rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
-              next
-            end while subnet.state != "available"
-          }
-        end
-        private_class_method :purge_subnets
-
         # Remove all DHCP options sets associated with the currently loaded
         # deployment.
         # @param noop [Boolean]: If true, will only print what would be done
@@ -2088,7 +1686,7 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
         # @return [void]
         def self.purge_vpcs(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpcs(
-              filters: tagfilters
+            filters: tagfilters
           )
 
           vpcs = resp.data.vpcs
@@ -2096,12 +1694,12 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
 
           vpcs.each { |vpc|
             my_peer_conns = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_peering_connections(
-                filters: [
-                    {
-                        name: "requester-vpc-info.vpc-id",
-                        values: [vpc.vpc_id]
-                    }
-                ]
+              filters: [
+                {
+                  name: "requester-vpc-info.vpc-id",
+                  values: [vpc.vpc_id]
+                }
+              ]
             ).vpc_peering_connections
             my_peer_conns.concat(MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_peering_connections(
               filters: [
@@ -2147,31 +1745,20 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
               end
             }
 
-            retries = 0
-            begin
+            on_retry = Proc.new {
+              MU::Cloud::AWS::FirewallRule.cleanup(
+                noop: noop,
+                region: region,
+                credentials: credentials,
+                flags: { "vpc_id" => vpc.vpc_id }
+              )
+              purge_gateways(noop, tagfilters, region: region, credentials: credentials)
+            }
+
+            MU.retrier([Aws::EC2::Errors::DependencyViolation], ignoreme: [Aws::EC2::Errors::InvalidVpcIDNotFound], max: 20, on_retry: on_retry) {
               MU.log "Deleting VPC #{vpc.vpc_id}"
               MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
-            rescue Aws::EC2::Errors::InvalidVpcIDNotFound
-              MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
-            rescue Aws::EC2::Errors::DependencyViolation => e
-              if retries < 5
-                MU.log "#{vpc.vpc_id} in #{region} had hidden dependencies, will try to remove them", MU::NOTICE
-                retries += 1
-                # fry some common rogue resources
-                MU::Cloud::AWS::FirewallRule.cleanup(
-                  noop: noop,
-                  region: region,
-                  credentials: credentials,
-                  flags: { "vpc_id" => vpc.vpc_id }
-                )
-                purge_gateways(noop, tagfilters, region: region, credentials: credentials)
-                sleep 10
-                retry
-              else
-                MU.log "Failed to remove #{vpc.vpc_id} in #{region}: #{e.message}", MU::ERR
-                next
-              end
-            end
+            }
 
             if !MU::Cloud::AWS.isGovCloud?(region)
               mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region, credentials: credentials).values.first
@@ -2182,82 +1769,6 @@ MU.log "association I don't understand in #{@cloud_id}", MU::WARN, details: rtb_
           }
         end
         private_class_method :purge_vpcs
-
-        # Subnets are almost a first-class resource. So let's kinda sorta treat
-        # them like one. This should only be invoked on objects that already
-        # exists in the cloud layer.
-        class Subnet < MU::Cloud::AWS::VPC
-
-          attr_reader :cloud_id
-          attr_reader :ip_block
-          attr_reader :mu_name
-          attr_reader :name
-          attr_reader :az
-          attr_reader :cloud_desc
-
-          # @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
-          # @param config [Hash<String>]:
-          def initialize(parent, config)
-            @parent = parent
-            @config = MU::Config.manxify(config)
-            @cloud_id = config['cloud_id']
-            @mu_name = config['mu_name']
-            @name = config['name']
-            @deploydata = config # This is a dummy for the sake of describe()
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
-            @az = resp.availability_zone
-            @ip_block = resp.cidr_block
-            @cloud_desc = resp # XXX this really isn't the cloud implementation's business
-
-          end
-
-          # Return the cloud identifier for the default route of this subnet.
-          def defaultRoute
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-                filters: [{name: "association.subnet-id", values: [@cloud_id]}]
-            )
-            if resp.route_tables.size == 0 # use default route table for the VPC
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-                 filters: [{name: "vpc-id", values: [@parent.cloud_id]}]
-              )
-            end
-            resp.route_tables.each { |route_table|
-              route_table.routes.each { |route|
-                if route.destination_cidr_block =="0.0.0.0/0" and route.state != "blackhole"
-                  return route.instance_id if !route.instance_id.nil?
-                  return route.gateway_id if !route.gateway_id.nil?
-                  return route.vpc_peering_connection_id if !route.vpc_peering_connection_id.nil?
-                  return route.network_interface_id if !route.network_interface_id.nil?
-                end
-              }
-            }
-            return nil
-          end
-
-          # Is this subnet privately-routable only, or public?
-          # @return [Boolean]
-          def private?
-            return false if @cloud_id.nil?
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-                filters: [{name: "association.subnet-id", values: [@cloud_id]}]
-            )
-            if resp.route_tables.size == 0 # use default route table for the VPC
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
-                 filters: [{name: "vpc-id", values: [@parent.cloud_id]}]
-              )
-            end
-            resp.route_tables.each { |route_table|
-              route_table.routes.each { |route|
-                return false if !route.gateway_id.nil? and route.gateway_id != "local" # you can have an IgW and route it to a subset of IPs instead of 0.0.0.0/0
-                if route.destination_cidr_block == "0.0.0.0/0"
-                  return true if !route.instance_id.nil?
-                  return true if route.nat_gateway_id
-                end
-              }
-            }
-            return true
-          end
-        end
 
       end #class
     end #class

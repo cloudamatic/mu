@@ -182,18 +182,34 @@ end
         end
       end
 
-      # Tag a resource with all of our standard identifying tags.
+      # Tag an EC2 resource
       #
       # @param resource [String]: The cloud provider identifier of the resource to tag
       # @param region [String]: The cloud provider region
+      # @param credentials [String]: Credentials to authorize API requests
+      # @param optional [Boolean]: Whether to apply our optional generic tags
+      # @param nametag [String]: A +Name+ tag to apply
+      # @param othertags [Array<Hash>]: Miscellaneous custom tags, in Basket of Kittens style
       # @return [void]
-      def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil)
+      def self.createStandardTags(resource = nil, region: MU.curRegion, credentials: nil, optional: true, nametag: nil, othertags: nil)
         tags = []
         MU::MommaCat.listStandardTags.each_pair { |name, value|
-          if !value.nil?
-            tags << {key: name, value: value}
-          end
+          tags << {key: name, value: value} if !value.nil?
         }
+        if optional
+          MU::MommaCat.listOptionalTags.each { |key, value|
+            tags << {key: name, value: value} if !value.nil?
+          }
+        end
+        if nametag
+          tags << { key: "Name", value: nametag }
+        end
+        if othertags
+          othertags.each { |tag|
+            tags << { key: tag['key'], value: tag['value'] }
+          }
+        end
+
         if MU::Cloud::CloudFormation.emitCloudFormation
           return tags
         end
@@ -215,6 +231,7 @@ end
           end
         end
         MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
+
       end
 
       @@myVPCObj = nil
@@ -406,7 +423,7 @@ end
         end
 
         begin
-          Timeout.timeout(2) do
+          Timeout.timeout(4) do
             instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
             if !instance_id.nil? and instance_id.size > 0
               @@is_in_aws = true
@@ -1150,7 +1167,6 @@ end
 
       # Tag a resource. Defaults to applying our MU deployment identifier, if no
       # arguments other than the resource identifier are given.
-      # XXX this belongs in the cloud layer(s)
       #
       # @param resource [String]: The cloud provider identifier of the resource to tag
       # @param tag_name [String]: The name of the tag to create

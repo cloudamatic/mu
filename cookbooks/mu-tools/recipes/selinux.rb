@@ -4,7 +4,8 @@
 #
 # Copyright:: 2019, The Authors, All Rights Reserved.
 
-if !node['application_attributes']['skip_recipes'].include?('selinux')
+if !node['application_attributes']['skip_recipes'].include?('selinux') and
+   (platform_family?("rhel") or platform_family?("amazon"))
 
   selinux_state "SELinux Enforcing" do
     action :enforcing

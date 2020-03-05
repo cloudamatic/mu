@@ -7,6 +7,7 @@ vpc:
 platform: ubuntu
 ssh_user: ubuntu
 associate_public_ip: true
+add_private_ips: 3
 canned_iam_policies:
 - AmazonDynamoDBReadOnlyAccess
 - AmazonElastiCacheFullAccess

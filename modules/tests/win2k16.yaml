@@ -1,0 +1,25 @@
+# Windows Server tests
+# clouds: AWS, Google
+---
+appname: smoketest
+us_only: true
+vpcs:
+- name: windows
+  cloud: <%= cloud %>
+servers:
+- name: win2k16
+  platform: win2k16
+  cloud: <%= cloud %>
+<% if cloud == "AWS" %>
+  size: m4.large
+<% elsif cloud == "Azure" %>
+  size: Standard_DS1_v2
+<% elsif cloud == "Google" %>
+  size: n1-standard-2
+<% end %>
+  vpc:
+    name: windows
+    subnet_pref: public
+  associate_public_ip: true
+  static_ip:
+    assign_ip: true

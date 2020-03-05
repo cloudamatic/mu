@@ -513,7 +513,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param target_subnets_key [String]: The subnet/subnets on the other side of the peered VPC.
         # @param instance_id [String]: The instance ID in the target subnet/subnets.
         # @return [Boolean]
-        def self.have_route_peered_vpc?(source_subnets_key, target_subnets_key, instance_id)
+        def self.can_route_to_master_peer?(source_subnets_key, target_subnets_key, instance_id)
         end
 
         # Retrieves the route tables of used by subnets
