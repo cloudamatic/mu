@@ -450,7 +450,7 @@ module MU
       loadDeploy(true) # make sure we're not trampling deployment data
       @secret_semaphore.synchronize {
         if @secrets[type].nil?
-          raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
+          raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.join(", ")})"
         end
         @secrets[type][instance_id] = encryptWithDeployKey(raw_secret)
       }
@@ -697,103 +697,84 @@ module MU
     # flush it to disk.
     # @param type [String]: The type of resource (e.g. *server*, *database*).
     # @param key [String]: The name field of this resource.
+    # @param mu_name [String]: The mu_name of this resource.
     # @param data [Hash]: The resource's metadata.
+    # @param triggering_node [MU::Cloud]: A cloud object calling this notify, usually on behalf of itself
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
       return if @no_artifacts
-      MU::MommaCat.lock("deployment-notification")
 
-      if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
-        loadDeploy(true) # make sure we're saving the latest and greatest
-      end
+      begin
+        MU::MommaCat.lock("deployment-notification")
 
-      _shortclass, _cfg_name, cfg_plural, _classname, attrs = MU::Cloud.getResourceNames(type)
-      has_multiples = false
+        if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
+          loadDeploy(true) # make sure we're saving the latest and greatest
+        end
 
-      # it's not always the case that we're logging data for a legal resource
-      # type, though that's what we're usually for
-      if cfg_plural
-        type = cfg_plural
-        has_multiples = attrs[:has_multiples]
-      end
+        _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type, false)
+        has_multiples = attrs[:has_multiples] ? true : false
 
-      if mu_name.nil?
-        if !data.nil? and !data["mu_name"].nil?
-          mu_name = data["mu_name"]
+        mu_name ||= if !data.nil? and !data["mu_name"].nil?
+          data["mu_name"]
         elsif !triggering_node.nil? and !triggering_node.mu_name.nil?
-          mu_name = triggering_node.mu_name
+          triggering_node.mu_name
         end
         if mu_name.nil? and has_multiples
           MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller(1..1)}", MU::WARN, details: data
-          MU::MommaCat.unlock("deployment-notification")
           return
         end
-      end
 
-      @need_deploy_flush = true
+        @need_deploy_flush = true
 
-      if !remove
-        if data.nil?
-          MU.log "MU::MommaCat.notify called to modify deployment struct, but no data provided", MU::WARN
-          MU::MommaCat.unlock("deployment-notification")
-          return
-        end
-        @notify_semaphore.synchronize {
-          @deployment[type] ||= {}
-        }
-        if has_multiples
+        if !remove
+          if data.nil?
+            MU.log "MU::MommaCat.notify called to modify deployment struct, but no data provided", MU::WARN
+            return
+          end
           @notify_semaphore.synchronize {
-            @deployment[type][key] ||= {}
+            @deployment[type] ||= {}
           }
-          # fix has_multiples classes that weren't tiered correctly
-          if @deployment[type][key].is_a?(Hash) and @deployment[type][key].has_key?("mu_name")
-            olddata = @deployment[type][key].dup
-            @deployment[type][key][olddata["mu_name"]] = olddata
-          end
-          @deployment[type][key][mu_name] = data
-          MU.log "Adding to @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: data
-        else
-          @deployment[type][key] = data
-          MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
-        end
-        save!(key) if !delayed_save
-      else
-        have_deploy = true
-        if @deployment[type].nil? or @deployment[type][key].nil?
-
           if has_multiples
-            MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{mu_name} deployment struct, but no such data exist", MU::DEBUG
+            @notify_semaphore.synchronize {
+              @deployment[type][key] ||= {}
+            }
+            @deployment[type][key][mu_name] = data
+            MU.log "Adding to @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: data
           else
-            MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::DEBUG
+            @deployment[type][key] = data
+            MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
           end
-          MU::MommaCat.unlock("deployment-notification")
+          save!(key) if !delayed_save
+        else
+          have_deploy = true
+          if @deployment[type].nil? or @deployment[type][key].nil?
+            MU.log "MU::MommaCat.notify called to remove #{type} #{key}#{has_multiples ? " "+mu_name : ""} deployment struct, but no such data exist", MU::DEBUG
+            return
+          end
 
-          return
-        end
+          if have_deploy
+            @notify_semaphore.synchronize {
+              if has_multiples
+                MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
+                @deployment[type][key].delete(mu_name)
+              end
 
-        if have_deploy
-          @notify_semaphore.synchronize {
-            if has_multiples
-              MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
-              @deployment[type][key].delete(mu_name)
-              if @deployment[type][key].size == 0
+              if @deployment[type][key].empty? or !has_multiples
+                MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
                 @deployment[type].delete(key)
               end
-            else
-              MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
-              @deployment[type].delete(key)
-            end
-            if @deployment[type].size == 0
-              @deployment.delete(type)
-            end
-          }
+
+              if @deployment[type].empty?
+                @deployment.delete(type)
+              end
+            }
+          end
+          save! if !delayed_save
         end
-        save! if !delayed_save
-
+      ensure
+        MU::MommaCat.unlock("deployment-notification")
       end
-
-      MU::MommaCat.unlock("deployment-notification")
     end
 
     # Send a Slack notification to a deployment's administrators.
@@ -832,13 +813,13 @@ module MU
           to << "#{admin['name']} <#{admin['email']}>"
         }
       end
-      message = <<MESSAGE_END
+      message = <<MAIL_HEAD_END
 From: #{MU.handle} <root@localhost>
 To: #{to.join(",")}
 Subject: #{subject}
 
       #{msg}
-MESSAGE_END
+MAIL_HEAD_END
       if !kitten.nil? and kitten.kind_of?(MU::Cloud)
         message = message + "\n\n**** #{kitten}:\n"
         if !kitten.report.nil?
