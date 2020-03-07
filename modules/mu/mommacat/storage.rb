@@ -543,6 +543,133 @@ module MU
 
     private
 
+    # Helper for +initialize+
+    def setDeploySecret
+      MU::Cloud.resource_types.values.each { |attrs|
+        if !@original_config[attrs[:cfg_plural]].nil? and @original_config[attrs[:cfg_plural]].size > 0
+          @original_config[attrs[:cfg_plural]].each { |resource|
+
+            credsets[resource['cloud']] ||= []
+            credsets[resource['cloud']] << resource['credentials']
+            @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
+            @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
+
+          }
+        end
+      }
+
+      MU.log "Creating deploy secret for #{MU.deploy_id}"
+      @deploy_secret = Password.random(256)
+      if !@original_config['scrub_mu_isms'] and !@no_artifacts
+        credsets.each_pair { |cloud, creds|
+          creds.uniq!
+          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          creds.each { |credentials|
+            cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
+          }
+        }
+      end
+    end
+
+    def loadObjects(delay_descriptor_load)
+      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+        type = attrs[:cfg_plural]
+        next if !@deployment.has_key?(type)
+
+        @deployment[type].each_pair { |res_name, data|
+          orig_cfg = nil
+          if @original_config.has_key?(type)
+            @original_config[type].each { |resource|
+              if resource["name"] == res_name
+                orig_cfg = resource
+                break
+              end
+            }
+          end
+
+          # Some Server objects originated from ServerPools, get their
+          # configs from there
+          if type == "servers" and orig_cfg.nil? and
+              @original_config.has_key?("server_pools")
+            @original_config["server_pools"].each { |resource|
+              if resource["name"] == res_name
+                orig_cfg = resource
+                break
+              end
+            }
+          end
+
+          if orig_cfg.nil?
+            MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
+            next
+          end
+
+          if orig_cfg['vpc'] and orig_cfg['vpc'].is_a?(Hash)
+            ref = if orig_cfg['vpc']['id'] and orig_cfg['vpc']['id'].is_a?(Hash)
+              orig_cfg['vpc']['id']['mommacat'] = self
+              MU::Config::Ref.get(orig_cfg['vpc']['id'])
+            else
+              orig_cfg['vpc']['mommacat'] = self
+              MU::Config::Ref.get(orig_cfg['vpc'])
+            end
+            orig_cfg['vpc'].delete('mommacat')
+            orig_cfg['vpc'] = ref if ref.kitten(shallow: true)
+          end
+
+          begin
+            # Load up MU::Cloud objects for all our kittens in this deploy
+            orig_cfg['environment'] = @environment # not always set in old deploys
+            if attrs[:has_multiples]
+              data.keys.each { |mu_name|
+                attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load)
+              }
+            else
+              # XXX hack for old deployments, this can go away some day
+              if data['mu_name'].nil? or data['mu_name'].empty?
+                if res_type.to_s == "LoadBalancer" and !data['awsname'].nil?
+                  data['mu_name'] = data['awsname'].dup
+                elsif res_type.to_s == "FirewallRule" and !data['group_name'].nil?
+                  data['mu_name'] = data['group_name'].dup
+                elsif res_type.to_s == "Database" and !data['identifier'].nil?
+                  data['mu_name'] = data['identifier'].dup.upcase
+                elsif res_type.to_s == "VPC"
+                  # VPC names are deterministic, just generate the things
+                  data['mu_name'] = getResourceName(data['name'])
+                end
+              end
+              if data['mu_name'].nil?
+                raise MuError, "Unable to find or guess a Mu name for #{res_type}: #{res_name} in #{@deploy_id}"
+              end
+              attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
+            end
+          rescue StandardError => e
+            if e.class != MU::Cloud::MuCloudResourceNotImplemented
+              MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
+            end
+          end
+        }
+      }
+    end
+
+    # Helper for +initialize+
+    def initDeployDirectory
+      if !Dir.exist?(MU.dataDir+"/deployments")
+        MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
+        Dir.mkdir(MU.dataDir+"/deployments", 0700)
+      end
+      path = File.expand_path(MU.dataDir+"/deployments")+"/"+@deploy_id
+      if !Dir.exist?(path)
+        MU.log "Creating #{path}", MU::DEBUG
+        Dir.mkdir(path, 0700)
+      end
+
+      @ssh_key_name, @ssh_private_key, @ssh_public_key = self.SSHKey
+      if !File.exist?(deploy_dir+"/private_key")
+        @private_key, @public_key = createDeployKey
+      end
+
+    end
+
     ###########################################################################
     ###########################################################################
     def loadDeployFromCache(set_context_to_me = true)
