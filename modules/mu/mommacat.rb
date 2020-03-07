@@ -920,35 +920,28 @@ MAIL_HEAD_END
         triggering_node = triggering_node.mu_name
       end
 
-      litter = findLitterMate(type: "server", return_all: true)
-      return if litter.nil? or litter.empty?
+      siblings = findLitterMate(type: "server", return_all: true)
+      return if siblings.nil? or siblings.empty?
 
       update_servers = []
-      litter.each_pair { |mu_name, node|
+      siblings.each_pair { |mu_name, node|
         next if mu_name == triggering_node or node.groomer.nil?
         next if nodeclasses.size > 0 and !nodeclasses.include?(node.config['name'])
-        if !node.deploydata or !node.deploydata.keys.include?('nodename')
-          MU.log "#{mu_name} deploy data is missing (possibly retired or mid-bootstrap), so not syncing it", MU::NOTICE, details: node.deploydata ? node.deploydata.keys : nil
+        if !node.deploydata or !node.deploydata['nodename']
+          MU.log "#{mu_name} deploy data is missing (possibly retired or mid-bootstrap), so not syncing it", MU::NOTICE
+          next
+        end
+
+        if @deployment["servers"][node.config['name']][node.mu_name].nil? or
+           @deployment["servers"][node.config['name']][node.mu_name] != node.deploydata
+          @deployment["servers"][node.config['name']][node.mu_name] = node.deploydata
+        elsif !save_only
+          # Don't bother running grooms on nodes that don't need to be updated,
+          # unless we're just going to do a save.
           next
         end
         update_servers << node
       }
-
-      # If we're going to be invoking grooms on things, make sure everyone's
-      # deploydata together, and take node of nodes which don't need an update.
-      if !save_only
-        skip = []
-        update_servers.each { |node|
-
-          if @deployment["servers"][node.config['name']][node.mu_name].nil? or
-             @deployment["servers"][node.config['name']][node.mu_name] != node.deploydata
-            @deployment["servers"][node.config['name']][node.mu_name] = node.deploydata
-          else
-            skip << node
-          end
-        }
-        update_servers = update_servers - skip
-      end
 
       return if update_servers.empty?
 
@@ -956,7 +949,6 @@ MAIL_HEAD_END
 
       threads = []
       update_servers.each { |sibling|
-        next if sibling.config['groom'].nil? or sibling.config['groom']
         threads << Thread.new {
           Thread.abort_on_exception = true
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
