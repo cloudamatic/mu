@@ -19,6 +19,7 @@ require 'stringio'
 require 'securerandom'
 require 'timeout'
 require 'mu/mommacat/storage'
+require 'mu/mommacat/search'
 require 'mu/mommacat/daemon'
 require 'mu/mommacat/naming'
 
@@ -667,11 +668,12 @@ module MU
     # @param tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
     # @param allow_multi [Boolean]: Permit an array of matching resources to be returned (if applicable) instead of just one.
     # @param dummy_ok [Boolean]: Permit return of a faked {MU::Cloud} object if we don't have enough information to identify a real live one.
-    # @param flags [Hash]: Other cloud or resource type specific options to pass to that resource's find() method
     # @return [Array<MU::Cloud>]
-    def self.findStray(
-        cloud,
-        type,
+    def self.findStray(cloud, type,
+        debug: true,
+        dummy_ok: false,
+        no_deploy_search: false,
+        allow_multi: false,
         deploy_id: nil,
         name: nil,
         mu_name: nil,
@@ -680,392 +682,80 @@ module MU
         region: nil,
         tag_key: nil,
         tag_value: nil,
-        allow_multi: false,
         calling_deploy: MU.mommacat,
-        flags: {},
-        habitats: [],
-        dummy_ok: false,
-        debug: false,
-        no_deploy_search: false
-    ) 
-      start = Time.now
-      callstr = "findStray(cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}, credentials: #{credentials}, habitats: #{habitats ? habitats.to_s : "[]"}, dummy_ok: #{dummy_ok.to_s}, flags: #{flags.to_s}) from #{caller[0]}"
-#      callstack = caller.dup
+        habitats: []
+      ) 
 
-      return nil if cloud == "CloudFormation" and !cloud_id.nil?
-      shortclass, _cfg_name, cfg_plural, classname, _attrs = MU::Cloud.getResourceNames(type)
-      if !MU::Cloud.supportedClouds.include?(cloud) or shortclass.nil?
-        MU.log "findStray was called with bogus cloud argument '#{cloud}'", MU::WARN, details: callstr
-        return nil
+      _shortclass, _cfg_name, type, _classname, _attrs = MU::Cloud.getResourceNames(type, true)
+
+      cloudclass = MU::Cloud.assertSupportedCloud(cloud)
+      return nil if cloudclass.virtual?
+
+      if (tag_key and !tag_value) or (!tag_key and tag_value)
+        raise MuError, "Can't call findStray with only one of tag_key and tag_value set, must be both or neither"
       end
 
-      begin
-        # TODO this is dumb as hell, clean this up.. and while we're at it
-        # .dup everything so we don't mangle referenced values from the caller
-        deploy_id = deploy_id.to_s if deploy_id.class.to_s == "MU::Config::Tail"
-        name = name.to_s if name.class.to_s == "MU::Config::Tail"
-        cloud_id = cloud_id.to_s if !cloud_id.nil?
-        mu_name = mu_name.to_s if mu_name.class.to_s == "MU::Config::Tail"
-        tag_key = tag_key.to_s if tag_key.class.to_s == "MU::Config::Tail"
-        tag_value = tag_value.to_s if tag_value.class.to_s == "MU::Config::Tail"
-        type = cfg_plural
-        resourceclass = MU::Cloud.loadCloudType(cloud, shortclass)
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      credlist = credentials ? [credentials] : cloudclass.listCredentials
 
-        credlist = if credentials
-          [credentials]
-        else
-          cloudclass.listCredentials
+      # Help ourselves by making more refined parameters out of mu_name, if
+      # they weren't passed explicitly
+      if mu_name
+        # We can extract a deploy_id from mu_name if we don't have one already
+        deploy_id ||= mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
+        if !tag_key and !tag_value
+          tag_key = "Name"
+          tag_value = mu_name
         end
+      end
 
-        if (tag_key and !tag_value) or (!tag_key and tag_value)
-          raise MuError, "Can't call findStray with only one of tag_key and tag_value set, must be both or neither"
+      # See if the thing we're looking for is a member of the deploy that's
+      # asking after it.
+      if !deploy_id.nil? and !calling_deploy.nil? and
+          calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
+        kitten = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
+        return [kitten] if !kitten.nil?
+      end
+
+      # See if we have it in deployment metadata generally
+      kittens = {}
+      if !no_deploy_search and (deploy_id or name or mu_name or cloud_id)
+        kittens = search_my_deploys(type, deploy_id: deploy_id, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
+
+        return kittens.values if kittens.size == 1
+
+        # We can't refine any further by asking the cloud provider...
+        if kittens.size > 1 and !allow_multi and
+           !cloud_id and !tag_key and !tag_value
+          raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller[0]})"
         end
-        # Help ourselves by making more refined parameters out of mu_name, if
-        # they weren't passed explicitly
-        if mu_name
-          if !tag_key and !tag_value
-            # XXX "Name" is an AWS-ism, perhaps those plugins should do this bit?
-            tag_key="Name"
-            tag_value=mu_name
-          end
-          # We can extract a deploy_id from mu_name if we don't have one already
-          if !deploy_id and mu_name
-            deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
-          end
-        end
-        loglevel = debug ? MU::NOTICE : MU::DEBUG
+      end
 
-        MU.log callstr, loglevel, details: caller
+      if !cloud_id and !(tag_key and tag_value)
+        return kittens.values
+      end
 
-        # See if the thing we're looking for is a member of the deploy that's
-        # asking after it.
-        if !deploy_id.nil? and !calling_deploy.nil? and
-            calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
-          handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
-          return [handle] if !handle.nil?
-        end
+      matches = []
 
-        kittens = {}
-        # Search our other deploys for matching resources
-        if !no_deploy_search and (deploy_id or name or mu_name or cloud_id)
-          MU.log "findStray: searching my deployments (#{cfg_plural}, name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+      credlist.each { |creds|
+        cloud_descs = search_cloud_provider(type, cloud, habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds)
 
-          # Check our in-memory cache of live deploys before resorting to
-          # metadata
-          littercache = nil
-          # Sometimes we're called inside a locked thread, sometimes not. Deal
-          # with locking gracefully.
-          begin
-            @@litter_semaphore.synchronize {
-              littercache = @@litters.dup
-            }
-          rescue ThreadError => e
-            raise e if !e.message.match(/recursive locking/)
-            littercache = @@litters.dup
-          end
-
-          littercache.each_pair { |cur_deploy, momma|
-            next if deploy_id and deploy_id != cur_deploy
-            
-            straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
-            if straykitten
-              MU.log "Found matching kitten #{straykitten.mu_name} in-memory - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-              # Peace out if we found the exact resource we want
-              if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
-                return [straykitten]
-              elsif mu_name and straykitten.mu_name == mu_name
-                return [straykitten]
-              else
-                kittens[straykitten.cloud_id] ||= straykitten
-              end
-            end
-          }
-
-          mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
-          MU.log "findStray: #{mu_descs.size.to_s} deploys had matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-
-          mu_descs.each_pair { |cur_deploy_id, matches|
-            MU.log "findStray: #{cur_deploy_id} had #{matches.size.to_s} initial matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-            next if matches.nil? or matches.size == 0
-
-            momma = MU::MommaCat.getLitter(cur_deploy_id)
-
-            straykitten = nil
-
-            # If we found exactly one match in this deploy, use its metadata to
-            # guess at resource names we weren't told.
-            if matches.size > 1 and cloud_id
-              MU.log "findStray: attempting to narrow down multiple matches with cloud_id #{cloud_id} - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-              straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, credentials: credentials, created_only: true)
-            elsif matches.size == 1 and name.nil? and mu_name.nil?
-              if cloud_id.nil?
-                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
-              else
-                MU.log "findStray: fetching single match with cloud_id #{cloud_id} - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
-              end
-#            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
-#              # see if we can narrow it down further with some flags
-#              filtered = []
-#              matches.each { |m|
-#                f = resourceclass.find(cloud_id: m['mu_name'], flags: flags)
-#                filtered << m if !f.nil? and f.size > 0
-#                MU.log "RESULT FROM find(cloud_id: #{m['mu_name']}, flags: #{flags})", MU::WARN, details: f
-#              }
-#              if filtered.size == 1
-#                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: filtered.first['cloud_id'])
-#              end
-            else
-              # There's more than one of this type of resource in the target
-              # deploy, so see if findLitterMate can narrow it down for us
-              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
-            end
-
-            next if straykitten.nil?
-            straykitten.intoDeploy(momma)
-
-            if straykitten.cloud_id.nil?
-              MU.log "findStray: kitten #{straykitten.mu_name} came back with nil cloud_id", MU::WARN
-              next
-            end
-
-            kittens[straykitten.cloud_id] ||= straykitten
-
-            # Peace out if we found the exact resource we want
-            if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
-              return [straykitten]
-            # ...or if we've validated our one possible match
-            elsif !cloud_id and mu_descs.size == 1 and matches.size == 1
-              return [straykitten]
-            elsif credentials and credlist.size == 1 and straykitten.credentials == credentials
-              return [straykitten]
-            end
-          }
-
-
-#          if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
-#             MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
-#         puts File.read(deploy_dir(deploy_id)+"/deployment.json")
-#          end
-
-          # We can't refine any further by asking the cloud provider...
-          if !cloud_id and !tag_key and !tag_value and kittens.size > 1
-            if !allow_multi
-              raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller[0]})"
-            else
-              return kittens.values
-            end
-          end
-        end
-
-        matches = []
-
-        found_the_thing = false
-        credlist.each { |creds|
-          break if found_the_thing
-          if cloud_id or (tag_key and tag_value) or !flags.empty? or allow_multi
-
-            regions = begin
-              region ? [region] : cloudclass.listRegions(credentials: creds)
-            rescue NoMethodError # Not all cloud providers have regions
-              [nil]
-            end
-
-            # ..not all resource types care about regions either
-            if resourceclass.isGlobal?
-              regions = [nil]
-            end
-
-            # Decide what habitats (accounts/projects/subscriptions) we'll
-            # search, if applicable for this resource type.
-            habitats ||= []
-            begin
-              if flags["project"] # backwards-compat
-                habitats << flags["project"]
-              end
-              if habitats.empty?
-                if resourceclass.canLiveIn.include?(nil)
-                  habitats << nil
-                end
-                if resourceclass.canLiveIn.include?(:Habitat)
-                  habitats.concat(cloudclass.listProjects(creds))
-                end
-              end
-            rescue NoMethodError # we only expect this to work on Google atm
-            end
-
-            if habitats.empty?
-              habitats << nil
-            end
-            habitats.uniq!
-
-            habitat_threads = []
-            desc_semaphore = Mutex.new
-
-            cloud_descs = {}
-            habitats.each { |hab|
-              begin
-                habitat_threads.each { |t| t.join(0.1) }
-                habitat_threads.reject! { |t| t.nil? or !t.status }
-                sleep 1 if habitat_threads.size > 5
-              end while habitat_threads.size > 5
-              habitat_threads << Thread.new(hab) { |p|
-                MU.log "findStray: Searching #{p} (#{habitat_threads.size.to_s} habitat threads running) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-                cloud_descs[p] = {}
-                region_threads = []
-                regions.each { |reg| region_threads << Thread.new(reg) { |r|
-                  MU.log "findStray: Searching #{r} in #{p} (#{region_threads.size.to_s} region threads running) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-                  MU.log "findStray: calling #{classname}.find(cloud_id: #{cloud_id}, region: #{r}, tag_key: #{tag_key}, tag_value: #{tag_value}, flags: #{flags}, credentials: #{creds}, project: #{p}) - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-                  found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags, credentials: creds, habitat: p)
-                  MU.log "findStray: #{found ? found.size.to_s : "nil"} results - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-
-                  if found
-                    desc_semaphore.synchronize {
-                      cloud_descs[p][r] = found
-                    }
-                  end
-                  # Stop if you found the thing by a specific cloud_id
-                  if cloud_id and found and !found.empty?
-                    found_the_thing = true
-                    Thread.exit
-                  end
-                } }
-                begin
-                  region_threads.each { |t| t.join(0.1) }
-                  region_threads.reject! { |t| t.nil? or !t.status }
-                  if region_threads.size > 0
-                    MU.log "#{region_threads.size.to_s} regions still running in #{p}", loglevel
-                    sleep 3
-                  end
-                end while region_threads.size > 0
-              }
-            }
-            begin
-              habitat_threads.each { |t| t.join(0.1) }
-              habitat_threads.reject! { |t| t.nil? or !t.status }
-              if habitat_threads.size > 0
-                MU.log "#{habitat_threads.size.to_s} habitats still running", loglevel
-                sleep 3
-              end
-            end while habitat_threads.size > 0
-
-            habitat_threads = []
-            habitats.each { |hab| habitat_threads << Thread.new(hab) { |p|
-              region_threads = []
-              regions.each { |reg| region_threads << Thread.new(reg) { |r|
-                next if cloud_descs[p][r].nil?
-                cloud_descs[p][r].each_pair { |kitten_cloud_id, descriptor|
-
-                  # We already have a MU::Cloud object for this guy, use it
-                  if kittens.has_key?(kitten_cloud_id)
-                    desc_semaphore.synchronize {
-                      matches << kittens[kitten_cloud_id]
-                    }
-                  elsif kittens.size == 0
-                    if !dummy_ok
-                      next
-                    end
-
-                    # If we don't have a MU::Cloud object, manufacture a dummy
-                    # one.  Give it a fake name if we have to and have decided
-                    # that's ok. Wild inferences from the cloud descriptor are
-                    # ok to try here.
-                    use_name = if (name.nil? or name.empty?)
-                      if !dummy_ok
-                        nil
-                      elsif !mu_name.nil?
-                        mu_name
-                      # AWS-style tags
-                      elsif descriptor.respond_to?(:tags) and
-                            descriptor.tags.is_a?(Array) and
-                            descriptor.tags.first.respond_to?(:key) and
-                            descriptor.tags.map { |t| t.key }.include?("Name")
-                        descriptor.tags.select { |t| t.key == "Name" }.first.value
-                      else
-                        try = nil
-                        # Various GCP fields
-                        [:display_name, :name, (resourceclass.cfg_name+"_name").to_sym].each { |field|
-                          if descriptor.respond_to?(field) and descriptor.send(field).is_a?(String)
-                            try = descriptor.send(field)
-                            break
-                          end
-
-                        }
-                        try ||= if !tag_value.nil?
-                            tag_value
-                          else
-                            kitten_cloud_id
-                          end
-                        try
-                      end
-                    else
-                      name
-                    end
-                    if use_name.nil?
-                      MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return - #{sprintf("%.2fs", (Time.now-start))}", loglevel, details: caller
-                      next
-                    end
-                    cfg = {
-                      "name" => use_name,
-                      "cloud" => cloud,
-                      "credentials" => creds
-                    }
-                    if !r.nil? and !resourceclass.isGlobal?
-                     cfg["region"] = r
-                    end
-
-                    if !p.nil? and resourceclass.canLiveIn.include?(:Habitat)
-                      cfg["project"] = p
-                    end
-                    # If we can at least find the config from the deploy this will
-                    # belong with, use that, even if it's an ungroomed resource.
-                    if !calling_deploy.nil? and
-                       !calling_deploy.original_config.nil? and
-                       !calling_deploy.original_config[type+"s"].nil?
-                      calling_deploy.original_config[type+"s"].each { |s|
-                        if s["name"] == use_name
-                          cfg = s.dup
-                          break
-                        end
-                      }
-
-                      newkitten = resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
-                      desc_semaphore.synchronize {
-                        matches << newkitten
-                      }
-                    else
-                      if !@@dummy_cache[cfg_plural] or !@@dummy_cache[cfg_plural][cfg.to_s]
-                        MU.log "findStray: Generating dummy '#{resourceclass.to_s}' cloudobj with name: #{use_name}, cloud_id: #{kitten_cloud_id.to_s} - #{sprintf("%.2fs", (Time.now-start))}", loglevel, details: cfg
-                        resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
-                        desc_semaphore.synchronize {
-                          @@dummy_cache[cfg_plural] ||= {}
-                          @@dummy_cache[cfg_plural][cfg.to_s] = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s, from_cloud_desc: descriptor)
-                          MU.log "findStray: Finished generating dummy '#{resourceclass.to_s}' cloudobj - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-                        }
-                      end
-                      desc_semaphore.synchronize {
-                        matches << @@dummy_cache[cfg_plural][cfg.to_s]
-                      }
-                    end
-                  end
+        cloud_descs.each_pair.each { |p, regions|
+          regions.each_pair.each { |r, results|
+            results.each_pair { |kitten_cloud_id, descriptor|
+              # We already have a MU::Cloud object for this guy, use it
+              if kittens.has_key?(kitten_cloud_id)
+                desc_semaphore.synchronize {
+                  matches << kittens[kitten_cloud_id]
                 }
-              } }
-              MU.log "findStray: tying up #{region_threads.size.to_s} region threads - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-              region_threads.each { |t|
-                t.join
-              }
-            } }
-            MU.log "findStray: tying up #{habitat_threads.size.to_s} habitat threads - #{sprintf("%.2fs", (Time.now-start))}", loglevel
-            habitat_threads.each { |t|
-              t.join
+              elsif dummy_ok and kittens.empty?
+                desc_semaphore.synchronize {
+                  matches << generate_dummy_object(type, cloud, name, mu_name, kitten_cloud_id, descriptor, r, p, tag_value, calling_deploy, creds)
+                }
+              end
             }
-          end
+          }
         }
-      rescue StandardError => e
-        MU.log e.inspect, MU::ERR, details: e.backtrace
-      end
-      MU.log "findStray: returning #{matches ? matches.size.to_s : "0"} matches - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+      }
 
       matches
     end
@@ -1078,116 +768,56 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false, indent: "")
-      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
-      type = cfg_plural
-      has_multiples = attrs[:has_multiples]
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil)
+      _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
 
-      loglevel = debug ? MU::NOTICE : MU::DEBUG
+      # If we specified a habitat, which we may also have done by its shorthand
+      # sibling name, or a Ref. Convert to something we can use.
+      habitat = resolve_habitat(habitat, credentials: credentials)
 
-      argstring = [:type, :name, :mu_name, :cloud_id, :created_only, :credentials, :habitat, :has_multiples].reject { |a|
-        binding.local_variable_get(a).nil?
-      }.map { |v|
-        v.to_s+": "+binding.local_variable_get(v).to_s
-      }.join(", ")
-
-      # Fun times: if we specified a habitat, which we may also have done by
-      # its shorthand sibling name, let's... call ourselves first to make sure
-      # we're fishing for the right thing.
-      if habitat
-        if habitat.is_a?(MU::Config::Ref) and habitat.id
-          habitat = habitat.id
-        else
-          MU.log indent+"findLitterMate(#{argstring}): Attempting to resolve habitat name #{habitat}", loglevel
-          realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials, indent: indent+"  ")
-          if realhabitat and realhabitat.mu_name
-            MU.log indent+"findLitterMate: Resolved habitat name #{habitat} to #{realhabitat.mu_name}", loglevel, details: [realhabitat.mu_name, realhabitat.cloud_id, realhabitat.config.keys]
-            habitat = realhabitat.cloud_id
-          elsif debug
-            MU.log indent+"findLitterMate(#{argstring}): Failed to resolve habitat name #{habitat}", MU::WARN
-          end
-        end
-      end
-
+      does_match = Proc.new { |obj|
+        (!created_only or !obj.cloud_id.nil?) and (
+          (!mu_name.nil? and obj.mu_name and mu_name.to_s == obj.mu_name) or
+          (!cloud_id.nil? and obj.cloud_id and cloud_id.to_s == obj.cloud_id.to_s) or
+          (!credentials.nil? and obj.credentials and credentials.to_s == obj.credentials.to_s)
+        )
+      }
 
       @kitten_semaphore.synchronize {
-        if !@kittens.has_key?(type)
-          if debug
-            MU.log indent+"NO SUCH KEY #{type} findLitterMate(#{argstring})", MU::WARN, details: @kittens.keys
-          end
-          return nil
-        end
-        MU.log indent+"START findLitterMate(#{argstring}), caller: #{caller[2]}", loglevel, details: @kittens[type].keys.map { |hab| hab.to_s+": "+@kittens[type][hab].keys.join(", ") }
+        return nil if !@kittens.has_key?(type)
         matches = []
 
         @kittens[type].each { |habitat_group, sib_classes|
-          next if habitat and habitat_group != habitat and !habitat_group.nil?
-          sib_classes.each_pair { |sib_class, data|
-          virtual_name = nil
+          next if habitat and habitat_group and habitat_group != habitat
+          sib_classes.each_pair { |sib_class, cloud_objs|
 
-          if !has_multiples and data and !data.is_a?(Hash) and data.config and data.config.is_a?(Hash) and data.config['virtual_name'] and name == data.config['virtual_name']
-            virtual_name = data.config['virtual_name']
-          elsif !name.nil? and name != sib_class
-            next
-          end
-          if has_multiples
-            if !name.nil?
-              if return_all
-                MU.log indent+"MULTI-MATCH RETURN_ALL findLitterMate(#{argstring})", loglevel, details: data.keys
-                return data.dup
-              end
-              if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
-                return data.values.first
-              elsif mu_name.nil? and cloud_id.nil?
-                MU.log indent+"#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[2]}", MU::WARN, details: data.keys
-                return data.values.first
-              end
+            if !attrs[:has_multiples] and cloud_objs.virtual_name(name)
+              cloud_objs.virtual_name
+            elsif !name.nil? and name != sib_class
+              next
             end
-            data.each_pair { |sib_mu_name, obj|
-              if (!mu_name.nil? and mu_name == sib_mu_name) or
-                  (!cloud_id.nil? and cloud_id == obj.cloud_id) or
-                  (!credentials.nil? and credentials == obj.credentials)
-                if !created_only or !obj.cloud_id.nil?
-                  if return_all
-                    MU.log indent+"MULTI-MATCH RETURN_ALL findLitterMate(#{argstring})", loglevel, details: data.keys
-                    return data.dup
-                  else
-                    MU.log indent+"MULTI-MATCH findLitterMate(#{argstring})", loglevel, details: data.keys
-                    return obj
-                  end
+
+            if attrs[:has_multiples]
+              return cloud_objs.dup if !name.nil? and return_all
+#                elsif (cloud_objs.size == 1 and (cloud_id.nil? or cloud_objs.values.first.cloud_id == cloud_id)) or (mu_name.nil? and cloud_id.nil?)
+#                elsif cloud_objs.size == 1 and does_match.call(cloud_objs.values.first)
+#                  return cloud_objs.values.first
+              cloud_objs.each_value { |obj|
+                if does_match.call(obj)
+                  return (return_all ? cloud_objs.dup : obj)
                 end
-              end
-            }
-          else
-
-            MU.log indent+"CHECKING AGAINST findLitterMate #{habitat_group}/#{type}/#{sib_class} data.cloud_id: #{data.cloud_id}, data.credentials: #{data.credentials}, sib_class: #{sib_class}, virtual_name: #{virtual_name}", loglevel, details: argstring
-
-            data_cloud_id = data.cloud_id.nil? ? nil : data.cloud_id.to_s
-
-            MU.log indent+"(name.nil? or sib_class == name or virtual_name == name)", loglevel, details: (name.nil? or sib_class == name or virtual_name == name).to_s
-            MU.log indent+"(cloud_id.nil? or cloud_id[#{cloud_id.class.name}:#{cloud_id.to_s}] == data_cloud_id[#{data_cloud_id.class.name}:#{data_cloud_id}])", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
-            MU.log indent+"(credentials.nil? or data.credentials.nil? or credentials[#{credentials.class.name}:#{credentials}] == data.credentials[#{data.credentials.class.name}:#{data.credentials}])", loglevel, details: (credentials.nil? or data.credentials.nil? or credentials == data.credentials).to_s
-
-            if (name.nil? or sib_class == name.to_s or virtual_name == name.to_s) and
-                (cloud_id.nil? or cloud_id.to_s == data_cloud_id) and
-                (credentials.nil? or data.credentials.nil? or credentials.to_s == data.credentials.to_s)
-              MU.log indent+"OUTER MATCH PASSED, NEED !created_only (#{created_only.to_s}) or !data_cloud_id.nil? (#{data_cloud_id})", loglevel, details: (cloud_id.nil? or cloud_id == data_cloud_id).to_s
-              if !created_only or !data_cloud_id.nil?
-                MU.log indent+"SINGLE MATCH findLitterMate(#{argstring})", loglevel, details: [data.mu_name, data_cloud_id, data.config.keys]
-                matches << data
-              end
+              }
+            # has_multiples is false
+            elsif name.nil? or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)
+              matches << cloud_objs
             end
-          end
           }
         }
 
         return matches.first if matches.size == 1
-        if return_all and matches.size > 1
-          return matches
-        end
-      }
 
-      MU.log indent+"NO MATCH findLitterMate(#{argstring})", loglevel
+        return matches if return_all and matches.size > 1
+      }
 
       return nil
     end

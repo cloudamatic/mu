@@ -430,41 +430,11 @@ module MU
       syncLitter(@deployment['servers'].keys, triggering_node: triggering_node, save_only: true) if @deployment.has_key?("servers")
     end
 
-    # Find one or more resources by their Mu resource name, and return
-    # MommaCat objects for their containing deploys, their BoK config data,
-    # and their deployment data.
-    #
-    # @param type [String]: The type of resource, e.g. "vpc" or "server."
-    # @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
-    # @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
-    # @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
-    # @return [Hash,Array<Hash>]
-    def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
-      if type.nil?
-        raise MuError, "Can't call getResourceMetadata without a type argument"
-      end
-      _shortclass, _cfg_name, type, _classname = MU::Cloud.getResourceNames(type)
-
-      # first, check our in-memory deploys, which may or may not have been
-      # written to disk yet.
-      littercache = nil
-      begin
-        @@litter_semaphore.synchronize {
-          littercache = @@litters.dup
-        }
-      rescue ThreadError => e
-        # already locked by a parent caller and this is a read op, so this is ok
-        raise e if !e.message.match(/recursive locking/)
-        littercache = @@litters.dup
-      end
-      littercache.each_pair { |deploy, momma|
-        @@deploy_struct_semaphore.synchronize {
-          @deploy_cache[deploy] = {
-            "mtime" => Time.now,
-            "data" => momma.deployment
-          }
-        }
-      }
+    # Read all of our +deployment.json+ files in and stick them in a hash. Used
+    # by search routines that just need to skim this data without loading
+    # entire {MU::MommaCat} objects.
+    def self.cacheDeployMetadata
+      @@deploy_cache ||= {}
 
       deploy_root = File.expand_path(MU.dataDir+"/deployments")
       MU::MommaCat.deploy_struct_semaphore.synchronize {
@@ -478,33 +448,33 @@ module MU
               MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::DEBUG
               next
             end
-            if @deploy_cache[deploy].nil? or !use_cache
-              @deploy_cache[deploy] = Hash.new
-            elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
+            if @@deploy_cache[deploy].nil? or !use_cache
+              @@deploy_cache[deploy] = Hash.new
+            elsif @@deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
               MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
 
               next
             end
 
-            @deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
+            @@deploy_cache[deploy] = Hash.new if !@@deploy_cache.has_key?(deploy)
             MU.log "Caching deploy #{deploy}", MU::DEBUG
             lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
             lock.flock(File::LOCK_EX)
-            @deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
+            @@deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
 
             begin
-              @deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
+              @@deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
               lock.flock(File::LOCK_UN)
 
-              next if @deploy_cache[deploy].nil? or @deploy_cache[deploy]['data'].nil?
+              next if @@deploy_cache[deploy].nil? or @@deploy_cache[deploy]['data'].nil?
               # Populate some generable entries that should be in the deploy
               # data. Also, bounce out if we realize we've found exactly what
               # we needed already.
               MU::Cloud.resource_types.values.each { |attrs|
 
-                next if @deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
+                next if @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
                 if !attrs[:has_multiples]
-                  @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
+                  @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
 # XXX we don't actually store node names for some resources, need to farm them
 # and fix metadata
 #                 if !mu_name.nil? and nodename == mu_name
@@ -512,7 +482,7 @@ module MU
 #                 end
                   }
                 else
-                  @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
+                  @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
                     next if nodes.nil? or !nodes.is_a?(Hash)
                     nodes.each_pair { |nodename, data|
                       next if !data.is_a?(Hash)
@@ -537,39 +507,7 @@ module MU
         end
       }
 
-      matches = {}
-
-      if deploy_id.nil?
-        @deploy_cache.each_key { |deploy|
-          next if !@deploy_cache[deploy].has_key?('data')
-          next if !@deploy_cache[deploy]['data'].has_key?(type)
-          if !name.nil?
-            next if @deploy_cache[deploy]['data'][type][name].nil?
-            matches[deploy] ||= []
-            matches[deploy] << @deploy_cache[deploy]['data'][type][name].dup
-          else
-            matches[deploy] ||= []
-            matches[deploy].concat(@deploy_cache[deploy]['data'][type].values)
-          end
-        }
-        return matches
-      elsif !@deploy_cache[deploy_id].nil?
-        if !@deploy_cache[deploy_id]['data'].nil? and
-            !@deploy_cache[deploy_id]['data'][type].nil?
-          if !name.nil?
-            if !@deploy_cache[deploy_id]['data'][type][name].nil?
-              matches[deploy_id] ||= []
-              matches[deploy_id] << @deploy_cache[deploy_id]['data'][type][name].dup
-            else
-              return matches # nothing, actually
-            end
-          else
-            matches[deploy_id] = @deploy_cache[deploy_id]['data'][type].values
-          end
-        end
-      end
-
-      return matches
+      @@deploy_cache
     end
 
     # Get the deploy directory

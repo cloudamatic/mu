@@ -19,6 +19,34 @@ module MU
   # the normal synchronous deploy sequence invoked by *mu-deploy*.
   class MommaCat
 
+    # Given a cloud provider's native descriptor for a resource, make some
+    # reasonable guesses about what the thing's name should be.
+    def self.guessName(desc, resourceclass, cloud_id: nil, tag_value: nil)
+      if desc.respond_to?(:tags) and
+         desc.tags.is_a?(Array) and
+         desc.tags.first.respond_to?(:key) and
+         desc.tags.map { |t| t.key }.include?("Name")
+        desc.tags.select { |t| t.key == "Name" }.first.value
+      else
+        try = nil
+        # Various GCP fields
+        [:display_name, :name, (resourceclass.cfg_name+"_name").to_sym].each { |field|
+          if desc.respond_to?(field) and desc.send(field).is_a?(String)
+            try = desc.send(field)
+            break
+          end
+
+        }
+        try ||= if !tag_value.nil?
+            tag_value
+          else
+            cloud_id
+          end
+        try
+      end
+
+    end
+
     # Generate a three-character string which can be used to unique-ify the
     # names of resources which might potentially collide, e.g. Windows local
     # hostnames, Amazon Elastic Load Balancers, or server pool instances.

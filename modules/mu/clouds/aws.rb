@@ -33,6 +33,11 @@ module MU
       module AdditionalResourceMethods
       end
 
+      # Is this a "real" cloud provider, or a stub like CloudFormation?
+      def self.virtual?
+        false
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure

@@ -52,6 +52,11 @@ module MU
         [:url]
       end
 
+      # Is this a "real" cloud provider, or a stub like CloudFormation?
+      def self.virtual?
+        false
+      end
+
       # Most of our resource implementation +find+ methods have to mangle their
       # args to make sure they've extracted a project or location argument from
       # other available information. This does it for them.

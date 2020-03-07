@@ -77,6 +77,11 @@ module MU
         [:resource_group]
       end
 
+      # Is this a "real" cloud provider, or a stub like CloudFormation?
+      def self.virtual?
+        false
+      end
+
       # Stub class to represent Azure's resource identifiers, which look like:
       # /subscriptions/3d20ddd8-4652-4074-adda-0d127ef1f0e0/resourceGroups/mu/providers/Microsoft.Network/virtualNetworks/mu-vnet
       # Various API calls need chunks of this in different contexts, and this

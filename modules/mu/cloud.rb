@@ -49,7 +49,7 @@ module MU
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat, :virtual?]
 
     # Public attributes which will be available on all instantiated cloud resource objects
     #
@@ -644,9 +644,16 @@ module MU
 
     # Shorthand lookup for resource type names. Given any of the shorthand class name, configuration name (singular or plural), or full class name, return all four as a set.
     # @param type [String]: A string that looks like our short or full class name or singular or plural configuration names.
+    # @param assert [Boolean]: Raise an exception if the type isn't valid
     # @return [Array]: Class name (Symbol), singular config name (String), plural config name (String), full class name (Object)
-    def self.getResourceNames(type)
-      return [nil, nil, nil, nil, {}] if !type
+    def self.getResourceNames(type, assert = true)
+      if !type
+        if assert
+          raise MuError, "nil resource type requested in getResourceNames"
+        else
+          return [nil, nil, nil, nil, {}]
+        end
+      end
       @@resource_types.each_pair { |name, cloudclass|
         if name == type.to_sym or
             cloudclass[:cfg_name] == type or
@@ -656,6 +663,10 @@ module MU
           return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name), cloudclass]
         end
       }
+      if assert
+        raise MuError, "Invalid resource type #{type} requested in getResourceNames"
+      end
+
       [nil, nil, nil, nil, {}]
     end
 
@@ -684,6 +695,14 @@ module MU
       @@supportedCloudList
     end
 
+    # Raise an exception if the cloud provider specified isn't valid
+    def self.assertSupportedCloud(cloud)
+      if cloud.nil? or supportedClouds.include?(cloud.to_s)
+        raise MuError, "Cloud provider #{cloud} is not available"
+      end
+      Object.const_get("MU").const_get("Cloud").const_get(cloud.to_s)
+    end
+
     # List of known/supported Cloud providers for which we have at least one
     # set of credentials configured.
     # @return [Array<String>]
@@ -699,6 +718,14 @@ module MU
       }
 
       available
+    end
+
+    # Raise an exception if the cloud provider specified isn't valid or we
+    # don't have any credentials configured for it.
+    def self.assertAvailableCloud(cloud)
+      if cloud.nil? or availableClouds.include?(cloud.to_s)
+        raise MuError, "Cloud provider #{cloud} is not available"
+      end
     end
 
     # Load the container class for each cloud we know about, and inject autoload
@@ -927,6 +954,17 @@ module MU
             @cloudobj.intoDeploy(mommacat, force: force) if @cloudobj
           end
           @deploy_id
+        end
+
+        # Return the +virtual_name+ config field, if it is set.
+        # @param name [String]: If set, will only return a value if +virtual_name+ matches this string
+        # @return [String,nil]
+        def virtual_name(name = nil)
+          if @config and @config['virtual_name'] and
+             (!name or name == @config['virtual_name'])
+            return @config['virtual_name']
+          end
+          nil
         end
 
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
