@@ -332,32 +332,17 @@ module MU
           Dir.mkdir(deploy_dir, 0700)
         end
 
-        if !origin.nil?
-          o_file = File.new("#{deploy_dir}/origin.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          o_file.puts JSON.pretty_generate(origin)
-          o_file.close
-        end
-
-        if !@private_key.nil?
-          privkey = File.new("#{deploy_dir}/private_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          privkey.puts @private_key
-          privkey.close
-        end
-
-        if !@public_key.nil?
-          pubkey = File.new("#{deploy_dir}/public_key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          pubkey.puts @public_key
-          pubkey.close
-        end
+        writeFile("origin.json", JSON.pretty_generate(origin)) if !origin.nil?
+        writeFile("private_key", @private_key) if !@private_key.nil?
+        writeFile("public_key", @public_key) if !@public_key.nil?
 
         if !@deployment.nil? and @deployment.size > 0
           @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
-          @deployment['public_key'] = @public_key
-          @deployment['timestamp'] ||= @timestamp
-          @deployment['seed'] ||= @seed
-          @deployment['appname'] ||= @appname
-          @deployment['handle'] ||= @handle
-          @deployment['ssh_public_key'] ||= @ssh_public_key if @ssh_public_key
+          [:public_key, :timestamp, :seed, :appname, :handle, :ssh_public_key].each { |var|
+            value = instance_variable_get(("@"+var.to_s).to_sym)
+            @deployment[var.to_s] = value if value
+          }
+          
           begin
             # XXX doing this to trigger JSON errors before stomping the stored
             # file...
@@ -380,36 +365,15 @@ module MU
         end
 
         if !@original_config.nil? and @original_config.is_a?(Hash)
-          config = File.new("#{deploy_dir}/basket_of_kittens.json", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          config.puts JSON.pretty_generate(MU::Config.manxify(@original_config))
-          config.close
+          writeFile("basket_of_kittens.json", JSON.pretty_generate(MU::Config.manxify(@original_config)))
         end
 
-        if !@ssh_private_key.nil?
-          key = File.new("#{deploy_dir}/node_ssh.key", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_private_key
-          key.close
-        end
-        if !@ssh_public_key.nil?
-          key = File.new("#{deploy_dir}/node_ssh.pub", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_public_key
-          key.close
-        end
-        if !@ssh_key_name.nil?
-          key = File.new("#{deploy_dir}/ssh_key_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          key.puts @ssh_key_name
-          key.close
-        end
-        if !@environment.nil?
-          env = File.new("#{deploy_dir}/environment_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          env.puts @environment
-          env.close
-        end
-        if !@deploy_secret.nil?
-          secret = File.new("#{deploy_dir}/deploy_secret", File::CREAT|File::TRUNC|File::RDWR, 0600)
-          secret.print @deploy_secret
-          secret.close
-        end
+        writeFile("node_ssh.key", @ssh_private_key) if !@ssh_private_key.nil?
+        writeFile("node_ssh.pub", @ssh_public_key) if !@ssh_public_key.nil?
+        writeFile("ssh_key_name", @ssh_key_name) if !@ssh_key_name.nil?
+        writeFile("environment_name", @environment) if !@environment.nil?
+        writeFile("deploy_secret", @deploy_secret) if !@deploy_secret.nil?
+
         if !@secrets.nil?
           secretdir = "#{deploy_dir}/secrets"
           if !Dir.exist?(secretdir)
@@ -418,9 +382,7 @@ module MU
           end
           @secrets.each_pair { |type, servers|
             servers.each_pair { |server, svr_secret|
-              key = File.new("#{secretdir}/#{type}.#{server}", File::CREAT|File::TRUNC|File::RDWR, 0600)
-              key.puts svr_secret
-              key.close
+              writeFile("secrets/#{type}.#{server}", svr_secret)
             }
           }
         end
@@ -433,78 +395,58 @@ module MU
     # Read all of our +deployment.json+ files in and stick them in a hash. Used
     # by search routines that just need to skim this data without loading
     # entire {MU::MommaCat} objects.
-    def self.cacheDeployMetadata
-      @@deploy_cache ||= {}
-
+    def self.cacheDeployMetadata(deploy_id = nil)
       deploy_root = File.expand_path(MU.dataDir+"/deployments")
       MU::MommaCat.deploy_struct_semaphore.synchronize {
-        if Dir.exist?(deploy_root)
-          Dir.entries(deploy_root).each { |deploy|
-            this_deploy_dir = deploy_root+"/"+deploy
-            next if deploy == "." or deploy == ".." or !Dir.exist?(this_deploy_dir)
-            next if deploy_id and deploy_id != deploy
+        @@deploy_cache ||= {}
+        return if !Dir.exist?(deploy_root)
 
-            if !File.size?(this_deploy_dir+"/deployment.json")
-              MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::DEBUG
-              next
-            end
-            if @@deploy_cache[deploy].nil? or !use_cache
-              @@deploy_cache[deploy] = Hash.new
-            elsif @@deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
-              MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
+        Dir.entries(deploy_root).each { |deploy|
+          this_deploy_dir = deploy_root+"/"+deploy
+          this_deploy_file = this_deploy_dir+"/deployment.json"
 
-              next
-            end
+          if deploy == "." or deploy == ".." or !Dir.exist?(this_deploy_dir) or
+             (deploy_id and deploy_id != deploy) or
+             !File.size?(this_deploy_file) or
+             (use_cache and @@deploy_cache[deploy] and @@deploy_cache[deploy]['mtime'] == File.mtime(this_deploy_file))
+            next
+          end
 
-            @@deploy_cache[deploy] = Hash.new if !@@deploy_cache.has_key?(deploy)
-            MU.log "Caching deploy #{deploy}", MU::DEBUG
-            lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
-            lock.flock(File::LOCK_EX)
-            @@deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
+          @@deploy_cache[deploy] ||= {}
 
-            begin
-              @@deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
-              lock.flock(File::LOCK_UN)
+          MU.log "Caching deploy #{deploy}", MU::DEBUG
+          lock = File.open(this_deploy_file, File::RDONLY)
+          lock.flock(File::LOCK_EX)
+          @@deploy_cache[deploy]['mtime'] = File.mtime(this_deploy_file)
 
-              next if @@deploy_cache[deploy].nil? or @@deploy_cache[deploy]['data'].nil?
-              # Populate some generable entries that should be in the deploy
-              # data. Also, bounce out if we realize we've found exactly what
-              # we needed already.
-              MU::Cloud.resource_types.values.each { |attrs|
+          begin
+            @@deploy_cache[deploy]['data'] = JSON.parse(File.read(this_deploy_file))
+            next if @@deploy_cache[deploy]['data'].nil?
+            # Populate some generable entries that should be in the deploy
+            # data. Also, bounce out if we realize we've found exactly what
+            # we needed already.
+            MU::Cloud.resource_types.values.each { |attrs|
 
-                next if @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
-                if !attrs[:has_multiples]
-                  @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
-# XXX we don't actually store node names for some resources, need to farm them
-# and fix metadata
-#                 if !mu_name.nil? and nodename == mu_name
-#                   return { deploy => [data] }
-#                 end
+              next if @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
+              if attrs[:has_multiples]
+                @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
+                  next if nodes.nil? or !nodes.is_a?(Hash)
+                  nodes.each_pair { |nodename, data|
+                    next if !data.is_a?(Hash)
+                    data['#MU_NODE_CLASS'] ||= node_class
+                    data['#MU_NAME'] ||= nodename
+                    data["cloud"] ||= MU::Config.defaultCloud
                   }
-                else
-                  @@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
-                    next if nodes.nil? or !nodes.is_a?(Hash)
-                    nodes.each_pair { |nodename, data|
-                      next if !data.is_a?(Hash)
-                      data['#MU_NODE_CLASS'] = node_class
-                      if !data.has_key?("cloud") # XXX kludge until old metadata gets fixed
-                        data["cloud"] = MU::Config.defaultCloud
-                      end
-                      data['#MU_NAME'] = nodename
-                      if !mu_name.nil? and nodename == mu_name
-                        return {deploy => [data]} if deploy_id && deploy == deploy_id
-                      end
-                    }
-                  }
-                end
-              }
-            rescue JSON::ParserError => e
-              raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
-            end
+                }
+              end
+            }
+          rescue JSON::ParserError
+            raise MuError, "JSON parse failed on #{this_deploy_file}\n\n"+File.read(this_deploy_file)
+          ensure
             lock.flock(File::LOCK_UN)
             lock.close
-          }
-        end
+          end
+        }
       }
 
       @@deploy_cache
@@ -542,6 +484,12 @@ module MU
     end
 
     private
+        
+    def writeFile(filename, contents)
+      file = File.new("#{deploy_dir}/#{filename}", File::CREAT|File::TRUNC|File::RDWR, 0600)
+      file.puts contents
+      file.close
+    end
 
     # Helper for +initialize+
     def setDeploySecret
@@ -625,18 +573,6 @@ module MU
               }
             else
               # XXX hack for old deployments, this can go away some day
-              if data['mu_name'].nil? or data['mu_name'].empty?
-                if res_type.to_s == "LoadBalancer" and !data['awsname'].nil?
-                  data['mu_name'] = data['awsname'].dup
-                elsif res_type.to_s == "FirewallRule" and !data['group_name'].nil?
-                  data['mu_name'] = data['group_name'].dup
-                elsif res_type.to_s == "Database" and !data['identifier'].nil?
-                  data['mu_name'] = data['identifier'].dup.upcase
-                elsif res_type.to_s == "VPC"
-                  # VPC names are deterministic, just generate the things
-                  data['mu_name'] = getResourceName(data['name'])
-                end
-              end
               if data['mu_name'].nil?
                 raise MuError, "Unable to find or guess a Mu name for #{res_type}: #{res_name} in #{@deploy_id}"
               end
