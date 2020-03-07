@@ -26,7 +26,7 @@ module MU
       if habitat.is_a?(MU::Config::Ref) and habitat.id
         return habitat.id
       else
-        realhabitat = findLitterMate(type: "habitat", name: habitat, debug: debug, credentials: credentials)
+        realhabitat = findLitterMate(type: "habitat", name: habitat, credentials: credentials)
         if realhabitat and realhabitat.mu_name
           return realhabitat.cloud_id
         elsif debug

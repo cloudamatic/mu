@@ -155,7 +155,7 @@ module MU
       if @mu_user == "root"
         @chef_user = "mu"
       else
-        @chef_user = @mu_user.dup.gsub(/\./, "")
+        @chef_user = @mu_user.dup.delete(".")
         @mu_user = "root" if @mu_user == "mu"
       end
       @kitten_semaphore = Mutex.new
@@ -225,7 +225,7 @@ module MU
     def cloudsUsed
       seen = []
       seen << @original_config['cloud'] if @original_config['cloud']
-      MU::Cloud.resource_types.values.each { |attrs|
+      MU::Cloud.resource_types.each_value { |attrs|
         type = attrs[:cfg_plural]
         if @original_config[type]
           @original_config[type].each { |resource|
@@ -245,18 +245,15 @@ module MU
 #      clouds = []
       seen << @original_config['credentials'] if @original_config['credentials']
 #      defaultcloud = @original_config['cloud']
-      MU::Cloud.resource_types.values.each { |attrs|
+      MU::Cloud.resource_types.each_value { |attrs|
         type = attrs[:cfg_plural]
         if @original_config[type]
           @original_config[type].each { |resource|
             if resource['credentials']
               seen << resource['credentials']
             else
-              cloudclass = if @original_config['cloud']
-                Object.const_get("MU").const_get("Cloud").const_get(@original_config['cloud'])
-              else
-                Object.const_get("MU").const_get("Cloud").const_get(MU::Config.defaultCloud)
-              end
+              cloudconst = @original_config['cloud'] ? @original_config['cloud'] : MU::Config.defaultCloud
+              Object.const_get("MU").const_get("Cloud").const_get(cloudconst)
               seen << cloudclass.credConfig(name_only: true)
             end
           }
@@ -280,7 +277,7 @@ module MU
         end
       end
 
-      MU::Cloud.resource_types.values.each { |attrs|
+      MU::Cloud.resource_types.each_value { |attrs|
         type = attrs[:cfg_plural]
         if @original_config[type]
           @original_config[type].each { |resource|
@@ -357,7 +354,7 @@ module MU
       end
 
       count = 0
-      MU::Cloud.resource_types.values.each { |data|
+      MU::Cloud.resource_types.each_value { |data|
         next if @original_config[data[:cfg_plural]].nil?
         next if realtypes.size > 0 and (!negate and !realtypes.include?(data[:cfg_plural]))
         @original_config[data[:cfg_plural]].each { |resource|
@@ -375,13 +372,13 @@ module MU
         raise MuError, "Nil arguments to removeKitten are not allowed"
       end
       @kitten_semaphore.synchronize {
-        MU::Cloud.resource_types.values.each { |attrs|
+        MU::Cloud.resource_types.each_value { |attrs|
           type = attrs[:cfg_plural]
           next if !@kittens.has_key?(type)
           tmplitter = @kittens[type].values.dup
           tmplitter.each { |nodeclass, data|
             if data.is_a?(Hash)
-              data.keys.each { |mu_name|
+              data.each_key { |mu_name|
                 if data == object
                   @kittens[type][nodeclass].delete(mu_name)
                   return
@@ -469,7 +466,7 @@ module MU
       @secret_semaphore.synchronize {
         if @secrets[type].nil?
           return nil if quiet
-          raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
+          raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.join(", ")})"
         end
         if @secrets[type][instance_id].nil?
           return nil if quiet
@@ -545,7 +542,6 @@ module MU
     # @param dummy_ok [Boolean]: Permit return of a faked {MU::Cloud} object if we don't have enough information to identify a real live one.
     # @return [Array<MU::Cloud>]
     def self.findStray(cloud, type,
-        debug: true,
         dummy_ok: false,
         no_deploy_search: false,
         allow_multi: false,
@@ -601,7 +597,7 @@ module MU
         # We can't refine any further by asking the cloud provider...
         if kittens.size > 1 and !allow_multi and
            !cloud_id and !tag_key and !tag_value
-          raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller[0]})"
+          raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller(1..1)})"
         end
       end
 
@@ -729,7 +725,7 @@ module MU
           mu_name = triggering_node.mu_name
         end
         if mu_name.nil? and has_multiples
-          MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller[0]}", MU::WARN, details: data
+          MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller(1..1)}", MU::WARN, details: data
           MU::MommaCat.unlock("deployment-notification")
           return
         end
