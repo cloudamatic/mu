@@ -276,7 +276,7 @@ module MU
             schema_chunk["properties"]["creation_style"] != "existing"
           schema_chunk["properties"].each_pair { |key, subschema|
             shortclass = if conf_chunk[key]
-              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
+              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key, false)
               shortclass
             else
               nil

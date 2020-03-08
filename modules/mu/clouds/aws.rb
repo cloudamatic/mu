@@ -38,6 +38,13 @@ module MU
         false
       end
 
+      # List all AWS projects available to our credentials
+      def self.listHabitats(credentials = nil)
+        cfg = credConfig(credentials)
+        return [] if !cfg or !cfg['account_number']
+        [cfg['account_number']]
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure

@@ -49,7 +49,7 @@ module MU
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat, :virtual?]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :listHabitats, :habitat, :virtual?]
 
     # Public attributes which will be available on all instantiated cloud resource objects
     #
@@ -697,8 +697,8 @@ module MU
 
     # Raise an exception if the cloud provider specified isn't valid
     def self.assertSupportedCloud(cloud)
-      if cloud.nil? or supportedClouds.include?(cloud.to_s)
-        raise MuError, "Cloud provider #{cloud} is not available"
+      if cloud.nil? or !supportedClouds.include?(cloud.to_s)
+        raise MuError, "Cloud provider #{cloud} is not supported"
       end
       Object.const_get("MU").const_get("Cloud").const_get(cloud.to_s)
     end
@@ -850,20 +850,20 @@ module MU
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-        myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-        @@resource_types[type.to_sym][:class].each { |class_method|
+        myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
+        @@resource_types[shortclass.to_sym][:class].each { |class_method|
           if !myclass.respond_to?(class_method) or myclass.method(class_method).owner.to_s != "#<Class:#{myclass}>"
-            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required class method #{class_method}"
+            raise MuError, "MU::Cloud::#{cloud}::#{shortclass} has not implemented required class method #{class_method}"
           end
         }
-        @@resource_types[type.to_sym][:instance].each { |instance_method|
+        @@resource_types[shortclass.to_sym][:instance].each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{shortclass} has not implemented required instance method #{instance_method}"
           end
         }
         cloudclass.required_instance_methods.each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            MU.log "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}, will declare as attr_accessor", MU::DEBUG
+            MU.log "MU::Cloud::#{cloud}::#{shortclass} has not implemented required instance method #{instance_method}, will declare as attr_accessor", MU::DEBUG
           end
         }
 
@@ -871,7 +871,7 @@ module MU
         return myclass
       rescue NameError => e
         @cloud_class_cache[cloud][type] = nil
-        raise MuCloudResourceNotImplemented, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
+        raise MuCloudResourceNotImplemented, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::Cloud::#{cloud}::#{shortclass})", e.backtrace
       end
     end
 

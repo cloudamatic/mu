@@ -19,6 +19,8 @@ module MU
   # the normal synchronous deploy sequence invoked by *mu-deploy*.
   class MommaCat
 
+    @@desc_semaphore = Mutex.new
+
     # Locate a resource that's either a member of another deployment, or of no
     # deployment at all, and return a {MU::Cloud} object for it.
     # @param cloud [String]: The Cloud provider to use.
@@ -107,13 +109,10 @@ module MU
             results.each_pair { |kitten_cloud_id, descriptor|
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
-                desc_semaphore.synchronize {
-                  matches << kittens[kitten_cloud_id]
-                }
+                matches << kittens[kitten_cloud_id]
               elsif dummy_ok and kittens.empty?
-                desc_semaphore.synchronize {
-                  matches << generate_dummy_object(type, cloud, name, mu_name, kitten_cloud_id, descriptor, r, p, tag_value, calling_deploy, creds)
-                }
+# XXX this is why this was threaded
+                matches << generate_dummy_object(type, cloud, name, mu_name, kitten_cloud_id, descriptor, r, p, tag_value, calling_deploy, creds)
               end
             }
           }
@@ -209,7 +208,7 @@ module MU
         if !mu_name.nil?
           mu_name
         else
-          guessName(descriptor, resourceclass, cloud_id: cloud_id, tag_value: tag_value)
+          guessName(desc, resourceclass, cloud_id: cloud_id, tag_value: tag_value)
         end
       else
         name
@@ -223,11 +222,11 @@ module MU
         "cloud" => cloud,
         "credentials" => credentials
       }
-      if !r.nil? and !resourceclass.isGlobal?
-       cfg["region"] = region
+      if !region.nil? and !resourceclass.isGlobal? 
+        cfg["region"] = region
       end
 
-      if !p.nil? and resourceclass.canLiveIn.include?(:Habitat)
+      if resourceclass.canLiveIn.include?(:Habitat) and habitat
         cfg["project"] = habitat
       end
 
@@ -246,7 +245,7 @@ module MU
         return resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: cloud_id)
       else
         if !@@dummy_cache[type] or !@@dummy_cache[type][cfg.to_s]
-          desc_semaphore.synchronize {
+          @@desc_semaphore.synchronize {
             @@dummy_cache[type] ||= {}
             @@dummy_cache[type][cfg.to_s] = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: cloud_id, from_cloud_desc: desc)
           }
@@ -257,6 +256,7 @@ module MU
     private_class_method :generate_dummy_object
 
     def self.search_cloud_provider(type, cloud, habitats, region, cloud_id: nil, tag_key: nil, tag_value: nil, credentials: nil)
+      cloudclass = MU::Cloud.assertSupportedCloud(cloud)
       resourceclass = MU::Cloud.loadCloudType(cloud, type)
 
       # Decide what regions we'll search, if applicable for this resource
@@ -275,7 +275,7 @@ module MU
           habitats << nil
         end
         if resourceclass.canLiveIn.include?(:Habitat)
-          habitats.concat(cloudclass.listProjects(credentials))
+          habitats.concat(cloudclass.listHabitats(credentials))
         end
       end
       habitats << nil if habitats.empty?
@@ -284,20 +284,19 @@ module MU
 
       cloud_descs = {}
 
-      thread_waiter = Proc.new { |threads|
+      thread_waiter = Proc.new { |threads, threshold|
         begin
           threads.each { |t| t.join(0.1) }
           threads.reject! { |t| t.nil? or !t.status }
-          sleep 1 if threads.size > 5
-        end while threads.size > 5
+          sleep 1 if threads.size > threshold
+        end while threads.size > threshold
       }
 
       habitat_threads = []
-      desc_semaphore = Mutex.new
 
       found_the_thing = false
       habitats.each { |hab|
-        thread_waiter.call(habitat_threads)
+        thread_waiter.call(habitat_threads, 5)
 
         habitat_threads << Thread.new(hab) { |habitat|
           cloud_descs[habitat] = {}
@@ -307,7 +306,7 @@ module MU
               found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, credentials: credentials, habitat: habitat)
   
               if found
-                desc_semaphore.synchronize {
+                @@desc_semaphore.synchronize {
                   cloud_descs[habitat][r] = found
                 }
               end
@@ -318,10 +317,10 @@ module MU
               end
             }
           }
-          thread_waiter.call(region_threads)
+          thread_waiter.call(region_threads, 0)
         }
       }
-      thread_waiter.call(habitat_threads)
+      thread_waiter.call(habitat_threads, 0)
 
       cloud_descs
     end

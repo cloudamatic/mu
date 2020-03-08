@@ -735,8 +735,8 @@ module MU
            vpc_block["subnet_pref"] = "all_private" if vpc_block["subnet_pref"] == "private"
         end
 
-        flags = {}
-        flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
+#        flags = {}
+#        flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
         hab_arg = if vpc_block['habitat']
           if vpc_block['habitat'].is_a?(MU::Config::Ref)
             [vpc_block['habitat'].id] # XXX actually, findStray it
@@ -770,7 +770,6 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                   tag_key: tag_key,
                   tag_value: tag_value,
                   region: vpc_block["region"],
-                  flags: flags,
                   habitats: hab_arg,
                   dummy_ok: true
                 )

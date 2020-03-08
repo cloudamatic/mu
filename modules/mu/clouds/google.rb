@@ -553,7 +553,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             begin
               listRegions(credentials: credentials)
               listInstanceTypes(credentials: credentials)
-              listProjects(credentials)
+              listHabitats(credentials)
             rescue ::Google::Apis::ClientError
               MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
               @@authorizers.delete(credentials)
@@ -706,7 +706,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       end
 
       # List all Google Cloud Platform projects available to our credentials
-      def self.listProjects(credentials = nil)
+      def self.listHabitats(credentials = nil)
         cfg = credConfig(credentials)
         return [] if !cfg or !cfg['project']
         result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects

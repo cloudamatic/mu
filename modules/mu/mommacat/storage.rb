@@ -395,7 +395,7 @@ module MU
     # Read all of our +deployment.json+ files in and stick them in a hash. Used
     # by search routines that just need to skim this data without loading
     # entire {MU::MommaCat} objects.
-    def self.cacheDeployMetadata(deploy_id = nil)
+    def self.cacheDeployMetadata(deploy_id = nil, use_cache: false)
       deploy_root = File.expand_path(MU.dataDir+"/deployments")
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         @@deploy_cache ||= {}

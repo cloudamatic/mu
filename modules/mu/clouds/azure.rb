@@ -47,6 +47,11 @@ module MU
         guid_chunks.join("-")
       end
 
+      # List all Azure subscriptions available to our credentials
+      def self.listHabitats(credentials = nil)
+        []
+      end
+
       # A hook that is always called just before any of the instance method of
       # our resource implementations gets invoked, so that we can ensure that
       # repetitive setup tasks (like resolving +:resource_group+ for Azure

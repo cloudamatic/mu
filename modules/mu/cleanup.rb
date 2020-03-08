@@ -153,7 +153,7 @@ module MU
                       projects << $MU_CFG[cloud.downcase][credset]["project"]
                     end
                     begin
-                      projects.concat(cloudclass.listProjects(credset))
+                      projects.concat(cloudclass.listHabitats(credset))
                     rescue NoMethodError
                     end
                   end
