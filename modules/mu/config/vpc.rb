@@ -493,6 +493,7 @@ module MU
           # See if we'll be able to create peering connections
           can_peer = false
           already_peered = false
+
           if MU.myCloud == vpc["cloud"] and MU.myVPCObj
             if vpc['peers']
               vpc['peers'].each { |peer|
@@ -771,7 +772,8 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                   tag_value: tag_value,
                   region: vpc_block["region"],
                   habitats: hab_arg,
-                  dummy_ok: true
+                  dummy_ok: true,
+                  subnet_pref: vpc_block["subnet_pref"]
                 )
 
                 found.first if found and found.size == 1

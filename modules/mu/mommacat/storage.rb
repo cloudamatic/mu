@@ -493,6 +493,7 @@ module MU
 
     # Helper for +initialize+
     def setDeploySecret
+      credsets = {}
       MU::Cloud.resource_types.values.each { |attrs|
         if !@original_config[attrs[:cfg_plural]].nil? and @original_config[attrs[:cfg_plural]].size > 0
           @original_config[attrs[:cfg_plural]].each { |resource|

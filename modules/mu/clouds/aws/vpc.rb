@@ -1270,7 +1270,11 @@ module MU
         def peerWith(peer)
           peer_ref = MU::Config::Ref.get(peer['vpc'])
           peer_obj = peer_ref.kitten
-          peer_id = peer_ref.cloud_id
+          peer_id = peer_ref.kitten.cloud_id
+          if peer_id == @cloud_id
+            MU.log "#{@mu_name} attempted to peer with itself (#{@cloud_id})", MU::ERR, details: peer
+            raise "#{@mu_name} attempted to peer with itself (#{@cloud_id})"
+          end
 
           if peer_obj and peer_obj.config['peers']
             peer_obj.config['peers'].each { |peerpeer|

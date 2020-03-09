@@ -101,8 +101,8 @@ module MU
               allow_multi: true,
               habitats: @habitats.dup,
               dummy_ok: true,
-              debug: false,
-              flags: { "skip_provider_owned" => true }
+              skip_provider_owned: true,
+#              debug: false#,
             )
 
 

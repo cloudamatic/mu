@@ -48,9 +48,9 @@ module MU
         tag_key: nil,
         tag_value: nil,
         calling_deploy: MU.mommacat,
-        habitats: []
+        habitats: [],
+        **flags
       ) 
-
       _shortclass, _cfg_name, type, _classname, _attrs = MU::Cloud.getResourceNames(type, true)
 
       cloudclass = MU::Cloud.assertSupportedCloud(cloud)
@@ -102,7 +102,7 @@ module MU
       matches = []
 
       credlist.each { |creds|
-        cloud_descs = search_cloud_provider(type, cloud, habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds)
+        cloud_descs = search_cloud_provider(type, cloud, habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds, flags: flags)
 
         cloud_descs.each_pair.each { |p, regions|
           regions.each_pair.each { |r, results|
@@ -130,7 +130,7 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, **flags)
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
 
       # If we specified a habitat, which we may also have done by its shorthand
@@ -139,9 +139,14 @@ module MU
 
       does_match = Proc.new { |obj|
         (!created_only or !obj.cloud_id.nil?) and (
-          (!mu_name.nil? and obj.mu_name and mu_name.to_s == obj.mu_name) or
-          (!cloud_id.nil? and obj.cloud_id and cloud_id.to_s == obj.cloud_id.to_s) or
-          (!credentials.nil? and obj.credentials and credentials.to_s == obj.credentials.to_s)
+          (mu_name and obj.mu_name and mu_name.to_s == obj.mu_name) or
+          (cloud_id and obj.cloud_id and cloud_id.to_s == obj.cloud_id.to_s) or
+          (credentials and obj.credentials and credentials.to_s == obj.credentials.to_s) and
+          !(
+            (mu_name and obj.mu_name and mu_name.to_s != obj.mu_name) or
+            (cloud_id and obj.cloud_id and cloud_id.to_s != obj.cloud_id.to_s) or
+            (credentials and obj.credentials and credentials.to_s != obj.credentials.to_s)
+          )
         )
       }
 
@@ -153,13 +158,8 @@ module MU
           next if habitat and habitat_group and habitat_group != habitat
           sib_classes.each_pair { |sib_class, cloud_objs|
 
-            if !attrs[:has_multiples] and cloud_objs.virtual_name(name)
-              cloud_objs.virtual_name
-            elsif !name.nil? and name != sib_class
-              next
-            end
-
             if attrs[:has_multiples]
+              next if !name.nil? and name != sib_class
               return cloud_objs.dup if !name.nil? and return_all
 #                elsif (cloud_objs.size == 1 and (cloud_id.nil? or cloud_objs.values.first.cloud_id == cloud_id)) or (mu_name.nil? and cloud_id.nil?)
 #                elsif cloud_objs.size == 1 and does_match.call(cloud_objs.values.first)
@@ -170,8 +170,8 @@ module MU
                 end
               }
             # has_multiples is false
-            elsif name.nil? or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)
-              matches << cloud_objs
+            elsif (name.nil? or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)) and does_match.call(cloud_objs)
+              matches << cloud_objs.dup
             end
           }
         }
@@ -255,7 +255,7 @@ module MU
     end
     private_class_method :generate_dummy_object
 
-    def self.search_cloud_provider(type, cloud, habitats, region, cloud_id: nil, tag_key: nil, tag_value: nil, credentials: nil)
+    def self.search_cloud_provider(type, cloud, habitats, region, cloud_id: nil, tag_key: nil, tag_value: nil, credentials: nil, flags: nil)
       cloudclass = MU::Cloud.assertSupportedCloud(cloud)
       resourceclass = MU::Cloud.loadCloudType(cloud, type)
 
@@ -303,7 +303,7 @@ module MU
           region_threads = []
           regions.each { |reg|
             region_threads << Thread.new(reg) { |r|
-              found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, credentials: credentials, habitat: habitat)
+              found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, credentials: credentials, habitat: habitat, flags: flags)
   
               if found
                 @@desc_semaphore.synchronize {
@@ -349,7 +349,7 @@ module MU
         next if deploy_id and deploy_id != cur_deploy
 
         @@deploy_struct_semaphore.synchronize {
-          @deploy_cache[deploy] = {
+          @deploy_cache[deploy_id] = {
             "mtime" => Time.now,
             "data" => momma.deployment
           }
@@ -357,7 +357,7 @@ module MU
 
         straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, name: name, mu_name: mu_name, credentials: credentials, created_only: true)
         if straykitten
-          MU.log "Found matching kitten #{straykitten.mu_name} in-memory - #{sprintf("%.2fs", (Time.now-start))}", loglevel
+          MU.log "Found matching kitten #{straykitten.mu_name} in-memory - #{sprintf("%.2fs", (Time.now-start))}", MU::DEBUG
           # Peace out if we found the exact resource we want
           if cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s
             return { straykitten.cloud_id => straykitten }

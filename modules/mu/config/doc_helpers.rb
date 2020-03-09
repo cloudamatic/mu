@@ -239,7 +239,7 @@ $CONFIGURABLES
 
             if class_hierarchy.size == 1
 
-              _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(name)
+              _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(name, false)
               if cfg_name
                 example_path = MU.myRoot+"/modules/mu/config/"+cfg_name+".yml"
                 if File.exist?(example_path)
