@@ -342,6 +342,7 @@ module MU
       # etc)
       # @param deploy_id [MU::MommaCat]
       def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
+        removeDeploySecretsAndRoles(deploy_id, noop: noop, credentials: credentials)
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it

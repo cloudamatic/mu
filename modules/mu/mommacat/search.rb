@@ -170,7 +170,7 @@ module MU
                 end
               }
             # has_multiples is false
-            elsif (name.nil? or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)) and does_match.call(cloud_objs)
+            elsif (name.nil? and does_match.call(cloud_objs)) or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)
               matches << cloud_objs.dup
             end
           }

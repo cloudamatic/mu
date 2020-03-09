@@ -681,7 +681,7 @@ module MU
                 preClean(false) # it's ok for this to fail
               rescue StandardError => e
               end
-              MU::Groomer::Chef.cleanup(@server.mu_name, nodeonly: true)
+              MU::Groomer::Chef.purge(@server.mu_name, nodeonly: true)
               @config['forced_preclean'] = true
               @server.reboot if @server.windows? # *sigh*
             end
@@ -798,12 +798,49 @@ retry
         end
       end
 
+      def self.cleanup(deploy_id, noop = false)
+        return nil if deploy_id.nil? or deploy_id.empty?
+        begin
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          deadnodes = []
+          ::Chef::Config[:environment] ||= MU.environment
+          q = ::Chef::Search::Query.new
+          begin
+            q.search("node", "tags_MU-ID:#{deploy_id}").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
+            }
+          rescue Net::HTTPServerException
+          end
+
+          begin
+            q.search("node", "name:#{deploy_id}-*").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
+            }
+          rescue Net::HTTPServerException
+          end
+          MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
+          deadnodes.uniq.each { |node|
+            MU::Groomer::Chef.purge(node, [], noop)
+          }
+        rescue LoadError
+        end
+
+      end
+
       # Expunge Chef resources associated with a node.
       # @param node [String]: The Mu name of the node in question.
       # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       # @param nodeonly [Boolean]: Just delete the node and its keys, but leave other artifacts
-      def self.cleanup(node, vaults_to_clean = [], noop = false, nodeonly: false)
+      def self.purge(node, vaults_to_clean = [], noop = false, nodeonly: false)
         loadChefLib
         MU.log "Deleting Chef resources associated with #{node}"
         if !nodeonly

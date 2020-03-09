@@ -56,13 +56,7 @@ module MU
         @noop = true
       end
 
-      if MU.mu_user != "mu"
-        MU.setVar("dataDir", Etc.getpwnam(MU.mu_user).dir+"/.mu/var")
-      else
-        MU.setVar("dataDir", MU.mainDataDir)
-      end
-
-
+      MU.setVar("dataDir", (MU.mu_user == "mu" ? MU.mainDataDir : Etc.getpwnam(MU.mu_user).dir+"/.mu/var"))
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -83,128 +77,24 @@ module MU
         rescue StandardError => e
           MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
           MU.setVar("deploy_id", deploy_id)
-
         end
       end
 
-      regionsused = @mommacat.regionsUsed if @mommacat
-      credsused = @mommacat.credsUsed if @mommacat
-      habitatsused = @mommacat.habitatsUsed if @mommacat
+      @regionsused = @mommacat.regionsUsed if @mommacat
+      @credsused = @mommacat.credsUsed if @mommacat
+      @habitatsused = @mommacat.habitatsUsed if @mommacat
 
       if !@skipcloud
-        creds = {}
-        MU::Cloud.availableClouds.each { |cloud|
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-          if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
-            creds[cloud] ||= {}
-            cloudclass.listCredentials.each { |credset|
-              next if credsets and credsets.size > 0 and !credsets.include?(credset)
-              next if credsused and credsused.size > 0 and !credsused.include?(credset)
-              MU.log "Will scan #{cloud} with credentials #{credset}"
-              creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
-            }
-          else
-            if cloudclass.hosted?
-              creds[cloud] ||= {}
-              creds[cloud]["#default"] = cloudclass.listRegions
-            end
-          end
-        }
+        creds = listUsedCredentials(credsets)
 
-        parent_thread_id = Thread.current.object_id
         cloudthreads = []
-        keyname = "deploy-#{MU.deploy_id}"
+
         had_failures = false
 
         creds.each_pair { |provider, credsets_outer|
           cloudthreads << Thread.new(provider, credsets_outer) { |cloud, credsets_inner|
-            MU.dupGlobals(parent_thread_id)
             Thread.abort_on_exception = false
-            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-            habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
-            credsets_inner.each_pair { |credset, acct_regions|
-              next if credsused and !credsused.include?(credset)
-              global_vs_region_semaphore = Mutex.new
-              global_done = {}
-              regionthreads = []
-              acct_regions.each { |r|
-                if regionsused
-                  if regionsused.size > 0
-                    next if !regionsused.include?(r)
-                  else
-                    next if r != cloudclass.myRegion(credset)
-                  end
-                end
-                if regions and !regions.empty?
-                  next if !regions.include?(r)
-                  MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
-                end
-                regionthreads << Thread.new {
-                  Thread.abort_on_exception = false
-                  MU.setVar("curRegion", r)
-                  projects = []
-                  if habitats
-                    projects = habitats
-                  else
-                    if $MU_CFG and $MU_CFG[cloud.downcase] and
-                       $MU_CFG[cloud.downcase][credset] and
-                       $MU_CFG[cloud.downcase][credset]["project"]
-# XXX GCP credential schema needs an array for projects
-                      projects << $MU_CFG[cloud.downcase][credset]["project"]
-                    end
-                    begin
-                      projects.concat(cloudclass.listHabitats(credset))
-                    rescue NoMethodError
-                    end
-                  end
-
-                  if projects == []
-                    projects << "" # dummy
-                    MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
-                  end
-                  projects.uniq!
-
-                  # We do these in an order that unrolls dependent resources
-                  # sensibly, and we hit :Collection twice because AWS
-                  # CloudFormation sometimes fails internally.
-                  projectthreads = []
-                  projects.each { |project|
-                    if habitats and !habitats.empty? and project != ""
-                      next if !habitats.include?(project)
-                    end
-                    if habitatsused and !habitatsused.empty? and project != ""
-                      next if !habitatsused.include?(project)
-                    end
-                    next if !habitatclass.isLive?(project, credset)
-
-                    projectthreads << Thread.new {
-                      Thread.abort_on_exception = false
-                      if !cleanHabitat(cloud, credset, r, project, global_vs_region_semaphore, global_done)
-                        had_failures = true
-                      end
-                    } # TYPES_IN_ORDER.each { |t|
-                  } # projects.each { |project|
-                  projectthreads.each do |t|
-                    t.join
-                  end
-
-                  # XXX move to MU::AWS
-                  if cloud == "AWS"
-                    resp = MU::Cloud::AWS.ec2(region: r, credentials: credset).describe_key_pairs(
-                      filters: [{name: "key-name", values: [keyname]}]
-                    )
-                    resp.data.key_pairs.each { |keypair|
-                      MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-                      MU::Cloud::AWS.ec2(region: r, credentials: credset).delete_key_pair(key_name: keypair.key_name) if !@noop
-                    }
-                  end
-                } # regionthreads << Thread.new {
-              } # acct_regions.each { |r|
-              regionthreads.each do |t|
-                t.join
-              end
-
-            } # credsets.each_pair { |credset, acct_regions|
+            cleanCloud(cloud, habitats, regions, credsets_inner)
           } # cloudthreads << Thread.new(provider, credsets) { |cloud, credsets_outer|
           cloudthreads.each do |t|
             t.join
@@ -216,21 +106,18 @@ module MU
         # once they're all done.
         creds.each_pair { |provider, credsets_inner|
           credsets_inner.keys.each { |credset|
-            next if credsused and !credsused.include?(credset)
+            next if @credsused and !@credsused.include?(credset)
             ["Habitat", "Folder"].each { |t|
               flags = {
                 "onlycloud" => @onlycloud,
                 "skipsnapshots" => @skipsnapshots
               }
-              if !self.call_cleanup(t, credset, provider, flags, nil)
+              if !call_cleanup(t, credset, provider, flags, nil)
                 had_failures = true
               end
             }
           }
         }
-
-        MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
-# XXX port AWS equivalent behavior and add a MU::Cloud wrapper
 
         creds.each_pair { |provider, credsets_inner|
           cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
@@ -241,44 +128,16 @@ module MU
       end
 
       # Scrub any residual Chef records with matching tags
-      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !(Gem.paths and Gem.paths.home and !Dir.exist?("/opt/mu/lib"))
-        begin
-          MU::Groomer::Chef.loadChefLib
-          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-            Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-          end
-          deadnodes = []
-          Chef::Config[:environment] = MU.environment
-          q = Chef::Search::Query.new
-          begin
-            q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-              next if item.is_a?(Integer)
-              item.each { |node|
-                deadnodes << node.name
-              }
-            }
-          rescue Net::HTTPServerException
-          end
-
-          begin
-            q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-              next if item.is_a?(Integer)
-              item.each { |node|
-                deadnodes << node.name
-              }
-            }
-          rescue Net::HTTPServerException
-          end
-          MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
-          deadnodes.uniq.each { |node|
-            MU::Groomer::Chef.cleanup(node, [], noop)
-          }
-        rescue LoadError
-        end
+      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0) and !@noop
+        MU.supportedGroomers.each { |g|
+          groomer = MU::Groomer.loadGroomer(g)
+          groomer.cleanup(MU.deploy_id, @noop)
+        }
       end
 
       if had_failures
         MU.log "Had cleanup failures, exiting", MU::ERR
+        File.unlink("#{deploy_dir}/.cleanup") if !@noop
         exit 1
       end
 
@@ -286,99 +145,125 @@ module MU
         @mommacat.purge!
       end
 
-      myhome = Etc.getpwuid(Process.uid).dir
-      sshdir = "#{myhome}/.ssh"
-      sshconf = "#{sshdir}/config"
-      ssharchive = "#{sshdir}/archive"
-
-      Dir.mkdir(sshdir, 0700) if !Dir.exist?(sshdir) and !@noop
-      Dir.mkdir(ssharchive, 0700) if !Dir.exist?(ssharchive) and !@noop
-
-      keyname = "deploy-#{MU.deploy_id}"
-      if File.exist?("#{sshdir}/#{keyname}")
-        MU.log "Moving #{sshdir}/#{keyname} to #{ssharchive}/#{keyname}"
-        if !@noop
-          File.rename("#{sshdir}/#{keyname}", "#{ssharchive}/#{keyname}")
-        end
-      end
-
-      if File.exist?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.deploy_id}$/)
-        MU.log "Expunging #{MU.deploy_id} from #{sshconf}"
-        if !@noop
-          FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.deploy_id}")
-          File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
-            f.flock(File::LOCK_EX)
-            newlines = Array.new
-            delete_block = false
-            f.readlines.each { |line|
-              if line.match(/^Host #{MU.deploy_id}\-/)
-                delete_block = true
-              elsif line.match(/^Host /)
-                delete_block = false
-              end
-              newlines << line if !delete_block
-            }
-            f.rewind
-            f.truncate(0)
-            f.puts(newlines)
-            f.flush
-            f.flock(File::LOCK_UN)
-          }
-        end
-      end
-
-      # XXX refactor with above? They're similar, ish.
-      hostsfile = "/etc/hosts"
-      if File.open(hostsfile).read.match(/ #{MU.deploy_id}\-/)
-        if Process.uid == 0
-          MU.log "Expunging traces of #{MU.deploy_id} from #{hostsfile}"
-          if !@noop
-            FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{deploy_id}")
-            File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
-              f.flock(File::LOCK_EX)
-              newlines = Array.new
-              f.readlines.each { |line|
-                newlines << line if !line.match(/ #{MU.deploy_id}\-/)
-              }
-              f.rewind
-              f.truncate(0)
-              f.puts(newlines)
-              f.flush
-              f.flock(File::LOCK_UN)
-            }
-          end
-        else
-          MU.log "Residual /etc/hosts entries for #{MU.deploy_id} must be removed by root user", MU::WARN
-        end
-      end
-
-      if !@noop and !@skipcloud
-        if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
-          MU::Cloud::AWS.s3(region: MU.myRegion).delete_object(
-            bucket: MU.adminBucketName,
-            key: "#{MU.deploy_id}-secret"
-          )
-        end
-        if $MU_CFG['google'] and $MU_CFG['google']['project']
-          begin
-            MU::Cloud::Google.storage.delete_object(
-              MU.adminBucketName,
-              "#{MU.deploy_id}-secret"
-            )
-          rescue ::Google::Apis::ClientError => e
-            raise e if !e.message.match(/^notFound: /)
-          end
-        end
-        if MU.myCloud == "AWS"
-          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
-        end
+      if !@onlycloud
+        MU::Master.purgeDeployFromSSH(MU.deploy_id, noop: @noop)
       end
 
       if !@noop and !@skipcloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
-#        MU::MommaCat.syncMonitoringConfig
+#        MU::Master.syncMonitoringConfig
       end
 
     end
+
+    def self.listUsedCredentials(credsets)
+      creds = {}
+      MU::Cloud.availableClouds.each { |cloud|
+        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
+          creds[cloud] ||= {}
+          cloudclass.listCredentials.each { |credset|
+            next if credsets and credsets.size > 0 and !credsets.include?(credset)
+            next if @credsused and @credsused.size > 0 and !@credsused.include?(credset)
+            MU.log "Will scan #{cloud} with credentials #{credset}"
+            creds[cloud][credset] = cloudclass.listRegions(credentials: credset)
+          }
+        else
+          if cloudclass.hosted?
+            creds[cloud] ||= {}
+            creds[cloud]["#default"] = cloudclass.listRegions
+          end
+        end
+      }
+      creds
+    end
+    private_class_method :listUsedCredentials
+
+    def self.cleanCloud(cloud, habitats, regions, credsets)
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      credsets.each_pair { |credset, acct_regions|
+        next if @credsused and !@credsused.include?(credset)
+        global_vs_region_semaphore = Mutex.new
+        global_done = {}
+        regionthreads = []
+        acct_regions.each { |r|
+          if @regionsused
+            if @regionsused.size > 0
+              next if !@regionsused.include?(r)
+            else
+              next if r != cloudclass.myRegion(credset)
+            end
+          end
+          if regions and !regions.empty?
+            next if !regions.include?(r)
+            MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
+          end
+          regionthreads << Thread.new {
+            Thread.abort_on_exception = false
+            MU.setVar("curRegion", r)
+            cleanRegion(cloud, credset, r, global_vs_region_semaphore, global_done, habitats)
+          } # regionthreads << Thread.new {
+        } # acct_regions.each { |r|
+        regionthreads.each do |t|
+          t.join
+        end
+      }
+    end
+    private_class_method :cleanCloud
+
+    def self.cleanRegion(cloud, credset, region, global_vs_region_semaphore, global_done, habitats)
+      had_failures = false
+      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
+
+      projects = []
+      if habitats
+        projects = habitats
+      else
+        if $MU_CFG and $MU_CFG[cloud.downcase] and
+           $MU_CFG[cloud.downcase][credset] and
+           $MU_CFG[cloud.downcase][credset]["project"]
+# XXX GCP credential schema needs an array for projects
+          projects << $MU_CFG[cloud.downcase][credset]["project"]
+        end
+        begin
+          projects.concat(cloudclass.listHabitats(credset))
+        rescue NoMethodError
+        end
+      end
+
+      if projects == []
+        projects << "" # dummy
+        MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+      end
+      projects.uniq!
+
+      # We do these in an order that unrolls dependent resources
+      # sensibly, and we hit :Collection twice because AWS
+      # CloudFormation sometimes fails internally.
+      projectthreads = []
+      projects.each { |project|
+        if habitats and !habitats.empty? and project != ""
+          next if !habitats.include?(project)
+        end
+        if @habitatsused and !@habitatsused.empty? and project != ""
+          next if !@habitatsused.include?(project)
+        end
+        next if !habitatclass.isLive?(project, credset)
+
+        projectthreads << Thread.new {
+          Thread.abort_on_exception = false
+          if !cleanHabitat(cloud, credset, region, project, global_vs_region_semaphore, global_done)
+            had_failures = true
+          end
+        } # TYPES_IN_ORDER.each { |t|
+      } # projects.each { |project|
+      projectthreads.each do |t|
+        t.join
+      end
+
+      had_failures
+    end
+    private_class_method :cleanRegion
 
     def self.cleanHabitat(cloud, credset, region, habitat, global_vs_region_semaphore, global_done)
       had_failures = false
@@ -418,7 +303,7 @@ module MU
         end
 
         begin
-          if !self.call_cleanup(t, credset, cloud, flags, region)
+          if !call_cleanup(t, credset, cloud, flags, region)
             had_failures = true
           end
         rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented
@@ -427,6 +312,7 @@ module MU
       }
       had_failures = true
     end
+    private_class_method :cleanHabitat
 
     # Wrapper for dynamically invoking resource type cleanup methods.
     # @param type [String]:
@@ -449,24 +335,21 @@ module MU
             flags['known'] << found.cloud_id                            
           end
         end
-#        begin
-          resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
+        resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
 
-          resclass.cleanup(
-            noop: @noop,
-            ignoremaster: @ignoremaster,
-            region: region,
-            cloud: provider,
-            flags: flags,
-            credentials: credset
-          )
-#                        rescue ::Seahorse::Client::NetworkingError => e
-#                          MU.log "Service not available in AWS region #{r}, skipping", MU::DEBUG, details: e.message
-#                        end
+        resclass.cleanup(
+          noop: @noop,
+          ignoremaster: @ignoremaster,
+          region: region,
+          cloud: provider,
+          flags: flags,
+          credentials: credset
+        )
       else
         true
       end
-
     end
+    private_class_method :call_cleanup
+
   end #class
 end #module

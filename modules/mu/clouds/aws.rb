@@ -356,6 +356,27 @@ end
       # etc)
       # @param deploy_id [MU::MommaCat]
       def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
+
+        if !noop
+          MU.log "Deleting s3://#{adminBucketName(credentials)}/#{deploy_id}-secret"
+          MU::Cloud::AWS.s3(credentials: credentials).delete_object(
+            bucket: adminBucketName(credentials),
+            key: "#{deploy_id}-secret"
+          )
+          listRegions(credentials: credentials).each { |r|
+            resp = MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_key_pairs(
+              filters: [{name: "key-name", values: ["deploy-#{MU.deploy_id}"]}]
+            )
+            resp.data.key_pairs.each { |keypair|
+              MU.log "Deleting key pair #{keypair.key_name} from #{r}"
+              MU::Cloud::AWS.ec2(region: r, credentials: credentials).delete_key_pair(key_name: keypair.key_name) if !noop
+            }
+          }
+
+        end
+        if hosted?
+          MU::Cloud::AWS.openFirewallForClients
+        end
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
@@ -1406,7 +1427,7 @@ end
         # Create an AWS API client
         # @param region [String]: Amazon region so we know what endpoint to use
         # @param api [String]: Which API are we wrapping?
-        def initialize(region: MU.curRegion, api: "EC2", credentials: nil)
+        def initialize(region: nil, api: "EC2", credentials: nil)
           @cred_obj = MU::Cloud::AWS.loadCredentials(credentials)
           @credentials = MU::Cloud::AWS.credConfig(credentials, name_only: true)
 
@@ -1415,6 +1436,8 @@ end
           end
 
           params = {}
+          region ||= MU::Cloud::AWS.credConfig(credentials)['region']
+          region ||= MU.myRegion
 
           if region
             @region = region

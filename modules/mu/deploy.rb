@@ -394,7 +394,7 @@ module MU
           Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :never) {
             begin
               Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :immediate) {
-                MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN, verbosity: MU::Logger::NORMAL
+                MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::DEBUG, verbosity: MU::Logger::NORMAL
                 Thread.current.exit
               }
             ensure

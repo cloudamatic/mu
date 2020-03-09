@@ -387,11 +387,18 @@ module MU
         allvars['deployment']
       end
 
+      # Nuke everything associated with a deploy. Since we're just some files
+      # in the deploy directory, this doesn't have to do anything.
+      def self.cleanup(deploy_id, noop = false)
+#        deploy = MU::MommaCat.new(MU.deploy_id)
+#        inventory = Inventory.new(deploy)
+      end
+
       # Expunge Ansible resources associated with a node.
       # @param node [String]: The Mu name of the node in question.
       # @param _vaults_to_clean [Array<Hash>]: Dummy argument, part of this method's interface but not used by the Ansible layer
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
-      def self.cleanup(node, _vaults_to_clean = [], noop = false)
+      def self.purge(node, _vaults_to_clean = [], noop = false)
         deploy = MU::MommaCat.new(MU.deploy_id)
         inventory = Inventory.new(deploy)
 #        ansible_path = deploy.deploy_dir+"/ansible"
