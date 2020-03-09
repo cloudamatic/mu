@@ -30,6 +30,8 @@ module MU
     @onlycloud = false
     @skipcloud = false
 
+    TYPES_IN_ORDER = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
+
     # Purge all resources associated with a deployment.
     # @param deploy_id [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).
     # @param noop [Boolean]: Do not delete resources, merely list what would be deleted.
@@ -61,7 +63,6 @@ module MU
       end
 
 
-      types_in_order = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
 
       # Load up our deployment metadata
       if !mommacat.nil?
@@ -139,7 +140,6 @@ module MU
                   MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}...", MU::NOTICE
                 end
                 regionthreads << Thread.new {
-                  MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = false
                   MU.setVar("curRegion", r)
                   projects = []
@@ -178,54 +178,11 @@ module MU
                     next if !habitatclass.isLive?(project, credset)
 
                     projectthreads << Thread.new {
-                      MU.dupGlobals(parent_thread_id)
-                      MU.setVar("curRegion", r)
                       Thread.abort_on_exception = false
-                      if project != ""
-                        MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
+                      if !cleanHabitat(cloud, credset, r, project, global_vs_region_semaphore, global_done)
+                        had_failures = true
                       end
-
-                      MU.dupGlobals(parent_thread_id)
-                      flags = {
-                        "project" => project,
-                        "onlycloud" => @onlycloud,
-                        "skipsnapshots" => @skipsnapshots,
-                      }
-                      types_in_order.each { |t|
-                        begin
-                          skipme = false
-                          global_vs_region_semaphore.synchronize {
-                            MU::Cloud.loadCloudType(cloud, t)
-                            if Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(t).isGlobal?
-                              global_done[project] ||= []
-                              if !global_done[project].include?(t)
-                                global_done[project] << t
-                                flags['global'] = true
-                              else
-                                skipme = true
-                              end
-                            end
-                          }
-                          next if skipme
-                        rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
-                          next
-                        rescue MU::MuError, NoMethodError => e
-                          MU.log "While checking mu/clouds/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
-                          next
-                        rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
-                          MU.log e.message+" in "+r, MU::ERR
-                          next
-                        end
-
-                        begin
-                          if !self.call_cleanup(t, credset, cloud, flags, r)
-                            had_failures = true
-                          end
-                        rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented => e
-                          next
-                        end
-                      }
-                    } # types_in_order.each { |t|
+                    } # TYPES_IN_ORDER.each { |t|
                   } # projects.each { |project|
                   projectthreads.each do |t|
                     t.join
@@ -421,6 +378,54 @@ module MU
 #        MU::MommaCat.syncMonitoringConfig
       end
 
+    end
+
+    def self.cleanHabitat(cloud, credset, region, habitat, global_vs_region_semaphore, global_done)
+      had_failures = false
+      if habitat != ""
+        MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{region}, habitat #{habitat}", MU::NOTICE
+      end
+
+      flags = {
+        "habitat" => habitat,
+        "onlycloud" => @onlycloud,
+        "skipsnapshots" => @skipsnapshots,
+      }
+      TYPES_IN_ORDER.each { |t|
+        begin
+          skipme = false
+          global_vs_region_semaphore.synchronize {
+            MU::Cloud.loadCloudType(cloud, t)
+            if Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(t).isGlobal?
+              global_done[habitat] ||= []
+              if !global_done[habitat].include?(t)
+                global_done[habitat] << t
+                flags['global'] = true
+              else
+                skipme = true
+              end
+            end
+          }
+          next if skipme
+        rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented
+          next
+        rescue MU::MuError, NoMethodError => e
+          MU.log "While checking mu/clouds/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
+          next
+        rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
+          MU.log e.message+" in "+region, MU::ERR
+          next
+        end
+
+        begin
+          if !self.call_cleanup(t, credset, cloud, flags, region)
+            had_failures = true
+          end
+        rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented
+          next
+        end
+      }
+      had_failures = true
     end
 
     # Wrapper for dynamically invoking resource type cleanup methods.
