@@ -160,8 +160,8 @@ Environment='KUBELET_EXTRA_ARGS=$KUBELET_EXTRA_ARGS'
 
   opento.uniq.each { |src|
     [:tcp, :udp, :icmp].each { |proto|
-      execute "iptables -I INPUT -p #{proto} -s #{src}" do
-        not_if "iptables -L -n | tr -s ' ' | grep -- '#{proto} -- #{src.sub(/\/32$/, "")}' > /dev/null"
+      execute "iptables -w 30 -I INPUT -p #{proto} -s #{src}" do
+        not_if "iptables -w 30 -L -n | tr -s ' ' | grep -- '#{proto} -- #{src.sub(/\/32$/, "")}' > /dev/null"
       end
     }
   }

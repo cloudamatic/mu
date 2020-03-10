@@ -233,7 +233,7 @@ module MU
 
       if projects == []
         projects << "" # dummy
-        MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+        MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{region}", MU::NOTICE
       end
       projects.uniq!
 

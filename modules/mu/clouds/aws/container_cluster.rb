@@ -67,16 +67,15 @@ module MU
               # soul-crushing, yet effective
               if e.message.match(/because (#{Regexp.quote(@config['region'])}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
                 bad_az = Regexp.last_match(1)
-                deletia = nil
+                deletia = []
                 mySubnets.each { |subnet|
-                  if subnet.az == bad_az
-                    deletia = subnet.cloud_id
-                    break
-                  end
+                  deletia << subnet.cloud_id if subnet.az == bad_az
                 }
-                raise e if deletia.nil?
-                MU.log "#{bad_az} does not have EKS capacity. Dropping #{deletia} from ContainerCluster '#{@config['name']}' and retrying.", MU::NOTICE
-                params[:resources_vpc_config][:subnet_ids].delete(deletia)
+                raise e if deletia.empty?
+                MU.log "#{bad_az} does not have EKS capacity. Dropping unsupported subnets from ContainerCluster '#{@config['name']}' and retrying.", MU::NOTICE, details: deletia
+                deletia.each { |subnet|
+                  params[:resources_vpc_config][:subnet_ids].delete(subnet)
+                }
               end
             }
 
