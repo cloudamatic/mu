@@ -454,7 +454,7 @@ module MU
           path = BINDIR
         else
           paths = ENV['PATH'].split(/:/)
-          paths.concat("/usr/bin", "/bin", "/usr/local/bin")
+          paths << "/usr/bin" # not always in path, esp in pared-down DOcker images
           paths.uniq.each { |bindir|
             if File.exist?(bindir+"/python")
               path = bindir

@@ -26,8 +26,6 @@ RUN ls -la
 
 RUN pip install pywinrm
 
-RUN which python
-
 RUN apt-get remove -y build-essential ruby2.5-dev
 
 RUN apt-get autoremove -y
