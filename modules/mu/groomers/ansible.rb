@@ -257,7 +257,7 @@ module MU
           "#{@server.config['name']}.yml"
         end
 
-        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
+        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.windows? ? @server.canonicalIP : @server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         retries = 0
         begin

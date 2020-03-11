@@ -21,6 +21,13 @@ module MU
 
     @@desc_semaphore = Mutex.new
 
+    # A search which returned multiple matches, but is not allowed to
+    class MultipleMatches < MuError
+      def initialize(message = nil)
+        super(message, silent: true)
+      end
+    end
+
     # Locate a resource that's either a member of another deployment, or of no
     # deployment at all, and return a {MU::Cloud} object for it.
     # @param cloud [String]: The Cloud provider to use.
@@ -72,6 +79,7 @@ module MU
           tag_value = mu_name
         end
       end
+#MU.log "findStray(#{cloud}, #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, credentials: #{credentials}, habitats: #{habitats})", MU::NOTICE
 
       # See if the thing we're looking for is a member of the deploy that's
       # asking after it.
@@ -85,13 +93,12 @@ module MU
       kittens = {}
       if !no_deploy_search and (deploy_id or name or mu_name or cloud_id)
         kittens = search_my_deploys(type, deploy_id: deploy_id, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
-
         return kittens.values if kittens.size == 1
 
         # We can't refine any further by asking the cloud provider...
         if kittens.size > 1 and !allow_multi and
            !cloud_id and !tag_key and !tag_value
-          raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller(1..1)})"
+          raise MultipleMatches, "Multiple matches in MU::MommaCat.findStray where none allowed from #{cloud}, #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, credentials: #{credentials}, habitats: #{habitats} (#{caller(1..1)})"
         end
       end
 
@@ -136,8 +143,11 @@ module MU
       # sibling name, or a Ref. Convert to something we can use.
       habitat = resolve_habitat(habitat, credentials: credentials)
 
+      nofilter = (mu_name.nil? and cloud_id.nil? and credentials.nil?)
+
       does_match = Proc.new { |obj|
-        (!created_only or !obj.cloud_id.nil?) and (
+
+        (!created_only or !obj.cloud_id.nil?) and (nofilter or (
           (mu_name and obj.mu_name and mu_name.to_s == obj.mu_name) or
           (cloud_id and obj.cloud_id and cloud_id.to_s == obj.cloud_id.to_s) or
           (credentials and obj.credentials and credentials.to_s == obj.credentials.to_s) and
@@ -146,7 +156,7 @@ module MU
             (cloud_id and obj.cloud_id and cloud_id.to_s != obj.cloud_id.to_s) or
             (credentials and obj.credentials and credentials.to_s != obj.credentials.to_s)
           )
-        )
+        ))
       }
 
       @kitten_semaphore.synchronize {
@@ -158,11 +168,15 @@ module MU
           sib_classes.each_pair { |sib_class, cloud_objs|
 
             if attrs[:has_multiples]
-              next if !name.nil? and name != sib_class
-              return cloud_objs.dup if !name.nil? and return_all
-#                elsif (cloud_objs.size == 1 and (cloud_id.nil? or cloud_objs.values.first.cloud_id == cloud_id)) or (mu_name.nil? and cloud_id.nil?)
-#                elsif cloud_objs.size == 1 and does_match.call(cloud_objs.values.first)
-#                  return cloud_objs.values.first
+              next if !name.nil? and name != sib_class or cloud_objs.empty?
+              if !name.nil?
+                if return_all
+                  return cloud_objs.dup
+                elsif cloud_objs.size == 1 and does_match.call(cloud_objs.values.first)
+                  return cloud_objs.values.first
+                end
+              end
+              
               cloud_objs.each_value { |obj|
                 if does_match.call(obj)
                   return (return_all ? cloud_objs.dup : obj)
@@ -327,6 +341,7 @@ module MU
 
     def self.search_my_deploys(type, deploy_id: nil, name: nil, mu_name: nil, cloud_id: nil, credentials: nil)
       kittens = {}
+      _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type, true)
 
       # Check our in-memory cache of live deploys before resorting to
       # metadata
@@ -406,11 +421,12 @@ module MU
         # guess at resource names we weren't told.
         straykitten = if matches.size > 1 and cloud_id
           momma.findLitterMate(type: type, cloud_id: cloud_id, credentials: credentials, created_only: true)
-        elsif matches.size == 1 and name.nil? and mu_name.nil?
+        elsif matches.size == 1 and (!attrs[:has_multiples] or matches.first.size == 1) and name.nil? and mu_name.nil?
+          actual_data = attrs[:has_multiples] ? matches.first.values.first : matches.first
           if cloud_id.nil?
-            momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
+            momma.findLitterMate(type: type, name: (actual_data["name"] || actual_data["MU_NODE_CLASS"]), cloud_id: actual_data["cloud_id"], credentials: credentials)
           else
-            momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
+            momma.findLitterMate(type: type, name: (actual_data["name"] || actual_data["MU_NODE_CLASS"]), cloud_id: cloud_id, credentials: credentials)
           end
         else
           # There's more than one of this type of resource in the target

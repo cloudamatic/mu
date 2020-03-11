@@ -1016,7 +1016,6 @@ next if !create
                 item: @config['windows_auth_vault']['item'],
                 field: @config["windows_auth_vault"]["password_field"]
               )
-MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
               return win_admin_password if win_admin_password
             rescue MU::Groomer::MuNoSuchSecret, MU::Groomer::RunError
             end
