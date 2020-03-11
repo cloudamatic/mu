@@ -98,7 +98,6 @@ module MU
       if !cloud_id and !(tag_key and tag_value)
         return kittens.values
       end
-
       matches = []
 
       credlist.each { |creds|
@@ -403,22 +402,20 @@ module MU
         next if matches.nil? or matches.size == 0
         momma = MU::MommaCat.getLitter(deploy)
 
-        straykitten = nil
-
         # If we found exactly one match in this deploy, use its metadata to
         # guess at resource names we weren't told.
-        if matches.size > 1 and cloud_id
-          straykitten = momma.findLitterMate(type: type, cloud_id: cloud_id, credentials: credentials, created_only: true)
+        straykitten = if matches.size > 1 and cloud_id
+          momma.findLitterMate(type: type, cloud_id: cloud_id, credentials: credentials, created_only: true)
         elsif matches.size == 1 and name.nil? and mu_name.nil?
           if cloud_id.nil?
-            straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
+            momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"], credentials: credentials)
           else
-            straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
+            momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id, credentials: credentials)
           end
         else
           # There's more than one of this type of resource in the target
           # deploy, so see if findLitterMate can narrow it down for us
-          straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
+          momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id, credentials: credentials)
         end
 
         next if straykitten.nil?
@@ -428,10 +425,11 @@ module MU
           MU.log "findStray: kitten #{straykitten.mu_name} came back with nil cloud_id", MU::WARN
           next
         end
+        next if cloud_id and straykitten.cloud_id.to_s != cloud_id.to_s
 
         # Peace out if we found the exact resource we want
         if (cloud_id and straykitten.cloud_id.to_s == cloud_id.to_s) or
-           (!cloud_id and mu_descs.size == 1 and matches.size == 1) or
+           (mu_descs.size == 1 and matches.size == 1) or
            (credentials and straykitten.credentials == credentials)
 # XXX strictly speaking this last check is only valid if findStray is searching
 # exactly one set of credentials
