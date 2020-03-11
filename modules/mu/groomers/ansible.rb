@@ -453,7 +453,9 @@ module MU
         if File.exist?(BINDIR+"/python")
           path = BINDIR
         else
-          ENV['PATH'].split(/:/).each { |bindir|
+          paths = ENV['PATH'].split(/:/)
+          paths.concat("/usr/bin", "/bin", "/usr/local/bin")
+          paths.uniq.each { |bindir|
             if File.exist?(bindir+"/python")
               path = bindir
               break
