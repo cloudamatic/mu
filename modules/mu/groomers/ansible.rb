@@ -453,8 +453,10 @@ module MU
         if File.exist?(BINDIR+"/python")
           path = BINDIR
         else
-          paths = ENV['PATH'].split(/:/)
-          paths << "/usr/bin" # not always in path, esp in pared-down DOcker images
+          paths = [ansibleExecDir]
+          paths.concat(ENV['PATH'].split(/:/))
+          paths << "/usr/bin" # not always in path, esp in pared-down Docker images
+          paths.reject! { |p| p.nil? }
           paths.uniq.each { |bindir|
             if File.exist?(bindir+"/python")
               path = bindir
@@ -490,7 +492,9 @@ module MU
         if File.exist?(BINDIR+"/ansible-playbook")
           path = BINDIR
         else
-          ENV['PATH'].split(/:/).each { |bindir|
+          paths = ENV['PATH'].split(/:/)
+          paths << "/usr/bin"
+          paths.uniq.each { |bindir|
             if File.exist?(bindir+"/ansible-playbook")
               path = bindir
               if !File.exist?(bindir+"/ansible-vault")
