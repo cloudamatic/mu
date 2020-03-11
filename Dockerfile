@@ -8,7 +8,7 @@ RUN df -h
 
 RUN apt-get update
 
-RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential
+RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential python-pip
 
 RUN apt-get upgrade -y
 
@@ -23,6 +23,8 @@ RUN df -h
 RUN ls -la
 
 #RUN rm --verbose -f cloud-mu-*.gem
+
+RUN pip install pywinrm
 
 RUN apt-get remove -y build-essential ruby2.5-dev
 
