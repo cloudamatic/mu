@@ -792,10 +792,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           if vpc["project"] and !vpc["habitat"]
             vpc["habitat"] = MU::Cloud::Google.projectToRef(vpc["project"], config: configurator, credentials: vpc["credentials"])
           end
-if vpc.has_key?("habitat")
-MU.log "ERRYTHING'S FUCKED #{vpc["project"]}", MU::ERR, details: vpc["habitat"]
-vpc.delete("habitat") if vpc["delete"].nil?
-end
 
           # Generate a set of subnets per route, if none are declared
           if !vpc['subnets'] or vpc['subnets'].empty?

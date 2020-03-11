@@ -598,9 +598,10 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: nil, color: true)
+  def self.log(msg, level = MU::INFO, shorthand_details = nil, details: nil, html: false, verbosity: nil, color: true)
     return if (level == MU::DEBUG and verbosity and verbosity <= MU::Logger::LOUD)
     return if verbosity and verbosity == MU::Logger::SILENT
+    details ||= shorthand_details
 
     if (level == MU::ERR or
         level == MU::WARN or

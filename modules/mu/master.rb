@@ -546,7 +546,7 @@ module MU
         rescue Errno::ECONNRESET, Errno::ECONNREFUSED
         end
         if response != "ok"
-          MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
+          MU.log "Unable to add #{public_ip} to /etc/hosts via MommaCat request", MU::WARN
         end
         return
       end

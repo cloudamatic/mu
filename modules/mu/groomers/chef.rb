@@ -35,6 +35,12 @@ module MU
         end
       }
 
+      # Are the Chef libraries present and accounted for?
+      def self.available?(windows = false)
+        loadChefLib
+        @chefloaded
+      end
+
       @chefloaded = false
       @chefload_semaphore = Mutex.new
       # Autoload is too brain-damaged to get Chef's subclasses/submodules, so

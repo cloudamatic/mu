@@ -625,6 +625,13 @@ module MU
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config::Server.checkVaultRefs(server)
 
+        server['groomer'] ||= self.defaultGroomer
+        groomclass = MU::Groomer.loadGroomer(server['groomer'])
+        if !groomclass.available?(server['platform'].match(/^win/))
+          MU.log "Groomer #{server['groomer']} for #{server['name']} is missing or has incomplete dependencies", MU::ERR
+          ok = false
+        end
+
         if server["cloud"] != "Azure"
           server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'], credentials: server['credentials'])
         end

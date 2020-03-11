@@ -186,7 +186,7 @@ module MU
 
     private
 
-    def resolve_habitat(habitat, credentials: nil)
+    def resolve_habitat(habitat, credentials: nil, debug: false)
       return nil if habitat.nil?
       if habitat.is_a?(MU::Config::Ref) and habitat.id
         return habitat.id

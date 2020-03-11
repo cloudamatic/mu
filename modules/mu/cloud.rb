@@ -2059,17 +2059,18 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               loglevel = retries > 4 ? MU::NOTICE : MU::DEBUG
               MU.log "Calling WinRM on #{@mu_name}", loglevel, details: opts
               opts = {
-                endpoint: 'https://'+@mu_name+':5986/wsman',
                 retry_limit: winrm_retries,
                 no_ssl_peer_verification: true, # XXX this should not be necessary; we get 'hostname "foo" does not match the server certificate' even when it clearly does match
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
                 transport: :ssl,
                 operation_timeout: timeout,
               }
-              if retries % 2 == 0
+              if retries % 2 == 0 # NTLM password over https
+                opts[:endpoint] = 'https://'+canonical_ip+':5986/wsman'
                 opts[:user] = @config['windows_admin_username']
                 opts[:password] = getWindowsAdminPassword
-              else
+              else # certificate auth over https
+                opts[:endpoint] = 'https://'+@mu_name+':5986/wsman'
                 opts[:client_cert] = "#{MU.mySSLDir}/#{@mu_name}-winrm.crt"
                 opts[:client_key] = "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               end

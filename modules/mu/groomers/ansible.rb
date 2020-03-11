@@ -24,6 +24,10 @@ module MU
       class NoAnsibleExecError < MuError;
       end
 
+      # One or more Python dependencies missing
+      class AnsibleLibrariesError < MuError;
+      end
+
       # Location in which we'll find our Ansible executables. This only applies
       # to full-grown Mu masters; minimalist gem installs will have to make do
       # with whatever Ansible executables they can find in $PATH.
@@ -40,6 +44,10 @@ module MU
         @ansible_path = node.deploy.deploy_dir+"/ansible"
         @ansible_execs = MU::Groomer::Ansible.ansibleExecDir
 
+        if !MU::Groomer::Ansible.checkPythonDependencies(@server.windows?)
+          raise AnsibleLibrariesError, "One or more python dependencies not available"
+        end
+
         if !@ansible_execs or @ansible_execs.empty?
           raise NoAnsibleExecError, "No Ansible executables found in visible paths"
         end
@@ -54,6 +62,10 @@ module MU
         installRoles
       end
 
+      # Are Ansible executables and key libraries present and accounted for?
+      def self.available?(windows = false)
+        MU::Groomer::Ansible.checkPythonDependencies(windows)
+      end
 
       # Indicate whether our server has been bootstrapped with Ansible
       def haveBootstrapped?
@@ -294,7 +306,7 @@ module MU
       # Bootstrap our server with Ansible- basically, just make sure this node
       # is listed in our deployment's Ansible inventory.
       def bootstrap
-        @inventory.add(@server.config['name'], @server.mu_name)
+        @inventory.add(@server.config['name'], @server.windows? ? @server.canonicalIP : @server.mu_name)
         play = {
           "hosts" => @server.config['name']
         }
@@ -432,6 +444,41 @@ module MU
           raise MuError, "Failed Ansible command: #{cmd} encrypt_string <redacted> --name #{name} --vault-password-file"
         end
         output
+      end
+
+      # Hunt down and return a path for a Python executable
+      # @return [String]
+      def self.pythonExecDir
+        path = nil
+        if File.exist?(BINDIR+"/python")
+          path = BINDIR
+        else
+          ENV['PATH'].split(/:/).each { |bindir|
+            if File.exist?(bindir+"/python")
+              path = bindir
+              break
+            end
+          }
+        end
+        path
+      end
+
+      # Make sure what's in our Python requirements.txt is reflected in the
+      # Python we're about to run for Ansible
+      def self.checkPythonDependencies(windows = false)
+        if !pythonExecDir
+          MU.log "Unable to locate a Python executable", MU::ERR
+          return false
+        end
+        require 'tempfile'
+        f = Tempfile.new("pythoncheck")
+        f.puts "import ansible"
+        f.puts "import winrm" if windows
+        f.close
+
+        system(%Q{#{pythonExecDir}/python #{f.path}})
+        f.unlink
+        $?.exitstatus == 0 ? true : false
       end
 
       # Hunt down and return a path for Ansible executables
