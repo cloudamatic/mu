@@ -29,9 +29,9 @@ Usage:
   opt :all, "Operate on all nodes/deploys. Use with caution.", :require => false, :default => false, :type => :boolean
   opt :platform, "Operate exclusively on one nodes of a particular operating system. Can be used in conjunction with -a or -d. Valid platforms: linux, windows", :require => false, :type => :string
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
-  opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
+  opt :override_chef_runlist, "An alternate runlist to pass to Chef, in groomeronly mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs, chefupgrade", :require => false, :default => "chefrun", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, groomeronly, awsmeta, vaults, certs, chefupgrade", :require => false, :default => "groomeronly", :type => :string
   opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
   opt :winrm, "Force WinRM connection. Disable SSH fallback", :require => false, :default => false, :type => :boolean
   opt :info, "List a particular node attribute", :require => false, :default => 'nodename', :type => :string
@@ -39,8 +39,10 @@ end
 
 MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
 
-if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs", "chefupgrade"].include?($opts[:mode])
-  Optimist::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs, chefupgrade")
+$opts[:mode] = "groomeronly" if $opts[:mode] == "chefrun"
+
+if !["groom", "groomeronly", "vaults", "userdata", "awsmeta", "certs", "chefupgrade"].include?($opts[:mode])
+  Optimist::die(:mode, "--mode must be one of: groom, groomeronly, awsmeta, vaults, certs, chefupgrade")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Optimist::die(:platform, "--platform must be one of: linux, windows")
@@ -176,7 +178,7 @@ end
 exit 1 if !ok
 
 
-def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
+def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false, groomeronly: false)
   badnodes = []
   count = 0
   deploys.each { |muid|
@@ -196,6 +198,8 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
                 server.config["vault_access"].each { |v|
                   MU::Groomer::Chef.grantSecretAccess(mu_name, v['vault'], v['item'])
                 }
+              elsif groomeronly
+                server.groomer.run
               else
                 mommacat.groomNode(server.cloud_id, nodeclass, type, mu_name: mu_name)
               end
@@ -227,7 +231,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
   end
 end
 
-def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_output: $opts[:verbose], noop: false, chefrun: false, chef_runlist: nil)
+def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_output: $opts[:verbose], noop: false)
   badnodes = []
   count = 0
   deploys.each { |muid|
@@ -245,12 +249,6 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
           if !serverobj
             MU.log "Failed to load server object for #{nodename}", MU::ERR
             next
-          end
-
-          # Generate the command if attemting a chef run
-          if chefrun
-            cmd = serverobj.windows? ? "powershell -Command chef-client" : "chef-client || sudo chef-client"
-            cmd += " -o '#{chef_runlist}'" if chef_runlist
           end
 
           MU.log "Running '#{cmd}' on #{nodename} (##{count})" if !print_output
@@ -363,7 +361,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
   }
 
   if badnodes.size > 0
-    cmd = "Chef" if $opts[:mode] == "chefrun"
+    cmd = "Chef" if $opts[:mode] == "groomeronly"
     if !print_output
       MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
     else
@@ -687,12 +685,13 @@ elsif $opts[:mode] == "vaults"
   reGroom(do_deploys, do_nodes, vaults_only: true)
 elsif $opts[:mode] == "chefupgrade"
   chefUpgrade(do_deploys, do_nodes)
-elsif $opts[:mode] == "chefrun"
+elsif $opts[:mode] == "groomeronly"
   print_output = $opts[:verbose] || do_nodes.size == 1
   if $opts[:override_chef_runlist]
-    runCommand(do_deploys, do_nodes, chef_runlist: $opts[:override_chef_runlist], chefrun: true, print_output: print_output)
+#    runCommand(do_deploys, do_nodes, chef_runlist: $opts[:override_chef_runlist], groomeronly: true, print_output: print_output)
   else
-    runCommand(do_deploys, do_nodes, chefrun: true, print_output: print_output)
+#    runCommand(do_deploys, do_nodes, groomeronly: true, print_output: print_output)
+    reGroom(do_deploys, do_nodes, groomeronly: true)
   end
 elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
 # Need Google equiv and to select nodes correctly based on what cloud they're in

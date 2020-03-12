@@ -12,6 +12,8 @@
     groomer: Ansible
     run_list:
     - mu-windows
+    ansible_vars:
+      mu_build_image: true
     create_image:
       image_then_destroy: true
       public: true
