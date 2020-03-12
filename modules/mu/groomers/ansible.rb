@@ -450,6 +450,7 @@ module MU
       # @return [String]
       def self.pythonExecDir
         path = nil
+
         if File.exist?(BINDIR+"/python")
           path = BINDIR
         else
@@ -470,17 +471,21 @@ module MU
       # Make sure what's in our Python requirements.txt is reflected in the
       # Python we're about to run for Ansible
       def self.checkPythonDependencies(windows = false)
-        if !pythonExecDir
-          MU.log "Unable to locate a Python executable", MU::ERR
+        return nil if !ansibleExecDir
+
+        execline = File.readlines(ansibleExecDir+"/ansible-playbook").first.chomp.sub(/^#!/, '')
+        if !execline
+          MU.log "Unable to extract a Python executable from #{ansibleExecDir}/ansible-playbook", MU::ERR
           return false
         end
+
         require 'tempfile'
         f = Tempfile.new("pythoncheck")
         f.puts "import ansible"
         f.puts "import winrm" if windows
         f.close
 
-        system(%Q{#{pythonExecDir}/python #{f.path}})
+        system(%Q{#{execline} #{f.path}})
         f.unlink
         $?.exitstatus == 0 ? true : false
       end
