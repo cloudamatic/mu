@@ -79,7 +79,6 @@ module MU
           tag_value = mu_name
         end
       end
-#MU.log "findStray(#{cloud}, #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, credentials: #{credentials}, habitats: #{habitats})", MU::NOTICE
 
       # See if the thing we're looking for is a member of the deploy that's
       # asking after it.
@@ -226,6 +225,7 @@ module MU
       else
         name
       end
+
       if use_name.nil?
         return
       end
@@ -258,9 +258,10 @@ module MU
         return resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: cloud_id)
       else
         if !@@dummy_cache[type] or !@@dummy_cache[type][cfg.to_s]
+          newobj = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: cloud_id, from_cloud_desc: desc)
           @@desc_semaphore.synchronize {
             @@dummy_cache[type] ||= {}
-            @@dummy_cache[type][cfg.to_s] = resourceclass.new(mu_name: use_name, kitten_cfg: cfg, cloud_id: cloud_id, from_cloud_desc: desc)
+            @@dummy_cache[type][cfg.to_s] = newobj
           }
         end
         return @@dummy_cache[type][cfg.to_s]
@@ -300,7 +301,7 @@ module MU
       thread_waiter = Proc.new { |threads, threshold|
         begin
           threads.each { |t| t.join(0.1) }
-          threads.reject! { |t| t.nil? or !t.status }
+          threads.reject! { |t| t.nil? or !t.alive? or !t.status }
           sleep 1 if threads.size > threshold
         end while threads.size > threshold
       }
@@ -309,12 +310,14 @@ module MU
 
       found_the_thing = false
       habitats.each { |hab|
+        break if found_the_thing
         thread_waiter.call(habitat_threads, 5)
 
         habitat_threads << Thread.new(hab) { |habitat|
           cloud_descs[habitat] = {}
           region_threads = []
           regions.each { |reg|
+            break if found_the_thing
             region_threads << Thread.new(reg) { |r|
               found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, credentials: credentials, habitat: habitat, flags: flags)
   
@@ -326,7 +329,6 @@ module MU
               # Stop if you found the thing by a specific cloud_id
               if cloud_id and found and !found.empty?
                 found_the_thing = true
-                Thread.exit
               end
             }
           }
