@@ -474,7 +474,6 @@ module MU
           MU.log %Q{How to interact with your GKE cluster\nkubectl --kubeconfig "#{kube_conf}" get events --all-namespaces\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml\nkubectl --kubeconfig "#{kube_conf}" get nodes}, MU::SUMMARY
         end
 
-
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ContainerClusters
         def self.find(**args)
@@ -1097,7 +1096,7 @@ module MU
               }
               if !match
                 MU.log "No version matching #{cluster['kubernetes']['version']} available, will try floating minor revision", MU::WARN
-                cluster['kubernetes']['version'].sub!(/^(\d+\.\d+\.).*/i, '\1')
+                cluster['kubernetes']['version'].sub!(/^(\d+\.\d+)\..*/i, '\1')
                 master_versions.each { |v|
                   if v.match(/^#{Regexp.quote(cluster['kubernetes']['version'])}/)
                     match = true
@@ -1144,6 +1143,10 @@ module MU
 
           cluster['instance_type'] = MU::Cloud::Google::Server.validateInstanceType(cluster["instance_type"], cluster["region"], project: cluster['project'], credentials: cluster['credentials'])
           ok = false if cluster['instance_type'].nil?
+
+          if !MU::Master.kubectl
+            MU.log "Since I can't find a kubectl executable, you will have to handle all service account, user, and role bindings manually!", MU::WARN
+          end
 
           ok
         end
@@ -1236,7 +1239,7 @@ module MU
           # Take this opportunity to ensure that the 'client' service account
           # used by certificate authentication exists and has appropriate
           # privilege
-          if @username and @password
+          if @username and @password and MU::Master.kubectl
             File.open(client_binding, "w"){ |k|
               k.puts <<-EOF
 kind: ClusterRoleBinding 
