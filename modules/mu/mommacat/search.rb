@@ -101,7 +101,7 @@ module MU
         end
       end
 
-      if !cloud_id and !(tag_key and tag_value)
+      if !cloud_id and !(tag_key and tag_value) and (name or mu_name or deploy_id)
         return kittens.values
       end
       matches = []
