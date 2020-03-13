@@ -386,6 +386,7 @@ module MU
       best = nil
       best_version = nil
       paths.uniq.each { |path|
+        path.sub!(/^~/, MY_HOME)
         if File.exist?(path+"/kubectl")
           version = %x{#{path}/kubectl version --short --client}.chomp.sub(/.*Client version:\s+v/i, '')
           next if !$?.success?
