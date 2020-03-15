@@ -407,13 +407,12 @@ module MU
       end
 
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
-      has_multiples = attrs[:has_multiples]
       object.intoDeploy(self)
 
       @kitten_semaphore.synchronize {
         @kittens[type] ||= {}
         @kittens[type][object.habitat] ||= {}
-        if has_multiples
+        if attrs[:has_multiples]
           @kittens[type][object.habitat][name] ||= {}
           @kittens[type][object.habitat][name][object.mu_name] = object
         else

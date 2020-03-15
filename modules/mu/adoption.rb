@@ -65,6 +65,11 @@ module MU
         cloudclass.listCredentials.each { |credset|
           next if @sources and !@sources.include?(credset)
 
+          cfg = cloudclass.credConfig(credset)
+          if cfg and cfg['restrict_to_habitats']
+            cfg['restrict_to_habitats'] << cfg['project'] if cfg['project']
+          end
+
           if @parent
 # TODO handle different inputs (cloud_id, etc)
 # TODO do something about vague matches
@@ -107,9 +112,15 @@ module MU
 
 
             if found and found.size > 0
+              if resclass.cfg_plural == "habitats"
+                found.reject! { |h| !cloudclass.listHabitats(credset).include?(h) }
+              end
               MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
               found.each { |obj|
+                if obj.habitat and !cloudclass.listHabitats(credset).include?(obj.habitat)
+                  next
+                end
                 # XXX apply any filters (e.g. MU-ID tags)
                 @scraped[type][obj.cloud_id] = obj
               }
@@ -333,7 +344,7 @@ module MU
         deletia = []
         schema_chunk["properties"].each_pair { |key, subschema|
           next if !conf_chunk[key]
-          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
+          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key, false)
 
           if subschema["default_if"]
             subschema["default_if"].each { |cond|

@@ -894,6 +894,8 @@ module MU
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
         attr_reader :cloudclass
         attr_reader :cloudobj
+        attr_reader :credentials
+        attr_reader :config
         attr_reader :destroyed
         attr_reader :delayed_save
 
@@ -948,8 +950,10 @@ module MU
         # @return [String]: Our new +deploy_id+
         def intoDeploy(mommacat, force: false)
           if force or (!@deploy)
-            MU.log "Inserting #{self} (#{self.object_id}) into #{mommacat.deploy_id}", MU::DEBUG
+            MU.log "Inserting #{self} [#{self.object_id}] into #{mommacat.deploy_id} as a #{@config['name']}", MU::DEBUG
+
             @deploy = mommacat
+            @deploy.addKitten(@cloudclass.cfg_plural, @config['name'], self)
             @deploy_id = @deploy.deploy_id
             @cloudobj.intoDeploy(mommacat, force: force) if @cloudobj
           end
@@ -993,7 +997,6 @@ module MU
             if my_cloud.nil? or !MU::Cloud.supportedClouds.include?(my_cloud)
               raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
             end
-          
             @cloudclass = MU::Cloud.loadCloudType(my_cloud, self.class.shortname)
             @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(my_cloud)
             @cloudobj = @cloudclass.new(
@@ -1018,7 +1021,6 @@ module MU
             elsif !@deploy.nil? and @cloudobj.mu_name.nil?
               MU.log "#{self} in #{@deploy.deploy_id} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR, details: [caller, args.keys]
             end
-
 
           # We are actually a child object invoking this via super() from its
           # own initialize(), so initialize all the attributes and instance

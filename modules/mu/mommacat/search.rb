@@ -161,11 +161,13 @@ module MU
       @kitten_semaphore.synchronize {
         return nil if !@kittens.has_key?(type)
         matches = []
+if cloud_id == "14001841956192263"
+  MU.log "#{@deploy_id} => findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only.to_s}, return_all: #{return_all.to_s}, credentials: #{credentials}, habitat: #{habitat})", MU::WARN, details: caller[3]
+end
 
         @kittens[type].each { |habitat_group, sib_classes|
           next if habitat and habitat_group and habitat_group != habitat
           sib_classes.each_pair { |sib_class, cloud_objs|
-
             if attrs[:has_multiples]
               next if !name.nil? and name != sib_class or cloud_objs.empty?
               if !name.nil?
@@ -178,12 +180,12 @@ module MU
               
               cloud_objs.each_value { |obj|
                 if does_match.call(obj)
-                  return (return_all ? cloud_objs.dup : obj)
+                  return (return_all ? cloud_objs.clone : obj.clone)
                 end
               }
             # has_multiples is false
             elsif (name.nil? and does_match.call(cloud_objs)) or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)
-              matches << cloud_objs.dup
+              matches << cloud_objs.clone
             end
           }
         }
@@ -295,7 +297,6 @@ module MU
       habitats << nil if habitats.empty?
       habitats.uniq!
 
-
       cloud_descs = {}
 
       thread_waiter = Proc.new { |threads, threshold|
@@ -307,7 +308,6 @@ module MU
       }
 
       habitat_threads = []
-
       found_the_thing = false
       habitats.each { |hab|
         break if found_the_thing
@@ -320,7 +320,7 @@ module MU
             break if found_the_thing
             region_threads << Thread.new(reg) { |r|
               found = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, credentials: credentials, habitat: habitat, flags: flags)
-  
+
               if found
                 @@desc_semaphore.synchronize {
                   cloud_descs[habitat][r] = found

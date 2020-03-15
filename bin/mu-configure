@@ -246,6 +246,16 @@ $CONFIGURABLES = {
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. Some API calls (groups, users, etc) require this identifier. From admin.google.com, choose Security, the Single Sign On, and look for the Entity ID field. The value after idpid= in the URL there should be the customer ID."
       },
+      "ignore_habitats" => {
+        "title" => "Ignore These Projects",
+        "desc" => "Optional list of projects to ignore, for credentials which have visibility into multiple projects",
+        "array" => true
+      },
+      "restrict_to_habitats" => {
+        "title" => "Operate On Only These Projects",
+        "desc" => "Optional list of projects to which we'll restrict all of our activities.",
+        "array" => true
+      },
       "default" => {
         "title" => "Is Default Account",
         "default" => false,

@@ -731,25 +731,34 @@ module MU
                 bindings[scopetype].each_pair { |scope_id, entity_types|
                   # If we've been given a habitat filter, skip over bindings
                   # that don't match it.
-                  if scopetype == "projects" and args[:habitats] and
-                     !args[:habitats].empty? and
-                     !args[:habitats].include?(scope_id)
-                    next
+                  if scopetype == "projects"
+                    if (args[:habitats] and !args[:habitats].empty? and
+                       !args[:habitats].include?(scope_id)) or
+                       !MU::Cloud::Google.listHabitats(@credentials).include?(scope_id)
+                      next
+                    end
                   end
 
                   entity_types.each_pair { |entity_type, entities|
                     mu_entitytype = (entity_type == "serviceAccount" ? "user" : entity_type)+"s"
                     entities.each { |entity|
+                      foreign = if entity_type == "serviceAccount" and entity.match(/@(.*?)\.iam\.gserviceaccount\.com/)
+                        !MU::Cloud::Google.listHabitats(@credentials).include?(Regexp.last_match[1])
+                      end
                       entity_ref = if entity_type == "organizations"
                         { "id" => ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org) }
                       elsif entity_type == "domain"
                         { "id" => entity }
                       else
-                        MU::Config::Ref.get(
-                          id: entity,
-                          cloud: "Google",
-                          type: mu_entitytype
-                        )
+                        if foreign
+                          { "id" => entity }
+                        else
+                          MU::Config::Ref.get(
+                            id: entity,
+                            cloud: "Google",
+                            type: mu_entitytype
+                          )
+                        end
                       end
                       refmap ||= {}
                       refmap[entity_ref] ||= {}

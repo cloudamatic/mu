@@ -43,7 +43,9 @@ module MU
         return cfg if cfg.is_a?(MU::Config::Ref)
         checkfields = cfg.keys.map { |k| k.to_sym }
         required = [:id, :type]
-
+if cfg[:id].match(/nih-sra-datastore-protected/)
+  MU.log "Creating a Ref for "+cfg[:id], MU::NOTICE, details: caller
+end
         @@ref_semaphore.synchronize {
           @@refs.each { |ref|
             saw_mismatch = false
@@ -255,7 +257,7 @@ module MU
         if @obj
           @deploy_id ||= @obj.deploy_id
           @id ||= @obj.cloud_id
-          @name ||= @obj.config['name']
+          @name ||= @obj.config['name'] if @obj.config
           return @obj
         end
 
@@ -266,6 +268,7 @@ module MU
             @mommacat ||= mommacat
             @obj.intoDeploy(@mommacat) # make real sure these are set
             @deploy_id ||= mommacat.deploy_id
+
             if !@name
               if @obj.config and @obj.config['name']
                 @name = @obj.config['name']
