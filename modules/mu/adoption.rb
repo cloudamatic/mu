@@ -30,7 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [])
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false)
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -45,6 +45,7 @@ module MU
       @diff = diff
       @habitats = habitats
       @habitats ||= []
+      @scrub_mu_isms = scrub_mu_isms
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -201,6 +202,9 @@ module MU
 
       groupings.each_pair { |appname, types|
         bok = { "appname" => prefix+appname }
+        if @scrub_mu_isms
+          bok["scrub_mu_isms"] = true
+        end
         if @target_creds
           bok["credentials"] = @target_creds
         end
