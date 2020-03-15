@@ -77,7 +77,7 @@ module MU
       if config.is_a?(Hash)
         newhash = {}
         config.each_pair { |key, val|
-          next if remove_runtime_keys and key.match(/^#MU_/)
+          next if remove_runtime_keys and (key.nil? or key.match(/^#MU_/))
           next if val.is_a?(Array) and val.empty?
           newhash[key] = self.manxify(val, remove_runtime_keys: remove_runtime_keys)
         }

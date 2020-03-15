@@ -800,7 +800,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               @@reference_cache[vpc_block] ||= ext_vpc if ok
             end
           rescue StandardError => e
-            raise MuError, e.inspect, e.backtrace
+            raise MuError, e.inspect, [caller, e.backtrace]
           ensure
             if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
               MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_type} #{parent['name']} (called by #{caller[0]})", MU::ERR, details: vpc_block

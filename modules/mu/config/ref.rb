@@ -43,9 +43,7 @@ module MU
         return cfg if cfg.is_a?(MU::Config::Ref)
         checkfields = cfg.keys.map { |k| k.to_sym }
         required = [:id, :type]
-if cfg[:id].match(/nih-sra-datastore-protected/)
-  MU.log "Creating a Ref for "+cfg[:id], MU::NOTICE, details: caller
-end
+
         @@ref_semaphore.synchronize {
           @@refs.each { |ref|
             saw_mismatch = false
