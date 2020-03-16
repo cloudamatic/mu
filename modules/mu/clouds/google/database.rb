@@ -108,13 +108,13 @@ module MU
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
 
-#          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['project'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
+#          instances = MU::Cloud::Google.sql(credentials: credentials).list_instances(flags['habitat'], filter: %Q{userLabels.mu-id:"#{MU.deploy_id.downcase}"})
 #          if instances and instances.items
 #            instances.items.each { |instance|
 #              MU.log "Deleting Cloud SQL instance #{instance.name}"
-#              MU::Cloud::Google.sql(credentials: credentials).delete_instance(flags['project'], instance.name) if !noop
+#              MU::Cloud::Google.sql(credentials: credentials).delete_instance(flags['habitat'], instance.name) if !noop
 #            }
 #          end
         end

@@ -432,8 +432,8 @@ end
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
@@ -444,7 +444,7 @@ end
             ["region_autoscaler", "region_instance_group_manager"].each { |type|
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
-                flags["project"],
+                flags["habitat"],
                 region,
                 noop
               )
@@ -452,7 +452,7 @@ end
           else
             MU::Cloud::Google.compute(credentials: credentials).delete(
               "instance_template",
-              flags["project"],
+              flags["habitat"],
               noop
             )
           end

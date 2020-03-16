@@ -1275,8 +1275,8 @@ next if !create
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
 
 # XXX make damn sure MU.deploy_id is set
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
@@ -1287,7 +1287,7 @@ next if !create
           MU::Cloud::Google.listAZs(region).each { |az|
             disks = []
             resp = MU::Cloud::Google.compute(credentials: credentials).list_instances(
-              flags["project"],
+              flags["habitat"],
               az,
               filter: filter
             )
@@ -1301,14 +1301,14 @@ next if !create
                   }
                 end
                 MU::Cloud::Google.compute(credentials: credentials).delete_instance(
-                  flags["project"],
+                  flags["habitat"],
                   az,
                   instance.name
                 ) if !noop
                 MU.log "Removing service account #{saname}"
                 begin
                   MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(
-                    "projects/#{flags["project"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
+                    "projects/#{flags["habitat"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
                   ) if !noop
                 rescue ::Google::Apis::ClientError => e
                   raise e if !e.message.match(/^notFound: /)
@@ -1324,7 +1324,7 @@ next if !create
 # XXX honor snapshotting
             MU::Cloud::Google.compute(credentials: credentials).delete(
               "disk",
-              flags["project"],
+              flags["habitat"],
               az,
               noop
             ) if !noop

@@ -113,7 +113,7 @@ module MU
         # Describe this VPC
         # @return [Hash]
         def notify
-          base = MU.structToHash(cloud_desc)
+          base = MU.structToHash(cloud_desc, stringify_keys: true)
           base["cloud_id"] = @cloud_id
           base["project_id"] = habitat_id
           base.merge!(@config.to_h)
@@ -301,14 +301,10 @@ end
              @deploy.deployment["vpcs"][@config['name']]["subnets"] and
              @deploy.deployment["vpcs"][@config['name']]["subnets"].size > 0
             @deploy.deployment["vpcs"][@config['name']]["subnets"].each { |desc|
-              subnet = {}
-              subnet["ip_block"] = desc['ip_block']
-              subnet["name"] = desc["name"]
+              subnet = desc.clone
               subnet['mu_name'] = @config['scrub_mu_isms'] ? @cloud_id+subnet['name'].downcase : MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet['name'], max_length: 61))
-              subnet["cloud_id"] = desc['cloud_id']
               subnet["cloud_id"] ||= desc['self_link'].gsub(/.*?\/([^\/]+)$/, '\1')
               subnet["cloud_id"] ||= subnet['mu_name']
-              subnet['az'] = desc["az"]
               subnet['az'] ||= desc["region"].gsub(/.*?\/([^\/]+)$/, '\1')
               @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet, precache_description: false)
             }
@@ -542,15 +538,15 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
           end
           MU.log "Placeholder: Google VPC artifacts do not support labels, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: filter
 
-          purge_subnets(noop, project: flags['project'], credentials: credentials)
+          purge_subnets(noop, project: flags['habitat'], credentials: credentials)
           ["route", "network"].each { |type|
 # XXX tagged routes aren't showing up in list, and the networks that own them
 # fail to delete silently
@@ -559,7 +555,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             begin
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
-                flags["project"],
+                flags["habitat"],
                 nil,
                 noop
               )
@@ -569,13 +565,13 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                   MU.log e.message, MU::WARN
                   if e.message.match(/Failed to delete network (.+)/)
                     network_name = Regexp.last_match[1]
-                    fwrules = MU::Cloud::Google::FirewallRule.find(project: flags['project'], credentials: credentials)
+                    fwrules = MU::Cloud::Google::FirewallRule.find(project: flags['habitat'], credentials: credentials)
                     fwrules.reject! { |_name, desc|
                       !desc.network.match(/.*?\/#{Regexp.quote(network_name)}$/)
                     }
                     fwrules.keys.each { |name|
                       MU.log "Attempting to delete firewall rule #{name} so that VPC #{network_name} can be removed", MU::NOTICE
-                      MU::Cloud::Google.compute(credentials: credentials).delete_firewall(flags['project'], name)
+                      MU::Cloud::Google.compute(credentials: credentials).delete_firewall(flags['habitat'], name)
                     }
                   end
                 end
@@ -1120,7 +1116,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # Describe this VPC Subnet
           # @return [Hash]
           def notify
-            MU.structToHash(cloud_desc)
+            MU.structToHash(cloud_desc, stringify_keys: true)
           end
 
           # Return the +self_link+ to this subnet

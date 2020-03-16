@@ -746,15 +746,15 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
 
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
           clusters = []
 
           # Make sure we catch regional *and* zone clusters
-          found = MU::Cloud::Google.container(credentials: credentials).list_project_location_clusters("projects/#{flags['project']}/locations/#{region}")
+          found = MU::Cloud::Google.container(credentials: credentials).list_project_location_clusters("projects/#{flags['habitat']}/locations/#{region}")
           clusters.concat(found.clusters) if found and found.clusters
           MU::Cloud::Google.listAZs(region).each { |az|
-            found = MU::Cloud::Google.container(credentials: credentials).list_project_location_clusters("projects/#{flags['project']}/locations/#{az}")
+            found = MU::Cloud::Google.container(credentials: credentials).list_project_location_clusters("projects/#{flags['habitat']}/locations/#{az}")
             clusters.concat(found.clusters) if found and found.clusters
           }
 

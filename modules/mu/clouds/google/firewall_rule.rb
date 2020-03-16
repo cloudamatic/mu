@@ -208,8 +208,8 @@ end
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
@@ -218,7 +218,7 @@ end
 
           MU::Cloud::Google.compute(credentials: credentials).delete(
             "firewall",
-            flags["project"],
+            flags["habitat"],
             nil,
             noop
           )

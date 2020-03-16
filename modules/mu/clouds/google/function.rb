@@ -234,10 +234,10 @@ module example.com/cloudfunction
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
           # Make sure we catch regional *and* zone functions
-          found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["project"])
+          found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["habitat"])
           found.each_pair { |cloud_id, desc|
             if (desc.description and desc.description == MU.deploy_id) or
                (desc.labels and desc.labels["mu-id"] == MU.deploy_id.downcase and (ignoremaster or desc.labels["mu-master-ip"] == MU.mu_public_ip.gsub(/\./, "_"))) or

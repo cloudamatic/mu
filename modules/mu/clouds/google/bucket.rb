@@ -145,9 +145,9 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
 
-          resp = MU::Cloud::Google.storage(credentials: credentials).list_buckets(flags['project'])
+          resp = MU::Cloud::Google.storage(credentials: credentials).list_buckets(flags['habitat'])
           if resp and resp.items
             resp.items.each { |bucket|
               if bucket.labels and bucket.labels["mu-id"] == MU.deploy_id.downcase and (ignoremaster or bucket.labels['mu-master-ip'] == MU.mu_public_ip.gsub(/\./, "_"))
