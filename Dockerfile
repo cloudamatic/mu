@@ -8,7 +8,7 @@ RUN df -h
 
 RUN apt-get update
 
-RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential python-pip
+RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential python-pip curl
 
 RUN apt-get upgrade -y
 
@@ -29,6 +29,8 @@ RUN pip install pywinrm
 RUN apt-get remove -y build-essential ruby2.5-dev
 
 RUN apt-get autoremove -y
+
+RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.17.4/bin/linux/amd64/kubectl && mv kubectl /usr/bin && chmod +x /usr/bin/kubectl
 
 EXPOSE 2260
 
