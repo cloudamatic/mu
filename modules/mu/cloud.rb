@@ -529,7 +529,7 @@ module MU
                 images.deep_merge!(YAML.load(response))
                 break
               end
-            rescue StandardError
+            rescue StandardError => e
               if fail_hard
                 raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
               else

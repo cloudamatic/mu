@@ -19,8 +19,18 @@
     name: openssh
     state: present
 
-- name: "Tell ec2config to set a random password on next boot"
-  when: (ansible_facts['distribution'] == "Microsoft Windows Server 2012 R2 Standard" and mu_build_image is defined and mu_build_image == True)
+- name: "Tell EC2Config to set a random password on next boot (Windows 2012)"
+  when: ((ansible_facts['distribution_major_version'] | int) < 10 and mu_build_image is defined and mu_build_image == True)
   win_copy:
     src: config.xml
     dest: "c:/Program Files/Amazon/EC2ConfigService/Settings/config.xml"
+
+- name: "Tell EC2Launch to set a random password (Windows 2016+)"
+  when: ((ansible_facts['distribution_major_version'] | int) >= 10 and mu_build_image is defined and mu_build_image == True)
+  win_copy:
+    src: LaunchConfig.json
+    dest: "c:/ProgramData/Amazon/EC2-Windows/Launch/Config/LaunchConfig.json"
+
+- name: "Tell EC2Launch to run on next boot (Windows 2016+)"
+  when: ((ansible_facts['distribution_major_version'] | int) >= 10 and mu_build_image is defined and mu_build_image == True)
+  win_shell: C:\ProgramData\Amazon\EC2-Windows\Launch\Scripts\InitializeInstance.ps1 -Schedule
