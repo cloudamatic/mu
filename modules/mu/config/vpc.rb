@@ -637,7 +637,7 @@ module MU
                   MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
                   ok = false
                 end
-              elsif !processReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", configurator, dflt_region: peer["vpc"]['region'])
+              elsif !processReference(peer['vpc'], "vpcs", vpc, configurator, dflt_region: peer["vpc"]['region'])
                 ok = false
               end
             end
@@ -924,7 +924,14 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             ext_vpc.subnets.each { |subnet|
               next if dflt_region and vpc_block["cloud"] == "Google" and subnet.az != dflt_region
               if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-                private_subnets << { "subnet_id" => configurator.getTail("#{parent['name']} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent['name']} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
+                private_subnets << {
+                  "subnet_id" => configurator.getTail(
+                    "#{parent['name']} Private Subnet #{priv}",
+                    value: subnet.cloud_id,
+                    prettyname: "#{parent['name']} Private Subnet #{priv}",
+                    cloudtype: "AWS::EC2::Subnet::Id"),
+                  "az" => subnet.az
+                }
                 private_subnets_map[subnet.cloud_id] = subnet
                 priv = priv + 1
               elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
