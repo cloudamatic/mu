@@ -283,8 +283,13 @@ module MU
             end
 
             new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass).dup
-
-            conf_chunk[key] = Marshal.load(Marshal.dump(new_val)) if !new_val.nil?
+            if !new_val.nil?
+              begin
+                conf_chunk[key] = Marshal.load(Marshal.dump(new_val))
+              rescue TypeError
+                conf_chunk[key] = new_val.clone
+              end
+            end
           }
         end
       elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)
