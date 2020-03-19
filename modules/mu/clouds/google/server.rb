@@ -1293,7 +1293,6 @@ next if !create
             )
             if !resp.items.nil? and resp.items.size > 0
               resp.items.each { |instance|
-                saname = instance.tags.items.first.gsub(/[^a-z]/, "") # XXX this nonsense again
                 MU.log "Terminating instance #{instance.name}"
                 if !instance.disks.nil? and instance.disks.size > 0
                   instance.disks.each { |disk|
@@ -1305,13 +1304,17 @@ next if !create
                   az,
                   instance.name
                 ) if !noop
-                MU.log "Removing service account #{saname}"
-                begin
-                  MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(
-                    "projects/#{flags["habitat"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
-                  ) if !noop
-                rescue ::Google::Apis::ClientError => e
-                  raise e if !e.message.match(/^notFound: /)
+                if instance.service_accounts
+                  instance.service_accounts.each { |sa|
+                    MU.log "Removing service account #{sa.email}"
+                    begin
+                      MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(
+                        "projects/#{flags["habitat"]}/serviceAccounts/#{sa.email}"
+                      ) if !noop
+                    rescue ::Google::Apis::ClientError => e
+                      raise e if !e.message.match(/^notFound: /)
+                    end
+                  }
                 end
 # XXX wait-loop on pending?
 #                pp deletia
