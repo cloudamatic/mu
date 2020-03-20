@@ -33,6 +33,33 @@ module MU
     # Show DEBUG log entries and extra call stack and threading info
     LOUD = 2.freeze
 
+    # stash a hash map for color outputs
+    COLORMAP = {
+      DEBUG => { :html => "orange", :ansi => :yellow },
+      INFO => { :html => "green", :ansi => :green },
+      NOTICE => { :html => "yellow", :ansi => :yellow },
+      WARN => { :html => "orange", :ansi => :light_red },
+      ERR => { :html => "red", :ansi => :red }
+    }.freeze
+
+    # minimum log verbosity at which we'll print various types of messages
+    PRINT_MSG_IF = {
+      DEBUG => { :msg => LOUD, :details => LOUD },
+      INFO => { :msg => NORMAL, :details => LOUD },
+      NOTICE => { :msg => nil, :details => QUIET },
+      WARN => { :msg => nil, :details => SILENT },
+      ERR => { :msg => nil, :details => nil }
+    }.freeze
+
+    # Syslog equivalents of our log levels
+    SYSLOG_MAP = {
+      DEBUG => Syslog::LOG_DEBUG,
+      INFO => Syslog::LOG_NOTICE,
+      NOTICE => Syslog::LOG_NOTICE,
+      WARN => Syslog::LOG_WARNING,
+      ERR => Syslog::LOG_ERR
+    }.freeze
+
     attr_accessor :verbosity
     @verbosity = MU::Logger::NORMAL
     @quiet = false
@@ -76,58 +103,22 @@ module MU
       html ||= @html
       handle ||= @handle
       color ||= @color
-      return if verbosity == MU::Logger::SILENT
-      return if verbosity < MU::Logger::LOUD and level == DEBUG
-      return if verbosity < MU::Logger::NORMAL and level == INFO
 
-      # By which we mean, "get the filename (with the .rb stripped off) which
-      # originated the call to this method. Which, for our purposes, is the
-      # MU subclass that called us. Useful information. And it looks like Perl.
-      mod_root = Regexp.quote("#{ENV['MU_LIBDIR']}/modules/mu/")
-      bin_root = Regexp.quote("#{ENV['MU_INSTALLDIR']}/bin/")
-      caller_name = caller[1]
+      if verbosity == MU::Logger::SILENT or (verbosity < MU::Logger::LOUD and level == DEBUG) or (verbosity < MU::Logger::NORMAL and level == INFO)
+        return
+      end
 
-      caller_name.sub!(/:.*/, "")
-      caller_name.sub!(/^\.\//, "")
-      caller_name.sub!(/^#{mod_root}/, "")
-      caller_name.sub!(/^#{bin_root}/, "")
-      caller_name.sub!(/\.r[ub]$/, "")
-      caller_name.sub!(/#{Regexp.quote(MU.myRoot)}\//, "")
-      caller_name.sub!(/^modules\//, "")
+      caller_name = extract_caller_name(caller[1])
 
       time = Time.now.strftime("%b %d %H:%M:%S").to_s
 
       Syslog.open("Mu/"+caller_name, Syslog::LOG_PID, Syslog::LOG_DAEMON | Syslog::LOG_LOCAL3) if !Syslog.opened?
-      if !details.nil?
-        if details.is_a?(Hash) and details.has_key?(:details)
-          details = details[:details]
-        end
-        details = PP.pp(details, '') if !details.is_a?(String)
-      end
-      details = "<pre>"+details+"</pre>" if html
-      # We get passed literal quoted newlines sometimes, fix 'em. Get Windows'
-      # ugly line feeds too.
-      if !details.nil?
-        details = details.dup # in case it's frozen or something
-        details.gsub!(/\\n/, "\n")
-        details.gsub!(/(\\r|\r)/, "")
-      end
+
+      details = format_details(details, html)
 
       msg = msg.first if msg.is_a?(Array)
       msg = "" if msg == nil
       msg = msg.to_s if !msg.is_a?(String) and msg.respond_to?(:to_s)
-
-      # wrapper for writing a log entry to multiple filehandles
-      # @param handles [Array<IO>]
-      # @param msgs [Array<String>]
-      def write(handles = [], msgs = [])
-        return if handles.nil? or msgs.nil?
-        handles.each { |h|
-          msgs.each { |m|
-            h.puts m
-          }
-        }
-      end
 
       @@log_semaphere.synchronize {
         handles = [handle]
@@ -137,110 +128,41 @@ module MU
         handles << extra_logfile if extra_logfile
         msgs = []
 
-        case level
-          when SUMMARY
-            @summary << msg
-          when DEBUG
-            if verbosity >= MU::Logger::LOUD
-              if html
-                html_out "#{time} - #{caller_name} - #{msg}", "orange"
-                html_out "&nbsp;#{details}" if details
-              elsif color
-                msgs << "#{time} - #{caller_name} - #{msg}".yellow.on_black
-                msgs << "#{details}".white.on_black if details
-              else
-                msgs << "#{time} - #{caller_name} - #{msg}"
-                msgs << "#{details}" if details
-              end
-              Syslog.log(Syslog::LOG_DEBUG, msg.gsub(/%/, ''))
-              Syslog.log(Syslog::LOG_DEBUG, details.gsub(/%/, '')) if details
-            end
-          when INFO
-            if verbosity >= MU::Logger::NORMAL
-              if html
-                html_out "#{time} - #{caller_name} - #{msg}", "green"
-              elsif color
-                msgs << "#{time} - #{caller_name} - #{msg}".green.on_black
-              else
-                msgs << "#{time} - #{caller_name} - #{msg}"
-              end
-              if verbosity >= MU::Logger::LOUD
-                if html
-                  html_out "&nbsp;#{details}"
-                elsif color
-                  msgs << "#{details}".white.on_black if details
-                else
-                  msgs << "#{details}" if details
-                end
-              end
-              Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
-              Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
-            end
-          when NOTICE
-            if html
-              html_out "#{time} - #{caller_name} - #{msg}", "yellow"
-            elsif color
-              msgs << "#{time} - #{caller_name} - #{msg}".yellow.on_black
-            else
-              msgs << "#{time} - #{caller_name} - #{msg}"
-            end
-            if verbosity >= MU::Logger::QUIET
-              if html
-                html_out "#{caller_name} - #{msg}"
-              elsif color
-                msgs << "#{details}".white.on_black if details
-              else
-                msgs << "#{details}" if details
-              end
-            end
-            Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
-            Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
-          when WARN
-            if html
-              html_out "#{time} - #{caller_name} - #{msg}", "orange"
-            elsif color
-              msgs << "#{time} - #{caller_name} - #{msg}".light_red.on_black
-            else
-              msgs << "#{time} - #{caller_name} - #{msg}"
-            end
-            if verbosity >= MU::Logger::SILENT
-              if html
-                html_out "#{caller_name} - #{msg}"
-              elsif color
-                msgs << "#{details}".white.on_black if details
-              else
-                msgs << "#{details}" if details
-              end
-            end
-            Syslog.log(Syslog::LOG_WARNING, msg.gsub(/%/, ''))
-            Syslog.log(Syslog::LOG_WARNING, details.gsub(/%/, '')) if details
-          when ERR
-            if html
-              html_out "#{time} - #{caller_name} - #{msg}", "red"
-              html_out "&nbsp;#{details}" if details
-            elsif color
-              msgs << "#{time} - #{caller_name} - #{msg}".red.on_black
-              msgs << "#{details}".white.on_black if details
-            else
-              msgs << "#{time} - #{caller_name} - #{msg}"
-              msgs << "#{details}" if details
-            end
-            Syslog.log(Syslog::LOG_ERR, msg.gsub(/%/, ''))
-            Syslog.log(Syslog::LOG_ERR, details.gsub(/%/, '')) if details
+        if !PRINT_MSG_IF[level][:msg] or level >= PRINT_MSG_IF[level][:msg]
+          if html
+            html_out "#{time} - #{caller_name} - #{msg}", COLORMAP[level][:html]
           else
-            if html
-              html_out "#{time} - #{caller_name} - #{msg}"
-              html_out "&nbsp;#{details}" if details
-            elsif color
-              msgs << "#{time} - #{caller_name} - #{msg}".white.on_black
-              msgs << "#{details}".white.on_black if details
-            else
-              msgs << "#{time} - #{caller_name} - #{msg}"
-              msgs << "#{details}" if details
-            end
-            Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
-            Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
+            str = "#{time} - #{caller_name} - #{msg}"
+            str = str.call(COLORMAP[level][:ansi]).on_black if color
+            msgs << str
+          end
+          Syslog.log(SYSLOG_MAP[level], msg.gsub(/%/, ''))
         end
+
+        if details and (!PRINT_MSG_IF[level][:details] or level >= PRINT_MSG_IF[level][:details])
+          if html
+            html_out "&nbsp;#{details}"
+          else
+            details = details.white.on_block if color
+            msgs << details
+          end
+          Syslog.log(SYSLOG_MAP[level], details.gsub(/%/, ''))
+        end
+
+#          else
+#            if html
+#              html_out "#{time} - #{caller_name} - #{msg}"
+#              html_out "&nbsp;#{details}" if details
+#            elsif color
+#              msgs << "#{time} - #{caller_name} - #{msg}".white.on_black
+#              msgs << "#{details}".white.on_black if details
+#            else
+#              msgs << "#{time} - #{caller_name} - #{msg}"
+#              msgs << "#{details}" if details
+#            end
+#            Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
+#            Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
+
         write(handles, msgs)
 
         extra_logfile.close if extra_logfile
@@ -250,6 +172,43 @@ module MU
 
     private
 
+    def format_details(details, html = false)
+      return if details.nil?
+
+      if details.is_a?(Hash) and details.has_key?(:details)
+        details = details[:details]
+      end
+      details = PP.pp(details, '') if !details.is_a?(String)
+
+      details = "<pre>"+details+"</pre>" if html
+      # We get passed literal quoted newlines sometimes, fix 'em. Get Windows'
+      # ugly line feeds too.
+
+      details = details.dup # in case it's frozen or something
+      details.gsub!(/\\n/, "\n")
+      details.gsub!(/(\\r|\r)/, "")
+
+      details
+    end
+
+    # By which we mean, "get the filename (with the .rb stripped off) which
+    # originated the call to this method. Which, for our purposes, is the
+    # MU subclass that called us. Useful information. And it looks like Perl.
+    def extract_caller_name(caller_name)
+      return nil if !caller_name or !caller_name.is_a?(String)
+      mod_root = Regexp.quote("#{ENV['MU_LIBDIR']}/modules/mu/")
+      bin_root = Regexp.quote("#{ENV['MU_INSTALLDIR']}/bin/")
+
+      caller_name.sub!(/:.*/, "")
+      caller_name.sub!(/^\.\//, "")
+      caller_name.sub!(/^#{mod_root}/, "")
+      caller_name.sub!(/^#{bin_root}/, "")
+      caller_name.sub!(/\.r[ub]$/, "")
+      caller_name.sub!(/#{Regexp.quote(MU.myRoot)}\//, "")
+      caller_name.sub!(/^modules\//, "")
+      caller_name
+    end
+
     # Output a log message as HTML.
     #
     # @param msg [String]: The log message to print
@@ -257,6 +216,18 @@ module MU
     def html_out(msg, color_name="black")
       rgb = Color::RGB::by_name color_name
       @handle.puts "<span style='color:#{rgb.css_rgb};'>#{msg}</span>"
+    end
+
+    # wrapper for writing a log entry to multiple filehandles
+    # @param handles [Array<IO>]
+    # @param msgs [Array<String>]
+    def write(handles = [], msgs = [])
+      return if handles.nil? or msgs.nil?
+      handles.each { |h|
+        msgs.each { |m|
+          h.puts m
+        }
+      }
     end
 
   end #class
