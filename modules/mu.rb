@@ -212,8 +212,28 @@ class Hash
 end
 
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
+module MU
+
+  # For log entries that should only be logged when we're in verbose mode
+  DEBUG = 0.freeze
+  # For ordinary log entries
+  INFO = 1.freeze
+  # For more interesting log entries which are not errors
+  NOTICE = 2.freeze
+  # Log entries for non-fatal errors
+  WARN = 3.freeze
+  # Log entries for non-fatal errors
+  WARNING = 3.freeze
+  # Log entries for fatal errors
+  ERR = 4.freeze
+  # Log entries for fatal errors
+  ERROR = 4.freeze
+  # Log entries that will be held and displayed/emailed at the end of deploy,
+  # cleanup, etc.
+end
 
 require 'mu/logger'
+
 module MU
 
   # Subclass core thread so we can gracefully handle it when we hit system
@@ -619,25 +639,6 @@ module MU
 
     @@logger.log(msg, level, details: details, html: html, verbosity: verbosity, color: color)
   end
-
-  # For log entries that should only be logged when we're in verbose mode
-  DEBUG = 0.freeze
-  # For ordinary log entries
-  INFO = 1.freeze
-  # For more interesting log entries which are not errors
-  NOTICE = 2.freeze
-  # Log entries for non-fatal errors
-  WARN = 3.freeze
-  # Log entries for non-fatal errors
-  WARNING = 3.freeze
-  # Log entries for fatal errors
-  ERR = 4.freeze
-  # Log entries for fatal errors
-  ERROR = 4.freeze
-  # Log entries that will be held and displayed/emailed at the end of deploy,
-  # cleanup, etc.
-  SUMMARY = 5.freeze
-
 
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'

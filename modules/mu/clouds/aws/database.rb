@@ -1043,7 +1043,7 @@ module MU
               }
             else
               db["identifier"] = @mu_name.downcase if db["identifier"].nil? # Is this still valid if we have read replicas?
-              database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'])
+              database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'], credentials: db['credentials'])
               # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
               unless db["add_cluster_node"]
                 # It isn't necessarily clear what we should do with DNS records of cluster members. Probably need to expose this to the BoK somehow.
@@ -1699,103 +1699,77 @@ module MU
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
         def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
-          raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
-          db_id = db.db_instance_identifier
 
-          database_obj = MU::MommaCat.findStray(
-              "AWS",
-              "database",
-              region: region,
-              deploy_id: deploy_id,
-              cloud_id: cloud_id,
-              mu_name: mu_name
+          db ||= MU::MommaCat.findStray(
+            "AWS",
+            "database",
+            region: region,
+            deploy_id: deploy_id,
+            cloud_id: cloud_id,
+            mu_name: mu_name
           ).first
+          cloud_id ||= db.db_instance_identifier
 
-          rdssecgroups = Array.new
+          raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
+
+          rdssecgroups = []
           begin
-            secgroup = MU::Cloud::AWS.rds(region: region).describe_db_security_groups(db_security_group_name: db_id)
+            secgroup = MU::Cloud::AWS.rds(region: region).describe_db_security_groups(db_security_group_name: cloud_id)
+            rdssecgroups << cloud_id if !secgroup.nil?
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
             # this is normal in VPC world
           end
 
-          rdssecgroups << db_id if !secgroup.nil?
 
-          # We can use an AWS waiter for this.
-          unless db.db_instance_status == "available"
-            loop do
-              MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
-              db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
-              return if db.nil?
-              break unless %w{creating modifying backing-up}.include?(db.db_instance_status)
-              sleep 60
-            end
+          if db.db_instance_status != "available"
+            MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(db.db_instance_status) }) {
+              db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
+              return if db.il?
+            }
           end
 
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: db_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true)
+          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true)
 
           if %w{deleting deleted}.include?(db.db_instance_status)
-            MU.log "#{db_id} has already been terminated", MU::WARN
+            MU.log "#{cloud_id} has already been terminated", MU::WARN
           else
-            def self.dbSkipSnap(db_id, region, credentials)
-              # We're calling this several times so lets declare it once
-              MU.log "Terminating #{db_id} (not saving final snapshot)"
-              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
-            end
-
-            def self.dbCreateSnap(db_id, region, credentials)
-              MU.log "Terminating #{db_id} (final snapshot: #{db_id}-mufinal)"
-              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id}-mufinal", skip_final_snapshot: false)
+            params = {
+              db_instance_identifier: cloud_id
+            }
+            if skipsnapshots or db.db_cluster_identifier or db.read_replica_source_db_instance_identifier
+              MU.log "Terminating #{cloud_id} (not saving final snapshot)"
+              params[:skip_final_snapshot] = true
+            else
+              MU.log "Terminating #{cloud_id} (final snapshot: #{cloud_id}-mufinal)"
+              params[:skip_final_snapshot] = false
+              params[:final_db_snapshot_identifier] = "#{cloud_id}-mufinal"
             end
 
             if !noop
-              retries = 0
-              begin
-                if db.db_cluster_identifier || db.read_replica_source_db_instance_identifier
-                  # make sure we don't create final snapshot for a database instance that is part of a cluster, or if it's a read replica database instance
-                  dbSkipSnap(db_id, region, credentials)
-                else
-                  skipsnapshots ? dbSkipSnap(db_id, region, credentials) : dbCreateSnap(db_id, region, credentials)
+              on_retry = Proc.new { |e|
+                if e.class == Aws::RDS::Errors::DBSnapshotAlreadyExists
+                  MU.log "Snapshot of #{cloud_id} already exists", MU::WARN
+                  params[:skip_final_snapshot] = true
                 end
-              rescue Aws::RDS::Errors::InvalidDBInstanceState => e
-                if retries < 5
-                  MU.log "#{db_id} is not in a removable state, retrying several times #{e.inspect}", MU::WARN
-                  retries += 1
-                  sleep 30
-                  retry
-                else
-                  MU.log "#{db_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-                end
-              rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
-                dbSkipSnap(db_id, region, credentials)
-                MU.log "Snapshot of #{db_id} already exists", MU::WARN
-              rescue Aws::RDS::Errors::SnapshotQuotaExceeded
-                dbSkipSnap(db_id, region, credentials)
-                MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
-              end
+              }
+              MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::DBSnapshotAlreadyExists], wait: 30, max: 5, on_retry: on_retry) {
+                MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(params)
+              }
             end
           end
 
-          begin
-            attempts = 0
-            loop do
-              MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE if attempts % 6 == 0
-              del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
-              break if del_db.nil? || del_db.db_instance_status == "deleted"
-              sleep 10
-              attempts += 1
-            end
-          rescue Aws::RDS::Errors::DBInstanceNotFound
-            # we are ok with this
-          end
+          MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound]) {
+            del_db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
+            break if del_db.nil? or del_db.db_instance_status == "deleted"
+          }
 
           # RDS security groups can depend on EC2 security groups, do these last
           begin
             rdssecgroups.each { |sg|
               MU.log "Removing RDS Security Group #{sg}"
-              MU::Cloud::AWS.rds(region: region).delete_db_security_group(db_security_group_name: sg) if !noop
+              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_security_group(db_security_group_name: sg) if !noop
             }
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
-            MU.log "RDS Security Group #{sg} disappeared before we could remove it", MU::WARN
           end
 
           # Cleanup the database vault
@@ -1807,8 +1781,8 @@ module MU
             end
 
           groomclass = MU::Groomer.loadGroomer(groomer)
-          groomclass.deleteSecret(vault: db_id.upcase) if !noop
-          MU.log "#{db_id} has been terminated"
+          groomclass.deleteSecret(vault: cloud_id.upcase) if !noop
+          MU.log "#{cloud_id} has been terminated"
         end
         private_class_method :terminate_rds_instance
 

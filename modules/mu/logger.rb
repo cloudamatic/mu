@@ -35,29 +35,29 @@ module MU
 
     # stash a hash map for color outputs
     COLORMAP = {
-      DEBUG => { :html => "orange", :ansi => :yellow },
-      INFO => { :html => "green", :ansi => :green },
-      NOTICE => { :html => "yellow", :ansi => :yellow },
-      WARN => { :html => "orange", :ansi => :light_red },
-      ERR => { :html => "red", :ansi => :red }
+      MU::DEBUG => { :html => "orange", :ansi => :yellow },
+      MU::INFO => { :html => "green", :ansi => :green },
+      MU::NOTICE => { :html => "yellow", :ansi => :yellow },
+      MU::WARN => { :html => "orange", :ansi => :light_red },
+      MU::ERR => { :html => "red", :ansi => :red }
     }.freeze
 
     # minimum log verbosity at which we'll print various types of messages
     PRINT_MSG_IF = {
-      DEBUG => { :msg => LOUD, :details => LOUD },
-      INFO => { :msg => NORMAL, :details => LOUD },
-      NOTICE => { :msg => nil, :details => QUIET },
-      WARN => { :msg => nil, :details => SILENT },
-      ERR => { :msg => nil, :details => nil }
+      MU::DEBUG => { :msg => LOUD, :details => LOUD },
+      MU::INFO => { :msg => NORMAL, :details => LOUD },
+      MU::NOTICE => { :msg => nil, :details => QUIET },
+      MU::WARN => { :msg => nil, :details => SILENT },
+      MU::ERR => { :msg => nil, :details => nil }
     }.freeze
 
     # Syslog equivalents of our log levels
     SYSLOG_MAP = {
-      DEBUG => Syslog::LOG_DEBUG,
-      INFO => Syslog::LOG_NOTICE,
-      NOTICE => Syslog::LOG_NOTICE,
-      WARN => Syslog::LOG_WARNING,
-      ERR => Syslog::LOG_ERR
+      MU::DEBUG => Syslog::LOG_DEBUG,
+      MU::INFO => Syslog::LOG_NOTICE,
+      MU::NOTICE => Syslog::LOG_NOTICE,
+      MU::WARN => Syslog::LOG_WARNING,
+      MU::ERR => Syslog::LOG_ERR
     }.freeze
 
     attr_accessor :verbosity
