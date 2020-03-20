@@ -349,7 +349,7 @@ Base Images Linux:
 Base Images Windows:
   stage: Deploy
   script:
-  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms win2k12 win2k16
+  - /opt/mu/lib/extras/generate-stock-images --clouds AWS --aws-creds egtprod --platforms win2k12 win2k16 win2k19
   tags:
   - mu-gitlab-runner
   only:
