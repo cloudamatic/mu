@@ -133,7 +133,7 @@ module MU
             html_out "#{time} - #{caller_name} - #{msg}", COLORMAP[level][:html]
           else
             str = "#{time} - #{caller_name} - #{msg}"
-            str = str.call(COLORMAP[level][:ansi]).on_black if color
+            str = str.send(COLORMAP[level][:ansi]).on_black if color
             msgs << str
           end
           Syslog.log(SYSLOG_MAP[level], msg.gsub(/%/, ''))

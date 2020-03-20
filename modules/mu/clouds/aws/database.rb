@@ -1198,6 +1198,7 @@ module MU
           MU::Cloud::RELEASE
         end
 
+
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
         # @param noop [Boolean]: If true, will only print what would be done
@@ -1205,43 +1206,20 @@ module MU
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
-          skipsnapshots = flags["skipsnapshots"]
 
           resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_instances
-          threads = []
 
+          threads = []
           resp.db_instances.each { |db|
             arn = MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: region, credentials: credentials)
             tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
 
-            found_muid = false
-            found_master = false
-            tags.each { |tag|
-              found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
-              found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
-            }
-            next if !found_muid
-
-            delete =
-              if ignoremaster && found_muid
-                true
-              elsif !ignoremaster && found_muid && found_master
-                true
-              else
-                false
-              end
-
-            if delete
-              parent_thread_id = Thread.current.object_id
+            if should_delete?(tags, ignoremaster)
               threads << Thread.new(db) { |mydb|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
-                terminate_rds_instance(mydb, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase, credentials: credentials)
+                terminate_rds_instance(mydb, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase, credentials: credentials)
               }
             end
           }
-
-          # Wait for all of the databases to finish cleanup before proceeding
           threads.each { |t|
             t.join
           }
@@ -1254,29 +1232,9 @@ module MU
             arn = MU::Cloud::AWS::Database.getARN(cluster_id, "cluster", "rds", region: region, credentials: credentials)
             tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
 
-            found_muid = false
-            found_master = false
-            tags.each { |tag|
-              found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
-              found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
-            }
-            next if !found_muid
-            
-            delete =
-              if ignoremaster && found_muid
-                true
-              elsif !ignoremaster && found_muid && found_master
-                true
-              else
-                false
-              end
-
-            if delete
-              parent_thread_id = Thread.current.object_id
+            if should_delete?(tags, ignoremaster)
               threads << Thread.new(cluster) { |mydbcluster|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
-                terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase, credentials: credentials)
+                terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase, credentials: credentials)
               }
             end
           }
@@ -1293,28 +1251,8 @@ module MU
             arn = MU::Cloud::AWS::Database.getARN(sub_group_id, "subgrp", "rds", region: region, credentials: credentials)
             tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
 
-            found_muid = false
-            found_master = false
-            tags.each { |tag|
-              found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
-              found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
-            }
-            next if !found_muid
-
-            delete =
-              if ignoremaster && found_muid
-                true
-              elsif !ignoremaster && found_muid && found_master
-                true
-              else
-                false
-              end
-
-            if delete
-              parent_thread_id = Thread.current.object_id
+            if should_delete?(tags, ignoremaster)
               threads << Thread.new(sub_group_id) { |mysubgroup|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
                 delete_subnet_group(mysubgroup, region: region) unless noop
               }
             end
@@ -1326,28 +1264,8 @@ module MU
             arn = MU::Cloud::AWS::Database.getARN(param_group_id, "pg", "rds", region: region, credentials: credentials)
             tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
 
-            found_muid = false
-            found_master = false
-            tags.each { |tag|
-              found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
-              found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
-            }
-            next if !found_muid
-            
-            delete =
-              if ignoremaster && found_muid
-                true
-              elsif !ignoremaster && found_muid && found_master
-                true
-              else
-                false
-              end
-
-            if delete
-              parent_thread_id = Thread.current.object_id
+            if should_delete?(tags, ignoremaster)
               threads << Thread.new(param_group_id) { |myparamgroup|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
                 delete_db_parameter_group(myparamgroup, region: region) unless noop
               }
             end
@@ -1359,28 +1277,8 @@ module MU
             arn = MU::Cloud::AWS::Database.getARN(param_group_id, "cluster-pg", "rds", region: region, credentials: credentials)
             tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
 
-            found_muid = false
-            found_master = false
-            tags.each { |tag|
-              found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
-              found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
-            }
-            next if !found_muid
-            
-            delete =
-              if ignoremaster && found_muid
-                true
-              elsif !ignoremaster && found_muid && found_master
-                true
-              else
-                false
-              end
-
-            if delete
-              parent_thread_id = Thread.current.object_id
+            if should_delete?(tags, ignoremaster)
               threads << Thread.new(param_group_id) { |myparamgroup|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
                 delete_db_cluster_parameter_group(myparamgroup, region: region) unless noop
               }
             end
@@ -1694,6 +1592,25 @@ module MU
         end
 
         private
+
+        def self.should_delete?(tags, ignoremaster = false, deploy_id = MU.deploy_id, master_ip = MU.mu_public_ip)
+          found_muid = false
+          found_master = false
+          tags.each { |tag|
+            found_muid = true if tag.key == "MU-ID" && tag.value == deploy_id
+            found_master = true if tag.key == "MU-MASTER-IP" && tag.value == master_ip
+          }
+          delete =
+            if ignoremaster && found_muid
+              true
+            elsif !ignoremaster && found_muid && found_master
+              true
+            else
+              false
+            end
+          delete
+        end
+        private_class_method :should_delete?
 
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
