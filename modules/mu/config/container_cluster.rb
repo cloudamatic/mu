@@ -104,6 +104,11 @@ module MU
           cluster["min_size"] ||= [cluster["instance_count"], cluster["min_size"]].reject { |c| c.nil? }.min
         end
 
+        if cluster['kubernetes_resources'] and !MU::Master.kubectl
+          MU.log "Cannot apply kubernetes resources without a working kubectl executable", MU::ERR
+          ok = false
+        end
+
         ok
       end
 

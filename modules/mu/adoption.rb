@@ -30,7 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [])
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false)
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -45,6 +45,7 @@ module MU
       @diff = diff
       @habitats = habitats
       @habitats ||= []
+      @scrub_mu_isms = scrub_mu_isms
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -64,6 +65,11 @@ module MU
 
         cloudclass.listCredentials.each { |credset|
           next if @sources and !@sources.include?(credset)
+
+          cfg = cloudclass.credConfig(credset)
+          if cfg and cfg['restrict_to_habitats']
+            cfg['restrict_to_habitats'] << cfg['project'] if cfg['project']
+          end
 
           if @parent
 # TODO handle different inputs (cloud_id, etc)
@@ -101,15 +107,21 @@ module MU
               allow_multi: true,
               habitats: @habitats.dup,
               dummy_ok: true,
-              debug: false,
-              flags: { "skip_provider_owned" => true }
+              skip_provider_owned: true,
+#              debug: false#,
             )
 
 
             if found and found.size > 0
+              if resclass.cfg_plural == "habitats"
+                found.reject! { |h| !cloudclass.listHabitats(credset).include?(h) }
+              end
               MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
               found.each { |obj|
+                if obj.habitat and !cloudclass.listHabitats(credset).include?(obj.habitat)
+                  next
+                end
                 # XXX apply any filters (e.g. MU-ID tags)
                 @scraped[type][obj.cloud_id] = obj
               }
@@ -190,6 +202,9 @@ module MU
 
       groupings.each_pair { |appname, types|
         bok = { "appname" => prefix+appname }
+        if @scrub_mu_isms
+          bok["scrub_mu_isms"] = true
+        end
         if @target_creds
           bok["credentials"] = @target_creds
         end
@@ -333,7 +348,7 @@ module MU
         deletia = []
         schema_chunk["properties"].each_pair { |key, subschema|
           next if !conf_chunk[key]
-          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
+          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key, false)
 
           if subschema["default_if"]
             subschema["default_if"].each { |cond|

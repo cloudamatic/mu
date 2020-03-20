@@ -281,9 +281,9 @@ module MU
             end
           end
 
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
           resp = MU::Cloud::Google.iam(credentials: credentials).list_project_service_accounts(
-            "projects/"+flags["project"]
+            "projects/"+flags["habitat"]
           )
 
           if resp and resp.accounts and MU.deploy_id

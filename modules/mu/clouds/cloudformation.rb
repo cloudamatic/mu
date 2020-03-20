@@ -28,6 +28,16 @@ module MU
 
       @@cloudformation_mode = false
 
+      # Is this a "real" cloud provider, or a stub like CloudFormation?
+      def self.virtual?
+        true
+      end
+
+      # List all AWS projects available to our credentials
+      def self.listHabitats(credentials = nil)
+        MU::Cloud::AWS.listHabitats(credentials)
+      end
+
       # Return what we think of as a cloud object's habitat. In AWS, this means
       # the +account_number+ in which it's resident. If this is not applicable,
       # such as for a {Habitat} or {Folder}, returns nil.

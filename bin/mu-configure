@@ -113,6 +113,12 @@ $CONFIGURABLES = {
     "desc" => "Disable the Momma Cat grooming daemon. Nodes which require asynchronous Ansible/Chef bootstraps will not function. This option is only honored in gem-based installations.",
     "boolean" => true
   },
+  "adopt_scrub_mu_isms" => {
+    "title" => "Disable Momma Cat",
+    "default" => false,
+    "desc" => "Ordinarily, Mu will automatically name, tag and generate auxiliary resources in a standard Mu-ish fashion that allows for deployment of multiple clones of a given stack. Toggling this flag will change the default behavior of mu-adopt, when it creates stack descriptors from found resources, to enable or disable this behavior (see also mu-adopt's --scrub option).",
+    "boolean" => true
+  },
   "mommacat_port" => {
     "title" => "Momma Cat Listen Port",
     "pattern" => /^[0-9]+$/i,
@@ -245,6 +251,16 @@ $CONFIGURABLES = {
         "title" => "GSuite Customer ID",
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. Some API calls (groups, users, etc) require this identifier. From admin.google.com, choose Security, the Single Sign On, and look for the Entity ID field. The value after idpid= in the URL there should be the customer ID."
+      },
+      "ignore_habitats" => {
+        "title" => "Ignore These Projects",
+        "desc" => "Optional list of projects to ignore, for credentials which have visibility into multiple projects",
+        "array" => true
+      },
+      "restrict_to_habitats" => {
+        "title" => "Operate On Only These Projects",
+        "desc" => "Optional list of projects to which we'll restrict all of our activities.",
+        "array" => true
       },
       "default" => {
         "title" => "Is Default Account",

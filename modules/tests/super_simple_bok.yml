@@ -4,7 +4,7 @@
 appname: smoketest
 parameters:
   - name: complexity
-    default: complex
+    default: simple
   - name: vpc_name
     required: false
   - name: instance_type
@@ -19,8 +19,6 @@ parameters:
     default: superBoK_queues
   - name: server_pools_name
     default: superBoK_ServerPool
-
-<% $complexity = 'complex' %>
 
 vpcs:
 -

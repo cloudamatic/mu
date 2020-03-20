@@ -147,8 +147,8 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: nil, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
@@ -159,7 +159,7 @@ module MU
             ["forwarding_rule", "region_backend_service"].each { |type|
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
-                flags["project"],
+                flags["habitat"],
                 region,
                 noop
               )
@@ -170,7 +170,7 @@ module MU
             ["global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
               MU::Cloud::Google.compute(credentials: credentials).delete(
                 type,
-                flags["project"],
+                flags["habitat"],
                 nil,
                 noop
               )

@@ -255,7 +255,7 @@ module MU
         if @obj
           @deploy_id ||= @obj.deploy_id
           @id ||= @obj.cloud_id
-          @name ||= @obj.config['name']
+          @name ||= @obj.config['name'] if @obj.config
           return @obj
         end
 
@@ -266,6 +266,7 @@ module MU
             @mommacat ||= mommacat
             @obj.intoDeploy(@mommacat) # make real sure these are set
             @deploy_id ||= mommacat.deploy_id
+
             if !@name
               if @obj.config and @obj.config['name']
                 @name = @obj.config['name']
@@ -283,6 +284,7 @@ end
         end
 
         if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id)) and !shallow
+          try_deploy_id = @deploy_id
 
           begin
             hab_arg = if @habitat.nil?
@@ -300,22 +302,26 @@ end
               @type,
               name: @name,
               cloud_id: @id,
-              deploy_id: @deploy_id,
+              deploy_id: try_deploy_id,
               region: @region,
               habitats: hab_arg,
               credentials: @credentials,
               dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
             )
             @obj ||= found.first if found
+          rescue MU::MommaCat::MultipleMatches => e
+            if try_deploy_id.nil? and MU.deploy_id
+              MU.log "Attempting to narrow down #{@cloud} #{@type} to #{MU.deploy_id}", MU::NOTICE
+              try_deploy_id = MU.deploy_id
+              retry
+            else
+              raise e
+            end
           rescue ThreadError => e
             # Sometimes MommaCat calls us in a potential deadlock situation;
             # don't be the cause of a fatal error if so, we don't need this
             # object that badly.
             raise e if !e.message.match(/recursive locking/)
-rescue SystemExit
-# XXX this is temporary, to cope with some debug stuff that's in findStray
-# for the nonce
-return
           end
         end
 

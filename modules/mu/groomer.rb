@@ -37,7 +37,7 @@ module MU
 
     # Class methods that any Groomer plugin must implement
     def self.requiredClassMethods
-      [:getSecret, :cleanup, :saveSecret, :deleteSecret]
+      [:getSecret, :cleanup, :saveSecret, :deleteSecret, :available?]
     end
 
     class Ansible;

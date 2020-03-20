@@ -1186,7 +1186,7 @@ end
                         statement["Resource"] << id+"/*"
                       end
                     else
-                      raise MuError, "Couldn't find a #{target["entity_type"]} named #{target["identifier"]} when generating IAM policy"
+                      raise MuError, "Couldn't find a #{target["type"]} named #{target["identifier"]} when generating IAM policy"
                     end
                   else
                     target["identifier"] += target["path"] if target["path"]

@@ -26,20 +26,22 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
 
       sshd_password = windows_vault[node['windows_sshd_password_field']]
 
+      admin_user = node['windows_admin_username'] || "Administrator"
+
       windows_version = node['platform_version'].to_i
       
       public_keys = Array.new
 
-      if windows_version == 10
+      if windows_version >= 10
         Chef::Log.info "version #{windows_version}, using openssh"
 
         include_recipe 'chocolatey'
 
         openssh_path = 'C:\Program Files\OpenSSH-Win64'
 
-        ssh_program_data = "#{ENV['ProgramData']}/ssh"
+        ssh_program_data = "#{ENV['ProgramData']}\\ssh"
 
-        ssh_dir = "C:/Users/Administrator/.ssh"
+        ssh_dir = "C:/Users/#{admin_user}/.ssh"
 
         authorized_keys = "#{ssh_dir}/authorized_keys"
 
@@ -86,7 +88,8 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           path ssh_program_data
           owner sshd_user
           rights :full_control, sshd_user
-          rights :full_control, 'Administrator'
+          rights :full_control, admin_user
+          notifies :run, 'ruby[find files to change ownership of]', :immediately
           notifies :run, 'powershell_script[Generate Host Key]', :immediately
         end
 
@@ -95,6 +98,15 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           cwd openssh_path
           action :nothing
           notifies :create, "template[#{ssh_program_data}/sshd_config]", :immediately
+        end
+
+        directory "set file ownership" do
+          action :nothing
+          path ssh_program_data
+          owner sshd_user
+          mode '0600'
+          rights :full_control, sshd_user
+          deny_rights :full_control, admin_user
         end
 
         template "#{ssh_program_data}/sshd_config" do
@@ -106,40 +118,31 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           notifies :run, 'ruby[find files to change ownership of]', :immediately
         end
 
-        directory "set file ownership" do
-          action :nothing
-          path ssh_program_data
-          owner sshd_user
-          mode '0600'
-          rights :full_control, sshd_user
-          deny_rights :full_control, 'Administrator'
-        end
-
         windows_service 'sshd' do
           action :nothing #[ :enable, :start ]
         end
 
         group 'sshusers' do
-          members [sshd_user, 'Administrator']
+          members [sshd_user, admin_user]
         end
 
         ruby 'find files to change ownership of' do
           action :nothing
           code <<-EOH
-            files = Dir.entries ssh_program_data
+            files = Dir.entries '#{ssh_program_data}'
             puts files
           EOH
         end
 
-        log 'files in ssh' do
-          message files.join
-          level :info
-        end
-
+#        log 'files in ssh' do
+#          message files.join
+#          level :info
+#        end
+#
         files.each do |file|
           file "#{ssh_program_data}#{file}" do
             owner sshd_user
-            deny_rights :full_control, 'Administrator'
+            deny_rights :full_control, admin_user
           end
         end
 
@@ -150,7 +153,7 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
         end
 
         file authorized_keys do
-          owner 'Administrator'
+          owner admin_user
           content public_key
         end
 
@@ -323,7 +326,7 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
 #            sensitive true
 #          end
 #        end
-#      end
+
     end
 
     else

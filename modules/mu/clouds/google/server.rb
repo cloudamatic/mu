@@ -1016,7 +1016,6 @@ next if !create
                 item: @config['windows_auth_vault']['item'],
                 field: @config["windows_auth_vault"]["password_field"]
               )
-MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
               return win_admin_password if win_admin_password
             rescue MU::Groomer::MuNoSuchSecret, MU::Groomer::RunError
             end
@@ -1276,8 +1275,8 @@ MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          flags["project"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["project"], credentials)
+          flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
+          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
 
 # XXX make damn sure MU.deploy_id is set
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
@@ -1288,13 +1287,12 @@ MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
           MU::Cloud::Google.listAZs(region).each { |az|
             disks = []
             resp = MU::Cloud::Google.compute(credentials: credentials).list_instances(
-              flags["project"],
+              flags["habitat"],
               az,
               filter: filter
             )
             if !resp.items.nil? and resp.items.size > 0
               resp.items.each { |instance|
-                saname = instance.tags.items.first.gsub(/[^a-z]/, "") # XXX this nonsense again
                 MU.log "Terminating instance #{instance.name}"
                 if !instance.disks.nil? and instance.disks.size > 0
                   instance.disks.each { |disk|
@@ -1302,17 +1300,21 @@ MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
                   }
                 end
                 MU::Cloud::Google.compute(credentials: credentials).delete_instance(
-                  flags["project"],
+                  flags["habitat"],
                   az,
                   instance.name
                 ) if !noop
-                MU.log "Removing service account #{saname}"
-                begin
-                  MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(
-                    "projects/#{flags["project"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
-                  ) if !noop
-                rescue ::Google::Apis::ClientError => e
-                  raise e if !e.message.match(/^notFound: /)
+                if instance.service_accounts
+                  instance.service_accounts.each { |sa|
+                    MU.log "Removing service account #{sa.email}"
+                    begin
+                      MU::Cloud::Google.iam(credentials: credentials).delete_project_service_account(
+                        "projects/#{flags["habitat"]}/serviceAccounts/#{sa.email}"
+                      ) if !noop
+                    rescue ::Google::Apis::ClientError => e
+                      raise e if !e.message.match(/^notFound: /)
+                    end
+                  }
                 end
 # XXX wait-loop on pending?
 #                pp deletia
@@ -1325,7 +1327,7 @@ MU.log "RETURNINATING FROM CACHE", MU::WARN, details: win_admin_password
 # XXX honor snapshotting
             MU::Cloud::Google.compute(credentials: credentials).delete(
               "disk",
-              flags["project"],
+              flags["habitat"],
               az,
               noop
             ) if !noop

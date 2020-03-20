@@ -493,6 +493,7 @@ module MU
           # See if we'll be able to create peering connections
           can_peer = false
           already_peered = false
+
           if MU.myCloud == vpc["cloud"] and MU.myVPCObj
             if vpc['peers']
               vpc['peers'].each { |peer|
@@ -636,7 +637,7 @@ module MU
                   MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
                   ok = false
                 end
-              elsif !processReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", configurator, dflt_region: peer["vpc"]['region'])
+              elsif !processReference(peer['vpc'], "vpcs", vpc, configurator, dflt_region: peer["vpc"]['region'])
                 ok = false
               end
             end
@@ -735,8 +736,8 @@ module MU
            vpc_block["subnet_pref"] = "all_private" if vpc_block["subnet_pref"] == "private"
         end
 
-        flags = {}
-        flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
+#        flags = {}
+#        flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
         hab_arg = if vpc_block['habitat']
           if vpc_block['habitat'].is_a?(MU::Config::Ref)
             [vpc_block['habitat'].id] # XXX actually, findStray it
@@ -770,9 +771,9 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
                   tag_key: tag_key,
                   tag_value: tag_value,
                   region: vpc_block["region"],
-                  flags: flags,
                   habitats: hab_arg,
-                  dummy_ok: true
+                  dummy_ok: true,
+                  subnet_pref: vpc_block["subnet_pref"]
                 )
 
                 found.first if found and found.size == 1
@@ -799,7 +800,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               @@reference_cache[vpc_block] ||= ext_vpc if ok
             end
           rescue StandardError => e
-            raise MuError, e.inspect, e.backtrace
+            raise MuError, e.inspect, [caller, e.backtrace]
           ensure
             if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
               MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_type} #{parent['name']} (called by #{caller[0]})", MU::ERR, details: vpc_block
@@ -923,7 +924,14 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
             ext_vpc.subnets.each { |subnet|
               next if dflt_region and vpc_block["cloud"] == "Google" and subnet.az != dflt_region
               if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-                private_subnets << { "subnet_id" => configurator.getTail("#{parent['name']} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent['name']} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
+                private_subnets << {
+                  "subnet_id" => configurator.getTail(
+                    "#{parent['name']} Private Subnet #{priv}",
+                    value: subnet.cloud_id,
+                    prettyname: "#{parent['name']} Private Subnet #{priv}",
+                    cloudtype: "AWS::EC2::Subnet::Id"),
+                  "az" => subnet.az
+                }
                 private_subnets_map[subnet.cloud_id] = subnet
                 priv = priv + 1
               elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"

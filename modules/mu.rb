@@ -273,8 +273,8 @@ module MU
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
-    def initialize(message = nil)
-      MU.log message, MU::ERR, details: caller[2] if !message.nil?
+    def initialize(message = nil, silent: false)
+      MU.log message, MU::ERR, details: caller[2] if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
@@ -286,8 +286,8 @@ module MU
   # Wrapper class for temporary Exceptions. Gives our internals something to
   # inherit that will log a notice message appropriately before bubbling up.
   class MuNonFatal < StandardError
-    def initialize(message = nil)
-      MU.log message, MU::NOTICE if !message.nil?
+    def initialize(message = nil, silent: false)
+      MU.log message, MU::NOTICE if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
@@ -598,9 +598,10 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: nil, color: true)
+  def self.log(msg, level = MU::INFO, shorthand_details = nil, details: nil, html: false, verbosity: nil, color: true)
     return if (level == MU::DEBUG and verbosity and verbosity <= MU::Logger::LOUD)
     return if verbosity and verbosity == MU::Logger::SILENT
+    details ||= shorthand_details
 
     if (level == MU::ERR or
         level == MU::WARN or

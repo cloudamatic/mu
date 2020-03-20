@@ -49,7 +49,7 @@ module MU
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Class methods which the base of a cloud implementation must implement
-    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :habitat]
+    generic_class_methods_toplevel =  [:required_instance_methods, :myRegion, :listRegions, :listAZs, :hosted?, :hosted_config, :config_example, :writeDeploySecret, :listCredentials, :credConfig, :listInstanceTypes, :adminBucketName, :adminBucketUrl, :listHabitats, :habitat, :virtual?]
 
     # Public attributes which will be available on all instantiated cloud resource objects
     #
@@ -529,7 +529,7 @@ module MU
                 images.deep_merge!(YAML.load(response))
                 break
               end
-            rescue StandardError
+            rescue StandardError => e
               if fail_hard
                 raise MuError, "Failed to fetch stock images from #{base_url}/#{cloud}.yaml (#{e.message})"
               else
@@ -644,9 +644,16 @@ module MU
 
     # Shorthand lookup for resource type names. Given any of the shorthand class name, configuration name (singular or plural), or full class name, return all four as a set.
     # @param type [String]: A string that looks like our short or full class name or singular or plural configuration names.
+    # @param assert [Boolean]: Raise an exception if the type isn't valid
     # @return [Array]: Class name (Symbol), singular config name (String), plural config name (String), full class name (Object)
-    def self.getResourceNames(type)
-      return [nil, nil, nil, nil, {}] if !type
+    def self.getResourceNames(type, assert = true)
+      if !type
+        if assert
+          raise MuError, "nil resource type requested in getResourceNames"
+        else
+          return [nil, nil, nil, nil, {}]
+        end
+      end
       @@resource_types.each_pair { |name, cloudclass|
         if name == type.to_sym or
             cloudclass[:cfg_name] == type or
@@ -656,6 +663,10 @@ module MU
           return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name), cloudclass]
         end
       }
+      if assert
+        raise MuError, "Invalid resource type #{type} requested in getResourceNames"
+      end
+
       [nil, nil, nil, nil, {}]
     end
 
@@ -684,6 +695,14 @@ module MU
       @@supportedCloudList
     end
 
+    # Raise an exception if the cloud provider specified isn't valid
+    def self.assertSupportedCloud(cloud)
+      if cloud.nil? or !supportedClouds.include?(cloud.to_s)
+        raise MuError, "Cloud provider #{cloud} is not supported"
+      end
+      Object.const_get("MU").const_get("Cloud").const_get(cloud.to_s)
+    end
+
     # List of known/supported Cloud providers for which we have at least one
     # set of credentials configured.
     # @return [Array<String>]
@@ -699,6 +718,14 @@ module MU
       }
 
       available
+    end
+
+    # Raise an exception if the cloud provider specified isn't valid or we
+    # don't have any credentials configured for it.
+    def self.assertAvailableCloud(cloud)
+      if cloud.nil? or availableClouds.include?(cloud.to_s)
+        raise MuError, "Cloud provider #{cloud} is not available"
+      end
     end
 
     # Load the container class for each cloud we know about, and inject autoload
@@ -823,20 +850,20 @@ module MU
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-        myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-        @@resource_types[type.to_sym][:class].each { |class_method|
+        myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
+        @@resource_types[shortclass.to_sym][:class].each { |class_method|
           if !myclass.respond_to?(class_method) or myclass.method(class_method).owner.to_s != "#<Class:#{myclass}>"
-            raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required class method #{class_method}"
+            raise MuError, "MU::Cloud::#{cloud}::#{shortclass} has not implemented required class method #{class_method}"
           end
         }
-        @@resource_types[type.to_sym][:instance].each { |instance_method|
+        @@resource_types[shortclass.to_sym][:instance].each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+            raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud}::#{shortclass} has not implemented required instance method #{instance_method}"
           end
         }
         cloudclass.required_instance_methods.each { |instance_method|
           if !myclass.public_instance_methods.include?(instance_method)
-            MU.log "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}, will declare as attr_accessor", MU::DEBUG
+            MU.log "MU::Cloud::#{cloud}::#{shortclass} has not implemented required instance method #{instance_method}, will declare as attr_accessor", MU::DEBUG
           end
         }
 
@@ -844,7 +871,7 @@ module MU
         return myclass
       rescue NameError => e
         @cloud_class_cache[cloud][type] = nil
-        raise MuCloudResourceNotImplemented, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
+        raise MuCloudResourceNotImplemented, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::Cloud::#{cloud}::#{shortclass})", e.backtrace
       end
     end
 
@@ -867,6 +894,8 @@ module MU
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
         attr_reader :cloudclass
         attr_reader :cloudobj
+        attr_reader :credentials
+        attr_reader :config
         attr_reader :destroyed
         attr_reader :delayed_save
 
@@ -921,12 +950,25 @@ module MU
         # @return [String]: Our new +deploy_id+
         def intoDeploy(mommacat, force: false)
           if force or (!@deploy)
-            MU.log "Inserting #{self} (#{self.object_id}) into #{mommacat.deploy_id}", MU::DEBUG
+            MU.log "Inserting #{self} [#{self.object_id}] into #{mommacat.deploy_id} as a #{@config['name']}", MU::DEBUG
+
             @deploy = mommacat
+            @deploy.addKitten(@cloudclass.cfg_plural, @config['name'], self)
             @deploy_id = @deploy.deploy_id
             @cloudobj.intoDeploy(mommacat, force: force) if @cloudobj
           end
           @deploy_id
+        end
+
+        # Return the +virtual_name+ config field, if it is set.
+        # @param name [String]: If set, will only return a value if +virtual_name+ matches this string
+        # @return [String,nil]
+        def virtual_name(name = nil)
+          if @config and @config['virtual_name'] and
+             (!name or name == @config['virtual_name'])
+            return @config['virtual_name']
+          end
+          nil
         end
 
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
@@ -955,7 +997,6 @@ module MU
             if my_cloud.nil? or !MU::Cloud.supportedClouds.include?(my_cloud)
               raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
             end
-          
             @cloudclass = MU::Cloud.loadCloudType(my_cloud, self.class.shortname)
             @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(my_cloud)
             @cloudobj = @cloudclass.new(
@@ -980,7 +1021,6 @@ module MU
             elsif !@deploy.nil? and @cloudobj.mu_name.nil?
               MU.log "#{self} in #{@deploy.deploy_id} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR, details: [caller, args.keys]
             end
-
 
           # We are actually a child object invoking this via super() from its
           # own initialize(), so initialize all the attributes and instance
@@ -2021,17 +2061,18 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
               loglevel = retries > 4 ? MU::NOTICE : MU::DEBUG
               MU.log "Calling WinRM on #{@mu_name}", loglevel, details: opts
               opts = {
-                endpoint: 'https://'+@mu_name+':5986/wsman',
                 retry_limit: winrm_retries,
                 no_ssl_peer_verification: true, # XXX this should not be necessary; we get 'hostname "foo" does not match the server certificate' even when it clearly does match
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
                 transport: :ssl,
                 operation_timeout: timeout,
               }
-              if retries % 2 == 0
+              if retries % 2 == 0 # NTLM password over https
+                opts[:endpoint] = 'https://'+canonical_ip+':5986/wsman'
                 opts[:user] = @config['windows_admin_username']
                 opts[:password] = getWindowsAdminPassword
-              else
+              else # certificate auth over https
+                opts[:endpoint] = 'https://'+@mu_name+':5986/wsman'
                 opts[:client_cert] = "#{MU.mySSLDir}/#{@mu_name}-winrm.crt"
                 opts[:client_key] = "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               end

@@ -276,15 +276,20 @@ module MU
             schema_chunk["properties"]["creation_style"] != "existing"
           schema_chunk["properties"].each_pair { |key, subschema|
             shortclass = if conf_chunk[key]
-              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
+              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key, false)
               shortclass
             else
               nil
             end
 
             new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass).dup
-
-            conf_chunk[key] = Marshal.load(Marshal.dump(new_val)) if !new_val.nil?
+            if !new_val.nil?
+              begin
+                conf_chunk[key] = Marshal.load(Marshal.dump(new_val))
+              rescue TypeError
+                conf_chunk[key] = new_val.clone
+              end
+            end
           }
         end
       elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)

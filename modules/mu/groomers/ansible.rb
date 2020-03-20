@@ -24,6 +24,10 @@ module MU
       class NoAnsibleExecError < MuError;
       end
 
+      # One or more Python dependencies missing
+      class AnsibleLibrariesError < MuError;
+      end
+
       # Location in which we'll find our Ansible executables. This only applies
       # to full-grown Mu masters; minimalist gem installs will have to make do
       # with whatever Ansible executables they can find in $PATH.
@@ -40,6 +44,10 @@ module MU
         @ansible_path = node.deploy.deploy_dir+"/ansible"
         @ansible_execs = MU::Groomer::Ansible.ansibleExecDir
 
+        if !MU::Groomer::Ansible.checkPythonDependencies(@server.windows?)
+          raise AnsibleLibrariesError, "One or more python dependencies not available"
+        end
+
         if !@ansible_execs or @ansible_execs.empty?
           raise NoAnsibleExecError, "No Ansible executables found in visible paths"
         end
@@ -54,6 +62,10 @@ module MU
         installRoles
       end
 
+      # Are Ansible executables and key libraries present and accounted for?
+      def self.available?(windows = false)
+        MU::Groomer::Ansible.checkPythonDependencies(windows)
+      end
 
       # Indicate whether our server has been bootstrapped with Ansible
       def haveBootstrapped?
@@ -245,7 +257,7 @@ module MU
           "#{@server.config['name']}.yml"
         end
 
-        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
+        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.windows? ? @server.canonicalIP : @server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         retries = 0
         begin
@@ -294,7 +306,7 @@ module MU
       # Bootstrap our server with Ansible- basically, just make sure this node
       # is listed in our deployment's Ansible inventory.
       def bootstrap
-        @inventory.add(@server.config['name'], @server.mu_name)
+        @inventory.add(@server.config['name'], @server.windows? ? @server.canonicalIP : @server.mu_name)
         play = {
           "hosts" => @server.config['name']
         }
@@ -387,11 +399,18 @@ module MU
         allvars['deployment']
       end
 
+      # Nuke everything associated with a deploy. Since we're just some files
+      # in the deploy directory, this doesn't have to do anything.
+      def self.cleanup(deploy_id, noop = false)
+#        deploy = MU::MommaCat.new(MU.deploy_id)
+#        inventory = Inventory.new(deploy)
+      end
+
       # Expunge Ansible resources associated with a node.
       # @param node [String]: The Mu name of the node in question.
       # @param _vaults_to_clean [Array<Hash>]: Dummy argument, part of this method's interface but not used by the Ansible layer
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
-      def self.cleanup(node, _vaults_to_clean = [], noop = false)
+      def self.purge(node, _vaults_to_clean = [], noop = false)
         deploy = MU::MommaCat.new(MU.deploy_id)
         inventory = Inventory.new(deploy)
 #        ansible_path = deploy.deploy_dir+"/ansible"
@@ -427,6 +446,50 @@ module MU
         output
       end
 
+      # Hunt down and return a path for a Python executable
+      # @return [String]
+      def self.pythonExecDir
+        path = nil
+
+        if File.exist?(BINDIR+"/python")
+          path = BINDIR
+        else
+          paths = [ansibleExecDir]
+          paths.concat(ENV['PATH'].split(/:/))
+          paths << "/usr/bin" # not always in path, esp in pared-down Docker images
+          paths.reject! { |p| p.nil? }
+          paths.uniq.each { |bindir|
+            if File.exist?(bindir+"/python")
+              path = bindir
+              break
+            end
+          }
+        end
+        path
+      end
+
+      # Make sure what's in our Python requirements.txt is reflected in the
+      # Python we're about to run for Ansible
+      def self.checkPythonDependencies(windows = false)
+        return nil if !ansibleExecDir
+
+        execline = File.readlines(ansibleExecDir+"/ansible-playbook").first.chomp.sub(/^#!/, '')
+        if !execline
+          MU.log "Unable to extract a Python executable from #{ansibleExecDir}/ansible-playbook", MU::ERR
+          return false
+        end
+
+        require 'tempfile'
+        f = Tempfile.new("pythoncheck")
+        f.puts "import ansible"
+        f.puts "import winrm" if windows
+        f.close
+
+        system(%Q{#{execline} #{f.path}})
+        f.unlink
+        $?.exitstatus == 0 ? true : false
+      end
+
       # Hunt down and return a path for Ansible executables
       # @return [String]
       def self.ansibleExecDir
@@ -434,7 +497,9 @@ module MU
         if File.exist?(BINDIR+"/ansible-playbook")
           path = BINDIR
         else
-          ENV['PATH'].split(/:/).each { |bindir|
+          paths = ENV['PATH'].split(/:/)
+          paths << "/usr/bin"
+          paths.uniq.each { |bindir|
             if File.exist?(bindir+"/ansible-playbook")
               path = bindir
               if !File.exist?(bindir+"/ansible-vault")

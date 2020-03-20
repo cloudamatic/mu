@@ -52,6 +52,11 @@ module MU
         [:url]
       end
 
+      # Is this a "real" cloud provider, or a stub like CloudFormation?
+      def self.virtual?
+        false
+      end
+
       # Most of our resource implementation +find+ methods have to mangle their
       # args to make sure they've extracted a project or location argument from
       # other available information. This does it for them.
@@ -337,6 +342,7 @@ module MU
       # etc)
       # @param deploy_id [MU::MommaCat]
       def self.cleanDeploy(deploy_id, credentials: nil, noop: false)
+        removeDeploySecretsAndRoles(deploy_id, noop: noop, credentials: credentials)
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
@@ -548,7 +554,7 @@ MU.log e.message, MU::WARN, details: e.inspect
             begin
               listRegions(credentials: credentials)
               listInstanceTypes(credentials: credentials)
-              listProjects(credentials)
+              listHabitats(credentials)
             rescue ::Google::Apis::ClientError
               MU.log "Found machine credentials #{@@svc_account_name}, but these don't appear to have sufficient permissions or scopes", MU::WARN, details: scopes
               @@authorizers.delete(credentials)
@@ -701,12 +707,20 @@ MU.log e.message, MU::WARN, details: e.inspect
       end
 
       # List all Google Cloud Platform projects available to our credentials
-      def self.listProjects(credentials = nil)
+      def self.listHabitats(credentials = nil)
         cfg = credConfig(credentials)
-        return [] if !cfg or !cfg['project']
+        return [] if !cfg
+        if cfg['restrict_to_habitats'] and cfg['restrict_to_habitats'].is_a?(Array)
+          cfg['restrict_to_habitats'] << cfg['project'] if cfg['project']
+          return cfg['restrict_to_habitats'].uniq
+        end
         result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
-        result.projects.map { |p| p.project_id }
+        allprojects = result.projects.map { |p| p.project_id }
+        if cfg['ignore_habitats'] and cfg['ignore_habitats'].is_a?(Array)
+          allprojects.reject! { |p| cfg['ignore_habitats'].include?(p) }
+        end
+        allprojects
       end
 
       @@regions = {}
