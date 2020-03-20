@@ -143,7 +143,7 @@ module MU
           if html
             html_out "&nbsp;#{details}"
           else
-            details = details.white.on_block if color
+            details = details.white.on_black if color
             msgs << details
           end
           Syslog.log(SYSLOG_MAP[level], details.gsub(/%/, ''))
