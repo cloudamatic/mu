@@ -72,7 +72,6 @@ module MU
           @config["subnet_group_name"] = @mu_name
           MU.log "Using the database identifier #{@config['identifier']}"
 
-
           if @config["create_cluster"]
             getPassword
             createSubnetGroup
@@ -84,75 +83,9 @@ module MU
 
             @cloud_id = createDbCluster
           elsif @config["add_cluster_node"]
-            cluster = nil
-            rr = @config["member_of_cluster"]
-            cluster = @deploy.findLitterMate(type: "database", name: rr['db_name']) if rr['db_name']
-
-            if cluster.nil?
-              tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-              found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-              )
-              cluster = found.first if found.size == 1
-            end
-
-            raise MuError, "Couldn't resolve cluster node reference to a unique live Database in #{@mu_name}" if cluster.nil? || cluster.cloud_id.nil?
-            @config['cluster_identifier'] = cluster.cloud_id.downcase
-            # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
-            @config["subnet_group_name"] = @config['cluster_identifier']
-            @config["creation_style"] = "new" if @config["creation_style"] != "new"
-
-            if @config.has_key?("parameter_group_family")
-              @config["parameter_group_name"] = @config['identifier']
-              createDBParameterGroup
-            end
-
-            @cloud_id = createDb
+            @cloud_id = add_cluster_node
           else
-            source_db = nil
-            if @config['read_replica_of']
-              rr = @config['read_replica_of']
-              source_db = @deploy.findLitterMate(type: "database", name: rr['db_name']) if rr['db_name']
-
-              if source_db.nil?
-                tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-                found = MU::MommaCat.findStray(
-                  rr['cloud'],
-                  "database",
-                  deploy_id: rr["deploy_id"],
-                  cloud_id: rr["db_id"],
-                  tag_key: tag_key,
-                  tag_value: tag_value,
-                  region: rr["region"],
-                  dummy_ok: true
-                )
-                source_db = found.first if found.size == 1
-              end
-
-              raise MuError, "Couldn't resolve read replica reference to a unique live Database in #{@mu_name}" if source_db.nil? or source_db.cloud_id.nil?
-              @config['source_identifier'] = source_db.cloud_id
-            end
-
-            getPassword
-            if source_db.nil? or @config['region'] != source_db.config['region']
-              createSubnetGroup
-            else
-              MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
-            end
-
-            if @config.has_key?("parameter_group_family")
-              @config["parameter_group_name"] = @config['identifier']
-              createDBParameterGroup
-            end
-
-            @cloud_id = createDb
+            @cloud_id = add_basic
           end
         end
 
@@ -796,113 +729,27 @@ module MU
               )
             end
           else
-            database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
 
             # Run SQL on deploy
             if @config['run_sql_on_deploy']
-              MU.log "Running initial SQL commands on #{@config['name']}", details: @config['run_sql_on_deploy']
-
-              # check if DB is private or public
-              if !database.publicly_accessible
-                # This doesn't necessarily mean what we think it does. publicly_accessible = true means resolve to public address.
-                # publicly_accessible can still be set to true even when only private subnets are included in the subnet group. We try to solve this during creation.
-                is_private = true
-              else
-                is_private = false
-              end
-
-              #Setting up connection params
-              ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
-              keypairname, _ssh_private_key, _ssh_public_key = @deploy.SSHKey
-              if is_private and @vpc
-                if @config['vpc']['nat_host_name']
-                  begin
-                    gateway = Net::SSH::Gateway.new(
-                        @config['vpc']['nat_host_name'],
-                        @config['vpc']['nat_ssh_user'],
-                        :keys => [ssh_keydir+"/"+keypairname],
-                        :keys_only => true,
-                        :auth_methods => ['publickey'],
-  #                :verbose => :info
-                    )
-                    port = gateway.open(database.endpoint.address, database.endpoint.port)
-                    address = "127.0.0.1"
-                    MU.log "Tunneling #{@config['engine']} connection through #{nat_host_name} via local port #{port}", MU::DEBUG
-                  rescue IOError => e
-                    MU.log "Got #{e.inspect} while connecting to #{@config['identifier']} through NAT #{nat_host_name}", MU::ERR
-                  end
-                else
-                  MU.log "Can't run initial SQL commands! Database #{@config['identifier']} is not publicly accessible, but we have no NAT host for connecting to it", MU::WARN, details: @config['run_sql_on_deploy']
-                end
-              else
-                port = database.endpoint.port
-                address = database.endpoint.address
-              end
-
-              # Running SQL on deploy
-              if @config['engine'] == "postgres"
-                autoload :PG, 'pg'
-                begin
-                  conn = PG::Connection.new(
-                      :host => address,
-                      :port => port,
-                      :user => @config['master_user'],
-                      :dbname => database.db_name,
-                      :password => @config['password']
-                  )
-                  @config['run_sql_on_deploy'].each { |cmd|
-                    MU.log "Running #{cmd} on database #{@config['name']}"
-                    conn.exec(cmd)
-                  }
-                  conn.finish
-                rescue PG::Error => e
-                  MU.log "Failed to run initial SQL commands on #{@config['name']} via #{address}:#{port}: #{e.inspect}", MU::WARN, details: conn
-                end
-              elsif @config['engine'] == "mysql"
-                autoload :Mysql, 'mysql'
-                MU.log "Initiating mysql connection to #{address}:#{port} as #{@config['master_user']}"
-                conn = Mysql.new(address, @config['master_user'], @config['password'], "mysql", port)
-                @config['run_sql_on_deploy'].each { |cmd|
-                  MU.log "Running #{cmd} on database #{@config['name']}"
-                  conn.query(cmd)
-                }
-                conn.close
-              end
-
-              # close the SQL on deploy sessions
-              if is_private
-                begin
-                  gateway.close(port)
-                rescue IOError => e
-                  MU.log "Failed to close ssh session to NAT after running sql_on_deploy", MU::ERR, details: e.inspect
-                end
-              end
+              run_sql_commands
             end
 
             # set multi-az on deploy
             if @config['multi_az_on_deploy']
               if !database.multi_az
                 MU.log "Setting multi-az on #{@config['identifier']}"
-                attempts = 0
-                begin
+                MU.retrier([Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState], wait: 15, max: 15) {
                   MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
-                      db_instance_identifier: @config['identifier'],
-                      apply_immediately: true,
-                      multi_az: true
+                    db_instance_identifier: @config['identifier'],
+                    apply_immediately: true,
+                    multi_az: true
                   )
-                rescue Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState => e
-                  if attempts < 15
-                    MU.log "Got #{e.inspect} while setting Multi-AZ on #{@config['identifier']}, retrying."
-                    attempts += 1
-                    sleep 15
-                    retry
-                  else
-                    MU.log "Couldn't set Multi-AZ on #{@config['identifier']} after several retries, giving up. #{e.inspect}", MU::ERR
-                  end
-                end
+                }
               end
             end
           end
+
         end
 
         # Generate database user, database identifier, database name based on engine-specific constraints
@@ -986,133 +833,13 @@ module MU
           # We're fine with this returning nil when searching for a database cluster the doesn't exist.
         end
 
-        # Register a description of this database instance with this deployment's metadata.
-        # Register read replicas as separate instances, while we're
-        # at it.
-        def notify
-          my_dbs = [@config]
-          if @config['read_replica']
-            @config['read_replica']['creation_style'] = "read_replica"
-            @config['read_replica']['password'] = @config["password"]
-            my_dbs << @config['read_replica']
+        # Return the cloud descriptor for this database cluster or instance
+        def cloud_desc
+          if @config['create_cluster']
+            MU::Cloud::AWS::Database.getDatabaseClusterById(@cloud_id, region: @config['region'], credentials: @credentials)
+          else
+            MU::Cloud::AWS::Database.getDatabaseById(@cloud_id, region: @config['region'], credentials: @credentials)
           end
-
-          deploy_struct = {}
-          my_dbs.each { |db|
-            deploy_struct = 
-            if db["create_cluster"]
-              db["identifier"] = @mu_name.downcase if db["identifier"].nil?
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'], credentials: @config['credentials'])
-              # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
-              if db['dns_records']
-                db['dns_records'].each { |dnsrec|
-                  dnsrec['name'] = cluster.db_cluster_identifier if !dnsrec.has_key?('name')
-                  dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
-                }
-                end
-              # XXX this should be a call to @deploy.nameKitten
-              MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: cluster.endpoint)
-
-              vpc_sg_ids = []
-              cluster.vpc_security_groups.each { |vpc_sg|
-                vpc_sg_ids << vpc_sg.vpc_security_group_id
-              }
-
-              {
-                "allocated_storage" => cluster.allocated_storage,
-                "parameter_group" => cluster.db_cluster_parameter_group,
-                "subnet_group" => cluster.db_subnet_group,
-                "identifier" => cluster.db_cluster_identifier,
-                "region" => db['region'],
-                "engine" => cluster.engine,
-                "engine_version" => cluster.engine_version,
-                "backup_retention_period" => cluster.backup_retention_period,
-                "preferred_backup_window" => cluster.preferred_backup_window,
-                "preferred_maintenance_window" => cluster.preferred_maintenance_window,
-                "endpoint" => cluster.endpoint,
-                "port" => cluster.port,
-                "username" => cluster.master_username,
-                "vpc_sgs" => vpc_sg_ids,
-                "azs" => cluster.availability_zones,
-                "vault_name" => cluster.db_cluster_identifier.upcase,
-                "vault_item" => "database_credentials",
-                "password_field" => "password",
-                "create_style" => db['creation_style'],
-                "db_name" => cluster.database_name,
-                "db_cluster_members" => cluster.db_cluster_members
-              }
-            else
-              db["identifier"] = @mu_name.downcase if db["identifier"].nil? # Is this still valid if we have read replicas?
-              database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'], credentials: db['credentials'])
-              # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
-              unless db["add_cluster_node"]
-                # It isn't necessarily clear what we should do with DNS records of cluster members. Probably need to expose this to the BoK somehow.
-                if db['dns_records']
-                  db['dns_records'].each { |dnsrec|
-                    dnsrec['name'] = database.db_instance_identifier if !dnsrec.has_key?('name')
-                    dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
-                  }
-                  # XXX this should be a call to @deploy.nameKitten
-                  MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
-                end
-              end
-
-              database = cloud_desc
-
-              vpc_sg_ids = Array.new
-              database.vpc_security_groups.each { |vpc_sg|
-                vpc_sg_ids << vpc_sg.vpc_security_group_id
-              }
-
-              rds_sg_ids = Array.new
-              database.db_security_groups.each { |rds_sg|
-                rds_sg_ids << rds_sg.db_security_group_name
-              }
-
-              subnet_ids = []
-              if database.db_subnet_group and database.db_subnet_group.subnets
-                database.db_subnet_group.subnets.each { |subnet|
-                  subnet_ids << subnet.subnet_identifier
-                }
-              end
-
-              {
-                "identifier" => database.db_instance_identifier,
-                "region" => db['region'],
-                "engine" => database.engine,
-                "engine_version" => database.engine_version,
-                "backup_retention_period" => database.backup_retention_period,
-                "preferred_backup_window" => database.preferred_backup_window,
-                "preferred_maintenance_window" => database.preferred_maintenance_window,
-                "auto_minor_version_upgrade" => database.auto_minor_version_upgrade,
-                "storage_encrypted" => database.storage_encrypted,
-                "endpoint" => database.endpoint.address,
-                "port" => database.endpoint.port,
-                "username" => database.master_username,
-                "rds_sgs" => rds_sg_ids,
-                "vpc_sgs" => vpc_sg_ids,
-                "az" => database.availability_zone,
-                "vault_name" => database.db_instance_identifier.upcase,
-                "vault_item" => "database_credentials",
-                "password_field" => "password",
-                "create_style" => db['creation_style'],
-                "db_name" => database.db_name,
-                "multi_az" => database.multi_az,
-                "publicly_accessible" => database.publicly_accessible,
-                "ca_certificate_identifier" => database.ca_certificate_identifier,
-                "subnets" => subnet_ids,
-                "read_replica_source_db" => database.read_replica_source_db_instance_identifier,
-                "read_replica_instance_identifiers" => database.read_replica_db_instance_identifiers,
-                "cluster_identifier" => database.db_cluster_identifier,
-                "size" => database.db_instance_class,
-                "storage" => database.allocated_storage
-              }
-            end
-            MU.log "Deploy structure is now #{deploy_struct}", MU::DEBUG
-          }
-
-          raise MuError, "Can't find any deployment metadata" if deploy_struct.empty?
-          return deploy_struct
         end
 
         # Generate a snapshot from the database described in this instance.
@@ -1592,6 +1319,150 @@ module MU
         end
 
         private
+
+        def add_basic
+          source_db = nil
+          if @config['read_replica_of']
+            rr = @config['read_replica_of']
+            source_db = @deploy.findLitterMate(type: "database", name: rr['db_name']) if rr['db_name']
+
+            if source_db.nil?
+              tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+              found = MU::MommaCat.findStray(
+                rr['cloud'],
+                "database",
+                deploy_id: rr["deploy_id"],
+                cloud_id: rr["db_id"],
+                tag_key: tag_key,
+                tag_value: tag_value,
+                region: rr["region"],
+                dummy_ok: true
+              )
+              source_db = found.first if found.size == 1
+            end
+
+            raise MuError, "Couldn't resolve read replica reference to a unique live Database in #{@mu_name}" if source_db.nil? or source_db.cloud_id.nil?
+            @config['source_identifier'] = source_db.cloud_id
+          end
+
+          getPassword
+          if source_db.nil? or @config['region'] != source_db.config['region']
+            createSubnetGroup
+          else
+            MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
+          end
+
+          if @config.has_key?("parameter_group_family")
+            @config["parameter_group_name"] = @config['identifier']
+            createDBParameterGroup
+          end
+
+          createDb
+        end
+
+
+        def add_cluster_node
+          cluster = nil
+          rr = @config["member_of_cluster"]
+          cluster = @deploy.findLitterMate(type: "database", name: rr['db_name']) if rr['db_name']
+
+          if cluster.nil?
+            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+            found = MU::MommaCat.findStray(
+              rr['cloud'],
+              "database",
+              deploy_id: rr["deploy_id"],
+              cloud_id: rr["db_id"],
+              tag_key: tag_key,
+              tag_value: tag_value,
+              region: rr["region"],
+              dummy_ok: true
+            )
+            cluster = found.first if found.size == 1
+          end
+
+          raise MuError, "Couldn't resolve cluster node reference to a unique live Database in #{@mu_name}" if cluster.nil? || cluster.cloud_id.nil?
+          @config['cluster_identifier'] = cluster.cloud_id.downcase
+          # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
+          @config["subnet_group_name"] = @config['cluster_identifier']
+          @config["creation_style"] = "new" if @config["creation_style"] != "new"
+
+          if @config.has_key?("parameter_group_family")
+            @config["parameter_group_name"] = @config['identifier']
+            createDBParameterGroup
+          end
+
+          createDb
+        end
+
+        def run_sql_commands
+          MU.log "Running initial SQL commands on #{@config['name']}", details: @config['run_sql_on_deploy']
+
+          port, address = if !cloud_desc.publicly_accessible and @vpc
+            if @config['vpc']['nat_host_name']
+              keypairname, _ssh_private_key, _ssh_public_key = @deploy.SSHKey
+              begin
+                gateway = Net::SSH::Gateway.new(
+                  @config['vpc']['nat_host_name'],
+                  @config['vpc']['nat_ssh_user'],
+                  :keys => [Etc.getpwuid(Process.uid).dir+"/.ssh"+"/"+keypairname],
+                  :keys_only => true,
+                  :auth_methods => ['publickey']
+                )
+                port = gateway.open(cloud_desc.endpoint.address, cloud_desc.endpoint.port)
+                MU.log "Tunneling #{@config['engine']} connection through #{@config['vpc']['nat_host_name']} via local port #{port}", MU::DEBUG
+                [port, "127.0.0.1"]
+              rescue IOError => e
+                MU.log "Got #{e.inspect} while connecting to #{@config['identifier']} through NAT #{@config['vpc']['nat_host_name']}", MU::ERR
+                return
+              end
+            else
+              MU.log "Can't run initial SQL commands! Database #{@config['identifier']} is not publicly accessible, but we have no NAT host for connecting to it", MU::WARN, details: @config['run_sql_on_deploy']
+              return
+            end
+          else
+            [database.endpoint.port, database.endpoint.address]
+          end
+
+          # Running SQL on deploy
+          if @config['engine'] == "postgres"
+            autoload :PG, 'pg'
+            begin
+              conn = PG::Connection.new(
+                :host => address,
+                :port => port,
+                :user => @config['master_user'],
+                :dbname => cloud_desc.db_name,
+                :password => @config['password']
+              )
+              @config['run_sql_on_deploy'].each { |cmd|
+                MU.log "Running #{cmd} on database #{@config['name']}"
+                conn.exec(cmd)
+              }
+              conn.finish
+            rescue PG::Error => e
+              MU.log "Failed to run initial SQL commands on #{@config['name']} via #{address}:#{port}: #{e.inspect}", MU::WARN, details: conn
+            end
+          elsif @config['engine'] == "mysql"
+            autoload :Mysql, 'mysql'
+            MU.log "Initiating mysql connection to #{address}:#{port} as #{@config['master_user']}"
+            conn = Mysql.new(address, @config['master_user'], @config['password'], "mysql", port)
+            @config['run_sql_on_deploy'].each { |cmd|
+              MU.log "Running #{cmd} on database #{@config['name']}"
+              conn.query(cmd)
+            }
+            conn.close
+          end
+
+          # close the SQL on deploy sessions
+          if !cloud_desc.publicly_accessible
+            begin
+              gateway.close(port)
+            rescue IOError => e
+              MU.log "Failed to close ssh session to NAT after running sql_on_deploy", MU::ERR, details: e.inspect
+            end
+          end
+        end
 
         def self.should_delete?(tags, ignoremaster = false, deploy_id = MU.deploy_id, master_ip = MU.mu_public_ip)
           found_muid = false
