@@ -144,22 +144,24 @@ module MU
                 "default" => false
             },
             "creation_style" => {
-                "type" => "string",
-                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
-                "description" => "'new' - create a pristine database instances; 'existing' - use an existing database instance; 'new_snapshot' - create a snapshot of an existing database, and create a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.; 'point_in_time' - create database from point in time backup of an existing database",
-                "default" => "new"
+              "type" => "string",
+              "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
+              "description" => "+new+ creates a pristine database instance; +existing+ clones an existing database instance; +new_snapshot+ creates a snapshot of an existing database, then creates a new instance from that snapshot; +existing_snapshot+ creates database from a pre-existing snapshot; +point_in_time+ create database from point in time backup of an existing database. All styles other than +new+ require that +identifier+ or +source+ be set.",
+              "default" => "new"
             },
             "identifier" => {
-                "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
+              "type" => "string",
+              "description" => "Cloud id of a source database to use for creation styles other than +new+; use +source+ for more sophisticated resource references."
             },
+            "source" => MU::Config::Ref.schema(type: "databases", "desc": "Reference a source database to use for +creation_style+ settings +existing+, +new_snapshot+, +existing_snapshot+, or +point_in_time+."),
             "master_user" => {
               "type" => "string",
               "description" => "Set master user name for this database instance; if not specified a random username will be generated"
             },
             "restore_time" => {
               "type" => "string",
-              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style"
+              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style",
+              "default" => "latest"
             },
             "create_read_replica" => {
               "type" => "boolean",
@@ -266,6 +268,22 @@ module MU
           end
         end
 
+        if db["identifier"]
+          if db["source"]
+            if db["source"].to_h["id"] != db["identifier"]
+              MU.log "Database #{db['name']} specified identifier '#{db["identifier"]}' with a source parameter that doesn't match", MU::ERR, db["source"]
+              ok = false
+            end
+          else
+            db["source"] = MU::Config::Ref.get(
+              id: db["identifier"],
+              cloud: db["cloud"],
+              credentials: db["credentials"],
+              type: "databases"
+            )
+          end
+          db.delete("identifier")
+        end
 
         if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
           MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
@@ -296,13 +314,13 @@ module MU
 
         if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
           ok = false
-          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
+          MU.log "Database '#{db['name']}' must provide restore_time when creation_style is point_in_time", MU::ERR
         end
 
         if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
-          if db["identifier"].nil?
+          if db["source"].nil?
             ok = false
-            MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
+            MU.log "Database '#{db['name']}' needs existing database/snapshot, but no identifier or source was specified", MU::ERR
           end
         end
 

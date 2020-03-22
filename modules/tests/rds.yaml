@@ -1,0 +1,37 @@
+# clouds: AWS
+---
+appname: smoketest
+vpcs:
+- name: rdstests
+databases:
+- name: pgcluster
+  size: db.m5.large
+  engine: postgres
+  engine_version: 9.6.6
+  add_cluster_node: true
+  allow_major_version_upgrade: true
+  auto_minor_version_upgrade: false
+  backup_retention_period: 10
+  cluster_node_count: 2
+  create_cluster: true
+  vpc:
+    name: rdstests
+  master_user: Bob
+- name: mysql-w-replica
+  size: db.t2.micro
+  engine: mysql
+  storage: 5
+  vpc:
+    name: rdstests
+  create_read_replica: true
+  multi_az_on_create: true
+  master_user: Bob
+- name: point-in-time
+  creation_style: point_in_time
+  size: db.t2.micro
+  engine: mysql
+  storage: 5
+  source:
+    name: mysql-w-replica
+  vpc:
+    name: rdstests

@@ -805,6 +805,9 @@ retry
         end
       end
 
+      # Purge Chef resources matching a particular deploy
+      # @param deploy_id [String]
+      # @param noop [Boolean]
       def self.cleanup(deploy_id, noop = false)
         return nil if deploy_id.nil? or deploy_id.empty?
         begin
