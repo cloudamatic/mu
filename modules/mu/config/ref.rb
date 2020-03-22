@@ -130,6 +130,16 @@ module MU
         self.to_s <=> other.to_s
       end
 
+      # Lets callers access us like a {Hash}
+      # @param attribute [String,Symbol]
+      def [](attribute)
+        if respond_to?(attribute.to_sym)
+          send(attribute.to_sym)
+        else
+          nil
+        end
+      end
+
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
