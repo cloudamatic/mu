@@ -108,6 +108,11 @@ module MU
         return
       end
 
+      if level == SUMMARY
+        @summary << msg
+        return
+      end
+
       caller_name = extract_caller_name(caller[1])
 
       time = Time.now.strftime("%b %d %H:%M:%S").to_s

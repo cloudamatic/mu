@@ -230,6 +230,7 @@ module MU
   ERROR = 4.freeze
   # Log entries that will be held and displayed/emailed at the end of deploy,
   # cleanup, etc.
+  SUMMARY = 5.freeze
 end
 
 require 'mu/logger'
