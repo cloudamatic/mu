@@ -23,7 +23,7 @@ module MU
         {
         "type" => "object",
         "description" => "Create a dedicated database server.",
-        "required" => ["name", "engine", "size", "cloud", "storage"],
+        "required" => ["name", "engine", "size", "cloud"],
         "additionalProperties" => false,
         "properties" => {
             "groomer" => {
@@ -78,7 +78,8 @@ module MU
             },
             "storage" => {
               "type" => "integer",
-              "description" => "Storage space for this database instance (GB)."
+              "description" => "Storage space for this database instance (GB).",
+              "default" => 5
             },
             "storage_type" => {
                 "enum" => ["standard", "gp2", "io1"],
@@ -86,12 +87,12 @@ module MU
                 "default" => "gp2"
             },
             "run_sql_on_deploy" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "description" => "Arbitrary SQL commands to run after the database is fully configred (PostgreSQL databases only).",
-                    "type" => "string"
-                }
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "description" => "Arbitrary SQL commands to run after the database is fully configred (PostgreSQL databases only).",
+                "type" => "string"
+              }
             },
             "port" => {"type" => "integer"},
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NAT_OPTS, "all_public"),
@@ -217,27 +218,11 @@ module MU
       # Schema block for other resources to use when referencing a sibling Database
       # @return [Hash]
       def self.reference
-        {
-          "type" => "object",
-          "description" => "Incorporate a database object",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-            "db_id" => {"type" => "string"},
-            "db_name" => {"type" => "string"},
-            "region" => MU::Config.region_primitive,
-            "cloud" => MU::Config.cloud_primitive,
-            "tag" => {
-              "type" => "string",
-              "description" => "Identify this Database by a tag (key=value). Note that this tag must not match more than one resource.",
-              "pattern" => "^[^=]+=.+"
-            },
-            "deploy_id" => {
-              "type" => "string",
-              "description" => "Look for a Database fitting this description in another Mu deployment with this id.",
-            }
-          }
-        }
+        schema_aliases = [
+          { "db_id" => "id" },
+          { "db_name" => "name" }
+        ]
+        MU::Config::Ref.schema(schema_aliases, type: "databases")
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
@@ -270,7 +255,7 @@ module MU
 
         if db["identifier"]
           if db["source"]
-            if db["source"].to_h["id"] != db["identifier"]
+            if db["source"]["id"] != db["identifier"]
               MU.log "Database #{db['name']} specified identifier '#{db["identifier"]}' with a source parameter that doesn't match", MU::ERR, db["source"]
               ok = false
             end
@@ -355,8 +340,9 @@ module MU
             replica['create_read_replica'] = false
             replica["create_cluster"] = false
             replica['read_replica_of'] = {
-              "db_name" => db['name'],
+              "name" => db['name'],
               "cloud" => db['cloud'],
+              "credentials" => db['credentials'],
               "region" => db['read_replica_region'] || db['region']
             }
             replica['dependencies'] << {
@@ -405,27 +391,12 @@ module MU
         end
 
         if !db['read_replica_of'].nil?
-          rr = db['read_replica_of']
-          if !rr['db_name'].nil?
-            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
-          else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
-              ok = false
-            end
+          rr = MU::Config::Ref.get(db['read_replica_of'])
+          if rr.name and !rr.deploy_id
+            db['dependencies'] << { "name" => rr.name, "type" => "database" }
+          elsif !rr.kitten
+            MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+            ok = false
           end
         elsif db["member_of_cluster"]
           rr = db["member_of_cluster"]
@@ -454,6 +425,22 @@ module MU
             end
           end
         end
+
+        if db["source"] 
+          
+          if db["source"]["name"] and
+             !db["source"]["deploy_id"] and
+             configurator.haveLitterMate?(db["source"]["name"], "databases")
+            db["dependencies"] ||= []
+            db["dependencies"] << {
+              "type" => "database",
+              "name" => db["source"]["name"],
+              "phase" => "groom"
+            }
+          end
+          db["source"]["cloud"] ||= db["cloud"]
+        end
+
         db['dependencies'].uniq!
 
         read_replicas.each { |new_replica|

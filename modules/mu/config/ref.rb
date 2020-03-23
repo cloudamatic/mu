@@ -259,7 +259,7 @@ module MU
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
-      def kitten(mommacat = @mommacat, shallow: false)
+      def kitten(mommacat = @mommacat, shallow: false, debug: false)
         return nil if !@cloud or !@type
 
         if @obj
@@ -270,7 +270,7 @@ module MU
         end
 
         if mommacat
-          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: false)
+          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: debug)
           if @obj # initialize missing attributes, if we can
             @id ||= @obj.cloud_id
             @mommacat ||= mommacat
