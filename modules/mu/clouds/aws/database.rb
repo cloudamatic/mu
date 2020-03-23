@@ -187,11 +187,7 @@ module MU
           @groomclass.saveSecret(vault: @mu_name, item: "database_credentials", data: creds)
         end
 
-        # Create a plain database instance or read replica, as described in our
-        # +@config+.
-        # @return [String]: The cloud provider's identifier for this database instance.
-        def createDb
-          # Shared configuration elements between most database creation styles
+        def genericParams
           params = {
             db_instance_identifier: @cloud_id,
             db_instance_class: @config["size"],
@@ -204,169 +200,11 @@ module MU
             tags: allTags
           }
 
-          unless @config["add_cluster_node"]
-            params[:storage_type] = @config["storage_type"] 
-            params[:port] = @config["port"] if @config["port"]
-            params[:iops] = @config["iops"] if @config['storage_type'] == "io1"
-            params[:multi_az] = @config['multi_az_on_create']
-          end
-
-          if @config["creation_style"] == "new"
-            unless @config["add_cluster_node"]
-              params[:preferred_backup_window] = @config["preferred_backup_window"]
-              params[:backup_retention_period] = @config["backup_retention_period"]
-              params[:storage_encrypted] = @config["storage_encrypted"]
-              params[:allocated_storage] = @config["storage"]
-              params[:db_name] = @config["db_name"]
-              params[:master_username] = @config['master_user']
-              params[:master_user_password] = @config['password']
-              params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
-            end
-
-            params[:engine_version] = @config["engine_version"]
-            params[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
-            params[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
-            params[:db_cluster_identifier] = @config["cluster_identifier"] if @config["add_cluster_node"]
-          end
-          
           if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
             params[:db_snapshot_identifier] = @config["snapshot_id"]
-            params[:db_cluster_identifier] = @config["cluster_identifier"] if @config["add_cluster_node"]
           end
 
-          if @config["creation_style"] == "point_in_time" or @config["read_replica_of"]
-            @config["source"].kitten(@deploy, debug: true)
-            if !@config["source"].id
-              MU.log "Database '#{@config['name']}' couldn't resolve cloud id for source database", MU::ERR, details: @config["source"].to_h
-              raise MuError, "Database '#{@config['name']}' couldn't resolve cloud id for source database"
-            end
-          end
-
-          if @config["creation_style"] == "point_in_time"
-            point_in_time_params = params.clone
-            point_in_time_params.delete(:db_instance_identifier)
-            point_in_time_params[:source_db_instance_identifier] = @config["source"].id
-            point_in_time_params[:target_db_instance_identifier] = @cloud_id
-            point_in_time_params[:restore_time] = @config['restore_time'] unless @config["restore_time"] == "latest"
-            point_in_time_params[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
-          end
-
-          if @config["read_replica_of"]
-            read_replica_params = {
-              db_instance_identifier: @cloud_id,
-              source_db_instance_identifier: @config["source"].id,
-              db_instance_class: @config["size"],
-              auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
-              publicly_accessible: @config["publicly_accessible"],
-              tags: allTags,
-              db_subnet_group_name: @config["subnet_group_name"],
-              storage_type: @config["storage_type"]
-            }
-            if @config["source"].region and @config['region'] != @config["source"].region
-              read_replica_params[:source_db_instance_identifier] = MU::Cloud::AWS::Database.getARN(@config["source"].id, "db", "rds", region: @config["source"].region, credentials: @config['credentials'])
-            end
-
-            read_replica_params[:port] = @config["port"] if @config["port"]
-            read_replica_params[:iops] = @config["iops"] if @config['storage_type'] == "io1"
-          end
-
-          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
-            if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
-              MU.log "Creating database instance #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
-            elsif @config["creation_style"] == "point_in_time"
-              MU.log "Creating database instance #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_to_point_in_time(point_in_time_params)
-            elsif @config["read_replica_of"]
-              MU.log "Creating read replica database instance #{@cloud_id} for #{@config['source'].id}"
-              begin
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(read_replica_params)
-              rescue Aws::RDS::Errors::DBSubnetGroupNotAllowedFault => e
-                MU.log "Being forced to use source database's subnet group: #{e.message}", MU::WARN
-                read_replica_params.delete(:db_subnet_group_name)
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(read_replica_params)
-              end
-            elsif @config["creation_style"] == "new"
-              MU.log "Creating pristine database instance #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
-            end
-          }
-
-          # Sit on our hands until the instance shows as available
-          MU.retrier(wait: 10, max: 360, loop_if: Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }) { |retries, _wait|
-            if retries > 0 and retries % 20 == 0
-              MU.log "Waiting for RDS database #{@cloud_id} to be ready...", MU::NOTICE
-            end
-          }
-
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_instance_identifier, target: "#{cloud_desc.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
-          MU.log "Database #{@config['name']} is at #{cloud_desc.endpoint.address}", MU::SUMMARY
-          if @config['auth_vault']
-            MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
-          end
-
-          # If referencing an existing DB, insert this deploy's DB security group so it can access the thing
-          if @config["creation_style"] == 'existing'
-            vpc_sg_ids = cloud_desc.vpc_security_groups.map { |sg| sg.vpc_security_group_id }
-
-            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
-            if localdeploy_rule.nil?
-              raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
-            end
-            MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
-            vpc_sg_ids << localdeploy_rule.cloud_id
-            mod_config = Hash.new
-            mod_config[:vpc_security_group_ids] = vpc_sg_ids
-            mod_config[:db_instance_identifier] = @cloud_id
-
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
-            MU.log "Modified database #{@cloud_id} with new security groups: #{mod_config}", MU::NOTICE
-          end
-
-          # When creating from a snapshot, some of the create arguments aren't
-          # applicable- but we can apply them after the fact with a modify.
-          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"]) or @config["read_replica_of"]
-            mod_config = {
-              db_instance_identifier: @cloud_id,
-              vpc_security_group_ids: @config["vpc_security_group_ids"],
-              apply_immediately: true
-            }
-            if !@config["read_replica_of"]
-              mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
-              mod_config[:backup_retention_period] = @config["backup_retention_period"]
-              mod_config[:engine_version] = @config["engine_version"]
-              mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
-              mod_config[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
-              mod_config[:master_user_password] = @config['password']
-              mod_config[:allocated_storage] = @config["storage"] if @config["storage"]
-            end
-            if @config["preferred_maintenance_window"]
-              mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"]
-            end
-
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
-
-            MU.retrier(wait: 10, max: 240, loop_if: Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }) { |retries, _wait|
-              if retries > 0 and retries % 10 == 0
-                MU.log "Waiting for modifications on RDS database #{@cloud_id}...", MU::NOTICE
-              end
-            }
-
-          end
-
-          # Maybe wait for DB instance to be in available state. DB should still be writeable at this state
-          if @config['allow_major_version_upgrade'] && @config["creation_style"] == "new"
-            MU.log "Setting major database version upgrade on #{@cloud_id}'"
-
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
-              db_instance_identifier: @cloud_id,
-              apply_immediately: true,
-              allow_major_version_upgrade: true
-            )
-          end
-
-          MU.log "Database #{@config['name']} (#{@mu_name}) is ready to use"
-          @cloud_id
+          params
         end
 
         # Create the database cluster described in this instance
@@ -1314,6 +1152,198 @@ module MU
           end
 
           createDb
+        end
+
+        # creation_style = new, existing, new_snapshot, existing_snapshot
+        def create_basic
+          params = genericParams
+          params[:preferred_backup_window] = @config["preferred_backup_window"]
+          params[:backup_retention_period] = @config["backup_retention_period"]
+          params[:storage_encrypted] = @config["storage_encrypted"]
+          params[:allocated_storage] = @config["storage"]
+          params[:db_name] = @config["db_name"]
+          params[:master_username] = @config['master_user']
+          params[:master_user_password] = @config['password']
+          params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
+          params[:engine_version] = @config["engine_version"]
+          params[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
+          params[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
+
+          if @config['add_cluster_node']
+            params[:db_cluster_identifier] = @config["cluster_identifier"]
+          else
+            params[:storage_type] = @config["storage_type"] 
+            params[:port] = @config["port"] if @config["port"]
+            params[:iops] = @config["iops"] if @config['storage_type'] == "io1"
+            params[:multi_az] = @config['multi_az_on_create']
+          end
+
+          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
+            if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
+              MU.log "Creating database instance #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
+            else
+              MU.log "Creating pristine database instance #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
+            end
+          }
+        end
+
+        # creation_style = point_in_time
+        def create_point_in_time
+          @config["source"].kitten(@deploy, debug: true)
+          if !@config["source"].id
+            MU.log "Database '#{@config['name']}' couldn't resolve cloud id for source database", MU::ERR, details: @config["source"].to_h
+            raise MuError, "Database '#{@config['name']}' couldn't resolve cloud id for source database"
+          end
+
+          params = genericParams
+          params.delete(:db_instance_identifier)
+          params[:source_db_instance_identifier] = @config["source"].id
+          params[:target_db_instance_identifier] = @cloud_id
+          params[:restore_time] = @config['restore_time'] unless @config["restore_time"] == "latest"
+          params[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
+
+          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
+            MU.log "Creating database instance #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_to_point_in_time(params)
+          }
+        end
+
+        # creation_style = new, existing and read_replica_of is not nil
+        def create_read_replica
+          @config["source"].kitten(@deploy, debug: true)
+          if !@config["source"].id
+            MU.log "Database '#{@config['name']}' couldn't resolve cloud id for source database", MU::ERR, details: @config["source"].to_h
+            raise MuError, "Database '#{@config['name']}' couldn't resolve cloud id for source database"
+          end
+
+          params = {
+            db_instance_identifier: @cloud_id,
+            source_db_instance_identifier: @config["source"].id,
+            db_instance_class: @config["size"],
+            auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
+            publicly_accessible: @config["publicly_accessible"],
+            tags: allTags,
+            db_subnet_group_name: @config["subnet_group_name"],
+            storage_type: @config["storage_type"]
+          }
+          if @config["source"].region and @config['region'] != @config["source"].region
+            params[:source_db_instance_identifier] = MU::Cloud::AWS::Database.getARN(@config["source"].id, "db", "rds", region: @config["source"].region, credentials: @config['credentials'])
+          end
+
+          params[:port] = @config["port"] if @config["port"]
+          params[:iops] = @config["iops"] if @config['storage_type'] == "io1"
+
+          on_retry = Proc.new { |e|
+            if e.class == Aws::RDS::Errors::DBSubnetGroupNotAllowedFault
+              MU.log "Being forced to use source database's subnet group: #{e.message}", MU::WARN
+              params.delete(:db_subnet_group_name)
+            end
+          }
+
+          MU.retrier([Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotAllowedFault], max: 5, wait: 10, on_retry: on_retry) {
+            MU.log "Creating read replica database instance #{@cloud_id} for #{@config['source'].id}"
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(params)
+          }
+        end
+
+        # Sit on our hands until we show as available
+        def wait_until_available
+          MU.retrier(wait: 10, max: 360, loop_if: Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }) { |retries, _wait|
+            if retries > 0 and retries % 20 == 0
+              MU.log "Waiting for RDS database #{@cloud_id} to be ready...", MU::NOTICE
+            end
+          }
+        end
+
+        def do_naming
+          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_instance_identifier, target: "#{cloud_desc.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+          MU.log "Database #{@config['name']} is at #{cloud_desc.endpoint.address}", MU::SUMMARY
+          if @config['auth_vault']
+            MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
+          end
+        end
+
+        # Create a plain database instance or read replica, as described in our
+        # +@config+.
+        # @return [String]: The cloud provider's identifier for this database instance.
+        def createDb
+
+          if @config['creation_style'] == "point_in_time"
+            create_point_in_time
+          elsif @config['read_replica_of']
+            create_read_replica
+          else
+            create_basic
+          end
+
+          wait_until_available
+          do_naming
+
+          # If referencing an existing DB, insert this deploy's DB security group so it can access the thing
+          if @config["creation_style"] == 'existing'
+            vpc_sg_ids = cloud_desc.vpc_security_groups.map { |sg| sg.vpc_security_group_id }
+
+            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
+            if localdeploy_rule.nil?
+              raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
+            end
+            MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
+            vpc_sg_ids << localdeploy_rule.cloud_id
+            mod_config = Hash.new
+            mod_config[:vpc_security_group_ids] = vpc_sg_ids
+            mod_config[:db_instance_identifier] = @cloud_id
+
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
+            MU.log "Modified database #{@cloud_id} with new security groups: #{mod_config}", MU::NOTICE
+          end
+
+          # When creating from a snapshot or replicating an existing database,
+          # some of the create arguments that we'd want to carry over aren't
+          # applicable- but we can apply them after the fact with a modify.
+          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"]) or @config["read_replica_of"]
+            mod_config = {
+              db_instance_identifier: @cloud_id,
+              vpc_security_group_ids: @config["vpc_security_group_ids"],
+              apply_immediately: true
+            }
+            if !@config["read_replica_of"]
+              mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
+              mod_config[:backup_retention_period] = @config["backup_retention_period"]
+              mod_config[:engine_version] = @config["engine_version"]
+              mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
+              mod_config[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
+              mod_config[:master_user_password] = @config['password']
+              mod_config[:allocated_storage] = @config["storage"] if @config["storage"]
+            end
+            if @config["preferred_maintenance_window"]
+              mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"]
+            end
+
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
+
+            MU.retrier(wait: 10, max: 240, loop_if: Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }) { |retries, _wait|
+              if retries > 0 and retries % 10 == 0
+                MU.log "Waiting for modifications on RDS database #{@cloud_id}...", MU::NOTICE
+              end
+            }
+
+          end
+
+          # Maybe wait for DB instance to be in available state. DB should still be writeable at this state
+          if @config['allow_major_version_upgrade'] && @config["creation_style"] == "new"
+            MU.log "Setting major database version upgrade on #{@cloud_id}'"
+
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
+              db_instance_identifier: @cloud_id,
+              apply_immediately: true,
+              allow_major_version_upgrade: true
+            )
+          end
+
+          MU.log "Database #{@config['name']} (#{@mu_name}) is ready to use"
+          @cloud_id
         end
 
         def run_sql_commands
