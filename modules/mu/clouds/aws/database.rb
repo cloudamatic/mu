@@ -1,4 +1,4 @@
-# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+## Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -188,20 +188,49 @@ module MU
         end
 
         def genericParams
-          params = {
-            db_instance_identifier: @cloud_id,
-            db_instance_class: @config["size"],
-            engine: @config["engine"],
-            auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
-            license_model: @config["license_model"],
-            db_subnet_group_name: @config["subnet_group_name"],
-            publicly_accessible: @config["publicly_accessible"],
-            copy_tags_to_snapshot: true,
-            tags: allTags
-          }
+          params = if @config['create_cluster']
+            paramhash = {
+              db_cluster_identifier: @cloud_id,
+              engine: @config["engine"],
+              db_subnet_group_name: @config["subnet_group_name"].downcase,
+              vpc_security_group_ids: @config["vpc_security_group_ids"],
+              tags: allTags
+            }
+            if @config['cloudwatch_logs']
+              paramhash[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
+            end
+            if @config['cluster_mode']
+              paramhash[:engine_mode] = @config['cluster_mode']
+              if @config['cluster_mode'] == "serverless"
+                paramhash[:scaling_configuration] = {
+                  :auto_pause => @config['serverless_scaling']['auto_pause'],
+                  :min_capacity => @config['serverless_scaling']['min_capacity'],
+                  :max_capacity => @config['serverless_scaling']['max_capacity'],
+                  :seconds_until_auto_pause => @config['serverless_scaling']['seconds_until_auto_pause']
+                }
+              end
+            end
+            paramhash
+          else
+            {
+              db_instance_identifier: @cloud_id,
+              db_instance_class: @config["size"],
+              engine: @config["engine"],
+              auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
+              license_model: @config["license_model"],
+              db_subnet_group_name: @config["subnet_group_name"],
+              publicly_accessible: @config["publicly_accessible"],
+              copy_tags_to_snapshot: true,
+              tags: allTags
+            }
+          end
 
           if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
-            params[:db_snapshot_identifier] = @config["snapshot_id"]
+            if @config['create_cluster']
+              params[:snapshot_identifier] = @config["snapshot_id"]
+            else
+              params[:db_snapshot_identifier] = @config["snapshot_id"]
+            end
           end
 
           params
@@ -210,92 +239,17 @@ module MU
         # Create the database cluster described in this instance
         # @return [String]: The cloud provider's identifier for this database cluster.
         def createDbCluster
-          cluster_config_struct = {
-            db_cluster_identifier: @config['identifier'],
-            # downcasing @config["subnet_group_name"] becuase the API is choking on upper case.
-            db_subnet_group_name: @config["subnet_group_name"].downcase,
-            vpc_security_group_ids: @config["vpc_security_group_ids"],
-            tags: allTags
-          }
-          cluster_config_struct[:port] = @config["port"] if @config["port"]
-
-          if @config['cluster_mode']
-            cluster_config_struct[:engine_mode] = @config['cluster_mode']
-            if @config['cluster_mode'] == "serverless"
-              cluster_config_struct[:scaling_configuration] = {
-                :auto_pause => @config['serverless_scaling']['auto_pause'],
-                :min_capacity => @config['serverless_scaling']['min_capacity'],
-                :max_capacity => @config['serverless_scaling']['max_capacity'],
-                :seconds_until_auto_pause => @config['serverless_scaling']['seconds_until_auto_pause']
-              }
-            end
+          if @config['creation_style'] == "point_in_time"
+            create_point_in_time
+          else
+            create_basic
           end
 
-          if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
-            cluster_config_struct[:snapshot_identifier] = @config["snapshot_id"]
-            cluster_config_struct[:engine] = @config["engine"]
-            cluster_config_struct[:engine_version] = @config["engine_version"]
-            cluster_config_struct[:database_name] = @cloud_id
-          end
-
-          if @config["creation_style"] == "new"
-            cluster_config_struct[:backup_retention_period] = @config["backup_retention_period"]
-            cluster_config_struct[:database_name] = @cloud_id
-            cluster_config_struct[:db_cluster_parameter_group_name] = @config["parameter_group_name"]
-            cluster_config_struct[:engine] = @config["engine"]
-            cluster_config_struct[:engine_version] = @config["engine_version"]
-            cluster_config_struct[:master_username] = @config["master_user"]
-            cluster_config_struct[:master_user_password] = @config["password"]
-            cluster_config_struct[:preferred_backup_window] = @config["preferred_backup_window"]
-            cluster_config_struct[:preferred_maintenance_window] = @config["preferred_maintenance_window"]
-          end
-
-          if @config["creation_style"] == "point_in_time"
-            cluster_config_struct[:source_db_cluster_identifier] = @config["source"].id
-            cluster_config_struct[:restore_to_time] = @config["restore_time"] unless @config["restore_time"] == "latest"
-            cluster_config_struct[:use_latest_restorable_time] = true if @config["restore_time"] == "latest"
-          end
-
-          if @config['cloudwatch_logs']
-            cluster_config_struct[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
-          end
-
-          attempts = 0
-          begin
-            if @config["creation_style"] == "new"
-              MU.log "Creating new database cluster #{@config['identifier']}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster(cluster_config_struct)
-            elsif %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
-              MU.log "Creating new database cluster #{@config['identifier']} from snapshot #{@config["snapshot_id"]}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(cluster_config_struct)
-            elsif @config["creation_style"] == "point_in_time"
-              MU.log "Creating new database cluster #{@config['identifier']} from point in time backup #{@config["restore_time"]} of #{@config["source"].id}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_to_point_in_time(cluster_config_struct)
-            end
-          rescue Aws::RDS::Errors::InvalidParameterValue => e
-            if attempts < 5
-              MU.log "Got #{e.inspect} while creating database cluster #{@config['identifier']}, will retry a few times in case of transient errors.", MU::WARN, details: cluster_config_struct
-              attempts += 1
-              sleep 10
-              retry
-            else
-              MU.log "Exhausted retries trying to create database cluster #{@config['identifier']}", MU::ERR, details: e.inspect
-              raise MuError, "Exhausted retries trying to create database cluster #{@config['identifier']}"
-            end
-          end
-
-          attempts = 0
-          loop do
-            MU.log "Waiting for #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
-            attempts += 1
-            cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
-            break unless cluster.status != "available"
-            sleep 30
-          end
+          wait_until_available
 
           if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"])
             modify_db_cluster_struct = {
-              db_cluster_identifier: @config['identifier'],
+              db_cluster_identifier: @cloud_id,
               apply_immediately: true,
               backup_retention_period: @config["backup_retention_period"],
               db_cluster_parameter_group_name: @config["parameter_group_name"],
@@ -306,19 +260,15 @@ module MU
             modify_db_cluster_struct[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster(modify_db_cluster_struct)
 
-            attempts = 0
-            loop do
-              MU.log "Waiting for #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
-              attempts += 1
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
-              break unless cluster.status != "available"
-              sleep 30
-            end
+            MU.retrier(wait: 10, max: 240, loop_if: Proc.new { cloud_desc(use_cache: false).status != "available" }) { |retries, _wait|
+              if retries > 0 and retries % 10 == 0
+                MU.log "Waiting for modifications on RDS cluster #{@cloud_id}...", MU::NOTICE
+              end
+            }
           end
 
-          cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(@config['identifier'], region: @config['region'], credentials: @config['credentials'])
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cluster.db_cluster_identifier, target: "#{cluster.endpoint}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
-          return cluster.db_cluster_identifier
+          do_naming
+          @cloud_id
         end
 
         # Create a subnet group for a database.
@@ -1161,13 +1111,19 @@ module MU
           params[:backup_retention_period] = @config["backup_retention_period"]
           params[:storage_encrypted] = @config["storage_encrypted"]
           params[:allocated_storage] = @config["storage"]
-          params[:db_name] = @config["db_name"]
           params[:master_username] = @config['master_user']
           params[:master_user_password] = @config['password']
           params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
           params[:engine_version] = @config["engine_version"]
           params[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
-          params[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
+
+          if @config['create_cluster']
+            params[:database_name] = @cloud_id
+            params[:db_cluster_parameter_group_name] = @config["parameter_group_name"]
+          else
+            params[:db_name] = @config["db_name"]
+            params[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
+          end
 
           if @config['add_cluster_node']
             params[:db_cluster_identifier] = @config["cluster_identifier"]
@@ -1180,11 +1136,19 @@ module MU
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
-              MU.log "Creating database instance #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
+              MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
+              if @config['create_cluster']
+                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(params)
+              else
+                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
+              end
             else
-              MU.log "Creating pristine database instance #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
+              MU.log "Creating pristine database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
+              if @config['create_cluster']
+                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
+              else
+                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster(params)
+              end
             end
           }
         end
@@ -1199,14 +1163,24 @@ module MU
 
           params = genericParams
           params.delete(:db_instance_identifier)
-          params[:source_db_instance_identifier] = @config["source"].id
-          params[:target_db_instance_identifier] = @cloud_id
+          if @config['create_cluster']
+            params[:source_db_cluster_identifier] = @config["source"].id
+            params[:restore_to_time] = @config["restore_time"] unless @config["restore_time"] == "latest"
+          else
+            params[:source_db_instance_identifier] = @config["source"].id
+            params[:target_db_instance_identifier] = @cloud_id
+          end
           params[:restore_time] = @config['restore_time'] unless @config["restore_time"] == "latest"
           params[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
 
+
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
-            MU.log "Creating database instance #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_to_point_in_time(params)
+            MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
+            if @config['create_cluster']
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_to_point_in_time(params)
+            else
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_to_point_in_time(params)
+            end
           }
         end
 
@@ -1250,16 +1224,26 @@ module MU
 
         # Sit on our hands until we show as available
         def wait_until_available
-          MU.retrier(wait: 10, max: 360, loop_if: Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }) { |retries, _wait|
+          loop_if = if @config["create_cluster"]
+            Proc.new { cloud_desc(use_cache: false).status != "available" }
+          else
+            Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }
+          end
+          MU.retrier(wait: 10, max: 360, loop_if: loop_if) { |retries, _wait|
             if retries > 0 and retries % 20 == 0
-              MU.log "Waiting for RDS database #{@cloud_id} to be ready...", MU::NOTICE
+              MU.log "Waiting for RDS #{@config['create_cluster'] ? "cluster" : "database" } #{@cloud_id} to be ready...", MU::NOTICE
             end
           }
         end
 
         def do_naming
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_instance_identifier, target: "#{cloud_desc.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
-          MU.log "Database #{@config['name']} is at #{cloud_desc.endpoint.address}", MU::SUMMARY
+          if @config["create_cluster"]
+            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_cluster_identifier, target: "#{cloud_desc.endpoint}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+            MU.log "Database cluster #{@config['name']} is at #{cloud_desc.endpoint}", MU::SUMMARY
+          else
+            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_instance_identifier, target: "#{cloud_desc.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+            MU.log "Database #{@config['name']} is at #{cloud_desc.endpoint.address}", MU::SUMMARY
+          end
           if @config['auth_vault']
             MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
           end
