@@ -358,6 +358,7 @@ module MU
         # duplicating the declaration of the master as a new first-class
         # resource and tweaking it.
         if db["create_cluster"] and db['cluster_mode'] != "serverless"
+          db["add_cluster_node"] = false
           (1..db["cluster_node_count"]).each{ |num|
             node = Marshal.load(Marshal.dump(db))
             node["name"] = "#{db['name']}-#{num}"

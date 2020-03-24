@@ -239,6 +239,8 @@ module MU
         # Create the database cluster described in this instance
         # @return [String]: The cloud provider's identifier for this database cluster.
         def createDbCluster
+          @config["cluster_identifier"] ||= @cloud_id
+
           if @config['creation_style'] == "point_in_time"
             create_point_in_time
           else
@@ -1107,31 +1109,34 @@ module MU
         # creation_style = new, existing, new_snapshot, existing_snapshot
         def create_basic
           params = genericParams
-          params[:preferred_backup_window] = @config["preferred_backup_window"]
-          params[:backup_retention_period] = @config["backup_retention_period"]
           params[:storage_encrypted] = @config["storage_encrypted"]
-          params[:allocated_storage] = @config["storage"]
-          params[:master_username] = @config['master_user']
           params[:master_user_password] = @config['password']
           params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
           params[:engine_version] = @config["engine_version"]
           params[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
 
           if @config['create_cluster']
-            params[:database_name] = @cloud_id
-            params[:db_cluster_parameter_group_name] = @config["parameter_group_name"]
+            params[:database_name] = @config["db_name"]
+            params[:db_cluster_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
           else
-            params[:db_name] = @config["db_name"]
+            params[:db_name] = @config["db_name"] if !@config['add_cluster_node']
             params[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
           end
 
-          if @config['add_cluster_node']
+          if @config['create_cluster'] or @config['add_cluster_node']
             params[:db_cluster_identifier] = @config["cluster_identifier"]
           else
             params[:storage_type] = @config["storage_type"] 
+            params[:allocated_storage] = @config["storage"]
+            params[:multi_az] = @config['multi_az_on_create']
+          end
+
+          if !@config['add_cluster_node']
+            params[:backup_retention_period] = @config["backup_retention_period"]
+            params[:preferred_backup_window] = @config["preferred_backup_window"]
+            params[:master_username] = @config['master_user']
             params[:port] = @config["port"] if @config["port"]
             params[:iops] = @config["iops"] if @config['storage_type'] == "io1"
-            params[:multi_az] = @config['multi_az_on_create']
           end
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
@@ -1145,9 +1150,9 @@ module MU
             else
               MU.log "Creating pristine database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
               if @config['create_cluster']
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
-              else
                 MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster(params)
+              else
+                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
               end
             end
           }
