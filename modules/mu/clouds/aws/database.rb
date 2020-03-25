@@ -681,17 +681,32 @@ module MU
           }
 
           delete_subnet_groups = Proc.new { |id|
-            delete_subnet_group(id, region: region) unless noop
+            MU.log "Deleting RDS subnet group #{id}"
+            if !noop
+              MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
+                MU::Cloud::AWS.rds(region: region).delete_db_subnet_group(db_subnet_group_name: id)
+              }
+            end
           }
           threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, delete_subnet_groups)
 
           delete_parameter_groups = Proc.new { |id|
-            delete_db_parameter_group(id, region: region) unless noop
+            MU.log "Deleting RDS database parameter group #{id}"
+            if !noop
+              MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
+                MU::Cloud::AWS.rds(region: region).delete_db_parameter_group(db_parameter_group_name: id)
+              }
+            end
           }
           threads.concat threaded_resource_purge(:describe_db_parameter_groups, :db_parameter_groups, :db_parameter_group_name, "pg", region, credentials, ignoremaster, delete_parameter_groups)
 
           delete_cluster_parameter_groups = Proc.new { |id|
-            delete_db_cluster_parameter_group(id, region: region) unless noop
+            MU.log "Deleting RDS cluster parameter group #{id}"
+            if !noop
+              MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
+                MU::Cloud::AWS.rds(region: region).delete_db_cluster_parameter_group(db_cluster_parameter_group_name: id)
+              }
+            end
           }
           threads.concat threaded_resource_purge(:describe_db_cluster_parameter_groups, :db_cluster_parameter_groups, :db_cluster_parameter_group_name, "pg", region, credentials, ignoremaster, delete_cluster_parameter_groups)
 
@@ -1602,73 +1617,6 @@ module MU
           MU.log "#{cloud_id} has been terminated" if !noop
         end
         private_class_method :terminate_rds_cluster
-
-        # Remove a database subnet group.
-        # @param subnet_group_id [string]: The cloud provider's ID of the database subnet group.
-        # @param region [String]: The cloud provider's region in which to operate.
-        # @return [void]
-        def self.delete_subnet_group(subnet_group_id, region: MU.curRegion)
-          retries ||= 0
-          MU.log "Deleting DB subnet group #{subnet_group_id}"
-          MU::Cloud::AWS.rds(region: region).delete_db_subnet_group(db_subnet_group_name: subnet_group_id)
-        rescue Aws::RDS::Errors::DBSubnetGroupNotFoundFault => e
-          MU.log "DB subnet group #{subnet_group_id} disappeared before we could remove it", MU::WARN
-        rescue Aws::RDS::Errors::InvalidDBSubnetGroupStateFault=> e
-          if retries < 5
-            MU.log "DB subnet group #{subnet_group_id} is not in a removable state, retrying", MU::WARN
-            retries += 1
-            sleep 30
-            retry
-          else
-            MU.log "#{subnet_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-          end
-        end
-        private_class_method :delete_subnet_group
-        
-        # Remove a database parameter group.
-        # @param parameter_group_id [string]: The cloud provider's ID of the database parameter group.
-        # @param region [String]: The cloud provider's region in which to operate.
-        # @return [void]
-        def self.delete_db_parameter_group(parameter_group_id, region: MU.curRegion)
-          retries ||= 0
-          MU.log "Deleting DB parameter group #{parameter_group_id}"
-          MU::Cloud::AWS.rds(region: region).delete_db_parameter_group(db_parameter_group_name: parameter_group_id)
-        rescue Aws::RDS::Errors::DBParameterGroupNotFound
-          MU.log "DB parameter group #{parameter_group_id} disappeared before we could remove it", MU::WARN
-        rescue Aws::RDS::Errors::InvalidDBParameterGroupState => e
-          if retries < 5
-            MU.log "DB parameter group #{parameter_group_id} is not in a removable state, retrying", MU::WARN
-            retries += 1
-            sleep 30
-            retry
-          else
-            MU.log "DB parameter group #{parameter_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-          end
-        end
-        private_class_method :delete_db_parameter_group
-
-        # Remove a database cluster parameter group.
-        # @param parameter_group_id [string]: The cloud provider's ID of the database cluster parameter group.
-        # @param region [String]: The cloud provider's region in which to operate.
-        # @return [void]
-        def self.delete_db_cluster_parameter_group(parameter_group_id, region: MU.curRegion)
-          retries ||= 0
-          MU.log "Deleting cluster parameter group #{parameter_group_id}"
-          MU::Cloud::AWS.rds(region: region).delete_db_cluster_parameter_group(db_cluster_parameter_group_name: parameter_group_id)
-          # AWS API sucks. instead of returning the documented error DBClusterParameterGroupNotFoundFault it errors out with DBParameterGroupNotFound.
-        rescue Aws::RDS::Errors::DBParameterGroupNotFound
-          MU.log "Cluster parameter group #{parameter_group_id} disappeared before we could remove it", MU::WARN
-        rescue Aws::RDS::Errors::InvalidDBParameterGroupState => e
-          if retries < 5
-            MU.log "Cluster parameter group #{parameter_group_id} is not in a removable state, retrying", MU::WARN
-            retries += 1
-            sleep 30
-            retry
-          else
-            MU.log "Cluster parameter group #{parameter_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-          end
-        end
-        private_class_method :delete_db_cluster_parameter_group
 
       end #class
     end #class
