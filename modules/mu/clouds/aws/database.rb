@@ -1343,33 +1343,10 @@ module MU
           end
 
           # Running SQL on deploy
-          if @config['engine'] == "postgres"
-            autoload :PG, 'pg'
-            begin
-              conn = PG::Connection.new(
-                :host => address,
-                :port => port,
-                :user => @config['master_user'],
-                :dbname => cloud_desc.db_name,
-                :password => @config['password']
-              )
-              @config['run_sql_on_deploy'].each { |cmd|
-                MU.log "Running #{cmd} on database #{@config['name']}"
-                conn.exec(cmd)
-              }
-              conn.finish
-            rescue PG::Error => e
-              MU.log "Failed to run initial SQL commands on #{@config['name']} via #{address}:#{port}: #{e.inspect}", MU::WARN, details: conn
-            end
-          elsif @config['engine'] == "mysql"
-            autoload :Mysql, 'mysql'
-            MU.log "Initiating mysql connection to #{address}:#{port} as #{@config['master_user']}"
-            conn = Mysql.new(address, @config['master_user'], @config['password'], "mysql", port)
-            @config['run_sql_on_deploy'].each { |cmd|
-              MU.log "Running #{cmd} on database #{@config['name']}"
-              conn.query(cmd)
-            }
-            conn.close
+          if @config['engine'].match(/postgres/)
+            MU::Cloud::AWS::Database.run_sql_postgres(address, port, @config['master_user'], @config['password'], cloud_desc.db_name, @config['run_sql_on_deploy'], @config['name'])
+          elsif @config['engine'].match(/mysql|maria/)
+            MU::Cloud::AWS::Database.run_sql_mysql(address, port, @config['master_user'], @config['password'], cloud_desc.db_name, @config['run_sql_on_deploy'], @config['name'])
           end
 
           # close the SQL on deploy sessions
@@ -1381,6 +1358,42 @@ module MU
             end
           end
         end
+
+        def self.run_sql_postgres(address, port, user, password, db, cmds = [], identifier = nil)
+          identifier ||= address
+          MU.log "Initiating postgres connection to #{address}:#{port} as #{user}"
+          autoload :PG, 'pg'
+          begin
+            conn = PG::Connection.new(
+              :host => address,
+              :port => port,
+              :user => user,
+              :password => password,
+              :dbname => db
+            )
+            cmds.each { |cmd|
+              MU.log "Running #{cmd} on database #{identifier}"
+              conn.exec(cmd)
+            }
+            conn.finish
+          rescue PG::Error => e
+            MU.log "Failed to run initial SQL commands on #{identifier} via #{address}:#{port}: #{e.inspect}", MU::WARN, details: conn
+          end
+        end
+        private_class_method :run_sql_postgres
+
+        def self.run_sql_mysql(address, port, user, password, db, cmds = [], identifier = nil)
+          identifier ||= address
+          autoload :Mysql, 'mysql'
+          MU.log "Initiating mysql connection to #{address}:#{port} as #{user}"
+          conn = Mysql.new(address, user, password, db, port)
+          cmds.each { |cmd|
+            MU.log "Running #{cmd} on database #{identifier}"
+            conn.query(cmd)
+          }
+          conn.close
+        end
+        private_class_method :run_sql_mysql
 
         def self.should_delete?(tags, ignoremaster = false, deploy_id = MU.deploy_id, master_ip = MU.mu_public_ip)
           found_muid = false
