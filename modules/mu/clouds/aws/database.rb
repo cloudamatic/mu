@@ -20,6 +20,31 @@ module MU
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
 
+        STORAGE_RANGES = {
+          "io1" => {
+            "postgres" => 100..6144,
+            "mysql" => 100..6144,
+            "oracle-se1" => 100..6144,
+            "oracle-se" => 100..6144,
+            "oracle-ee" => 100..6144,
+            "sqlserver-ex" => 100..4096,
+            "sqlserver-web" => 100..4096,
+            "sqlserver-ee" => 200..4096,
+            "sqlserver-se" =>  200..4096
+          },
+          "standard" => {
+            "postgres" => 5..6144,
+            "mysql" => 5..6144,
+            "oracle-se1" => 10..6144,
+            "oracle-se" => 10..6144,
+            "oracle-ee" => 10..6144,
+            "sqlserver-ex" => 20..4096,
+            "sqlserver-web" => 20..4096,
+            "sqlserver-ee" => 200..4096,
+            "sqlserver-se" =>  200..4096
+          }
+        }.freeze
+
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
@@ -829,37 +854,37 @@ module MU
           [toplevel_required, schema]
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
-        # @param db [Hash]: The resource to process and validate
-        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
-        # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(db, _configurator)
-          ok = true
+        @@engine_cache= {}
+        def self.get_supported_engines(region = MU.myRegion, credentials = nil)
+          @@engine_cache ||= {}
+          @@engine_cache[credentials] ||= {}
+          @@engine_cache[credentials][region] ||= {}
 
-
-          if db['creation_style'] == "existing_snapshot" and
-             !db['create_cluster'] and
-             db['source'] and db["source"]["id"] and db['source']["id"].match(/:cluster-snapshot:/)
-            MU.log "Database #{db['name']}: Existing snapshot #{db["source"]["id"]} looks like a cluster snapshot, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
-            ok = false
+          if !@@engine_cache[credentials][region].empty?
+            return @@engine_cache[credentials][region]
           end
 
-          pgroup_families = []
           engines = {}
-
           marker = nil
           begin
-            resp = MU::Cloud::AWS.rds(credentials: db['credentials'], region: db['region']).describe_db_engine_versions(marker: marker)
+            resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_engine_versions(marker: marker)
             marker = resp.marker
 
             if resp and resp.db_engine_versions
               resp.db_engine_versions.each { |version|
                 engines[version.engine] ||= {
                   "versions" => [],
-                  "families" => []
+                  "families" => [],
+                  "features" => {}
                 }
                 engines[version.engine]['versions'] << version.engine_version
                 engines[version.engine]['families'] << version.db_parameter_group_family
+                [:supports_read_replica, :supports_log_exports_to_cloudwatch_logs].each { |feature|
+                  if version.respond_to?(feature) and version.send(feature) == true
+                    engines[version.engine]['features'][version.engine_version] ||= []
+                    engines[version.engine]['features'][version.engine_version] << feature
+                  end
+                }
 
               }
               engines.keys.each { |engine|
@@ -871,8 +896,27 @@ module MU
               MU.log "Failed to get list of valid RDS engine versions in #{db['region']}, proceeding without proper validation", MU::WARN
             end
           end while !marker.nil?
+          @@engine_cache[credentials][region] = engines
+          engines
+        end
+        private_class_method :get_supported_engines
 
-          if db['create_cluster'] or db['engine'] == "aurora" or db["member_of_cluster"]
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
+        # @param db [Hash]: The resource to process and validate
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(db, _configurator)
+          ok = true
+
+          if db['creation_style'] == "existing_snapshot" and
+             !db['create_cluster'] and
+             db['source'] and db["source"]["id"] and db['source']["id"].match(/:cluster-snapshot:/)
+            MU.log "Database #{db['name']}: Existing snapshot #{db["source"]["id"]} looks like a cluster snapshot, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
+            ok = false
+          end
+
+
+          if db['create_cluster'] or (db['engine'] and db['engine'].match(/aurora/)) or db["member_of_cluster"]
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
               if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
@@ -888,39 +932,7 @@ module MU
             end
           end
 
-          if db['engine'] == "aurora-postgresql"
-            db.delete('cloudwatch_logs')
-          end
-
-          if db['engine'].match(/^aurora/) and !db['create_cluster'] and !db['add_cluster_node']
-            MU.log "Database #{db['name']}: #{db['engine']} looks like a cluster engine, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
-            ok = false
-          end
-
-          if engines.size > 0 
-            if !engines[db['engine']]
-              MU.log "RDS engine #{db['engine']} is not supported in #{db['region']}", MU::ERR, details: engines.keys.sort
-              ok = false
-            else
-              if db["engine_version"] and
-                 engines[db['engine']]['versions'].size > 0 and
-                 !engines[db['engine']]['versions'].include?(db['engine_version']) and
-                 !engines[db['engine']]['versions'].grep(/^#{Regexp.quote(db["engine_version"])}.+/)
-                MU.log "RDS engine '#{db['engine']}' version '#{db['engine_version']}' is not supported in #{db['region']}", MU::ERR, details: { "Known-good versions:" => engines[db['engine']]['versions'].uniq.sort }
-                ok = false
-              end
-              if db["parameter_group_family"] and
-                 engines[db['engine']]['families'].size > 0 and
-                 !engines[db['engine']]['families'].include?(db['parameter_group_family'])
-                MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported in #{db['region']}", MU::ERR, details: { "Valid parameter families:" => engines[db['engine']]['families'].uniq.sort }
-                ok = false
-              end
-            end
-          end
-
-          if db['parameter_group_family'] and pgroup_families.size > 0 and
-             !pgroup_families.include?(db['parameter_group_family'])
-          end
+          ok = false if !validate_engine(db)
 
           db["license_model"] ||=
             if ["postgres", "postgresql", "aurora-postgresql"].include?(db["engine"])
@@ -930,13 +942,6 @@ module MU
             else
               "license-included"
             end
-
-          if db["create_read_replica"] or db['read_replica_of']
-            if !["postgres", "postgresql", "mysql", "aurora-mysql", "aurora-postgresql", "mariadb"].include?(db["engine"])
-              MU.log "Read replica(s) database instances not supported for #{db["engine"]}.", MU::ERR
-              ok = false
-            end
-          end
 
           if db["creation_style"] == "existing"
             begin
@@ -957,79 +962,29 @@ module MU
             MU.log "Both of multi_az_on_create and multi_az_on_deploy cannot be true", MU::ERR
             ok = false
           end
-          if db.has_key?("db_parameter_group_parameters") || db.has_key?("cluster_parameter_group_parameters")
-            if db["parameter_group_family"].nil?
-              MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
+
+          if (db["db_parameter_group_parameters"] or db["cluster_parameter_group_parameters"]) and db["parameter_group_family"].nil?
+            MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
+            ok = false
+          end
+
+          # Adding rules for Database instance storage. This varies depending on storage type and database type. 
+          if !db["storage"].nil? and !db["create_cluster"] and !db["add_cluster_node"]
+            if db["storage_type"] == "io1" and !STORAGE_RANGES["io1"][db['engine']].include?(db["storage"])
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes from #{STORAGE_RANGES["io1"][db['engine']]} GB for #{db["storage_type"]} volumes.", MU::ERR
+            elsif !STORAGE_RANGES["standard"][db['engine']].include?(db["storage"])
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes from #{STORAGE_RANGES["standard"][db['engine']]} GB for #{db["storage_type"]} volumes.", MU::ERR
               ok = false
             end
           end
-          # Adding rules for Database instance storage. This varies depending on storage type and database type. 
-          if !db["storage"].nil? and (db["storage_type"] == "standard" or db["storage_type"] == "gp2")
-            if db["engine"] == "postgres" or db["engine"] == "mysql"
-              if !(5..6144).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-              if !(10..6144).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-              if !(20..4096).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-              if !(200..4096).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            end
-          elsif db["storage_type"] == "io1"
-            if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-              if !(100..6144).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-              if !(100..4096).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-              if !(200..4096).include? db["storage"]
-                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
-                ok = false
-              end
-            end
-          end
 
-          if !db["vpc"]
-            MU::Cloud::AWS.ec2(region: db['region'], credentials: db['credentials']).describe_vpcs.vpcs.each { |vpc|
-              if vpc.is_default
-                db["publicly_accessible"] = true
-                db['vpc'] = {
-                  "id" => vpc.vpc_id,
-                  "cloud" => "AWS",
-                  "region" => db['region'],
-                  "credentials" => db['credentials']
-                }
-                db['vpc']['subnets'] = MU::Cloud::AWS.ec2(region: db['region'], credentials: db['credentials']).describe_subnets(
-                  filters: [
-                    {
-                      name: "vpc-id", 
-                      values: [vpc.vpc_id]
-                    }
-                  ]
-                ).subnets.map { |s| { "subnet_id" => s.subnet_id } }
-                MU.log "Using default VPC for database #{db['name']}"
-                break
-              end
-            }
-          end
-
-          if db["vpc"]
+          if !db['vpc']
+            db["vpc"] = MU::Cloud::AWS::VPC.defaultVpc(db['region'], db['credentials'])
+            if db['vpc']
+              MU.log "Using default VPC for database '#{db['name']}; this sets 'publicly_accessible' to true.", MU::WARN
+              db['publicly_accessible'] = true
+            end
+          else
             if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible'] and (db["vpc"]['subnets'].nil? or db["vpc"]['subnets'].empty?)
               MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
@@ -1043,6 +998,51 @@ module MU
         end
 
         private
+
+        def self.validate_engine(db)
+          ok = true
+
+          engines = get_supported_engines(db['region'], db['credentials'])
+          return if engines.nil? or engines.empty?
+          engine_cfg = engines[db['engine']]
+
+          if !engine_cfg or engine_cfg['versions'].empty? or engine_cfg['families'].empty?
+            MU.log "RDS engine #{db['engine']} has no supported versions in #{db['region']}", MU::ERR, details: engines.keys.sort
+            return false
+          end
+
+          if db['engine'].match(/^aurora/) and !db['create_cluster'] and !db['add_cluster_node']
+            MU.log "Database #{db['name']}: #{db['engine']} looks like a cluster engine, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
+            ok = false
+          end
+
+          db['engine_version'] ||= engine_cfg['versions'].sort.last
+          if !engine_cfg['versions'].grep(/^#{Regexp.quote(db["engine_version"])}.+/)
+            MU.log "RDS engine '#{db['engine']}' version '#{db['engine_version']}' is not supported in #{db['region']}", MU::ERR, details: { "Known-good versions:" => engine_cfg['versions'].uniq.sort }
+            ok = false
+          end
+
+          if db["parameter_group_family"] and
+             !engine_cfg['families'].include?(db['parameter_group_family'])
+            MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported in #{db['region']}", MU::ERR, details: { "Valid parameter families:" => engine_cfg['families'].uniq.sort }
+            ok = false
+          end
+
+          features_cfg = engine_cfg['features'][db['engine_version']]
+
+          if (db['create_read_replica'] or db['read_replica_of']) and
+             (!features_cfg or !features_cfg.include?(:supports_read_replica))
+            MU.log "Engine #{db['engine']} #{db['engine_version']} does not appear to support read replicas", MU::ERR
+            ok = false
+          end
+          if db['cloudwatch_logs'] and (!features_cfg or !features_cfg.include?(:supports_log_exports_to_cloudwatch_logs))
+#            MU.log "Engine #{db['engine']} #{db['engine_version']} does not support CloudWatch Logs exports, disabling", MU::WARN
+            db.delete('cloudwatch_logs')
+          end
+
+          ok
+        end
+        private_class_method :validate_engine
 
         def add_basic
 

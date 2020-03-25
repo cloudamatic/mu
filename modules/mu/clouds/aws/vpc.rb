@@ -1265,6 +1265,33 @@ module MU
           nil
         end
 
+        # Try to locate the default VPC for a region, and return a BoK-style
+        # config fragment for something that might want to live in it.
+        def defaultVpc(region, credentials)
+          cfg_fragment = nil
+          MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs.vpcs.each { |vpc|
+            if vpc.is_default
+              cfg_fragment = {
+                "id" => vpc.vpc_id,
+                "cloud" => "AWS",
+                "region" => region,
+                "credentials" => credentials
+              }
+              cfg_fragment['subnets'] = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_subnets(
+                filters: [
+                  {
+                    name: "vpc-id",
+                    values: [vpc.vpc_id]
+                  }
+                ]
+              ).subnets.map { |s| { "subnet_id" => s.subnet_id } }
+              break
+            end
+          }
+
+          cfg_fragment
+        end
+
         private
 
         def peerWith(peer)
