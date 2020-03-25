@@ -332,7 +332,7 @@ module MU
 
             if @dependencies.has_key?('firewall_rule')
                 @config["vpc_security_group_ids"] = []
-                @dependencies['firewall_rule'].values.each { |sg|
+                @dependencies['firewall_rule'].each_value { |sg|
                   @config["vpc_security_group_ids"] << sg.cloud_id
               }
             end
@@ -344,7 +344,7 @@ module MU
               MU.log "Using NAT Gateway, not modifying security groups"
             else
               _nat_name, _nat_conf, nat_deploydata = @nat.describe
-              @deploy.kittens['firewall_rules'].values.each { |acl|
+              @deploy.kittens['firewall_rules'].each_value { |acl|
 # XXX if a user doesn't set up dependencies correctly, this can die horribly on a NAT that's still in mid-creation. Fix this... possibly in the config parser.
                 if acl.config["admin"]
                   acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
@@ -476,26 +476,26 @@ module MU
         def self.getName(basename, type: 'dbname', config: nil)
           if type == 'dbname'
             # Apply engine-specific db name constraints
-            if config["engine"].match(/^oracle/)
+            if config["engine"] =~ /^oracle/
               (MU.seed.downcase+config["name"])[0..7]
-            elsif config["engine"].match(/^sqlserver/)
+            elsif config["engine"] =~ /^sqlserver/
               nil
-            elsif config["engine"].match(/^mysql/)
+            elsif config["engine"] =~ /^mysql/
               basename[0..63]
-            elsif config["engine"].match(/^aurora/)
+            elsif config["engine"] =~ /^aurora/
               (MU.seed.downcase+config["name"])[0..7]
             else
               basename
             end
           elsif type == 'dbuser'
             # Apply engine-specific master username constraints
-            if config["engine"].match(/^oracle/)
+            if config["engine"] =~ /^oracle/
               basename[0..29].gsub(/[^a-z0-9]/i, "")
-            elsif config["engine"].match(/^sqlserver/)
+            elsif config["engine"] =~ /^sqlserver/
               basename[0..127].gsub(/[^a-z0-9]/i, "")
-            elsif config["engine"].match(/^(mysql|maria)/)
+            elsif config["engine"] =~ /^(mysql|maria)/
               basename[0..15].gsub(/[^a-z0-9]/i, "")
-            elsif config["engine"].match(/^aurora/)
+            elsif config["engine"] =~ /^aurora/
               basename[0..15].gsub(/[^a-z0-9]/i, "")
             else
               basename.gsub(/[^a-z0-9]/i, "")
@@ -887,7 +887,7 @@ module MU
                 }
 
               }
-              engines.keys.each { |engine|
+              engines.each_key { |engine|
                 engines[engine]["versions"].uniq!
                 engines[engine]["families"].uniq!
               }
@@ -1358,9 +1358,9 @@ module MU
           end
 
           # Running SQL on deploy
-          if @config['engine'].match(/postgres/)
+          if @config['engine'] =~ /postgres/
             MU::Cloud::AWS::Database.run_sql_postgres(address, port, @config['master_user'], @config['password'], cloud_desc.db_name, @config['run_sql_on_deploy'], @config['name'])
-          elsif @config['engine'].match(/mysql|maria/)
+          elsif @config['engine'] =~ /mysql|maria/
             MU::Cloud::AWS::Database.run_sql_mysql(address, port, @config['master_user'], @config['password'], cloud_desc.db_name, @config['run_sql_on_deploy'], @config['name'])
           end
 
