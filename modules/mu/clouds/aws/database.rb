@@ -634,6 +634,28 @@ module MU
           MU::Cloud::RELEASE
         end
 
+        # @return [Array<Thread>]
+        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster, deletion_proc)
+          deletia = []
+          resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).send(describe_method)
+          resp.send(list_method).each { |resource|
+            arn = MU::Cloud::AWS::Database.getARN(resource.send(id_method), arn_type, "rds", region: region, credentials: credentials)
+            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+
+            if should_delete?(tags, ignoremaster)
+              deletia << resource.send(id_method)
+            end
+          }
+
+          threads = []
+          deletia.each { |id|
+            threads << Thread.new(id) { |resource_id|
+              deletion_proc.call(resource_id)
+            }
+          }
+
+          threads
+        end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
@@ -643,82 +665,35 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
 
-          resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_instances
-
-          threads = []
-          resp.db_instances.each { |db|
-            arn = MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: region, credentials: credentials)
-            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
-
-            if should_delete?(tags, ignoremaster)
-              threads << Thread.new(db) { |mydb|
-                terminate_rds_instance(mydb, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase, credentials: credentials)
-              }
-            end
+          delete_dbs = Proc.new { |id|
+            terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials)
           }
-          threads.each { |t|
+
+          threaded_resource_purge(:describe_db_instances, :db_instances, :db_instance_identifier, "db", region, credentials, ignoremaster, delete_dbs).each { |t|
             t.join
           }
 
-          # Cleanup database clusters
-          threads = []
-          resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_clusters
-          resp.db_clusters.each { |cluster|
-            cluster_id = cluster.db_cluster_identifier
-            arn = MU::Cloud::AWS::Database.getARN(cluster_id, "cluster", "rds", region: region, credentials: credentials)
-            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
-
-            if should_delete?(tags, ignoremaster)
-              threads << Thread.new(cluster) { |mydbcluster|
-                terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase, credentials: credentials)
-              }
-            end
+          delete_clusters = Proc.new { |id|
+            terminate_rds_cluster(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials)
           }
-
-          # Wait for all of the database clusters to finish cleanup before proceeding
-          threads.each { |t|
+          threaded_resource_purge(:describe_db_clusters, :db_clusters, :db_cluster_identifier, "cluster", region, credentials, ignoremaster, delete_clusters).each { |t|
             t.join
           }
 
-          threads = []
-          # Cleanup database subnet group
-          MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_subnet_groups.db_subnet_groups.each { |sub_group|
-            sub_group_id = sub_group.db_subnet_group_name
-            arn = MU::Cloud::AWS::Database.getARN(sub_group_id, "subgrp", "rds", region: region, credentials: credentials)
-            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
-
-            if should_delete?(tags, ignoremaster)
-              threads << Thread.new(sub_group_id) { |mysubgroup|
-                delete_subnet_group(mysubgroup, region: region) unless noop
-              }
-            end
+          delete_subnet_groups = Proc.new { |id|
+            delete_subnet_group(id, region: region) unless noop
           }
-            
-          # Cleanup database parameter group
-          MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_parameter_groups.db_parameter_groups.each { |param_group|
-            param_group_id = param_group.db_parameter_group_name
-            arn = MU::Cloud::AWS::Database.getARN(param_group_id, "pg", "rds", region: region, credentials: credentials)
-            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, delete_subnet_groups)
 
-            if should_delete?(tags, ignoremaster)
-              threads << Thread.new(param_group_id) { |myparamgroup|
-                delete_db_parameter_group(myparamgroup, region: region) unless noop
-              }
-            end
+          delete_parameter_groups = Proc.new { |id|
+            delete_db_parameter_group(id, region: region) unless noop
           }
-            
-          # Cleanup database cluster parameter group
-          MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_cluster_parameter_groups.db_cluster_parameter_groups.each { |param_group|
-            param_group_id = param_group.db_cluster_parameter_group_name
-            arn = MU::Cloud::AWS::Database.getARN(param_group_id, "cluster-pg", "rds", region: region, credentials: credentials)
-            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+          threads.concat threaded_resource_purge(:describe_db_parameter_groups, :db_parameter_groups, :db_parameter_group_name, "pg", region, credentials, ignoremaster, delete_parameter_groups)
 
-            if should_delete?(tags, ignoremaster)
-              threads << Thread.new(param_group_id) { |myparamgroup|
-                delete_db_cluster_parameter_group(myparamgroup, region: region) unless noop
-              }
-            end
+          delete_cluster_parameter_groups = Proc.new { |id|
+            delete_db_cluster_parameter_group(id, region: region) unless noop
           }
+          threads.concat threaded_resource_purge(:describe_db_cluster_parameter_groups, :db_cluster_parameter_groups, :db_cluster_parameter_group_name, "pg", region, credentials, ignoremaster, delete_cluster_parameter_groups)
 
           # Wait for all of the databases subnet/parameter groups to finish cleanup before proceeding
           threads.each { |t|
@@ -1430,18 +1405,22 @@ module MU
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
         def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
-
-          db ||= MU::MommaCat.findStray(
+          db ||= MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials) if cloud_id
+          db_obj ||= MU::MommaCat.findStray(
             "AWS",
             "database",
             region: region,
             deploy_id: deploy_id,
             cloud_id: cloud_id,
-            mu_name: mu_name
+            mu_name: mu_name,
+            dummy_ok: true
           ).first
-          cloud_id ||= db.cloud_id
+          if db_obj
+            cloud_id ||= db_obj.cloud_id
+            db ||= db_obj.cloud_desc
+          end
 
-          raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
+          raise MuError, "terminate_rds_instance requires a non-nil database descriptor (#{cloud_id})" if db.nil?
 
           rdssecgroups = []
           begin
@@ -1459,7 +1438,7 @@ module MU
             }
           end
 
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true)
+          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true) if !noop
 
           if %w{deleting deleted}.include?(db.db_instance_status)
             MU.log "#{cloud_id} has already been terminated", MU::WARN
@@ -1486,13 +1465,13 @@ module MU
               MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::DBSnapshotAlreadyExists], wait: 60, max: 20, on_retry: on_retry) {
                 MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(params)
               }
+              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound]) {
+                del_db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
+                break if del_db.nil? or del_db.db_instance_status == "deleted"
+              }
             end
           end
 
-          MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound]) {
-            del_db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
-            break if del_db.nil? or del_db.db_instance_status == "deleted"
-          }
 
           # RDS security groups can depend on EC2 security groups, do these last
           begin
@@ -1505,15 +1484,15 @@ module MU
 
           # Cleanup the database vault
           groomer = 
-            if db and db.respond_to?(:config) and db.config
-              db.config.has_key?("groomer") ? db.config["groomer"] : MU::Config.defaultGroomer
+            if db_obj and db_obj.respond_to?(:config) and db_obj.config
+              db_obj.config.has_key?("groomer") ? db_obj.config["groomer"] : MU::Config.defaultGroomer
             else
               MU::Config.defaultGroomer
             end
 
           groomclass = MU::Groomer.loadGroomer(groomer)
           groomclass.deleteSecret(vault: cloud_id.upcase) if !noop
-          MU.log "#{cloud_id} has been terminated"
+          MU.log "#{cloud_id} has been terminated" if !noop
         end
         private_class_method :terminate_rds_instance
 
@@ -1521,75 +1500,80 @@ module MU
         # @param cluster [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
         def self.terminate_rds_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
-          raise MuError, "terminate_rds_cluster requires a non-nil database cluster descriptor" if cluster.nil?
-          cluster_id = cluster.db_cluster_identifier
 
-          cluster_obj = MU::MommaCat.findStray(
+          cluster ||= MU::Cloud::AWS::Database.getDatabaseClusterById(cloud_id, region: region, credentials: credentials) if cloud_id
+          cluster_obj ||= MU::MommaCat.findStray(
             "AWS",
             "database",
             region: region,
             deploy_id: deploy_id,
             cloud_id: cloud_id,
-            credentials: credentials,
-            mu_name: mu_name
+            mu_name: mu_name,
+            dummy_ok: true
           ).first
+          if cluster_obj
+            cloud_id ||= cluster_obj.cloud_id
+            cluster ||= cluster_obj.cloud_desc
+          end
+
+          raise MuError, "terminate_rds_cluster requires a non-nil database cluster descriptor" if cluster.nil?
 
           # We can use an AWS waiter for this.
           unless cluster.status == "available"
             loop do
-              MU.log "Waiting for #{cluster_id} to be in a removable state...", MU::NOTICE
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cluster_id, region: region, credentials: credentials)
+              MU.log "Waiting for #{cloud_id} to be in a removable state...", MU::NOTICE
+              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cloud_id, region: region, credentials: credentials)
               break unless %w{creating modifying backing-up}.include?(cluster.status)
               sleep 60
             end
           end
 
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cluster_id, target: cluster.endpoint, cloudclass: MU::Cloud::Database, delete: true)
+          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: cluster.endpoint, cloudclass: MU::Cloud::Database, delete: true)
 
           if %w{deleting deleted}.include?(cluster.status)
-            MU.log "#{cluster_id} has already been terminated", MU::WARN
+            MU.log "#{cloud_id} has already been terminated", MU::WARN
           else
+            clusterSkipSnap = Proc.new {
+              MU.log "Terminating #{cloud_id}. Not saving final snapshot"
+              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(db_cluster_identifier: cloud_id, skip_final_snapshot: true) if !noop
+            }
+
+            clusterCreateSnap = Proc.new {
+              MU.log "Terminating #{cloud_id}. Saving final snapshot: #{cloud_id}-mufinal"
+              MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(db_cluster_identifier: cloud_id, skip_final_snapshot: false, final_db_snapshot_identifier: "#{cloud_id}-mufinal") if !noop
+            }
+
+            retries = 0
+            begin
+              skipsnapshots ? clusterSkipSnap.call : clusterCreateSnap.call
+            rescue Aws::RDS::Errors::InvalidDBClusterStateFault => e
+              if retries < 5
+                MU.log "#{cloud_id} is not in a removable state, retrying several times", MU::WARN
+                retries += 1
+                sleep 30
+                retry
+              else
+                MU.log "#{cloud_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
+              end
+            rescue Aws::RDS::Errors::DBClusterSnapshotAlreadyExistsFault
+              clusterSkipSnap.call
+              MU.log "Snapshot of #{cloud_id} already exists", MU::WARN
+            rescue Aws::RDS::Errors::DBClusterQuotaExceeded
+              clusterSkipSnap.call
+              MU.log "Snapshot quota exceeded while deleting #{cloud_id}", MU::ERR
+            end
+
             unless noop
-              def self.clusterSkipSnap(cluster_id, region, credentials)
-                # We're calling this several times so lets declare it once
-                MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: true)
-              end
-
-              def self.clusterCreateSnap(cluster_id, region, credentials)
-                MU.log "Terminating #{cluster_id}. Saving final snapshot: #{cluster_id}-mufinal"
-                MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: false, final_db_snapshot_identifier: "#{cluster_id}-mufinal")
-              end
-
-              retries = 0
-              begin
-                skipsnapshots ? clusterSkipSnap(cluster_id, region, credentials) : clusterCreateSnap(cluster_id, region, credentials)
-              rescue Aws::RDS::Errors::InvalidDBClusterStateFault => e
-                if retries < 5
-                  MU.log "#{cluster_id} is not in a removable state, retrying several times", MU::WARN
-                  retries += 1
-                  sleep 30
-                  retry
-                else
-                  MU.log "#{cluster_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-                end
-              rescue Aws::RDS::Errors::DBClusterSnapshotAlreadyExistsFault
-                clusterSkipSnap(cluster_id, region, credentials)
-                MU.log "Snapshot of #{cluster_id} already exists", MU::WARN
-              rescue Aws::RDS::Errors::DBClusterQuotaExceeded
-                clusterSkipSnap(cluster_id, region, credentials)
-                MU.log "Snapshot quota exceeded while deleting #{cluster_id}", MU::ERR
+              loop do
+                MU.log "Waiting for #{cloud_id} to terminate", MU::NOTICE
+                cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cloud_id, region: region, credentials: credentials)
+                break unless cluster
+                sleep 30
               end
             end
           end
 
           # We're wating until getDatabaseClusterById returns nil. This assumes the database cluster object doesn't linger around in "deleted" state for a while.
-          loop do
-            MU.log "Waiting for #{cluster_id} to terminate", MU::NOTICE
-            cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cluster_id, region: region, credentials: credentials)
-            break unless cluster
-            sleep 30
-          end
 
           # Cleanup the cluster vault
           groomer = 
@@ -1600,9 +1584,9 @@ module MU
             end
 
           groomclass = MU::Groomer.loadGroomer(groomer)
-          groomclass.deleteSecret(vault: cluster_id.upcase) if !noop
+          groomclass.deleteSecret(vault: cloud_id.upcase) if !noop
 
-          MU.log "#{cluster_id} has been terminated"
+          MU.log "#{cloud_id} has been terminated" if !noop
         end
         private_class_method :terminate_rds_cluster
 

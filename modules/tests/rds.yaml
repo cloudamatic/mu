@@ -5,10 +5,8 @@ vpcs:
 - name: rdstests
 databases:
 - name: pgcluster
-  size: db.m5.large
+  size: db.t3.medium
   engine: postgres
-  engine_version: 9.6.6
-  add_cluster_node: true
   allow_major_version_upgrade: true
   auto_minor_version_upgrade: false
   backup_retention_period: 10
@@ -17,8 +15,8 @@ databases:
   vpc:
     name: rdstests
   master_user: Bob
-- name: mysql-w-replica
-  size: db.t2.micro
+- name: mysql-base
+  size: db.t2.small
   engine: mysql
   storage: 5
   vpc:
@@ -26,12 +24,12 @@ databases:
   create_read_replica: true
   multi_az_on_create: true
   master_user: Bob
-- name: point-in-time
+- name: mysql-point-in-time
   creation_style: point_in_time
   size: db.t2.micro
   engine: mysql
   storage: 5
   source:
-    name: mysql-w-replica
+    name: mysql-base
   vpc:
     name: rdstests
