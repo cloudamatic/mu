@@ -331,9 +331,9 @@ module MU
             @config["subnet_group_name"] = resp.db_subnet_group.db_subnet_group_name
 
             if @dependencies.has_key?('firewall_rule')
-                @config["vpc_security_group_ids"] = []
-                @dependencies['firewall_rule'].each_value { |sg|
-                  @config["vpc_security_group_ids"] << sg.cloud_id
+              @config["vpc_security_group_ids"] = []
+              @dependencies['firewall_rule'].each_value { |sg|
+                @config["vpc_security_group_ids"] << sg.cloud_id
               }
             end
           end
@@ -509,7 +509,7 @@ module MU
 
           # Otherwise go get our generic EC2 ruleset and punch a hole in it
           if @dependencies.has_key?('firewall_rule')
-            @dependencies['firewall_rule'].values.each { |sg|
+            @dependencies['firewall_rule'].each_value { |sg|
               sg.addRule([cidr], proto: "tcp", port: cloud_desc.endpoint.port)
               break
             }
@@ -645,7 +645,7 @@ module MU
         end
 
         # @return [Array<Thread>]
-        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster, deletion_proc)
+        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster)
           deletia = []
           resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).send(describe_method)
           resp.send(list_method).each { |resource|
@@ -660,7 +660,7 @@ module MU
           threads = []
           deletia.each { |id|
             threads << Thread.new(id) { |resource_id|
-              deletion_proc.call(resource_id)
+              yield(resource_id)
             }
           }
 
@@ -675,22 +675,20 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
 
-          delete_dbs = Proc.new { |id|
+          threaded_resource_purge(:describe_db_instances, :db_instances, :db_instance_identifier, "db", region, credentials, ignoremaster) { |id|
             terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials)
-          }
 
-          threaded_resource_purge(:describe_db_instances, :db_instances, :db_instance_identifier, "db", region, credentials, ignoremaster, delete_dbs).each { |t|
+          }.each { |t|
             t.join
           }
 
-          delete_clusters = Proc.new { |id|
+          threaded_resource_purge(:describe_db_clusters, :db_clusters, :db_cluster_identifier, "cluster", region, credentials, ignoremaster) { |id|
             terminate_rds_cluster(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials)
-          }
-          threaded_resource_purge(:describe_db_clusters, :db_clusters, :db_cluster_identifier, "cluster", region, credentials, ignoremaster, delete_clusters).each { |t|
+          }.each { |t|
             t.join
           }
 
-          delete_subnet_groups = Proc.new { |id|
+          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster) { |id|
             MU.log "Deleting RDS subnet group #{id}"
             if !noop
               MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
@@ -698,9 +696,8 @@ module MU
               }
             end
           }
-          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, delete_subnet_groups)
 
-          delete_parameter_groups = Proc.new { |id|
+          threads.concat threaded_resource_purge(:describe_db_parameter_groups, :db_parameter_groups, :db_parameter_group_name, "pg", region, credentials, ignoremaster) { |id|
             MU.log "Deleting RDS database parameter group #{id}"
             if !noop
               MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
@@ -708,9 +705,8 @@ module MU
               }
             end
           }
-          threads.concat threaded_resource_purge(:describe_db_parameter_groups, :db_parameter_groups, :db_parameter_group_name, "pg", region, credentials, ignoremaster, delete_parameter_groups)
 
-          delete_cluster_parameter_groups = Proc.new { |id|
+          threads.concat threaded_resource_purge(:describe_db_cluster_parameter_groups, :db_cluster_parameter_groups, :db_cluster_parameter_group_name, "pg", region, credentials, ignoremaster) { |id|
             MU.log "Deleting RDS cluster parameter group #{id}"
             if !noop
               MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
@@ -718,7 +714,6 @@ module MU
               }
             end
           }
-          threads.concat threaded_resource_purge(:describe_db_cluster_parameter_groups, :db_cluster_parameter_groups, :db_cluster_parameter_group_name, "pg", region, credentials, ignoremaster, delete_cluster_parameter_groups)
 
           # Wait for all of the databases subnet/parameter groups to finish cleanup before proceeding
           threads.each { |t|
@@ -874,6 +869,7 @@ module MU
               }
               engines.each_key { |engine|
                 engines[engine]["versions"].uniq!
+                engines[engine]["versions"].sort! { |a, b| MU.version_sort(a, b) }
                 engines[engine]["families"].uniq!
               }
 
@@ -899,7 +895,6 @@ module MU
             MU.log "Database #{db['name']}: Existing snapshot #{db["source"]["id"]} looks like a cluster snapshot, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
             ok = false
           end
-
 
           if db['create_cluster'] or (db['engine'] and db['engine'].match(/aurora/)) or db["member_of_cluster"]
             case db['engine']
@@ -1001,7 +996,7 @@ module MU
             ok = false
           end
 
-          db['engine_version'] ||= engine_cfg['versions'].sort.last
+          db['engine_version'] ||= engine_cfg['versions'].last
           if !engine_cfg['versions'].grep(/^#{Regexp.quote(db["engine_version"])}.+/)
             MU.log "RDS engine '#{db['engine']}' version '#{db['engine_version']}' is not supported in #{db['region']}", MU::ERR, details: { "Known-good versions:" => engine_cfg['versions'].uniq.sort }
             ok = false
