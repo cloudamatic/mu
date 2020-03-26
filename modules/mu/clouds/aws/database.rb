@@ -107,7 +107,7 @@ module MU
 
             if @config.has_key?("parameter_group_family")
               @config["parameter_group_name"] = @mu_name
-              createDBClusterParameterGroup
+              createDBParameterGroup(true)
             end
 
             createDbCluster
@@ -356,52 +356,37 @@ module MU
           end
         end
 
-        # Create a database cluster parameter group.
-        def createDBClusterParameterGroup
-          MU.log "Creating a cluster parameter group #{@config["parameter_group_name"]}"
-
-          MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster_parameter_group(
-            db_cluster_parameter_group_name: @config["parameter_group_name"],
-            db_parameter_group_family: @config["parameter_group_family"],
-            description: "Parameter group for #{@config["parameter_group_family"]}",
-            tags: allTags
-          )
-
-          if @config["cluster_parameter_group_parameters"] && !@config["cluster_parameter_group_parameters"].empty?
-            params = []
-            @config["cluster_parameter_group_parameters"].each { |item|
-              params << {parameter_name: item['name'], parameter_value: item['value'], apply_method: item['apply_method']}
-            }
-
-            MU.log "Modifiying cluster parameter group #{@config["parameter_group_name"]}"
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster_parameter_group(
-              db_cluster_parameter_group_name: @config["parameter_group_name"],
-              parameters: params
-            )
-          end
-        end
-
         # Create a database parameter group.
-        def createDBParameterGroup
-          MU.log "Creating a database parameter group #{@config["parameter_group_name"]}"
-          MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_parameter_group(
-            db_parameter_group_name: @config["parameter_group_name"],
+        def createDBParameterGroup(cluster = false)
+          params = {
             db_parameter_group_family: @config["parameter_group_family"],
-            description: "Parameter group for #{@config["parameter_group_family"]}",
+            description: "Parameter group for #{@mu_name}",
             tags: allTags
-          )
+          }
+          params[cluster ? :db_cluster_parameter_group_name : :db_parameter_group_name] = @config["parameter_group_name"]
+          MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
 
-          if @config["db_parameter_group_parameters"] && !@config["db_parameter_group_parameters"].empty?
+          MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
+          fieldname = cluster ? "cluster_parameter_group_parameters" : "db_parameter_group_parameters"
+
+          if @config[fieldname] && !@config[fieldname].empty?
             params = []
-            @config["db_parameter_group_parameters"].each { |item|
+            @config[fieldname].each { |item|
               params << {parameter_name: item['name'], parameter_value: item['value'], apply_method: item['apply_method']}
             }
 
-            MU.log "Modifiying database parameter group #{@config["parameter_group_name"]}"
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_parameter_group(
-              db_parameter_group_name: @config["parameter_group_name"],
-              parameters: params
-            )
+            MU.log "Modifiying parameter group #{@config["parameter_group_name"]}"
+            if cluster
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster_parameter_group(
+                db_cluster_parameter_group_name: @config["parameter_group_name"],
+                parameters: params
+              )
+            else
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_parameter_group(
+                db_parameter_group_name: @config["parameter_group_name"],
+                parameters: params
+              )
+            end
           end
         end
 
