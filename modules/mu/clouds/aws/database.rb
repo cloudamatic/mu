@@ -767,10 +767,9 @@ module MU
             },
             "cloudwatch_logs" => {
               "type" => "array",
-              "default" => ["error"],
               "items" => {
                 "type" => "string",
-                "enum" => ["error", "general", "audit", "slow_query"],
+                "enum" => ["audit", "error", "general", "slowquery", "profiler", "postgresql", "alert", "listener", "trace", "upgrade", "agent"]
               }
             },
             "serverless_scaling" => {
@@ -835,17 +834,18 @@ module MU
         end
 
         @@engine_cache= {}
-        def self.get_supported_engines(region = MU.myRegion, credentials = nil)
+        def self.get_supported_engines(region = MU.myRegion, credentials = nil, engine: nil)
           @@engine_cache ||= {}
           @@engine_cache[credentials] ||= {}
           @@engine_cache[credentials][region] ||= {}
 
           if !@@engine_cache[credentials][region].empty?
-            return @@engine_cache[credentials][region]
+            return engine ? @@engine_cache[credentials][region][engine] : @@engine_cache[credentials][region]
           end
 
           engines = {}
           marker = nil
+
           begin
             resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_engine_versions(marker: marker)
             marker = resp.marker
@@ -855,10 +855,12 @@ module MU
                 engines[version.engine] ||= {
                   "versions" => [],
                   "families" => [],
-                  "features" => {}
+                  "features" => {},
+                  "raw" => {}
                 }
                 engines[version.engine]['versions'] << version.engine_version
                 engines[version.engine]['families'] << version.db_parameter_group_family
+                engines[version.engine]['raw'][version.engine_version] = version
                 [:supports_read_replica, :supports_log_exports_to_cloudwatch_logs].each { |feature|
                   if version.respond_to?(feature) and version.send(feature) == true
                     engines[version.engine]['features'][version.engine_version] ||= []
@@ -867,18 +869,19 @@ module MU
                 }
 
               }
-              engines.each_key { |engine|
-                engines[engine]["versions"].uniq!
-                engines[engine]["versions"].sort! { |a, b| MU.version_sort(a, b) }
-                engines[engine]["families"].uniq!
+              engines.each_key { |e|
+                engines[e]["versions"].uniq!
+                engines[e]["versions"].sort! { |a, b| MU.version_sort(a, b) }
+                engines[e]["families"].uniq!
               }
 
             else
               MU.log "Failed to get list of valid RDS engine versions in #{db['region']}, proceeding without proper validation", MU::WARN
             end
           end while !marker.nil?
+
           @@engine_cache[credentials][region] = engines
-          engines
+          return engine ? @@engine_cache[credentials][region][engine] : @@engine_cache[credentials][region]
         end
         private_class_method :get_supported_engines
 
@@ -979,12 +982,39 @@ module MU
 
         private
 
+        def self.can_read_replica?(db)
+          engine = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
+          if engine.nil? or !engine['features'] or !engine['features'][db['engine_version']]
+            return true # we can't be sure, so let the API sort it out later
+          end
+          engine['features'][db['engine_version']].include?(:supports_read_replica)
+        end
+        private_class_method :can_read_replica?
+
+        def self.valid_cloudwatch_logs?(db)
+          return true if !db['cloudwatch_logs']
+          engine = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
+          if engine.nil? or !engine['features'] or !engine['features'][db['engine_version']] or !engine['features'][db['engine_version']].include?(:supports_read_replica)
+            MU.log "CloudWatch Logs not supported for #{db['engine']} #{db['engine_version']}", MU::ERR
+            return false
+          end
+
+          ok = true
+          db['cloudwatch_logs'].each { |logtype|
+            if !engine['raw'][db['engine_version']].exportable_log_types.include?(logtype)
+              ok = false
+              MU.log "CloudWatch Log type #{logtype} is not valid for #{db['engine']} #{db['engine_version']}. List of valid types:", MU::ERR, details: engine['raw'][db['engine_version']].exportable_log_types
+            end
+          }
+
+          ok
+        end
+        private_class_method :valid_cloudwatch_logs?
+
         def self.validate_engine(db)
           ok = true
 
-          engines = get_supported_engines(db['region'], db['credentials'])
-          return if engines.nil? or engines.empty?
-          engine_cfg = engines[db['engine']]
+          engine_cfg = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
 
           if !engine_cfg or engine_cfg['versions'].empty? or engine_cfg['families'].empty?
             MU.log "RDS engine #{db['engine']} has no supported versions in #{db['region']}", MU::ERR, details: engines.keys.sort
@@ -996,8 +1026,12 @@ module MU
             ok = false
           end
 
+          # Resolve or default our engine version to something reasonable
           db['engine_version'] ||= engine_cfg['versions'].last
-          if !engine_cfg['versions'].grep(/^#{Regexp.quote(db["engine_version"])}.+/)
+          if !engine_cfg['versions'].include?(db["engine_version"])
+            db['engine_version'] = engine_cfg['versions'].grep(/^#{Regexp.quote(db["engine_version"])}/).last
+          end
+          if !engine_cfg['versions'].include?(db["engine_version"])
             MU.log "RDS engine '#{db['engine']}' version '#{db['engine_version']}' is not supported in #{db['region']}", MU::ERR, details: { "Known-good versions:" => engine_cfg['versions'].uniq.sort }
             ok = false
           end
@@ -1008,16 +1042,13 @@ module MU
             ok = false
           end
 
-          features_cfg = engine_cfg['features'][db['engine_version']]
-
-          if (db['create_read_replica'] or db['read_replica_of']) and
-             (!features_cfg or !features_cfg.include?(:supports_read_replica))
+          if (db['create_read_replica'] or db['read_replica_of']) and !can_read_replica?(db)
             MU.log "Engine #{db['engine']} #{db['engine_version']} does not appear to support read replicas", MU::ERR
             ok = false
           end
-          if db['cloudwatch_logs'] and (!features_cfg or !features_cfg.include?(:supports_log_exports_to_cloudwatch_logs))
-#            MU.log "Engine #{db['engine']} #{db['engine_version']} does not support CloudWatch Logs exports, disabling", MU::WARN
-            db.delete('cloudwatch_logs')
+
+          if db['cloudwatch_logs'] and !valid_cloudwatch_logs?(db)
+            ok = false
           end
 
           ok
