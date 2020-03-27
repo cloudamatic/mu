@@ -187,24 +187,7 @@ module MU
         # Construct all our tags.
         # @return [Array]: All our standard tags and any custom tags.
         def allTags
-          tags = []
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            tags << {key: name, value: value}
-          }
-
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each_pair { |name, value|
-              tags << {key: name, value: value}
-            }
-          end
-
-          if @config['tags']
-            @config['tags'].each { |tag|
-              tags << {key: tag['key'], value: tag['value']}
-            }
-          end
-          
-          return tags
+          @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
         end
 
         # Getting the password for the master user, and saving it in a database / cluster specif vault
@@ -236,7 +219,7 @@ module MU
               engine: @config["engine"],
               db_subnet_group_name: @config["subnet_group_name"].downcase,
               vpc_security_group_ids: @config["vpc_security_group_ids"],
-              tags: allTags
+              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
             }
             if @config['cloudwatch_logs']
               paramhash[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
@@ -263,7 +246,7 @@ module MU
               db_subnet_group_name: @config["subnet_group_name"],
               publicly_accessible: @config["publicly_accessible"],
               copy_tags_to_snapshot: true,
-              tags: allTags
+              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
             }
           end
 
@@ -343,7 +326,7 @@ module MU
               db_subnet_group_name: @config["subnet_group_name"],
               db_subnet_group_description: @config["subnet_group_name"],
               subnet_ids: subnet_ids,
-              tags: allTags
+              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
             )
             @config["subnet_group_name"] = resp.db_subnet_group.db_subnet_group_name
 
@@ -378,7 +361,7 @@ module MU
           params = {
             db_parameter_group_family: @config["parameter_group_family"],
             description: "Parameter group for #{@mu_name}",
-            tags: allTags
+            tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
           }
           params[cluster ? :db_cluster_parameter_group_name : :db_parameter_group_name] = @config["parameter_group_name"]
           MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
@@ -588,13 +571,13 @@ module MU
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster_snapshot(
                 db_cluster_snapshot_identifier: snap_id,
                 db_cluster_identifier: src_ref.id,
-                tags: allTags
+                tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
               )
             else
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_snapshot(
                 db_snapshot_identifier: snap_id,
                 db_instance_identifier: src_ref.id,
-                tags: allTags
+                tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
               )
             end
           }
@@ -944,11 +927,9 @@ module MU
             )
             return true if pw.nil?
             pw
-          else
-            return true
           end
 
-          if pw.length < 8 or pw.match(/[\/\\@\s]/) or pw > maxlen
+          if pw and (pw.length < 8 or pw.match(/[\/\\@\s]/) or pw > maxlen)
             MU.log "Database password specified in 'password' or 'auth_vault' doesn't meet RDS requirements. Must be between 8 and #{maxlen.to_s} chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
             return false
           end
@@ -1256,7 +1237,7 @@ module MU
             db_instance_class: @config["size"],
             auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
             publicly_accessible: @config["publicly_accessible"],
-            tags: allTags,
+            tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } },
             db_subnet_group_name: @config["subnet_group_name"],
             storage_type: @config["storage_type"]
           }
