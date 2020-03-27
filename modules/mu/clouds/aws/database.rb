@@ -147,8 +147,16 @@ module MU
           found = {}
 
           if args[:cloud_id]
-            resp = MU::Cloud::AWS::Database.getDatabaseById(args[:cloud_id], region: args[:region], credentials: args[:credentials])
-            found[args[:cloud_id]] = resp if resp
+            begin
+              resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_instances(db_instance_identifier: args[:cloud_id]).db_instances.first
+              return { args[:cloud_id] => resp } if resp
+            rescue Aws::RDS::Errors::DBInstanceNotFoundFault
+            end
+            begin
+              resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_clusters(db_cluster_identifier: args[:cloud_id]).db_clusters.first
+            rescue Aws::RDS::Errors::DBClusterNotFoundFault
+            end
+            return { args[:cloud_id] => resp } if resp
           elsif args[:tag_value]
             MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
               resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
@@ -516,27 +524,6 @@ module MU
           end
         end
 
-        # Retrieve the complete cloud provider description of a database instance.
-        # @param db_id [String]: The cloud provider's identifier for this database.
-        # @param region [String]: The cloud provider region
-        # @return [OpenStruct]
-        def self.getDatabaseById(db_id, region: MU.curRegion, credentials: nil)
-          raise MuError, "You must provide a db_id" if db_id.nil?
-          MU::Cloud::AWS.rds(region: region, credentials: credentials).describe_db_instances(db_instance_identifier: db_id).db_instances.first
-        rescue Aws::RDS::Errors::DBInstanceNotFound
-          # We're fine with this returning nil when searching for a database instance the doesn't exist.
-        end
-
-        # Retrieve the complete cloud provider description of a database cluster.
-        # @param db_cluster_id [String]: The cloud provider's identifier for this database cluster.
-        # @param region [String]: The cloud provider region
-        # @return [OpenStruct]
-        def self.getDatabaseClusterById(db_cluster_id, region: MU.curRegion, credentials: nil)
-          MU::Cloud::AWS.rds(region: region, credentials: credentials).describe_db_clusters(db_cluster_identifier: db_cluster_id).db_clusters.first
-        rescue Aws::RDS::Errors::DBClusterNotFoundFault
-          # We're fine with this returning nil when searching for a database cluster the doesn't exist.
-        end
-
         # Return the metadata for this ContainerCluster
         # @return [Hash]
         def notify
@@ -545,19 +532,6 @@ module MU
           deploy_struct["region"] ||= @config['region']
           deploy_struct["db_name"] ||= @config['db_name']
           deploy_struct
-        end
-
-        # Return the cloud descriptor for this database cluster or instance
-        def cloud_desc(use_cache: true)
-          return @cloud_desc_cache if @cloud_desc_cache and use_cache
-
-          @cloud_desc_cache = if @config['create_cluster']
-            MU::Cloud::AWS::Database.getDatabaseClusterById(@cloud_id, region: @config['region'], credentials: @credentials)
-          else
-            MU::Cloud::AWS::Database.getDatabaseById(@cloud_id, region: @config['region'], credentials: @credentials)
-          end
-
-          @cloud_desc_cache
         end
 
         # Generate a snapshot from the database described in this instance.
@@ -1004,7 +978,12 @@ module MU
           if engine.nil? or !engine['features'] or !engine['features'][db['engine_version']]
             return true # we can't be sure, so let the API sort it out later
           end
-          engine['features'][db['engine_version']].include?(:supports_read_replica)
+
+          if !engine['features'][db['engine_version']].include?(:supports_read_replica)
+            MU.log "Engine #{db['engine']} #{db['engine_version']} does not appear to support read replicas", MU::ERR
+            return false
+          end
+          true
         end
         private_class_method :can_read_replica?
 
@@ -1031,7 +1010,7 @@ module MU
         def self.validate_engine(db)
           ok = true
 
-          if db['create_cluster'] or (db['engine'] and db['engine'].match(/aurora/)) or db["member_of_cluster"]
+          if db['create_cluster'] or db["member_of_cluster"] or (db['engine'] and db['engine'].match(/aurora/))
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
               if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
@@ -1039,18 +1018,18 @@ module MU
               else
                 db["engine"] = "aurora-mysql"
               end
-            when "postgres", "postgresql", "postgresql-mysql"
+            when /postgres/
               db["engine"] = "aurora-postgresql"
             else
               ok = false
-              MU.log "Database #{db['name']}: Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
+              MU.log "#{db['engine']} is not supported for clustering", MU::ERR
             end
           end
 
           engine_cfg = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
 
           if !engine_cfg or engine_cfg['versions'].empty? or engine_cfg['families'].empty?
-            MU.log "RDS engine #{db['engine']} has no supported versions in #{db['region']}", MU::ERR, details: engines.keys.sort
+            MU.log "RDS engine #{db['engine']} reports no supported versions in #{db['region']}", MU::ERR, details: engines.keys.sort
             return false
           end
 
@@ -1076,7 +1055,6 @@ module MU
           end
 
           if (db['create_read_replica'] or db['read_replica_of']) and !can_read_replica?(db)
-            MU.log "Engine #{db['engine']} #{db['engine_version']} does not appear to support read replicas", MU::ERR
             ok = false
           end
 
@@ -1477,7 +1455,7 @@ module MU
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
         def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
-          db ||= MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials) if cloud_id
+          db ||= MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials).values.first if cloud_id
           db_obj ||= MU::MommaCat.findStray(
             "AWS",
             "database",
@@ -1503,12 +1481,10 @@ module MU
           end
 
 
-          if db.db_instance_status != "available"
-            MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(db.db_instance_status) }) {
-              db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region, credentials: credentials)
-              return if db.nil?
-            }
-          end
+          MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(db.db_instance_status) }) {
+            db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials).values.first
+            return if db.nil?
+          }
 
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true) if !noop
 
@@ -1538,7 +1514,7 @@ module MU
                 MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(params)
               }
               MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound]) {
-                del_db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
+                del_db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region).values.first
                 break if del_db.nil? or del_db.db_instance_status == "deleted"
               }
             end
@@ -1573,7 +1549,7 @@ module MU
         # @return [void]
         def self.terminate_rds_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil)
 
-          cluster ||= MU::Cloud::AWS::Database.getDatabaseClusterById(cloud_id, region: region, credentials: credentials) if cloud_id
+          cluster ||= MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials).values.first if cloud_id
           cluster_obj ||= MU::MommaCat.findStray(
             "AWS",
             "database",
@@ -1594,7 +1570,7 @@ module MU
           unless cluster.status == "available"
             loop do
               MU.log "Waiting for #{cloud_id} to be in a removable state...", MU::NOTICE
-              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cloud_id, region: region, credentials: credentials)
+              cluster = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials).values.first
               break unless %w{creating modifying backing-up}.include?(cluster.status)
               sleep 60
             end
@@ -1638,14 +1614,12 @@ module MU
             unless noop
               loop do
                 MU.log "Waiting for #{cloud_id} to terminate", MU::NOTICE
-                cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(cloud_id, region: region, credentials: credentials)
+                cluster = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials).values.first
                 break unless cluster
                 sleep 30
               end
             end
           end
-
-          # We're wating until getDatabaseClusterById returns nil. This assumes the database cluster object doesn't linger around in "deleted" state for a while.
 
           # Cleanup the cluster vault
           groomer = 
