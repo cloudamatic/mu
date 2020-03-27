@@ -581,48 +581,35 @@ module MU
         # @return [String]: The cloud provider's identifier for the snapshot.
         def createNewSnapshot
           snap_id = @deploy.getResourceName(@config["name"]) + Time.new.strftime("%M%S").to_s
+          src_ref = MU::Config::Ref.get(@config["source"])
 
-          attempts = 0
-          begin
+          MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidDBClusterStateFault], wait: 60, max: 10) {
             if @config["create_cluster"]
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster_snapshot(
                 db_cluster_snapshot_identifier: snap_id,
-                db_cluster_identifier: @mu_name,
+                db_cluster_identifier: src_ref.id,
                 tags: allTags
               )
             else
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_snapshot(
                 db_snapshot_identifier: snap_id,
-                db_instance_identifier: @mu_name,
+                db_instance_identifier: src_ref.id,
                 tags: allTags
               )
             end
-          rescue Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidDBClusterStateFault => e
-            raise MuError, e.inspect if attempts >= 10
-            attempts += 1
-            sleep 60
-            retry
-          end
+          }
 
-          attempts = 0
-          loop do
-            MU.log "Waiting for RDS snapshot of #{@mu_name} to be ready...", MU::NOTICE if attempts % 20 == 0
-            MU.log "Waiting for RDS snapshot of #{@mu_name} to be ready...", MU::DEBUG
-            snapshot_resp =
-              if @config["create_cluster"]
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: snap_id)
-              else
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_snapshots(db_snapshot_identifier: snap_id)
-              end
-
+          loop_if = Proc.new {
             if @config["create_cluster"]
-              break unless snapshot_resp.db_cluster_snapshots.first.status != "available"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: snap_id).db_cluster_snapshots.first.status != "available"
             else
-              break unless snapshot_resp.db_snapshots.first.status != "available"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_snapshots(db_snapshot_identifier: snap_id).db_snapshots.first.status != "available"
             end
-            attempts += 1
-            sleep 15
-          end
+          }
+
+          MU.retrier(wait: 15, loop_if: loop_if) { |retries, _wait|
+            MU.log "Waiting for RDS snapshot of #{src_ref.id} to be ready...", MU::NOTICE if retries % 20 == 0
+          }
 
           return snap_id
         end
@@ -907,11 +894,9 @@ module MU
         end
         private_class_method :get_supported_engines
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
-        # @param db [Hash]: The resource to process and validate
-        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
-        # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(db, _configurator)
+        # Make sure any source database/cluster/snapshot we've asked for exists
+        # and is valid.
+        def self.validate_source_data(db)
           ok = true
 
           if db['creation_style'] == "existing_snapshot" and
@@ -919,23 +904,68 @@ module MU
              db['source'] and db["source"]["id"] and db['source']["id"].match(/:cluster-snapshot:/)
             MU.log "Database #{db['name']}: Existing snapshot #{db["source"]["id"]} looks like a cluster snapshot, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
             ok = false
-          end
-
-          if db['create_cluster'] or (db['engine'] and db['engine'].match(/aurora/)) or db["member_of_cluster"]
-            case db['engine']
-            when "mysql", "aurora", "aurora-mysql"
-              if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
-                db["engine"] = "aurora"
-              else
-                db["engine"] = "aurora-mysql"
-              end
-            when "postgres", "postgresql", "postgresql-mysql"
-              db["engine"] = "aurora-postgresql"
-            else
+          elsif db["creation_style"] == "existing" or db["creation_style"] == "new_snapshot"
+            begin
+              MU::Cloud::AWS.rds(region: db['region']).describe_db_instances(
+                db_instance_identifier: db['source']['id']
+              )
+            rescue Aws::RDS::Errors::DBInstanceNotFound
+              MU.log "Source database was specified for #{db['name']}, but no such database exists in #{db['region']}", MU::ERR, db['source']
               ok = false
-              MU.log "Database #{db['name']}: Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
             end
           end
+
+          ok
+        end
+        private_class_method :validate_source_data
+
+        def self.validate_master_password(db)
+          maxlen = case db['engine']
+            when "mariadb", "mysql"
+              41
+            when "postgresql"
+              41
+            when /oracle/
+              30
+            when /sqlserver/
+              128
+            else
+              return true
+          end
+
+          pw = if !db['password'].nil?
+            db['password']
+          elsif db['auth_vault'] and !db['auth_vault'].empty?
+            groomclass = MU::Groomer.loadGroomer(db['groomer'])
+            pw = groomclass.getSecret(
+              vault: db['auth_vault']['vault'],
+              item: db['auth_vault']['item'],
+              field: db['auth_vault']['password_field']
+            )
+            return true if pw.nil?
+            pw
+          else
+            return true
+          end
+
+          if pw.length < 8 or pw.match(/[\/\\@\s]/) or pw > maxlen
+            MU.log "Database password specified in 'password' or 'auth_vault' doesn't meet RDS requirements. Must be between 8 and #{maxlen.to_s} chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
+            return false
+          end
+
+          true
+        end
+        private_class_method :validate_master_password
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
+        # @param db [Hash]: The resource to process and validate
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(db, _configurator)
+          ok = true
+
+          ok = false if !validate_source_data(db)
+
 
           ok = false if !validate_engine(db)
 
@@ -948,21 +978,9 @@ module MU
               "license-included"
             end
 
-          if db["creation_style"] == "existing"
-            begin
-              MU::Cloud::AWS.rds(region: db['region']).describe_db_instances(
-                db_instance_identifier: db['source']['id']
-              )
-            rescue Aws::RDS::Errors::DBInstanceNotFound
-              MU.log "Source database was specified for #{db['name']}, but no such database exists in #{db['region']}", MU::ERR, db['source']
-              ok = false
-            end
-          end
+          ok = false if !validate_master_password(db)
 
-          if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
-            MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
-            ok = false
-          end
+
           if db["multi_az_on_create"] and db["multi_az_on_deploy"]
             MU.log "Both of multi_az_on_create and multi_az_on_deploy cannot be true", MU::ERR
             ok = false
@@ -1031,6 +1049,22 @@ module MU
 
         def self.validate_engine(db)
           ok = true
+
+          if db['create_cluster'] or (db['engine'] and db['engine'].match(/aurora/)) or db["member_of_cluster"]
+            case db['engine']
+            when "mysql", "aurora", "aurora-mysql"
+              if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
+                db["engine"] = "aurora"
+              else
+                db["engine"] = "aurora-mysql"
+              end
+            when "postgres", "postgresql", "postgresql-mysql"
+              db["engine"] = "aurora-postgresql"
+            else
+              ok = false
+              MU.log "Database #{db['name']}: Requested a clustered database, but engine #{db['engine']} is not supported for clustering", MU::ERR
+            end
+          end
 
           engine_cfg = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
 
