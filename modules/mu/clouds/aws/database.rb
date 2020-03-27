@@ -22,26 +22,43 @@ module MU
 
         STORAGE_RANGES = {
           "io1" => {
-            "postgres" => 100..6144,
-            "mysql" => 100..6144,
-            "oracle-se1" => 100..6144,
-            "oracle-se" => 100..6144,
-            "oracle-ee" => 100..6144,
-            "sqlserver-ex" => 100..4096,
-            "sqlserver-web" => 100..4096,
-            "sqlserver-ee" => 200..4096,
-            "sqlserver-se" =>  200..4096
+            "postgres" => 100..65536,
+            "mysql" => 100..65536,
+            "mariadb" => 100..65536,
+            "oracle-se1" => 100..65536,
+            "oracle-se2" => 100..65536,
+            "oracle-se" => 100..65536,
+            "oracle-ee" => 100..65536,
+            "sqlserver-ex" => 100..16384,
+            "sqlserver-web" => 100..16384,
+            "sqlserver-ee" => 200..16384,
+            "sqlserver-se" =>  200..16384
+          },
+          "gp2" => {
+            "postgres" => 20..65536,
+            "mysql" => 20..65536,
+            "mariadb" => 20..65536,
+            "oracle-se1" => 20..65536,
+            "oracle-se2" => 20..65536,
+            "oracle-se" => 20..65536,
+            "oracle-ee" => 20..65536,
+            "sqlserver-ex" => 20..16384,
+            "sqlserver-web" => 20..16384,
+            "sqlserver-ee" => 200..16384,
+            "sqlserver-se" =>  200..16384
           },
           "standard" => {
-            "postgres" => 5..6144,
-            "mysql" => 5..6144,
-            "oracle-se1" => 10..6144,
-            "oracle-se" => 10..6144,
-            "oracle-ee" => 10..6144,
-            "sqlserver-ex" => 20..4096,
-            "sqlserver-web" => 20..4096,
-            "sqlserver-ee" => 200..4096,
-            "sqlserver-se" =>  200..4096
+            "postgres" => 5..3072,
+            "mysql" => 5..3072,
+            "mariadb" => 5..3072,
+            "oracle-se1" => 10..3072,
+            "oracle-se2" => 10..3072,
+            "oracle-se" => 10..3072,
+            "oracle-ee" => 10..3072,
+            "sqlserver-ex" => 20..1024, # ???
+            "sqlserver-web" => 20..1024, # ???
+            "sqlserver-ee" => 200..4096, # ???
+            "sqlserver-se" =>  200..4096 # ???
           }
         }.freeze
 
@@ -765,6 +782,11 @@ module MU
               "enum" => ["provisioned", "serverless", "parallelquery", "global"],
               "default" => "provisioned"
             },
+            "storage_type" => {
+              "enum" => ["standard", "gp2", "io1"],
+              "type" => "string",
+              "default" => "gp2"
+            },
             "cloudwatch_logs" => {
               "type" => "array",
               "items" => {
@@ -952,13 +974,9 @@ module MU
           end
 
           # Adding rules for Database instance storage. This varies depending on storage type and database type. 
-          if !db["storage"].nil? and !db["create_cluster"] and !db["add_cluster_node"]
-            if db["storage_type"] == "io1" and !STORAGE_RANGES["io1"][db['engine']].include?(db["storage"])
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes from #{STORAGE_RANGES["io1"][db['engine']]} GB for #{db["storage_type"]} volumes.", MU::ERR
-            elsif !STORAGE_RANGES["standard"][db['engine']].include?(db["storage"])
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes from #{STORAGE_RANGES["standard"][db['engine']]} GB for #{db["storage_type"]} volumes.", MU::ERR
-              ok = false
-            end
+          if !db["storage"].nil? and !db["create_cluster"] and !db["add_cluster_node"] and !STORAGE_RANGES[db["storage_type"]][db['engine']].include?(db["storage"])
+            MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes from #{STORAGE_RANGES[db["storage_type"]][db['engine']]} GB for #{db["storage_type"]} volumes.", MU::ERR
+            ok = false
           end
 
           if !db['vpc']

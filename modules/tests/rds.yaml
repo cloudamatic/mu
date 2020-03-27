@@ -7,6 +7,7 @@ databases:
 - name: pgcluster
   size: db.t3.medium
   engine: postgres
+  engine_version: "10"  
   allow_major_version_upgrade: true
   auto_minor_version_upgrade: false
   backup_retention_period: 10
@@ -18,17 +19,20 @@ databases:
 - name: mysql-base
   size: db.t2.small
   engine: mysql
-  storage: 5
   vpc:
     name: rdstests
   create_read_replica: true
+  cloudwatch_logs:
+  - slowquery
   multi_az_on_create: true
   master_user: Bob
 - name: mysql-point-in-time
   creation_style: point_in_time
   size: db.t2.micro
   engine: mysql
-  storage: 5
+  cloudwatch_logs:
+  - error
+  - general
   source:
     name: mysql-base
   vpc:

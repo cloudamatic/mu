@@ -79,12 +79,7 @@ module MU
             "storage" => {
               "type" => "integer",
               "description" => "Storage space for this database instance (GB).",
-              "default" => 5
-            },
-            "storage_type" => {
-                "enum" => ["standard", "gp2", "io1"],
-                "type" => "string",
-                "default" => "gp2"
+              "default" => 20
             },
             "run_sql_on_deploy" => {
               "type" => "array",
