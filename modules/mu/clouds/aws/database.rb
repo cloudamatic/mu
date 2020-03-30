@@ -127,7 +127,32 @@ module MU
               createDBParameterGroup(true)
             end
 
-            createDbCluster
+            @config["cluster_identifier"] ||= @cloud_id
+
+            if @config['creation_style'] == "point_in_time"
+              create_point_in_time
+            else
+              create_basic
+            end
+
+            wait_until_available
+
+            if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"])
+              modify_db_cluster_struct = {
+                db_cluster_identifier: @cloud_id,
+                apply_immediately: true,
+                backup_retention_period: @config["backup_retention_period"],
+                db_cluster_parameter_group_name: @config["parameter_group_name"],
+                master_user_password: @config["password"],
+                preferred_backup_window: @config["preferred_backup_window"]
+              }
+
+              modify_db_cluster_struct[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster(modify_db_cluster_struct)
+              wait_until_available
+            end
+
+            do_naming
           elsif @config["add_cluster_node"]
             add_cluster_node
           else
@@ -147,10 +172,12 @@ module MU
           found = {}
 
           if args[:cloud_id]
-            begin
-              resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_instances(db_instance_identifier: args[:cloud_id]).db_instances.first
-              return { args[:cloud_id] => resp } if resp
-            rescue Aws::RDS::Errors::DBInstanceNotFoundFault
+            if !args[:cluster]
+              begin
+                resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_instances(db_instance_identifier: args[:cloud_id]).db_instances.first
+                return { args[:cloud_id] => resp } if resp
+              rescue Aws::RDS::Errors::DBInstanceNotFound
+              end
             end
             begin
               resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_clusters(db_cluster_identifier: args[:cloud_id]).db_clusters.first
@@ -267,43 +294,6 @@ module MU
           end
 
           params
-        end
-
-        # Create the database cluster described in this instance
-        # @return [String]: The cloud provider's identifier for this database cluster.
-        def createDbCluster
-          @config["cluster_identifier"] ||= @cloud_id
-
-          if @config['creation_style'] == "point_in_time"
-            create_point_in_time
-          else
-            create_basic
-          end
-
-          wait_until_available
-
-          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"])
-            modify_db_cluster_struct = {
-              db_cluster_identifier: @cloud_id,
-              apply_immediately: true,
-              backup_retention_period: @config["backup_retention_period"],
-              db_cluster_parameter_group_name: @config["parameter_group_name"],
-              master_user_password: @config["password"],
-              preferred_backup_window: @config["preferred_backup_window"]
-            }
-
-            modify_db_cluster_struct[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster(modify_db_cluster_struct)
-
-            MU.retrier(wait: 10, max: 240, loop_if: Proc.new { cloud_desc(use_cache: false).status != "available" }) { |retries, _wait|
-              if retries > 0 and retries % 10 == 0
-                MU.log "Waiting for modifications on RDS cluster #{@cloud_id}...", MU::NOTICE
-              end
-            }
-          end
-
-          do_naming
-          @cloud_id
         end
 
         # Create a subnet group for a database.
@@ -539,6 +529,11 @@ module MU
         def createNewSnapshot
           snap_id = @deploy.getResourceName(@config["name"]) + Time.new.strftime("%M%S").to_s
           src_ref = MU::Config::Ref.get(@config["source"])
+          src_ref.kitten
+          if !src_ref.id
+            MU.log "Failed to get an id from reference for creating a snapshot", MU::ERR, details: @config['source']
+            raise "Failed to get an id from reference for creating a snapshot"
+          end
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidDBClusterStateFault], wait: 60, max: 10) {
             if @config["create_cluster"]
@@ -1026,6 +1021,8 @@ module MU
             end
           end
 
+          db["engine"] = "oracle-se2" if db["engine"] == "oracle"
+
           engine_cfg = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
 
           if !engine_cfg or engine_cfg['versions'].empty? or engine_cfg['families'].empty?
@@ -1123,8 +1120,8 @@ module MU
           params = genericParams
           params[:storage_encrypted] = @config["storage_encrypted"]
           params[:master_user_password] = @config['password']
-          params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
           params[:engine_version] = @config["engine_version"]
+          params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
           params[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
 
           if @config['create_cluster']
@@ -1153,7 +1150,9 @@ module MU
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
+              [:storage_encrypted, :master_user_password, :engine_version, :allocated_storage, :backup_retention_period, :preferred_backup_window, :master_username, :db_name, :database_name].each { |p| params.delete(p) }
               MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
+              pp params
               if @config['create_cluster']
                 MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(params)
               else
@@ -1191,7 +1190,7 @@ module MU
           params[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
 
 
-          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
+          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 6, wait: 20) {
             MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
             if @config['create_cluster']
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_to_point_in_time(params)
@@ -1233,7 +1232,7 @@ module MU
             end
           }
 
-          MU.retrier([Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotAllowedFault], max: 5, wait: 10, on_retry: on_retry) {
+          MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotAllowedFault], max: 10, wait: 30, on_retry: on_retry) {
             MU.log "Creating read replica database instance #{@cloud_id} for #{@config['source'].id}"
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(params)
           }
@@ -1323,12 +1322,7 @@ module MU
             end
 
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
-
-            MU.retrier(wait: 10, max: 240, loop_if: Proc.new { cloud_desc(use_cache: false).db_instance_status != "available" }) { |retries, _wait|
-              if retries > 0 and retries % 10 == 0
-                MU.log "Waiting for modifications on RDS database #{@cloud_id}...", MU::NOTICE
-              end
-            }
+            wait_until_available
 
           end
 

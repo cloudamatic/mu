@@ -53,7 +53,7 @@ module MU
             },
             "engine_version" => {"type" => "string"},
             "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
+                "enum" => ["mysql", "postgres", "oracle", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
                 "type" => "string"
             },
             "add_cluster_node" => {

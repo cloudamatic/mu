@@ -26,6 +26,14 @@ databases:
   - slowquery
   multi_az_on_create: true
   master_user: Bob
+- name: mysql-from-snap
+  size: db.t2.small
+  engine: mysql
+  vpc:
+    name: rdstests
+  creation_style: new_snapshot
+  source:
+    name: mysql-base
 - name: mysql-point-in-time
   creation_style: point_in_time
   size: db.t2.micro
@@ -37,3 +45,24 @@ databases:
     name: mysql-base
   vpc:
     name: rdstests
+- name: oracle-base
+  size: db.m5.large
+  engine: oracle
+  vpc:
+    name: rdstests
+- name: oracle-from-snap
+  size: db.m5.large
+  engine: oracle
+  vpc:
+    name: rdstests
+  creation_style: new_snapshot
+  source:
+    name: oracle-base
+- name: oracle-point-in-time
+  size: db.m5.large
+  engine: oracle
+  vpc:
+    name: rdstests
+  creation_style: point_in_time
+  source:
+    name: oracle-base
