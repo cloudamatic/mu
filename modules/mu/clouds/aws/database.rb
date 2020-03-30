@@ -187,9 +187,9 @@ module MU
           elsif args[:tag_value]
             MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
               resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
-                  resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: args[:region], credentials: args[:credentials])
+                resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: args[:region], credentials: args[:credentials])
               )
-              if resp && resp.tag_list && !resp.tag_list.empty?
+              if resp and resp.tag_list
                 resp.tag_list.each { |tag|
                   found[db.db_instance_identifier] = db if tag.key == args[:tag_key] and tag.value == args[:tag_value]
                 }
@@ -646,29 +646,18 @@ module MU
 
           threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster) { |id|
             MU.log "Deleting RDS subnet group #{id}"
-            if !noop
-              MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
-                MU::Cloud::AWS.rds(region: region).delete_db_subnet_group(db_subnet_group_name: id)
-              }
-            end
+            MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
+              MU::Cloud::AWS.rds(region: region).delete_db_subnet_group(db_subnet_group_name: id) if !noop
+            }
           }
 
-          threads.concat threaded_resource_purge(:describe_db_parameter_groups, :db_parameter_groups, :db_parameter_group_name, "pg", region, credentials, ignoremaster) { |id|
-            MU.log "Deleting RDS database parameter group #{id}"
-            if !noop
+          ["db", "db_cluster"].each { |type|
+            threads.concat threaded_resource_purge("describe_#{type}_parameter_groups".to_sym, "#{type}_parameter_groups".to_sym, "#{type}_parameter_group_name".to_sym, "pg", region, credentials, ignoremaster) { |id|
+              MU.log "Deleting RDS #{type} parameter group #{id}"
               MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
-                MU::Cloud::AWS.rds(region: region).delete_db_parameter_group(db_parameter_group_name: id)
+                MU::Cloud::AWS.rds(region: region).send("delete_#{type}_parameter_group", { "#{type}_parameter_group_name".to_sym => id }) if !noop
               }
-            end
-          }
-
-          threads.concat threaded_resource_purge(:describe_db_cluster_parameter_groups, :db_cluster_parameter_groups, :db_cluster_parameter_group_name, "pg", region, credentials, ignoremaster) { |id|
-            MU.log "Deleting RDS cluster parameter group #{id}"
-            if !noop
-              MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
-                MU::Cloud::AWS.rds(region: region).delete_db_cluster_parameter_group(db_cluster_parameter_group_name: id)
-              }
-            end
+            }
           }
 
           # Wait for all of the databases subnet/parameter groups to finish cleanup before proceeding
@@ -718,7 +707,7 @@ module MU
             "cluster_mode" => {
               "type" => "string",
               "description" => "The DB engine mode of the DB cluster",
-              "enum" => ["provisioned", "serverless", "parallelquery", "global"],
+              "enum" => ["provisioned", "serverless", "parallelquery", "global", "multimaster"],
               "default" => "provisioned"
             },
             "storage_type" => {
@@ -949,7 +938,7 @@ module MU
 
           if !db['vpc']
             db["vpc"] = MU::Cloud::AWS::VPC.defaultVpc(db['region'], db['credentials'])
-            if db['vpc']
+            if db['vpc'] and !(db['engine'].match(/sqlserver/) and db['create_read_replica'])
               MU.log "Using default VPC for database '#{db['name']}; this sets 'publicly_accessible' to true.", MU::WARN
               db['publicly_accessible'] = true
             end
@@ -960,6 +949,10 @@ module MU
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
               MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
               db['publicly_accessible'] = false
+            end
+            if db['engine'].match(/sqlserver/) and db['create_read_replica']
+              MU.log "SQL Server does not support read replicas in VPC deployments", MU::ERR
+              ok = false
             end
           end
 
@@ -1008,8 +1001,10 @@ module MU
           if db['create_cluster'] or db["member_of_cluster"] or (db['engine'] and db['engine'].match(/aurora/))
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
-              if db["engine_version"].match(/^5\.6/) or db["cluster_mode"] == "serverless"
+              if (db['engine_version'] and db["engine_version"].match(/^5\.6/)) or db["cluster_mode"] == "serverless"
                 db["engine"] = "aurora"
+                db["engine_version"] = "5.6"
+                db['publicly_accessible'] = false
               else
                 db["engine"] = "aurora-mysql"
               end
@@ -1022,6 +1017,7 @@ module MU
           end
 
           db["engine"] = "oracle-se2" if db["engine"] == "oracle"
+          db["engine"] = "sqlserver-ex" if db["engine"] == "sqlserver"
 
           engine_cfg = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
 

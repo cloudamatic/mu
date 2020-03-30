@@ -16,9 +16,18 @@ databases:
   vpc:
     name: rdstests
   master_user: Bob
-- name: mysql-base
+
+#- name: mysqlcluster
+#  size: db.t3.medium
+#  engine: aurora
+#  cluster_mode: serverless
+#  create_cluster: true
+#  vpc:
+#    name: rdstests
+
+- name: maria-base
   size: db.t2.small
-  engine: mysql
+  engine: mariadb
   vpc:
     name: rdstests
   create_read_replica: true
@@ -26,25 +35,26 @@ databases:
   - slowquery
   multi_az_on_create: true
   master_user: Bob
-- name: mysql-from-snap
+- name: maria-from-snap
   size: db.t2.small
-  engine: mysql
+  engine: mariadb
   vpc:
     name: rdstests
   creation_style: new_snapshot
   source:
-    name: mysql-base
-- name: mysql-point-in-time
+    name: maria-base
+- name: maria-point-in-time
   creation_style: point_in_time
   size: db.t2.micro
-  engine: mysql
+  engine: mariadb
   cloudwatch_logs:
   - error
   - general
   source:
-    name: mysql-base
+    name: maria-base
   vpc:
     name: rdstests
+
 - name: oracle-base
   size: db.m5.large
   engine: oracle
@@ -66,3 +76,25 @@ databases:
   creation_style: point_in_time
   source:
     name: oracle-base
+
+- name: sqlserver-base
+  size: db.t2.small
+  engine: sqlserver-ex
+  vpc:
+    name: rdstests
+- name: sqlserver-from-snap
+  size: db.t2.small
+  engine: sqlserver-ex
+  vpc:
+    name: rdstests
+  creation_style: new_snapshot
+  source:
+    name: sqlserver-base
+- name: sqlserver-point-in-time
+  size: db.t2.small
+  engine: sqlserver-ex
+  vpc:
+    name: rdstests
+  creation_style: point_in_time
+  source:
+    name: sqlserver-base
