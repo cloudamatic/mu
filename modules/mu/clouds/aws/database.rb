@@ -116,7 +116,7 @@ module MU
               createNewSnapshot
             end
 
-          @config["subnet_group_name"] = @mu_name
+          @config["subnet_group_name"] = @mu_name if @vpc
 
           if @config["create_cluster"]
             getPassword
@@ -252,10 +252,10 @@ module MU
             paramhash = {
               db_cluster_identifier: @cloud_id,
               engine: @config["engine"],
-              db_subnet_group_name: @config["subnet_group_name"].downcase,
               vpc_security_group_ids: @config["vpc_security_group_ids"],
               tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
             }
+            paramhash[:db_subnet_group_name] = @config["subnet_group_name"].downcase if @vpc
             if @config['cloudwatch_logs']
               paramhash[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
             end
@@ -603,10 +603,16 @@ module MU
         # @return [Array<Thread>]
         def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster)
           deletia = []
+
           resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).send(describe_method)
           resp.send(list_method).each { |resource|
-            arn = MU::Cloud::AWS::Database.getARN(resource.send(id_method), arn_type, "rds", region: region, credentials: credentials)
-            tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+            begin
+              arn = MU::Cloud::AWS::Database.getARN(resource.send(id_method), arn_type, "rds", region: region, credentials: credentials)
+              tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+            rescue Aws::RDS::Errors::InvalidParameterValue => e
+              MU.log "Failed to fetch ARN or tags of resource via #{id_method.to_s}", MU::WARN, details: resource
+              next
+            end
 
             if should_delete?(tags, ignoremaster)
               deletia << resource.send(id_method)
@@ -905,7 +911,6 @@ module MU
 
           ok = false if !validate_source_data(db)
 
-
           ok = false if !validate_engine(db)
 
           db["license_model"] ||=
@@ -919,15 +924,14 @@ module MU
 
           ok = false if !validate_master_password(db)
 
-
           if db["multi_az_on_create"] and db["multi_az_on_deploy"]
             MU.log "Both of multi_az_on_create and multi_az_on_deploy cannot be true", MU::ERR
             ok = false
           end
 
           if (db["db_parameter_group_parameters"] or db["cluster_parameter_group_parameters"]) and db["parameter_group_family"].nil?
-            MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
-            ok = false
+            engine = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
+            db["parameter_group_family"] = engine['raw'][db['engine_version']].db_parameter_group_family
           end
 
           # Adding rules for Database instance storage. This varies depending on storage type and database type. 
@@ -1063,7 +1067,7 @@ module MU
 
           getPassword
           if @config['source'].nil? or @config['region'] != @config['source'].region
-            createSubnetGroup
+            createSubnetGroup if @vpc
           else
             MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
           end
@@ -1100,7 +1104,7 @@ module MU
           raise MuError, "Couldn't resolve cluster node reference to a unique live Database in #{@mu_name}" if cluster.nil? || cluster.cloud_id.nil?
           @config['cluster_identifier'] = cluster.cloud_id.downcase
           # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
-          @config["subnet_group_name"] = @config['cluster_identifier']
+          @config["subnet_group_name"] = @config['cluster_identifier'] if @vpc
           @config["creation_style"] = "new" if @config["creation_style"] != "new"
 
           if @config.has_key?("parameter_group_family")
@@ -1230,6 +1234,7 @@ module MU
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotAllowedFault], max: 10, wait: 30, on_retry: on_retry) {
             MU.log "Creating read replica database instance #{@cloud_id} for #{@config['source'].id}"
+pp params
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(params)
           }
         end
@@ -1503,9 +1508,9 @@ module MU
               MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::DBSnapshotAlreadyExists], wait: 60, max: 20, on_retry: on_retry) {
                 MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(params)
               }
-              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound]) {
+              del_db = nil
+              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and del_db.db_instance_status != "deleted" }) {
                 del_db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region).values.first
-                break if del_db.nil? or del_db.db_instance_status == "deleted"
               }
             end
           end

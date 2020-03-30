@@ -1,4 +1,4 @@
-# clouds: AWS
+ clouds: AWS
 ---
 appname: smoketest
 vpcs:
@@ -13,6 +13,9 @@ databases:
   backup_retention_period: 10
   cluster_node_count: 2
   create_cluster: true
+  cluster_parameter_group_parameters:
+  - name: log_disconnections
+    value: "0"
   vpc:
     name: rdstests
   master_user: Bob
@@ -28,9 +31,14 @@ databases:
 - name: maria-base
   size: db.t2.small
   engine: mariadb
+  db_parameter_group_parameters:
+  - name: autocommit
+    value: "0"
   vpc:
     name: rdstests
+  region: us-east-1
   create_read_replica: true
+  read_replica_region: us-east-2
   cloudwatch_logs:
   - slowquery
   multi_az_on_create: true

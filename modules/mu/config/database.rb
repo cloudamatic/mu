@@ -334,11 +334,15 @@ module MU
             replica["credentials"] = db["credentials"]
             replica['create_read_replica'] = false
             replica["create_cluster"] = false
+            replica["region"] = db['read_replica_region']
+            if db['region'] != replica['region']
+              replica.delete("vpc")
+            end
             replica['read_replica_of'] = {
               "name" => db['name'],
               "cloud" => db['cloud'],
+              "region" => db['region'],
               "credentials" => db['credentials'],
-              "region" => db['read_replica_region'] || db['region']
             }
             replica['dependencies'] << {
               "type" => "database",

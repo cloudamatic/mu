@@ -1267,7 +1267,7 @@ module MU
 
         # Try to locate the default VPC for a region, and return a BoK-style
         # config fragment for something that might want to live in it.
-        def defaultVpc(region, credentials)
+        def self.defaultVpc(region, credentials)
           cfg_fragment = nil
           MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_vpcs.vpcs.each { |vpc|
             if vpc.is_default
