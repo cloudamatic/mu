@@ -1318,7 +1318,7 @@ module MU
 
           if @deploy
             MU::Cloud::AWS.createStandardTags(
-              resource_id,
+              creation.volume_id,
               region: @config['region'],
               credentials: @config['credentials'],
               optional: @config['optional_tags'],
