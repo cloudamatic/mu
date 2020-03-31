@@ -1,4 +1,4 @@
- clouds: AWS
+# clouds: AWS
 ---
 appname: smoketest
 vpcs:

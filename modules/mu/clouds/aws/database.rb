@@ -1152,7 +1152,6 @@ module MU
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
               [:storage_encrypted, :master_user_password, :engine_version, :allocated_storage, :backup_retention_period, :preferred_backup_window, :master_username, :db_name, :database_name].each { |p| params.delete(p) }
               MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
-              pp params
               if @config['create_cluster']
                 MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(params)
               else
@@ -1234,7 +1233,6 @@ module MU
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotAllowedFault], max: 10, wait: 30, on_retry: on_retry) {
             MU.log "Creating read replica database instance #{@cloud_id} for #{@config['source'].id}"
-pp params
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(params)
           }
         end
@@ -1306,9 +1304,13 @@ pp params
           if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"]) or @config["read_replica_of"]
             mod_config = {
               db_instance_identifier: @cloud_id,
-              vpc_security_group_ids: @config["vpc_security_group_ids"],
               apply_immediately: true
             }
+            if !@config["read_replica_of"] or @config['region'] == @config['source'].region
+              mod_config[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
+            end
+
+
             if !@config["read_replica_of"]
               mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
               mod_config[:backup_retention_period] = @config["backup_retention_period"]
@@ -1322,7 +1324,14 @@ pp params
               mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"]
             end
 
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
+            begin
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
+            rescue Aws::RDS::Errors::InvalidParameterValue => e
+              if e.message.match(/Invalid security group/)
+                MU.log e.message+" modifying "+@cloud_id, MU::ERR, details: mod_config
+              end
+              raise e
+            end
             wait_until_available
 
           end
