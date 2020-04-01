@@ -883,6 +883,17 @@ module MU
 
           begin
             getIAMProfile
+
+            dbs = @deploy.findLitterMate(type: "database", return_all: true)
+            if dbs
+              dbs.each_pair { |sib_name, sib|
+                @groomer.groomer_class.grantSecretAccess(@mu_name, sib_name, "database_credentials")
+                if sib.config and sib.config['auth_vault']
+                  @groomer.groomer_class.grantSecretAccess(@mu_name, sib.config['auth_vault']['vault'], sib.config['auth_vault']['item'])
+                end
+              }
+            end
+
             if @config['groom'].nil? or @config['groom']
               @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: (windows? and @config['groomer'] != "Ansible"), timeout: @config['groomer_timeout'])
             end
