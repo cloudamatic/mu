@@ -48,7 +48,7 @@ module MU
               "properties" => {
                 "version" => {
                   "type" => "string",
-                  "default" => "1.13",
+                  "default" => "1.14",
                   "description" => "Version of Kubernetes control plane to deploy",
                 },
                 "max_pods" => {
