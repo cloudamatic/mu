@@ -17,22 +17,22 @@ rhel71: &4
   us-west-1: ami-04898e596c06e802b
   us-west-2: ami-02db5457189a8a8c2
 centos6: &3
-  us-east-1: ami-06b6c01abc6998348
-  ap-northeast-1: ami-0c5da73fde2cb6437
-  ap-northeast-2: ami-0134fce6dc00eb00d
-  ap-south-1: ami-0e59a612e7c84836b
-  ap-southeast-1: ami-0e16974f528ae0dae
-  ap-southeast-2: ami-0e2feddf3dbf4d539
-  ca-central-1: ami-089236a344dadad5f
-  eu-central-1: ami-0c4eed3fe046c3917
-  eu-north-1: ami-05f636e89d0362c14
-  eu-west-1: ami-00c50b11d713f90d3
-  eu-west-2: ami-06cc78c32eed7f944
-  eu-west-3: ami-0ba626236ad786c54
-  sa-east-1: ami-07c3b2a5a41e92376
-  us-east-2: ami-01129e636778acfbc
-  us-west-1: ami-0632e646cd5089ffc
-  us-west-2: ami-0ce4c9f2e1037de53
+  us-east-1: ami-0ccdc671f12147a1d
+  us-east-2: ami-00d0e8bc2f05ab949
+  ap-northeast-1: ami-0726801ceef87f5f8
+  ap-northeast-2: ami-05fa4afc4a0493b0a
+  ap-south-1: ami-0d6e4f3b6592b3139
+  ap-southeast-1: ami-0c988e3dc80b14653
+  ap-southeast-2: ami-02ac856fd094675ef
+  ca-central-1: ami-0ce7e343953af2292
+  eu-central-1: ami-0ce8317423cea27b8
+  eu-north-1: ami-0a923b493d5fc9743
+  eu-west-1: ami-06e0f02328921c865
+  eu-west-2: ami-07ae118c8814df140
+  eu-west-3: ami-03c1017cd1ccc6e9d
+  sa-east-1: ami-05212ae133b9c3ba1
+  us-west-1: ami-0b05ec54412b9f8b0
+  us-west-2: ami-0447e036b102b2ca0
 centos7:
   us-east-1: ami-07e6f661e71ad964b
   ap-northeast-1: ami-0988180d74897c639
