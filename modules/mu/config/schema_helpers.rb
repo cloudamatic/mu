@@ -302,7 +302,7 @@ module MU
             _toplevel_required, cloudschema = cloudclass.schema(self)
 
             newschema = schema_chunk["items"].dup
-            newschema["properties"].merge!(cloudschema)
+            MU::Config.schemaMerge(newschema["properties"], cloudschema, item["cloud"])
             newschema
           else
             schema_chunk["items"].dup
