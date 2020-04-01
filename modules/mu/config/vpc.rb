@@ -419,7 +419,7 @@ module MU
           if configurator.updating and configurator.existing_deploy and
              configurator.existing_deploy.original_config['vpcs']
             configurator.existing_deploy.original_config['vpcs'].each { |v|
-              if v['name'] == vpc['name']
+              if v['name'].to_s == vpc['name'].to_s
                 vpc['ip_block'] = v['ip_block']
                 vpc['peers'] ||= []
                 vpc['peers'].concat(v['peers'])
@@ -431,6 +431,10 @@ module MU
                 break
               end
             }
+            if !vpc['ip_block']
+              MU.log "Loading existing deploy but can't find IP block of VPC #{vpc['name']}", MU::ERR
+              ok = false
+            end
           else
             using_default_cidr = true
             vpc['ip_block'] = "10.0.0.0/16"

@@ -405,13 +405,14 @@ module MU
               "proto" => l["instance_protocol"],
               "port" => l["instance_port"]
             }
-            if lb["healthcheck"]
-              hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
-              tg["healthcheck"] = lb['healthcheck'].dup
+            l['healthcheck'] ||= lb['healthcheck'] if lb['healthcheck']
+            if l["healthcheck"]
+              hc_target = l['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+              tg["healthcheck"] = l['healthcheck'].dup
               proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
               tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
               tg['healthcheck']["httpcode"] = "200,301,302"
-              MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
+              MU.log "Converting classic-style ELB health check target #{l['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
             end
             lb["targetgroups"] << tg
           }
