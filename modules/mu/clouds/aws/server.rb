@@ -898,8 +898,10 @@ module MU
               @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: (windows? and @config['groomer'] != "Ansible"), timeout: @config['groomer_timeout'])
             end
           rescue MU::Groomer::RunError => e
+            raise e if !@config['create_image'].nil? and !@config['image_created']
             MU.log "Proceeding after failed initial Groomer run, but #{@mu_name} may not behave as expected!", MU::WARN, details: e.message
           rescue StandardError => e
+            raise e if !@config['create_image'].nil? and !@config['image_created']
             MU.log "Caught #{e.inspect} on #{@mu_name} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
           end
 

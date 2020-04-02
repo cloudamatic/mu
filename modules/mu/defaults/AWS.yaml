@@ -34,22 +34,22 @@ centos6: &3
   us-west-1: ami-0b05ec54412b9f8b0
   us-west-2: ami-0447e036b102b2ca0
 centos7:
-  us-east-1: ami-07e6f661e71ad964b
-  ap-northeast-1: ami-0988180d74897c639
-  ap-northeast-2: ami-0e77cd1c7024b8ae0
-  ap-south-1: ami-02bd479122041000a
-  ap-southeast-1: ami-017767778ef9db671
-  ap-southeast-2: ami-05b09a58c3964d67d
-  ca-central-1: ami-0a59a176d810fcc5f
-  eu-central-1: ami-0b48a421fb05d96af
-  eu-north-1: ami-02337601ea5dc4a5d
-  eu-west-1: ami-0b0a55b7423eeac07
-  eu-west-2: ami-060518b40b25b9eb4
-  eu-west-3: ami-060957bb3adacd831
-  sa-east-1: ami-0c706132b35071de6
-  us-east-2: ami-0db4c266ed0bb958b
-  us-west-1: ami-0980f6eb52c998793
-  us-west-2: ami-07f2ed4755c01c05c
+  us-east-1: ami-067256ca1497c924d
+  ap-northeast-1: ami-07c1e51354fdfd362
+  ap-northeast-2: ami-042b761c93d6df2f1
+  ap-south-1: ami-02e879f52322e7c98
+  ap-southeast-1: ami-0487e9f84d0ffde89
+  ap-southeast-2: ami-0e854dab39fd6a427
+  ca-central-1: ami-05a27d311b585a70b
+  eu-central-1: ami-0e396d00c787b4f47
+  eu-north-1: ami-087763a2ba60b2bfe
+  eu-west-1: ami-04e3bd9335a14e635
+  eu-west-2: ami-0efd34a8d1fc2b104
+  eu-west-3: ami-08d0bcbc780448cf8
+  sa-east-1: ami-0284f4a0968263cf0
+  us-east-2: ami-0292786917d1e3015
+  us-west-1: ami-0ba622529dcdff2bb
+  us-west-2: ami-079a309ca6261d7f6
 ubuntu16: &2
   us-east-1: ami-bcdc16c6
   us-west-1: ami-1b17257b

@@ -91,6 +91,7 @@ $opts[:clouds].each { |cloud|
         end
         next if !needed
       end
+      MU.log "Loading "+bok_dir+"/"+cloud+"/"+platform+".yaml"
       conf_engine = MU::Config.new(
         bok_dir+"/"+cloud+"/"+platform+".yaml",
         default_credentials: $opts[(cloud.downcase+"_creds").to_sym]
