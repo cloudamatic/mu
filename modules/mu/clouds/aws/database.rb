@@ -184,21 +184,44 @@ module MU
             rescue Aws::RDS::Errors::DBClusterNotFoundFault
             end
             return { args[:cloud_id] => resp } if resp
-          elsif args[:tag_value]
-            MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
-              resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
-                resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", "rds", region: args[:region], credentials: args[:credentials])
-              )
-              if resp and resp.tag_list
-                resp.tag_list.each { |tag|
-                  found[db.db_instance_identifier] = db if tag.key == args[:tag_key] and tag.value == args[:tag_value]
-                }
-              end
-            }
+
           else
-            MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances.db_instances.each { |db|
-              found[db.db_instance_identifier] = db
-            }
+            marker = nil
+            if !args[:cluster]
+              begin
+                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances
+                marker = resp.marker
+                resp.db_instances.each { |db|
+                  found[db.db_instance_identifier] = db
+                }
+              end while marker.nil?
+            elsif args[:cluster] or !args.has_key?(:cluster)
+              begin
+                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_clusters
+                marker = resp.marker
+                resp.db_clusters.each { |db|
+                  found[db.db_cluster_identifier] = db
+                }
+              end while marker.nil?
+            end
+            if args[:tag_key] and args[:tag_value]
+              keep = []
+              found.each_pair { |id, desc|
+                noun = desc.is_a?(Aws::RDS::Types::DBCluster) ? "cluster" : "db"
+                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).list_tags_for_resource(
+                  resource_name: MU::Cloud::AWS::Database.getARN(id, noun, "rds", region: args[:region], credentials: args[:credentials])
+                )
+                if resp and resp.tag_list
+                  resp.tag_list.each { |tag|
+                    if tag.key == args[:tag_key] and tag.value == args[:tag_value]
+                      keep << id
+                      break
+                    end
+                  }
+                end
+              }
+              found.reject! { |k, _v| !keep.include?(k) }
+            end
           end
 
           return found
@@ -970,7 +993,7 @@ module MU
 
           if db["parameter_group_family"] and
              !engine_cfg['families'].include?(db['parameter_group_family'])
-            MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported in #{db['region']}", MU::ERR, details: { "Valid parameter families:" => engine_cfg['families'].uniq.sort }
+            MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported.", MU::ERR, details: engine_cfg['families'].uniq.sort
             ok = false
           end
 
@@ -1083,7 +1106,7 @@ puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']
 
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 15, wait: 20) {
-            MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
+            MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup '#{@config['restore_time']}' of #{@config['source'].id}"
             if @config['create_cluster']
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_to_point_in_time(params)
             else
