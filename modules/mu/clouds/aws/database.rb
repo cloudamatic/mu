@@ -279,7 +279,7 @@ module MU
           # Finding subnets, creating security groups/adding holes, create subnet group
           subnet_ids = []
 
-          raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
+          raise MuError.new "Didn't find the VPC specified for #{@mu_name}", details: @config["vpc"].to_h unless @vpc
 
           mySubnets.each { |subnet|
             next if @config["publicly_accessible"] and subnet.private?
@@ -465,20 +465,22 @@ module MU
             MU.log "Failed to get an id from reference for creating a snapshot", MU::ERR, details: @config['source']
             raise "Failed to get an id from reference for creating a snapshot"
           end
+          params = {
+            :tags => @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+          }
+          if @config["create_cluster"]
+            params[:db_cluster_snapshot_identifier] = snap_id
+            params[:db_cluster_identifier] = src_ref.id
+          else
+            params[:db_snapshot_identifier] = snap_id
+            params[:db_instance_identifier] = src_ref.id
+          end
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidDBClusterStateFault], wait: 60, max: 10) {
             if @config["create_cluster"]
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster_snapshot(
-                db_cluster_snapshot_identifier: snap_id,
-                db_cluster_identifier: src_ref.id,
-                tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
-              )
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster_snapshot(params)
             else
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_snapshot(
-                db_snapshot_identifier: snap_id,
-                db_instance_identifier: src_ref.id,
-                tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
-              )
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_snapshot(params)
             end
           }
 
@@ -927,9 +929,7 @@ module MU
         def self.validate_engine(db)
           ok = true
 
-          is_cluster = db['create_cluster'] or db["member_of_cluster"] or db["add_cluster_node"] or (db['engine'] and db['engine'].match(/aurora/))
-
-          if is_cluster
+          if db['create_cluster'] or db["member_of_cluster"] or db["add_cluster_node"] or (db['engine'] and db['engine'].match(/aurora/))
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
               if (db['engine_version'] and db["engine_version"].match(/^5\.6/)) or db["cluster_mode"] == "serverless"
@@ -997,9 +997,12 @@ module MU
 
 
         def add_cluster_node
-          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten
+          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten(@deploy, debug: true)
+          if cluster.nil? or cluster.cloud_id.nil?
+puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']['name']).class.name
+            raise MuError.new "Failed to resolve parent cluster of #{@mu_name}", details: @config["member_of_cluster"].to_h
+          end
 
-          raise MuError, "Couldn't resolve cluster node reference to a unique live Database in #{@mu_name}" if cluster.nil? || cluster.cloud_id.nil?
           @config['cluster_identifier'] = cluster.cloud_id.downcase
           # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
           @config["subnet_group_name"] = @config['cluster_identifier'] if @vpc
@@ -1051,20 +1054,10 @@ module MU
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
               [:storage_encrypted, :master_user_password, :engine_version, :allocated_storage, :backup_retention_period, :preferred_backup_window, :master_username, :db_name, :database_name].each { |p| params.delete(p) }
               MU.log "Creating database #{noun} #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("restore_db_#{noun}_from_snapshot".to_sym, params)
-#              if @config['create_cluster']
-#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(params)
-#              else
-#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
-#              end
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("restore_db_#{noun}_from_#{noun == "instance" ? "db_" : ""}snapshot".to_sym, params)
             else
               MU.log "Creating pristine database #{noun} #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("create_db_#{noun}".to_sym, params)
-#              if @config['create_cluster']
-#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster(params)
-#              else
-#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
-#              end
             end
           }
         end
@@ -1073,8 +1066,7 @@ module MU
         def create_point_in_time
           @config["source"].kitten(@deploy, debug: true)
           if !@config["source"].id
-            MU.log "Database '#{@config['name']}' couldn't resolve cloud id for source database", MU::ERR, details: @config["source"].to_h
-            raise MuError, "Database '#{@config['name']}' couldn't resolve cloud id for source database"
+            raise MuError.new "Database '#{@config['name']}' couldn't resolve cloud id for source database", details: @config["source"].to_h
           end
 
           params = genericParams
@@ -1090,7 +1082,7 @@ module MU
           params[:use_latest_restorable_time] = true if @config['restore_time'] == "latest"
 
 
-          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 6, wait: 20) {
+          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 15, wait: 20) {
             MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup #{@config['restore_time']} of #{@config['source'].id}"
             if @config['create_cluster']
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_to_point_in_time(params)
@@ -1104,8 +1096,7 @@ module MU
         def create_read_replica
           @config["source"].kitten(@deploy, debug: true)
           if !@config["source"].id
-            MU.log "Database '#{@config['name']}' couldn't resolve cloud id for source database", MU::ERR, details: @config["source"].to_h
-            raise MuError, "Database '#{@config['name']}' couldn't resolve cloud id for source database"
+            raise MuError.new "Database '#{@config['name']}' couldn't resolve cloud id for source database", details: @config["source"].to_h
           end
 
           params = {
@@ -1402,9 +1393,8 @@ module MU
                 end
               }
               del_db = nil
-              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and del_db.db_instance_status != "deleted" }) {
+              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and ((!cluster and del_db.db_instance_status != "deleted") or (cluster and del_db.status != "deleted")) }) {
                 del_db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, cluster: cluster).values.first
-MU.log cloud_id, MU::NOTICE, details: del_db if cluster
               }
             end
           end

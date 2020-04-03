@@ -270,7 +270,7 @@ module MU
         def createSubnetGroup
           subnet_ids = []
           if @config["vpc"] && !@config["vpc"].empty?
-            raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
+            raise MuError.new "Didn't find the VPC specified for #{@mu_name}", details: @config["vpc"].to_h unless @vpc
 
             vpc_id = @vpc.cloud_id
 
@@ -283,7 +283,7 @@ module MU
             else
               @config["vpc"]["subnets"].each { |subnet|
                 subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+                raise MuError.new "Couldn't find a live subnet matching #{subnet} in #{@vpc}", details: @vpc.subnets if subnet_obj.nil?
                 subnet_ids << subnet_obj.cloud_id
               }
             end

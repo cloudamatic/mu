@@ -61,10 +61,7 @@ module MU
               "description" => "Internal use",
               "default" => false
             },
-            "member_of_cluster" => {
-              "description" => "Internal use",
-              "type" => "object"
-            },
+            "member_of_cluster" => MU::Config::Ref.schema(type: "databases", desc: "Internal use"),
             "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
             "dns_sync_wait" => {
                 "type" => "boolean",
@@ -369,7 +366,9 @@ module MU
             node["member_of_cluster"] = {
               "name" => db['name'],
               "cloud" => db['cloud'],
-              "region" => db['region']
+              "region" => db['region'],
+              "credentials" => db['credentials'],
+              "type" => "databases"
             }
             # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
             node['dependencies'] << {

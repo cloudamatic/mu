@@ -294,8 +294,9 @@ module MU
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
-    def initialize(message = nil, silent: false)
-      MU.log message, MU::ERR, details: caller[2] if !message.nil? and !silent
+    def initialize(message = nil, silent: false, details: nil)
+      details ||= caller[2]
+      MU.log message, MU::ERR, details: details if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
