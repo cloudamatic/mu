@@ -1442,7 +1442,7 @@ puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']
             secgroup = MU::Cloud::AWS.rds(region: region, credentials: credentials).describe_db_security_groups(db_security_group_name: cloud_id)
             rdssecgroups << cloud_id if !secgroup.nil?
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
-            # this is normal in VPC world
+            MU.log "No such RDS security group #{sg} to purge", MU::DEBUG
           end
 
           # RDS security groups can depend on EC2 security groups, do these last
