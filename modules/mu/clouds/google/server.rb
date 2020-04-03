@@ -1001,6 +1001,22 @@ next if !create
           end
         end
 
+        # Return all of the IP addresses, public and private, from all of our
+        # network interfaces.
+        # @return [Array<String>]
+        def listIPs
+          ips = []
+          cloud_desc.network_interfaces.each { |iface|
+            ips << iface.network_ip
+            if iface.access_configs
+              iface.access_configs.each { |acfg|
+                ips << acfg.nat_ip if acfg.nat_ip
+              }
+            end
+          }
+          ips
+        end
+
         # return [String]: A password string.
         def getWindowsAdminPassword(use_cache: true)
           @config['windows_auth_vault'] ||= {

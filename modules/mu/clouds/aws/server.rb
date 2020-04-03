@@ -1982,6 +1982,13 @@ module MU
           configured_storage
         end
 
+        # Return all of the IP addresses, public and private, from all of our
+        # network interfaces.
+        # @return [Array<String>]
+        def listIPs
+          MU::Cloud::AWS::Server.getAddresses(cloud_desc).first
+        end
+
         private
 
         def bootstrapGroomer

@@ -1056,22 +1056,26 @@ module MU
             params[:iops] = @config["iops"] if @config['storage_type'] == "io1"
           end
 
+          noun = @config['create_cluster'] ? "cluster" : "instance"
+
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
               [:storage_encrypted, :master_user_password, :engine_version, :allocated_storage, :backup_retention_period, :preferred_backup_window, :master_username, :db_name, :database_name].each { |p| params.delete(p) }
-              MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
-              if @config['create_cluster']
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(params)
-              else
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
-              end
+              MU.log "Creating database #{noun} #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("restore_db_#{noun}_from_snapshot".to_sym, params)
+#              if @config['create_cluster']
+#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_from_snapshot(params)
+#              else
+#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_from_db_snapshot(params)
+#              end
             else
-              MU.log "Creating pristine database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
-              if @config['create_cluster']
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster(params)
-              else
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
-              end
+              MU.log "Creating pristine database #{noun} #{@cloud_id} (#{@config['name']}) in #{@config['region']}"
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("create_db_#{noun}".to_sym, params)
+#              if @config['create_cluster']
+#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster(params)
+#              else
+#                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance(params)
+#              end
             end
           }
         end

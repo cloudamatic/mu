@@ -393,6 +393,28 @@ module MU
           end
         end
 
+        # Return all of the IP addresses, public and private, from all of our
+        # network interfaces.
+        # @return [Array<String>]
+        def listIPs
+          ips = []
+          cloud_desc.network_profile.network_interfaces.each { |iface|
+            iface_id = Id.new(iface.is_a?(Hash) ? iface['id'] : iface.id)
+            iface_desc = MU::Cloud::Azure.network(credentials: @credentials).network_interfaces.get(@resource_group, iface_id.to_s)
+            iface_desc.ip_configurations.each { |ipcfg|
+              ips << ipcfg.private_ipaddress
+              if ipcfg.respond_to?(:public_ipaddress) and ipcfg.public_ipaddress
+                ip_id = Id.new(ipcfg.public_ipaddress.id)
+                ip_desc = MU::Cloud::Azure.network(credentials: @credentials).public_ipaddresses.get(@resource_group, ip_id.to_s)
+                if ip_desc
+                  ips << ip_desc.ip_address
+                end
+              end
+            }
+          }
+          ips
+        end
+
         # return [String]: A password string.
         def getWindowsAdminPassword
         end

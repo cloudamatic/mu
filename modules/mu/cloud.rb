@@ -256,7 +256,7 @@ module MU
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
         :class => generic_class_methods + [:validateInstanceType, :imageTimeStamp],
-        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume, :genericNAT]
+        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume, :genericNAT, :listIPs]
       },
       :ServerPool => {
         :has_multiples => false,
@@ -1704,17 +1704,9 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
 
           myFirewallRules.each { |acl|
             if acl.config["admin"]
-              acl.addRule([@nat.canonicalIP], proto: "tcp")
-              acl.addRule([@nat.canonicalIP], proto: "udp")
-              acl.addRule([@nat.canonicalIP], proto: "icmp")
-              # XXX this is an AWS-specific hack; we need to force Server
-              # implementations to expose a method that lists all of their
-              # internal IPs, akin to #canonicalIP
-              if @nat.cloud_desc and @nat.cloud_desc.respond_to?(:private_ip_address)
-                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "tcp")
-                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "udp")
-                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "icmp")
-              end
+              acl.addRule(@nat.listIPs, proto: "tcp")
+              acl.addRule(@nat.listIPs, proto: "udp")
+              acl.addRule(@nat.listIPs, proto: "icmp")
             end
           }
         end
