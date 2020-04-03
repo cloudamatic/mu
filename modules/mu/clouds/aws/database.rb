@@ -821,6 +821,10 @@ module MU
 
           ok = false if !validate_engine(db)
 
+          ok = false if !valid_read_replica?(db)
+
+          ok = false if !valid_cloudwatch_logs?(db)
+
           db["license_model"] ||=
             if ["postgres", "postgresql", "aurora-postgresql"].include?(db["engine"])
               "postgresql-license"
@@ -848,6 +852,16 @@ module MU
             ok = false
           end
 
+          ok = false if !validate_network_cfg(db)
+
+          ok
+        end
+
+        private
+
+        def self.validate_network_cfg(db)
+          ok = true
+
           if !db['vpc']
             db["vpc"] = MU::Cloud::AWS::VPC.defaultVpc(db['region'], db['credentials'])
             if db['vpc'] and !(db['engine'].match(/sqlserver/) and db['create_read_replica'])
@@ -870,10 +884,13 @@ module MU
 
           ok
         end
+        private_class_method :validate_network_cfg
 
-        private
+        def self.valid_read_replica?(db)
+          if !db['create_read_replica'] and !db['read_replica_of']
+            return true
+          end
 
-        def self.can_read_replica?(db)
           engine = get_supported_engines(db['region'], db['credentials'], engine: db['engine'])
           if engine.nil? or !engine['features'] or !engine['features'][db['engine_version']]
             return true # we can't be sure, so let the API sort it out later
@@ -885,7 +902,7 @@ module MU
           end
           true
         end
-        private_class_method :can_read_replica?
+        private_class_method :valid_read_replica?
 
         def self.valid_cloudwatch_logs?(db)
           return true if !db['cloudwatch_logs']
@@ -910,7 +927,9 @@ module MU
         def self.validate_engine(db)
           ok = true
 
-          if db['create_cluster'] or db["member_of_cluster"] or (db['engine'] and db['engine'].match(/aurora/))
+          is_cluster = db['create_cluster'] or db["member_of_cluster"] or db["add_cluster_node"] or (db['engine'] and db['engine'].match(/aurora/))
+
+          if is_cluster
             case db['engine']
             when "mysql", "aurora", "aurora-mysql"
               if (db['engine_version'] and db["engine_version"].match(/^5\.6/)) or db["cluster_mode"] == "serverless"
@@ -926,6 +945,7 @@ module MU
               ok = false
               MU.log "#{db['engine']} is not supported for clustering", MU::ERR
             end
+            db["create_cluster"] = true if !(db["member_of_cluster"] or db["add_cluster_node"])
           end
 
           db["engine"] = "oracle-se2" if db["engine"] == "oracle"
@@ -936,11 +956,6 @@ module MU
           if !engine_cfg or engine_cfg['versions'].empty? or engine_cfg['families'].empty?
             MU.log "RDS engine #{db['engine']} reports no supported versions in #{db['region']}", MU::ERR, details: engines.keys.sort
             return false
-          end
-
-          if db['engine'].match(/^aurora/) and !db['create_cluster'] and !db['add_cluster_node']
-            MU.log "Database #{db['name']}: #{db['engine']} looks like a cluster engine, but create_cluster is not set. Add 'create_cluster: true' if you're building an RDS cluster.", MU::ERR
-            ok = false
           end
 
           # Resolve or default our engine version to something reasonable
@@ -956,14 +971,6 @@ module MU
           if db["parameter_group_family"] and
              !engine_cfg['families'].include?(db['parameter_group_family'])
             MU.log "RDS engine '#{db['engine']}' parameter group family '#{db['parameter_group_family']}' is not supported in #{db['region']}", MU::ERR, details: { "Valid parameter families:" => engine_cfg['families'].uniq.sort }
-            ok = false
-          end
-
-          if (db['create_read_replica'] or db['read_replica_of']) and !can_read_replica?(db)
-            ok = false
-          end
-
-          if db['cloudwatch_logs'] and !valid_cloudwatch_logs?(db)
             ok = false
           end
 
@@ -990,16 +997,13 @@ module MU
 
 
         def add_cluster_node
-          cluster_ref = MU::Config::Ref.get(@config["member_of_cluster"])
-
-          cluster = cluster.kitten
+          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten
 
           raise MuError, "Couldn't resolve cluster node reference to a unique live Database in #{@mu_name}" if cluster.nil? || cluster.cloud_id.nil?
           @config['cluster_identifier'] = cluster.cloud_id.downcase
           # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
           @config["subnet_group_name"] = @config['cluster_identifier'] if @vpc
           @config["creation_style"] = "new" if @config["creation_style"] != "new"
-
           if @config.has_key?("parameter_group_family")
             @config["parameter_group_name"] = @mu_name
             createDBParameterGroup
@@ -1179,17 +1183,15 @@ module MU
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access the thing
           if @config["creation_style"] == 'existing'
-            vpc_sg_ids = cloud_desc.vpc_security_groups.map { |sg| sg.vpc_security_group_id }
+            mod_config = {}
+            mod_config[:db_instance_identifier] = @cloud_id
+            mod_config[:vpc_security_group_ids] = cloud_desc.vpc_security_groups.map { |sg| sg.vpc_security_group_id }
 
             localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
             if localdeploy_rule.nil?
               raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
             end
-            MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
-            vpc_sg_ids << localdeploy_rule.cloud_id
-            mod_config = Hash.new
-            mod_config[:vpc_security_group_ids] = vpc_sg_ids
-            mod_config[:db_instance_identifier] = @cloud_id
+            mod_config[:vpc_security_group_ids] << localdeploy_rule.cloud_id
 
             MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
             MU.log "Modified database #{@cloud_id} with new security groups: #{mod_config}", MU::NOTICE
@@ -1221,16 +1223,8 @@ module MU
               mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"]
             end
 
-            begin
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
-            rescue Aws::RDS::Errors::InvalidParameterValue => e
-              if e.message =~ /Invalid security group/
-                MU.log e.message+" modifying "+@cloud_id, MU::ERR, details: mod_config
-              end
-              raise e
-            end
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
             wait_until_available
-
           end
 
           # Maybe wait for DB instance to be in available state. DB should still be writeable at this state
@@ -1377,7 +1371,7 @@ module MU
             db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials, cluster: cluster).values.first
             return if db.nil?
           }
-pp db
+
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: (cluster ? db.endpoint : db.endpoint.address), cloudclass: MU::Cloud::Database, delete: true) if !noop
 
           if %w{deleting deleted}.include?(cluster ? db.status : db.db_instance_status)
