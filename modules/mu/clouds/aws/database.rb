@@ -186,23 +186,20 @@ module MU
             return { args[:cloud_id] => resp } if resp
 
           else
-            marker = nil
+            fetch = Proc.new { |noun|
+              marker = nil
+              begin
+                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).send("describe_db_#{noun}s".to_sym)
+                marker = resp.marker
+                resp.send("db_#{noun}s").each { |db|
+                  found[db.send("db_#{noun}_identifier".to_sym)] = db
+                }
+              end while marker.nil?
+            }
             if !args[:cluster]
-              begin
-                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_instances
-                marker = resp.marker
-                resp.db_instances.each { |db|
-                  found[db.db_instance_identifier] = db
-                }
-              end while marker.nil?
+              fetch.call("instance")
             elsif args[:cluster] or !args.has_key?(:cluster)
-              begin
-                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).describe_db_clusters
-                marker = resp.marker
-                resp.db_clusters.each { |db|
-                  found[db.db_cluster_identifier] = db
-                }
-              end while marker.nil?
+              fetch.call("cluster")
             end
             if args[:tag_key] and args[:tag_value]
               keep = []
@@ -500,11 +497,7 @@ module MU
           end
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidDBClusterStateFault], wait: 60, max: 10) {
-            if @config["create_cluster"]
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_cluster_snapshot(params)
-            else
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_snapshot(params)
-            end
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("create_db_#{@config['create_cluster'] ? "cluster_" : ""}snapshot".to_sym, params)
           }
 
           loop_if = Proc.new {
@@ -1107,11 +1100,7 @@ puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 15, wait: 20) {
             MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup '#{@config['restore_time']}' of #{@config['source'].id}"
-            if @config['create_cluster']
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_cluster_to_point_in_time(params)
-            else
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).restore_db_instance_to_point_in_time(params)
-            end
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("restore_db_#{@config['create_cluster'] ? "cluster" : "instance"}_to_point_in_time".to_sym, params)
           }
         end
 
