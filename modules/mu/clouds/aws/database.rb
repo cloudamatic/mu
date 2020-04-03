@@ -314,22 +314,7 @@ module MU
             end
           end
 
-          # Find NAT and create holes in security groups.
-          if @nat
-            if @nat.is_a?(Struct) and @nat.respond_to?(:nat_gateway_id) and @nat.nat_gateway_id.start_with?("nat-")
-              MU.log "Using NAT Gateway, not modifying security groups"
-            else
-              _nat_name, _nat_conf, nat_deploydata = @nat.describe
-              @deploy.kittens['firewall_rules'].each_value { |acl|
-# XXX if a user doesn't set up dependencies correctly, this can die horribly on a NAT that's still in mid-creation. Fix this... possibly in the config parser.
-                if acl.config["admin"]
-                  acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
-                  acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
-                  break
-                end
-              }
-            end
-          end
+          allowBastionAccess
         end
 
         # Create a database parameter group.
@@ -707,26 +692,7 @@ module MU
               "type" => "string",
               "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"]
             },
-            "ingress_rules" => {
-              "items" => {
-                "properties" => {
-                  "sgs" => {
-                    "type" => "array",
-                    "items" => {
-                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
-                      "type" => "string"
-                    }
-                  },
-                  "lbs" => {
-                    "type" => "array",
-                    "items" => {
-                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
-                      "type" => "string"
-                    }
-                  }
-                }
-              }
-            }
+            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema
           }
           [toplevel_required, schema]
         end

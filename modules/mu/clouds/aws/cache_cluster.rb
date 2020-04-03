@@ -333,24 +333,7 @@ module MU
               subnet_ids: subnet_ids
             )
 
-            # Find NAT and create holes in security groups.
-            # Adding just for consistency, but do we really need this for cache clusters? I guess Nagios and such..
-            if @config["vpc"]["nat_host_name"] || @config["vpc"]["nat_host_id"] || @config["vpc"]["nat_host_tag"] || @config["vpc"]["nat_host_ip"]
-              nat = @nat
-              if nat.is_a?(Struct) && nat.nat_gateway_id && nat.nat_gateway_id.start_with?("nat-")
-                MU.log "Using NAT Gateway, not modifying security groups"
-              else
-                _nat_name, _nat_conf, nat_deploydata = @nat.describe
-                @deploy.kittens['firewall_rules'].values.each { |acl|
-  # XXX if a user doesn't set up dependencies correctly, this can die horribly on a NAT that's still in mid-creation. Fix this... possibly in the config parser.
-                  if acl.config["admin"]
-                    acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
-                    acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
-                    break
-                  end
-                }
-              end
-            end
+            allowBastionAccess
 
             if @dependencies.has_key?('firewall_rule')
               @config["security_group_ids"] = []
@@ -703,26 +686,7 @@ module MU
               "type" => "boolean",
               "description" => "Create a replication group; will be set automatically if +engine+ is +redis+ and +node_count+ is greated than one."
             },
-            "ingress_rules" => {
-              "items" => {
-                "properties" => {
-                  "sgs" => {
-                    "type" => "array",
-                    "items" => {
-                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
-                      "type" => "string"
-                    }
-                  },
-                  "lbs" => {
-                    "type" => "array",
-                    "items" => {
-                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
-                      "type" => "string"
-                    }
-                  }
-                }
-              }
-            }
+            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema
           }
           [toplevel_required, schema]
         end

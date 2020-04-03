@@ -1697,6 +1697,28 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           rules
         end
 
+        # If applicable, allow this resource's NAT host blanket access via
+        # rules in its associated +admin+ firewall rule set.
+        def allowBastionAccess
+          return nil if !@nat or !@nat.is_a?(MU::Cloud::Server)
+
+          myFirewallRules.each { |acl|
+            if acl.config["admin"]
+              acl.addRule([@nat.canonicalIP], proto: "tcp")
+              acl.addRule([@nat.canonicalIP], proto: "udp")
+              acl.addRule([@nat.canonicalIP], proto: "icmp")
+              # XXX this is an AWS-specific hack; we need to force Server
+              # implementations to expose a method that lists all of their
+              # internal IPs, akin to #canonicalIP
+              if @nat.cloud_desc and @nat.cloud_desc.respond_to?(:private_ip_address)
+                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "tcp")
+                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "udp")
+                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "icmp")
+              end
+            end
+          }
+        end
+
         # Defaults any resources that don't declare their release-readiness to
         # ALPHA. That'll learn 'em.
         def self.quality
@@ -1763,7 +1785,8 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           }
           allfound
         end
-        
+
+
         if shortname == "Database"
 
           # Getting the password for a database's master user, and saving it in a database / cluster specific vault

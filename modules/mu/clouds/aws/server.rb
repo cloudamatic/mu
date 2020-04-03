@@ -299,7 +299,7 @@ module MU
             raise MuError, "Got null subnet id out of #{@config['vpc']}"
           end
           MU.log "Deploying #{@mu_name} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
-          punchAdminNAT
+          allowBastionAccess
           instance_descriptor[:subnet_id] = subnet.cloud_id
         end
 
@@ -482,7 +482,7 @@ module MU
           end
         }
 
-        punchAdminNAT
+        allowBastionAccess
 
         setAlarms
 
@@ -809,37 +809,6 @@ module MU
           return deploydata
         end
 
-        # If the specified server is in a VPC, and has a NAT, make sure we'll
-        # be letting ssh traffic in from said NAT.
-        def punchAdminNAT
-          if @config['vpc'].nil? or 
-            (
-              !@config['vpc'].has_key?("nat_host_id") and
-              !@config['vpc'].has_key?("nat_host_tag") and
-              !@config['vpc'].has_key?("nat_host_ip") and
-              !@config['vpc'].has_key?("nat_host_name")
-            )
-            return nil
-          end
-
-          return nil if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
-
-          dependencies if @nat.nil?
-          if @nat.nil? or @nat.cloud_desc.nil?
-            raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find the cloud descriptor for a matching NAT instance"
-          end
-          MU.log "Adding administrative holes for NAT host #{@nat.cloud_desc.private_ip_address} to #{@mu_name}"
-          if !@deploy.kittens['firewall_rules'].nil?
-            @deploy.kittens['firewall_rules'].values.each { |acl|
-              if acl.config["admin"]
-                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "tcp")
-                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "udp")
-                acl.addRule([@nat.cloud_desc.private_ip_address], proto: "icmp")
-              end
-            }
-          end
-        end
-
         # Called automatically by {MU::Deploy#createResources}
         def groom
           MU::MommaCat.lock(@cloud_id+"-groom")
@@ -851,7 +820,7 @@ module MU
             end
           end
 
-          punchAdminNAT
+          allowBastionAccess
 
           tagVolumes
 
@@ -1703,26 +1672,7 @@ module MU
                 "type" => "object"
               }
             },
-            "ingress_rules" => {
-              "items" => {
-                "properties" => {
-                  "sgs" => {
-                    "type" => "array",
-                    "items" => {
-                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
-                      "type" => "string"
-                    }
-                  },
-                  "lbs" => {
-                    "type" => "array",
-                    "items" => {
-                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
-                      "type" => "string"
-                    }
-                  }
-                }
-              }
-            },
+            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema,
             "ssh_user" => {
               "type" => "string",
               "default" => "root",

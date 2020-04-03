@@ -514,6 +514,31 @@ module MU
         end
         private_class_method :revoke_rules
 
+        # Return an AWS-specific chunk of schema commonly used in the +ingress_rules+ parameter of other resource types.
+        # @return [Hash]
+        def self.ingressRuleAddtlSchema
+          {
+            "items" => {
+              "properties" => {
+                "sgs" => {
+                  "type" => "array",
+                  "items" => {
+                    "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                    "type" => "string"
+                  }
+                },
+                "lbs" => {
+                  "type" => "array",
+                  "items" => {
+                    "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                    "type" => "string"
+                  }
+                }
+              }
+            }
+          }
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
