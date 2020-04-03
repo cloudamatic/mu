@@ -367,7 +367,7 @@ module MU
             node["creation_style"] = "new"
             node["add_cluster_node"] = true
             node["member_of_cluster"] = {
-              "db_name" => db['name'],
+              "name" => db['name'],
               "cloud" => db['cloud'],
               "region" => db['region']
             }
@@ -399,28 +399,15 @@ module MU
             ok = false
           end
         elsif db["member_of_cluster"]
-          rr = db["member_of_cluster"]
-          if rr['db_name']
-            if !configurator.haveLitterMate?(rr['db_name'], "databases")
-              MU.log "Database cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+          cluster = MU::Config::Ref.get(db["member_of_cluster"])
+          if cluster['name']
+            if !configurator.haveLitterMate?(cluster['name'], "databases")
+              MU.log "Database cluster node #{db['name']} references sibling source #{cluster['name']}, but I have no such database", MU::ERR
               ok = false
             end
           else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+            if !cluster.kitten
+              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: cluster.to_h
               ok = false
             end
           end

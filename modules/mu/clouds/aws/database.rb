@@ -990,24 +990,9 @@ module MU
 
 
         def add_cluster_node
-          cluster = nil
-          rr = @config["member_of_cluster"]
-          cluster = @deploy.findLitterMate(type: "database", name: rr['db_name']) if rr['db_name']
+          cluster_ref = MU::Config::Ref.get(@config["member_of_cluster"])
 
-          if cluster.nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-              rr['cloud'],
-              "database",
-              deploy_id: rr["deploy_id"],
-              cloud_id: rr["db_id"],
-              tag_key: tag_key,
-              tag_value: tag_value,
-              region: rr["region"],
-              dummy_ok: true
-            )
-            cluster = found.first if found.size == 1
-          end
+          cluster = cluster.kitten
 
           raise MuError, "Couldn't resolve cluster node reference to a unique live Database in #{@mu_name}" if cluster.nil? || cluster.cloud_id.nil?
           @config['cluster_identifier'] = cluster.cloud_id.downcase

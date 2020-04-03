@@ -25,14 +25,7 @@ module MU
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
-          @mu_name ||=
-            if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
-              @deploy.getResourceName(@config["name"], max_length: 15)
-            else
-              @deploy.getResourceName(@config["name"], max_length: 63)
-            end
-
-          @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+          @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 63)
         end
 
         # Called automatically by {MU::Deploy#createResources}
