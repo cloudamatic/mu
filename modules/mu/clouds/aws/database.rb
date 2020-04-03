@@ -1454,8 +1454,8 @@ module MU
             db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials, cluster: cluster).values.first
             return if db.nil?
           }
-
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true) if !noop
+pp db
+          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: (cluster ? db.endpoint : db.endpoint.address), cloudclass: MU::Cloud::Database, delete: true) if !noop
 
           if %w{deleting deleted}.include?(cluster ? db.status : db.db_instance_status)
             MU.log "#{cloud_id} has already been terminated", MU::WARN
@@ -1480,7 +1480,6 @@ module MU
                 end
               }
               MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::DBSnapshotAlreadyExists, Aws::RDS::Errors::InvalidDBClusterStateFault], wait: 60, max: 20, on_retry: on_retry) {
-                MU.log "Terminating #{cloud_id}#{params[:skip_final_snapshot] ? " with final snapshot named #{cloud_id}-mufinal" : ""}", MU::NOTICE, details: params
                 if !noop
                   cluster ? MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_cluster(params) : MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_instance(params)
                 end
