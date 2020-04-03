@@ -1763,6 +1763,31 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           }
           allfound
         end
+        
+        if shortname == "Database"
+
+          # Getting the password for a database's master user, and saving it in a database / cluster specific vault
+          def getPassword
+            if @config['password'].nil?
+              if @config['auth_vault'] && !@config['auth_vault'].empty?
+                @config['password'] = @groomclass.getSecret(
+                  vault: @config['auth_vault']['vault'],
+                  item: @config['auth_vault']['item'],
+                  field: @config['auth_vault']['password_field']
+                )
+              else
+                # Should we use random instead?
+                @config['password'] = Password.pronounceable(10..12)
+              end
+            end
+  
+            creds = {
+              "username" => @config["master_user"],
+              "password" => @config["password"]
+            }
+            @groomclass.saveSecret(vault: @mu_name, item: "database_credentials", data: creds)
+          end
+        end
 
         if shortname == "DNSZone"
           def self.genericMuDNSEntry(*flags)

@@ -214,18 +214,7 @@ module MU
             elsif @config['db_name']
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBName", @config['db_name'])
             end
-            if @config['password'].nil?
-              if @config['auth_vault'] && !@config['auth_vault'].empty?
-                @config['password'] = @groomclass.getSecret(
-                  vault: @config['auth_vault']['vault'],
-                  item: @config['auth_vault']['item'],
-                  field: @config['auth_vault']['password_field']
-                )
-              else
-                # Should we use random instead?
-                @config['password'] = Password.pronounceable(10..12)
-              end
-            end
+            getPassword
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUserPassword", @config['password'])
           end
         end
