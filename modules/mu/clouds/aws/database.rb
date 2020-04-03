@@ -366,38 +366,6 @@ module MU
           end
         end
 
-        # Retrieve a complete description of a database cluster parameter group.
-        # @param param_group_id [String]: The cloud provider's identifier for this parameter group.
-        # @param region [String]: The cloud provider region
-        # @return [OpenStruct]
-        def self.getDBClusterParameterGroup(param_group_id, region: MU.curRegion)
-          MU::Cloud::AWS.rds(region: region).describe_db_cluster_parameter_groups(db_cluster_parameter_group_name: param_group_id).db_cluster_parameter_groups.first
-          # rescue DBClusterParameterGroupNotFound => e
-          # Of course the API will return DBParameterGroupNotFound instead of the documented DBClusterParameterGroupNotFound error.
-        rescue Aws::RDS::Errors::DBParameterGroupNotFound
-          #we're fine returning nil
-        end
-
-        # Retrieve a complete description of a database parameter group.
-        # @param param_group_id [String]: The cloud provider's identifier for this parameter group.
-        # @param region [String]: The cloud provider region
-        # @return [OpenStruct]
-        def self.getDBParameterGroup(param_group_id, region: MU.curRegion)
-          MU::Cloud::AWS.rds(region: region).describe_db_parameter_groups(db_parameter_group_name: param_group_id).db_parameter_groups.first
-        rescue Aws::RDS::Errors::DBParameterGroupNotFound
-          #we're fine returning nil
-        end
-
-        # Retrieve a complete description of a database subnet group.
-        # @param subnet_id [String]: The cloud provider's identifier for this subnet group.
-        # @param region [String]: The cloud provider region
-        # @return [OpenStruct]
-        def self.getSubnetGroup(subnet_id, region: MU.curRegion)
-          MU::Cloud::AWS.rds(region: region).describe_db_subnet_groups(db_subnet_group_name: subnet_id).db_subnet_groups.first
-        rescue Aws::RDS::Errors::DBSubnetGroupNotFoundFault
-          #we're fine returning nil
-        end
-
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config["create_cluster"]
@@ -588,7 +556,7 @@ module MU
               arn = MU::Cloud::AWS::Database.getARN(resource.send(id_method), arn_type, "rds", region: region, credentials: credentials)
               tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
             rescue Aws::RDS::Errors::InvalidParameterValue
-              MU.log "Failed to fetch ARN of type #{arn_type} or tags of resource via #{id_method.to_s}", MU::WARN, details: [resource, arn]
+              MU.log "Failed to fetch ARN of type #{arn_type} or tags of resource via #{id_method}", MU::WARN, details: [resource, arn]
               next
             end
 
@@ -1525,13 +1493,14 @@ MU.log cloud_id, MU::NOTICE, details: del_db if cluster
           end
 
           # RDS security groups can depend on EC2 security groups, do these last
-          begin
-            rdssecgroups.each { |sg|
-              MU.log "Removing RDS Security Group #{sg}"
+          rdssecgroups.each { |sg|
+            MU.log "Removing RDS Security Group #{sg}"
+            begin
               MU::Cloud::AWS.rds(region: region, credentials: credentials).delete_db_security_group(db_security_group_name: sg) if !noop
-            }
-          rescue Aws::RDS::Errors::DBSecurityGroupNotFound
-          end
+            rescue Aws::RDS::Errors::DBSecurityGroupNotFound
+              MU.log "RDS Security Group #{sg} disappeared before I could remove it", MU::NOTICE
+            end
+          }
         end
         private_class_method :purge_rds_sgs
 
