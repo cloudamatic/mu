@@ -177,11 +177,13 @@ module MU
                 resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_instances(db_instance_identifier: args[:cloud_id]).db_instances.first
                 return { args[:cloud_id] => resp } if resp
               rescue Aws::RDS::Errors::DBInstanceNotFound
+                MU.log "No results found looking for RDS instance #{args[:cloud_id]}", MU::DEBUG
               end
             end
             begin
               resp = MU::Cloud::AWS.rds(region: args[:region], credentials: args[:credentials]).describe_db_clusters(db_cluster_identifier: args[:cloud_id]).db_clusters.first
             rescue Aws::RDS::Errors::DBClusterNotFoundFault
+              MU.log "No results found looking for RDS cluster #{args[:cloud_id]}", MU::DEBUG
             end
             return { args[:cloud_id] => resp } if resp
 
@@ -820,7 +822,7 @@ module MU
           end
 
           if pw and (pw.length < 8 or pw.match(/[\/\\@\s]/) or pw.length > maxlen)
-            MU.log "Database password specified in 'password' or 'auth_vault' doesn't meet RDS requirements. Must be between 8 and #{maxlen.to_s} chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
+            MU.log "Database password specified in 'password' or 'auth_vault' doesn't meet RDS requirements. Must be between 8 and #{maxlen} chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
             return false
           end
 
