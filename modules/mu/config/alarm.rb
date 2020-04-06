@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/alarm.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/alarm.rb
     class Alarm
 
       # Sections of Alarm schema shared between Alarms as a first-class

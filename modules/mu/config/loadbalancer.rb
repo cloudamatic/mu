@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/loadbalancer.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/loadbalancer.rb
     class LoadBalancer
 
       # Generate schema for a LoadBalancer health check

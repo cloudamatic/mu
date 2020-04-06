@@ -297,7 +297,7 @@ module MU
         rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented
           next
         rescue MU::MuError, NoMethodError => e
-          MU.log "While checking mu/clouds/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
+          MU.log "While checking mu/providers/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
           next
         rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
           MU.log e.message+" in "+region, MU::ERR

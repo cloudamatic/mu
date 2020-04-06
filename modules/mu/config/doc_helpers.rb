@@ -25,7 +25,7 @@ module MU
       MU::Cloud.resource_types.each_pair { |classname, attrs|
         MU::Cloud.supportedClouds.each { |cloud|
           begin
-            require "mu/clouds/#{cloud.downcase}/#{attrs[:cfg_name]}"
+            require "mu/providers/#{cloud.downcase}/#{attrs[:cfg_name]}"
           rescue LoadError
             next
           end

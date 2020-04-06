@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/container_cluster.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/container_cluster.rb
     class ContainerCluster
 
       # Base configuration schema for a ContainerCluster

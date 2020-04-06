@@ -732,7 +732,7 @@ module MU
     # code for each of its supported resource type classes.
     failed = []
     MU::Cloud.supportedClouds.each { |cloud|
-      require "mu/clouds/#{cloud.downcase}"
+      require "mu/providers/#{cloud.downcase}"
       cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
       generic_class_methods_toplevel.each { |method|
         if !cloudclass.respond_to?(method)
@@ -767,7 +767,7 @@ module MU
           end
           template_variables["credentials"] ||= credentials
           $mu = OpenStruct.new(template_variables)
-          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}/userdata")
+          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/providers/#{cloud.downcase}/userdata")
 
           platform = if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16 windows win2k19}.include?(platform)
             "windows"
@@ -839,11 +839,11 @@ module MU
       if cfg_name.nil?
         raise MuError, "Can't find a cloud resource type named '#{type}'"
       end
-      if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
+      if !File.size?(MU.myRoot+"/modules/mu/providers/#{cloud.downcase}.rb")
         raise MuError, "Requested to use unsupported provisioning layer #{cloud}"
       end
       begin
-        require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
+        require "mu/providers/#{cloud.downcase}/#{cfg_name}"
       rescue LoadError => e
         raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}, or implementation does not load correctly (#{e.message})"
       end

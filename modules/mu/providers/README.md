@@ -89,7 +89,7 @@ Looking elsewhere in `cloud.rb` let's see what all we have to do:
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 ```
 
-Just the basics, for now. Here's what that will look like in the AWS layer, in the file `modules/mu/clouds/aws/function.rb`:
+Just the basics, for now. Here's what that will look like in the AWS layer, in the file `modules/mu/providers/aws/function.rb`:
 
 ```
 module MU

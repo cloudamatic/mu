@@ -18,7 +18,7 @@ module MU
     class AWS
       # A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
       class FirewallRule < MU::Cloud::FirewallRule
-        require "mu/clouds/aws/vpc"
+        require "mu/providers/aws/vpc"
 
         @admin_sgs = Hash.new
         @admin_sg_semaphore = Mutex.new

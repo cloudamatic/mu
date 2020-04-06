@@ -20,6 +20,8 @@ module MU
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
 
+        # Map legal storage values for each disk type and database engine so
+        # our validator can check them for us.
         STORAGE_RANGES = {
           "io1" => {
             "postgres" => 100..65536,
@@ -245,55 +247,6 @@ module MU
         # @return [Array]: All our standard tags and any custom tags.
         def allTags
           @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
-        end
-
-        def genericParams
-          params = if @config['create_cluster']
-            paramhash = {
-              db_cluster_identifier: @cloud_id,
-              engine: @config["engine"],
-              vpc_security_group_ids: @config["vpc_security_group_ids"],
-              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
-            }
-            paramhash[:db_subnet_group_name] = @config["subnet_group_name"].downcase if @vpc
-            if @config['cloudwatch_logs']
-              paramhash[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
-            end
-            if @config['cluster_mode']
-              paramhash[:engine_mode] = @config['cluster_mode']
-              if @config['cluster_mode'] == "serverless"
-                paramhash[:scaling_configuration] = {
-                  :auto_pause => @config['serverless_scaling']['auto_pause'],
-                  :min_capacity => @config['serverless_scaling']['min_capacity'],
-                  :max_capacity => @config['serverless_scaling']['max_capacity'],
-                  :seconds_until_auto_pause => @config['serverless_scaling']['seconds_until_auto_pause']
-                }
-              end
-            end
-            paramhash
-          else
-            {
-              db_instance_identifier: @cloud_id,
-              db_instance_class: @config["size"],
-              engine: @config["engine"],
-              auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
-              license_model: @config["license_model"],
-              db_subnet_group_name: @config["subnet_group_name"],
-              publicly_accessible: @config["publicly_accessible"],
-              copy_tags_to_snapshot: true,
-              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
-            }
-          end
-
-          if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
-            if @config['create_cluster']
-              params[:snapshot_identifier] = @config["snapshot_id"]
-            else
-              params[:db_snapshot_identifier] = @config["snapshot_id"]
-            end
-          end
-
-          params
         end
 
         # Create a subnet group for a database.
@@ -878,6 +831,56 @@ module MU
         end
 
         private
+
+        def genericParams
+          params = if @config['create_cluster']
+            paramhash = {
+              db_cluster_identifier: @cloud_id,
+              engine: @config["engine"],
+              vpc_security_group_ids: @config["vpc_security_group_ids"],
+              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+            }
+            paramhash[:db_subnet_group_name] = @config["subnet_group_name"].downcase if @vpc
+            if @config['cloudwatch_logs']
+              paramhash[:enable_cloudwatch_logs_exports ] = @config['cloudwatch_logs']
+            end
+            if @config['cluster_mode']
+              paramhash[:engine_mode] = @config['cluster_mode']
+              if @config['cluster_mode'] == "serverless"
+                paramhash[:scaling_configuration] = {
+                  :auto_pause => @config['serverless_scaling']['auto_pause'],
+                  :min_capacity => @config['serverless_scaling']['min_capacity'],
+                  :max_capacity => @config['serverless_scaling']['max_capacity'],
+                  :seconds_until_auto_pause => @config['serverless_scaling']['seconds_until_auto_pause']
+                }
+              end
+            end
+            paramhash
+          else
+            {
+              db_instance_identifier: @cloud_id,
+              db_instance_class: @config["size"],
+              engine: @config["engine"],
+              auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
+              license_model: @config["license_model"],
+              db_subnet_group_name: @config["subnet_group_name"],
+              publicly_accessible: @config["publicly_accessible"],
+              copy_tags_to_snapshot: true,
+              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+            }
+          end
+
+          if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
+            if @config['create_cluster']
+              params[:snapshot_identifier] = @config["snapshot_id"]
+            else
+              params[:db_snapshot_identifier] = @config["snapshot_id"]
+            end
+          end
+
+          params
+        end
+
 
         def self.validate_network_cfg(db)
           ok = true

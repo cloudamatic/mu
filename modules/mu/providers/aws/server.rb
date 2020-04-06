@@ -145,7 +145,7 @@ module MU
               raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
             end
             $mu = OpenStruct.new(template_variables)
-            userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/aws/userdata")
+            userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/providers/aws/userdata")
             platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
             platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
             erbfile = "#{userdata_dir}/#{platform}.erb"
@@ -725,7 +725,7 @@ module MU
 
           if int.groups.size > 0
 
-            require 'mu/clouds/aws/firewall_rule'
+            require 'mu/providers/aws/firewall_rule'
             ifaces = MU::Cloud::AWS::FirewallRule.getAssociatedInterfaces(int.groups.map { |sg| sg.group_id }, credentials: @credentials, region: @config['region'])
             done_local_rules = false
             int.groups.each { |sg|

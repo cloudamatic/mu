@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/notifier.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/notifier.rb
     class Notifier
 
       # Base configuration schema for a Notifier

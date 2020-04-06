@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/nosqldb.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/nosqldb.rb
     class NoSQLDB
 
       # Base configuration schema for a Bucket

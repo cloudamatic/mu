@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/firewall_rule.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/firewall_rule.rb
     class FirewallRule
 
       # Base configuration schema for a FirewallRule

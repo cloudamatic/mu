@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/vpc.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/vpc.rb
     class VPC
 
       # Base configuration schema for a VPC

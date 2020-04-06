@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/server.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/server.rb
     class Server
 
       # Verify that a server or server_pool has a valid LDAP config referencing
