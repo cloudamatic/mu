@@ -209,7 +209,7 @@ module MU
           if !MU::Cloud::AWS.isGovCloud?(@config['region'])
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", credentials: @config['credentials']).values.first
             if !mu_zone.nil?
-              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: @cloud_id, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud.resourceClass("AWS", "DNSZone").toggleVPCAccess(id: mu_zone.id, vpc_id: @cloud_id, region: @config['region'], credentials: @config['credentials'])
             end
           end
 					loadSubnets
@@ -1225,7 +1225,7 @@ module MU
                   # suits me just fine
                 rescue Aws::EC2::Errors::AuthFailure => e
                   if !tried_lbs and iface.attachment.instance_owner_id == "amazon-elb"
-                    MU::Cloud::AWS::LoadBalancer.cleanup(
+                    MU::Cloud.resourceClass("AWS", "LoadBalancer").cleanup(
                       noop: noop,
                       region: region,
                       credentials: credentials,

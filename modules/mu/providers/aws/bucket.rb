@@ -97,7 +97,7 @@ module MU
               ]
             }
 
-            policy_docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
+            policy_docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
             policy_docs.each { |doc|
               MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
               MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
@@ -309,7 +309,7 @@ module MU
         def self.schema(_config)
           toplevel_required = []
           schema = {
-            "policies" => MU::Cloud::AWS::Role.condition_schema,
+            "policies" => MU::Cloud.resourceClass("AWS", "Role").condition_schema,
             "acl" => {
               "type" => "string",
               "enum" => ["private", "public-read", "public-read-write", "authenticated-read"],

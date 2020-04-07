@@ -233,8 +233,8 @@ module MU
 #          unless noop
 #            MU::Cloud::AWS.iam(credentials: credentials).list_roles.roles.each{ |role|
 #              match_string = "#{MU.deploy_id}.*CloudTrail"
-              # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-#              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
+              # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud.resourceClass("AWS", "Server").
+#              MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(role.role_name) if role.role_name.match(match_string)
 #            }
 #          end
         end

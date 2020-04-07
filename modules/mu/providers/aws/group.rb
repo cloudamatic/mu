@@ -60,7 +60,7 @@ module MU
               userid = user
               userdesc = @deploy.findLitterMate(name: user, type: "users")
               userid = userdesc.cloud_id if userdesc
-              found = MU::Cloud::AWS::User.find(cloud_id: userid)
+              found = MU::Cloud.resourceClass("AWS", "User").find(cloud_id: userid)
               if found.size == 1
                 userdesc = found.values.first
                 MU.log "Adding IAM user #{userdesc.path}#{userdesc.user_name} to group #{@mu_name}", MU::NOTICE
@@ -88,7 +88,7 @@ module MU
           # Create these if necessary, then append them to the list of
           # attachable_policies
           if @config['raw_policies']
-            pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+            pol_arns = MU::Cloud.resourceClass("AWS", "Role").manageRawPolicies(
               @config['raw_policies'],
               basename: @deploy.getResourceName(@config['name']),
               credentials: @credentials
@@ -114,7 +114,7 @@ module MU
             attached_policies.each { |a|
               if !configured_policies.include?(a.policy_arn)
                 MU.log "Removing IAM policy #{a.policy_arn} from group #{@mu_name}", MU::NOTICE
-                MU::Cloud::AWS::Role.purgePolicy(a.policy_arn, @credentials)
+                MU::Cloud.resourceClass("AWS", "Role").purgePolicy(a.policy_arn, @credentials)
               else
                 configured_policies.delete(a.policy_arn)
               end
@@ -131,7 +131,7 @@ module MU
           end
 
           if @config['inline_policies']
-            docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['inline_policies'], deploy_obj: @deploy)
+            docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['inline_policies'], deploy_obj: @deploy)
             docs.each { |doc|
               MU.log "Putting user policy #{doc.keys.first} to group #{@cloud_id} "
               MU::Cloud::AWS.iam(credentials: @credentials).put_group_policy(
@@ -291,7 +291,7 @@ module MU
             resp.policy_names.each { |pol_name|
               pol = MU::Cloud::AWS.iam(credentials: @credentials).get_group_policy(group_name: @cloud_id, policy_name: pol_name)
               doc = JSON.parse(URI.decode(pol.policy_document))
-              bok["inline_policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
+              bok["inline_policies"] = MU::Cloud.resourceClass("AWS", "Role").doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
             }
           end
 
@@ -324,7 +324,7 @@ module MU
         def self.schema(_config)
           toplevel_required = []
           polschema = MU::Config::Role.schema["properties"]["policies"]
-          polschema.deep_merge!(MU::Cloud::AWS::Role.condition_schema)
+          polschema.deep_merge!(MU::Cloud.resourceClass("AWS", "Role").condition_schema)
 
           schema = {
             "inline_policies" => polschema,
@@ -364,7 +364,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-GROUP-FOO+. This parameter wil
           # If we're attaching some managed policies, make sure all of the ones
           # that should already exist do indeed exist
           if group['attachable_policies']
-            ok = false if !MU::Cloud::AWS::Role.validateAttachablePolicies(
+            ok = false if !MU::Cloud.resourceClass("AWS", "Role").validateAttachablePolicies(
               group['attachable_policies'],
               credentials: group['credentials'],
               region: group['region']
@@ -384,7 +384,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-GROUP-FOO+. This parameter wil
                   "name" => user
                 }
               else
-                found = MU::Cloud::AWS::User.find(cloud_id: user)
+                found = MU::Cloud.resourceClass("AWS", "User").find(cloud_id: user)
                 if found.nil? or found.empty?
                   MU.log "Error in members for group #{group['name']}: No such user #{user}", MU::ERR
                   ok = false

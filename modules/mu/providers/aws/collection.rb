@@ -152,7 +152,7 @@ module MU
                   instance_name = MU.deploy_id+"-"+@config['name']+"-"+resource.logical_resource_id
                   MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
 
-                  instance = MU::Cloud::AWS::Server.notifyDeploy(
+                  instance = MU::Cloud.resourceClass("AWS", "Server").notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
@@ -170,7 +170,7 @@ module MU
 
                   mu_zone, _junk = MU::Cloud::DNSZone.find(name: "mu")
                   if !mu_zone.nil?
-                    MU::Cloud::AWS::DNSZone.genericMuDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
+                    MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
                   else
                     MU::Master.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
                   end
@@ -178,7 +178,7 @@ module MU
                 when "AWS::EC2::SecurityGroup"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
-                  MU::Cloud::AWS::FirewallRule.notifyDeploy(
+                  MU::Cloud.resourceClass("AWS", "FirewallRule").notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )

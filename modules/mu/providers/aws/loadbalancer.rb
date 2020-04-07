@@ -163,7 +163,7 @@ module MU
           dnsthread = Thread.new {
             if !MU::Cloud::AWS.isGovCloud?
               MU.dupGlobals(parent_thread_id)
-              generic_mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+              generic_mu_dns = MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
             end
           }
 
@@ -536,7 +536,7 @@ module MU
               }
             end
             if !MU::Cloud::AWS.isGovCloud?
-              MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
+              MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
             end
           end
 
@@ -706,7 +706,7 @@ module MU
               end
               if matched
                 if !MU::Cloud::AWS.isGovCloud?
-                  MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
+                  MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
                 end
                 if classic
                   MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
@@ -793,7 +793,7 @@ module MU
                 }
               }
             },
-            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema
+            "ingress_rules" => MU::Cloud.resourceClass("AWS", "FirewallRule").ingressRuleAddtlSchema
           }
           [toplevel_required, schema]
         end

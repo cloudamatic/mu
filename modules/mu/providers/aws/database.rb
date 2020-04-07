@@ -886,7 +886,7 @@ dependencies
           ok = true
 
           if !db['vpc']
-            db["vpc"] = MU::Cloud::AWS::VPC.defaultVpc(db['region'], db['credentials'])
+            db["vpc"] = MU::Cloud.resourceClass("AWS", "VPC").defaultVpc(db['region'], db['credentials'])
             if db['vpc'] and !(db['engine'].match(/sqlserver/) and db['create_read_replica'])
               MU.log "Using default VPC for database '#{db['name']}; this sets 'publicly_accessible' to true.", MU::WARN
               db['publicly_accessible'] = true
@@ -1161,10 +1161,10 @@ dependencies
 
         def do_naming
           if @config["create_cluster"]
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_cluster_identifier, target: "#{cloud_desc.endpoint}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+            MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: cloud_desc.db_cluster_identifier, target: "#{cloud_desc.endpoint}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
             MU.log "Database cluster #{@config['name']} is at #{cloud_desc.endpoint}", MU::SUMMARY
           else
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_desc.db_instance_identifier, target: "#{cloud_desc.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+            MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: cloud_desc.db_instance_identifier, target: "#{cloud_desc.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
             MU.log "Database #{@config['name']} is at #{cloud_desc.endpoint.address}", MU::SUMMARY
           end
           if @config['auth_vault']

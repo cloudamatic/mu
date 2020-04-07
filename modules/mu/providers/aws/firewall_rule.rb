@@ -398,7 +398,7 @@ module MU
 
           # Some services create sneaky rogue ENIs which then block removal of
           # associated security groups. Find them and fry them.
-          MU::Cloud::AWS::VPC.purge_interfaces(noop, filters, region: region, credentials: credentials)
+          MU::Cloud.resourceClass("AWS", "VPC").purge_interfaces(noop, filters, region: region, credentials: credentials)
 
           resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_security_groups(
             filters: filters
@@ -421,7 +421,7 @@ module MU
               # try to get out from under loose network interfaces with which
               # we're associated
               if sg.vpc_id
-                default_sg = MU::Cloud::AWS::VPC.getDefaultSg(sg.vpc_id, region: region, credentials: credentials)
+                default_sg = MU::Cloud.resourceClass("AWS", "VPC").getDefaultSg(sg.vpc_id, region: region, credentials: credentials)
                 if default_sg
                   eni_resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_network_interfaces(
                     filters: [ {name: "group-id", values: [sg.group_id]} ]

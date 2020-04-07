@@ -199,7 +199,7 @@ module MU
               addStandardTags(member, "cluster", region: @config['region'])
             }
 
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
+            MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(
               name: resp.replication_group_id,
               target: "#{resp.node_groups.first.primary_endpoint.address}.",
               cloudclass: MU::Cloud::CacheCluster,
@@ -207,7 +207,7 @@ module MU
             )
 
             resp.node_groups.first.node_group_members.each { |member|
-              MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
+              MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(
                 name: member.cache_cluster_id,
                 target: "#{member.read_endpoint.address}.",
                 cloudclass: MU::Cloud::CacheCluster,
@@ -413,7 +413,7 @@ module MU
               }
             end
             # XXX this should be a call to @deploy.nameKitten
-            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: repl_group.node_groups.first.primary_endpoint.address)
+            MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig(@config['dns_records'], target: repl_group.node_groups.first.primary_endpoint.address)
 
             deploy_struct = {
               "identifier" => repl_group.replication_group_id,
@@ -686,7 +686,7 @@ module MU
               "type" => "boolean",
               "description" => "Create a replication group; will be set automatically if +engine+ is +redis+ and +node_count+ is greated than one."
             },
-            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema
+            "ingress_rules" => MU::Cloud.resourceClass("AWS", "FirewallRule").ingressRuleAddtlSchema
           }
           [toplevel_required, schema]
         end
@@ -787,7 +787,7 @@ module MU
           end
 
           # The API is broken, cluster.cache_nodes is returnning an empty array, and the only URL we can get is the config one with cluster.configuration_endpoint.address.
-          # MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cluster_id, target: , cloudclass: MU::Cloud::CacheCluster, delete: true)
+          # MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: cluster_id, target: , cloudclass: MU::Cloud::CacheCluster, delete: true)
           
           if %w{deleting deleted}.include?(cluster.cache_cluster_status)
             MU.log "#{cluster_id} has already been terminated", MU::WARN
@@ -889,10 +889,10 @@ module MU
           end
 
           # What's the likelihood of having more than one node group? maybe iterate over node_groups instead of assuming there is only one?
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: repl_group_id, target: repl_group.node_groups.first.primary_endpoint.address, cloudclass: MU::Cloud::CacheCluster, delete: true)
+          MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: repl_group_id, target: repl_group.node_groups.first.primary_endpoint.address, cloudclass: MU::Cloud::CacheCluster, delete: true)
           # Assuming we also created DNS records for each of our cluster's read endpoint.
           repl_group.node_groups.first.node_group_members.each { |member|
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: member.cache_cluster_id, target: member.read_endpoint.address, cloudclass: MU::Cloud::CacheCluster, delete: true)
+            MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: member.cache_cluster_id, target: member.read_endpoint.address, cloudclass: MU::Cloud::CacheCluster, delete: true)
           }
           
           if %w{deleting deleted}.include?(repl_group.status)

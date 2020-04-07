@@ -467,7 +467,7 @@ MU.log c.name, MU::NOTICE, details: t
                   MU.log "Waiting for EKS cluster #{cluster} to finish deleting (status #{status})", MU::NOTICE
                 end
               }
-#                  MU::Cloud::AWS::Server.removeIAMProfile(cluster)
+#                  MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(cluster)
             end
           }
         end
@@ -1216,7 +1216,7 @@ MU.log c.name, MU::NOTICE, details: t
         def self.validateConfig(cluster, configurator)
           ok = true
 start = Time.now
-          cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
+          cluster['size'] = MU::Cloud.resourceClass("AWS", "Server").validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
           cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)

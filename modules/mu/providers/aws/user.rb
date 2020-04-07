@@ -109,7 +109,7 @@ module MU
           # Create these if necessary, then append them to the list of
           # attachable_policies
           if @config['raw_policies']
-            pol_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+            pol_arns = MU::Cloud.resourceClass("AWS", "Role").manageRawPolicies(
               @config['raw_policies'],
               basename: @deploy.getResourceName(@config['name']),
               credentials: @credentials
@@ -135,7 +135,7 @@ module MU
             attached_policies.each { |a|
               if !configured_policies.include?(a.policy_arn)
                 MU.log "Removing IAM policy #{a.policy_arn} from user #{@mu_name}", MU::NOTICE
-                MU::Cloud::AWS::Role.purgePolicy(a.policy_arn, @credentials)
+                MU::Cloud.resourceClass("AWS", "Role").purgePolicy(a.policy_arn, @credentials)
               else
                 configured_policies.delete(a.policy_arn)
               end
@@ -151,7 +151,7 @@ module MU
           end
 
           if @config['inline_policies']
-            docs = MU::Cloud::AWS::Role.genPolicyDocument(@config['inline_policies'], deploy_obj: @deploy)
+            docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['inline_policies'], deploy_obj: @deploy)
             docs.each { |doc|
               MU.log "Putting user policy #{doc.keys.first} to user #{@cloud_id} "
               MU::Cloud::AWS.iam(credentials: @credentials).put_user_policy(
@@ -431,7 +431,7 @@ MU.log e.inspect, MU::ERR, details: policy
             resp.policy_names.each { |pol_name|
               pol = MU::Cloud::AWS.iam(credentials: @credentials).get_user_policy(user_name: @cloud_id, policy_name: pol_name)
               doc = JSON.parse(URI.decode(pol.policy_document))
-              bok["inline_policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
+              bok["inline_policies"] = MU::Cloud.resourceClass("AWS", "Role").doc2MuPolicies(pol.policy_name, doc, bok["inline_policies"])
             }
           end
 
@@ -465,7 +465,7 @@ MU.log e.inspect, MU::ERR, details: policy
         def self.schema(_config)
           toplevel_required = []
           polschema = MU::Config::Role.schema["properties"]["policies"]
-          polschema.deep_merge!(MU::Cloud::AWS::Role.condition_schema)
+          polschema.deep_merge!(MU::Cloud.resourceClass("AWS", "Role").condition_schema)
 
           schema = {
             "inline_policies" => polschema,
@@ -517,7 +517,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
           # If we're attaching some managed policies, make sure all of the ones
           # that should already exist do indeed exist
           if user['attachable_policies']
-            ok = false if !MU::Cloud::AWS::Role.validateAttachablePolicies(
+            ok = false if !MU::Cloud.resourceClass("AWS", "Role").validateAttachablePolicies(
               user['attachable_policies'],
               credentials: user['credentials'],
               region: user['region']
@@ -530,7 +530,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
               if configurator.haveLitterMate?(group, "groups")
                 need_dependency = true
               else
-                found = MU::Cloud::AWS::Group.find(cloud_id: group)
+                found = MU::Cloud.resourceClass("AWS", "Group").find(cloud_id: group)
                 if found.nil? or found.empty? or (configurator.updating and
                    found.values.first.group.path == "/"+configurator.updating+"/")
                   groupdesc = {

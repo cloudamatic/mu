@@ -405,7 +405,7 @@ module MU
         return nil if @config.nil? or @deploy.nil?
 
         nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-        if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+        if !@config["vpc"].nil? and !MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
           if !@nat.nil?
             if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
               raise MuError, "Configured to use NAT Gateway, but I have no route to instance. Either use Bastion, or configure VPC peering"
@@ -615,7 +615,7 @@ module MU
           return nil
         end
 
-        asgs = MU::Cloud::AWS::ServerPool.find(
+        asgs = MU::Cloud.resourceClass("AWS", "ServerPool").find(
           instance_id: @cloud_id,
           region: @config['region'],
           credentials: @credentials
@@ -726,14 +726,14 @@ module MU
           if int.groups.size > 0
 
             require 'mu/providers/aws/firewall_rule'
-            ifaces = MU::Cloud::AWS::FirewallRule.getAssociatedInterfaces(int.groups.map { |sg| sg.group_id }, credentials: @credentials, region: @config['region'])
+            ifaces = MU::Cloud.resourceClass("AWS", "FirewallRule").getAssociatedInterfaces(int.groups.map { |sg| sg.group_id }, credentials: @credentials, region: @config['region'])
             done_local_rules = false
             int.groups.each { |sg|
               if !done_local_rules and ifaces[sg.group_id].size == 1
-                sg_desc = MU::Cloud::AWS::FirewallRule.find(cloud_id: sg.group_id, credentials: @credentials, region: @config['region']).values.first
+                sg_desc = MU::Cloud.resourceClass("AWS", "FirewallRule").find(cloud_id: sg.group_id, credentials: @credentials, region: @config['region']).values.first
                 if sg_desc
-                  bok["ingress_rules"] = MU::Cloud::AWS::FirewallRule.rulesToBoK(sg_desc.ip_permissions)
-                  bok["ingress_rules"].concat(MU::Cloud::AWS::FirewallRule.rulesToBoK(sg_desc.ip_permissions_egress, egress: true))
+                  bok["ingress_rules"] = MU::Cloud.resourceClass("AWS", "FirewallRule").rulesToBoK(sg_desc.ip_permissions)
+                  bok["ingress_rules"].concat(MU::Cloud.resourceClass("AWS", "FirewallRule").rulesToBoK(sg_desc.ip_permissions_egress, egress: true))
                   done_local_rules = true
                   next
                 end
@@ -943,7 +943,7 @@ module MU
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
           # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
-          if MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials']) or @deploydata["public_ip_address"].nil?
+          if MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials']) or @deploydata["public_ip_address"].nil?
             @config['canonical_ip'] = cloud_desc.private_ip_address
             @deploydata["private_ip_address"] = cloud_desc.private_ip_address
             return cloud_desc.private_ip_address
@@ -1672,7 +1672,7 @@ module MU
                 "type" => "object"
               }
             },
-            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema,
+            "ingress_rules" => MU::Cloud.resourceClass("AWS", "FirewallRule").ingressRuleAddtlSchema,
             "ssh_user" => {
               "type" => "string",
               "default" => "root",
@@ -2114,7 +2114,7 @@ module MU
             subnet = @vpc.getSubnet(cloud_id: cloud_desc.subnet_id)
 
             _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
-            if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+            if subnet.private? and !nat_ssh_host and !MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
               raise MuError, "#{@mu_name} is in a private subnet (#{subnet}), but has no bastion host configured, and I have no other route to it"
             end
 
@@ -2206,15 +2206,15 @@ module MU
               alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
 
               if alarm["enable_notifications"]
-                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"], credentials: @config['credentials'])
-                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"], credentials: @config["credentials"])
+                topic_arn = MU::Cloud.resourceClass("AWS", "Notification").createTopic(alarm["notification_group"], region: @config["region"], credentials: @config['credentials'])
+                MU::Cloud.resourceClass("AWS", "Notification").subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"], credentials: @config["credentials"])
                 alarm["alarm_actions"] = [topic_arn]
                 alarm["ok_actions"]  = [topic_arn]
               end
 
               alarm_name = alarm_obj ? alarm_obj.cloud_id : "#{@mu_name}-#{alarm['name']}".upcase
 
-              MU::Cloud::AWS::Alarm.setAlarm(
+              MU::Cloud.resourceClass("AWS", "Alarm").setAlarm(
                 name: alarm_name,
                 ok_actions: alarm["ok_actions"],
                 alarm_actions: alarm["alarm_actions"],

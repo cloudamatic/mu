@@ -120,7 +120,7 @@ module MU
                   if !@deploy.nocleanup
                     Thread.new {
                       MU.dupGlobals(parent_thread_id)
-                      MU::Cloud::AWS::Server.terminateInstance(id: member.instance_id)
+                      MU::Cloud.resourceClass("AWS", "Server").terminateInstance(id: member.instance_id)
                     }
                   end
                 end
@@ -813,7 +813,7 @@ module MU
                 }
               }
             },
-            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema
+            "ingress_rules" => MU::Cloud.resourceClass("AWS", "FirewallRule").ingressRuleAddtlSchema
           }
           [toplevel_required, schema]
         end
@@ -886,7 +886,7 @@ module MU
             launch = pool["basis"]["launch_config"]
             launch['iam_policies'] ||= pool['iam_policies']
 
-            launch['size'] = MU::Cloud::AWS::Server.validateInstanceType(launch["size"], pool["region"])
+            launch['size'] = MU::Cloud.resourceClass("AWS", "Server").validateInstanceType(launch["size"], pool["region"])
             ok = false if launch['size'].nil?
             if !launch['generate_iam_role']
               if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
@@ -1104,7 +1104,7 @@ module MU
               end
             end
 
-#            MU::Cloud::AWS::Server.removeIAMProfile(resource_id)
+#            MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(resource_id)
 
             # Generally there should be a launch_configuration of the same name
             # XXX search for these independently, too?
@@ -1145,14 +1145,14 @@ module MU
             @config['basis']['launch_config']["ami_id"] = @deploy.deployment["images"][@config['basis']['launch_config']["server"]]["image_id"]
             MU.log "Using AMI '#{@config['basis']['launch_config']["ami_id"]}' from sibling server #{@config['basis']['launch_config']["server"]} in ServerPool #{@mu_name}"
           elsif !@config['basis']['launch_config']["instance_id"].nil?
-            @config['basis']['launch_config']["ami_id"] = MU::Cloud::AWS::Server.createImage(
+            @config['basis']['launch_config']["ami_id"] = MU::Cloud.resourceClass("AWS", "Server").createImage(
               name: @mu_name,
               instance_id: @config['basis']['launch_config']["instance_id"],
               credentials: @config['credentials'],
               region: @config['region']
             )[@config['region']]
           end
-          MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
+          MU::Cloud.resourceClass("AWS", "Server").waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
 
           oldlaunch = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_launch_configurations(
             launch_configuration_names: [@mu_name]
@@ -1207,12 +1207,12 @@ module MU
                   vol.delete("encrypted")
                 end
               end
-              mapping, _cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              mapping, _cfm_mapping = MU::Cloud.resourceClass("AWS", "Server").convertBlockDeviceMapping(vol)
               storage << mapping
             }
           end
 
-          storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
+          storage.concat(MU::Cloud.resourceClass("AWS", "Server").ephemeral_mappings)
 
           if @config['basis']['launch_config']['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")

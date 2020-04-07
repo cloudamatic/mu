@@ -156,8 +156,8 @@ module MU
             begin
               resp = MU::Cloud::AWS.iam(credentials: credentials).list_roles(marker: marker)
               resp.roles.each{ |role|
-                # XXX Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
-#                MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
+                # XXX Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud.resourceClass("AWS", "Server").
+#                MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
               }
               marker = resp.marker
             end while resp.is_truncated
@@ -380,7 +380,7 @@ module MU
             if configurator.haveLitterMate?(dom['slow_logs'], "log")
               dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
             else
-              log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region']).values.first
+              log_group = MU::Cloud.resourceClass("AWS", "Log").find(cloud_id: dom['slow_logs'], region: dom['region']).values.first
               if !log_group
                 MU.log "Specified slow_logs CloudWatch log group '#{dom['slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
                 ok = false
@@ -525,7 +525,7 @@ module MU
               arn = @config['slow_logs']
             else
               log_group = @deploy.findLitterMate(type: "log", name: @config['slow_logs'])
-              log_group = MU::Cloud::AWS::Log.find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region']).values.first
+              log_group = MU::Cloud.resourceClass("AWS", "Log").find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region']).values.first
               if log_group.nil? or log_group.arn.nil?
                 raise MuError, "Failed to retrieve ARN of sibling LogGroup '#{@config['slow_logs']}'"
               end
@@ -552,7 +552,7 @@ module MU
               params[:log_publishing_options]["SEARCH_SLOW_LOGS"] = {}
               params[:log_publishing_options]["SEARCH_SLOW_LOGS"][:enabled] = true
               params[:log_publishing_options]["SEARCH_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] = arn
-              MU::Cloud::AWS::Log.allowService("es.amazonaws.com", arn, @config['region'])
+              MU::Cloud.resourceClass("AWS", "Log").allowService("es.amazonaws.com", arn, @config['region'])
             end
           end
 
