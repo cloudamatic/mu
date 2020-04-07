@@ -566,10 +566,9 @@ MESSAGE_END
             addDependentThread(parent, "#{name}_groom")
 
             # should our creation thread also wait on our parent's create?
-            if !resource["no_create_wait"] and
+            if !dependency["no_create_wait"] and
                (resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
                dependency['phase'] == "create" or
-#               (parent_class.deps_wait_on_my_creation and parent_type != res_type))
                parent_class.deps_wait_on_my_creation)
               addDependentThread(parent, "#{name}_create")
             end

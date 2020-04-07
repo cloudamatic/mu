@@ -377,9 +377,10 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         # Return the list of regions where we know EKS is supported.
-        def self.EKSRegions(credentials = nil)
+        def self.EKSRegions(credentials = nil, region: nil)
           eks_regions = []
-          MU::Cloud::AWS.listRegions(credentials: credentials).each { |r|
+          check_regions = region ? [region] : MU::Cloud::AWS.listRegions(credentials: credentials)
+          check_regions.each { |r|
             ami = getStandardImage("EKS", r)
             eks_regions << r if ami
           }
@@ -416,7 +417,7 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil)
-          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
+          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions(credentials, region: region).include?(region)
           resp = begin
             MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
           rescue Aws::EKS::Errors::AccessDeniedException
@@ -1214,18 +1215,18 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(cluster, configurator)
           ok = true
-
+start = Time.now
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
           cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)
 
-          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(cluster['region'])
+          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials'], region: cluster['region']).include?(cluster['region'])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
           end
 
-          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(cluster['region'])
+          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials'], region: cluster['region']).include?(cluster['region'])
             MU.log "EKS is only available in some regions", MU::ERR, details: MU::Cloud::AWS::ContainerCluster.EKSRegions
             ok = false
           end

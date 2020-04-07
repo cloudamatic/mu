@@ -485,7 +485,8 @@ module MU
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
     def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false, overwrite: false)
       append = false
-#      start = Time.now
+      start = Time.now
+
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       MU.log "insertKitten on #{cfg_name} #{descriptor['name']} (delay_validation: #{delay_validation.to_s})", MU::DEBUG, details: caller[0]
 
@@ -856,60 +857,56 @@ module MU
         @kittens[cfg_plural] << descriptor if append
       }
 
+      MU.log "insertKitten completed #{cfg_name} #{descriptor['name']} in #{sprintf("%.2fs", Time.now-start)}", MU::DEBUG
+
       ok
     end
 
     # For our resources which specify intra-stack dependencies, make sure those
     # dependencies are actually declared.
-    # TODO check for loops
-    def self.check_dependencies(config)
+    def check_dependencies
       ok = true
 
-      config.each_pair { |type, values|
-        if values.instance_of?(Array)
-          values.each { |resource|
-            if resource.kind_of?(Hash) and !resource["dependencies"].nil?
-              append = []
-              delete = []
-              resource["dependencies"].each { |dependency|
-                _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(dependency["type"])
-                found = false
-                names_seen = []
-                if !config[cfg_plural].nil?
-                  config[cfg_plural].each { |service|
-                    names_seen << service["name"].to_s
-                    found = true if service["name"].to_s == dependency["name"].to_s
-                    if service["virtual_name"] 
-                      names_seen << service["virtual_name"].to_s
-                      if service["virtual_name"].to_s == dependency["name"].to_s
-                        found = true
-                        append_me = dependency.dup
-                        append_me['name'] = service['name']
-                        append << append_me
-                        delete << dependency
-                      end
-                    end
-                  }
-                end
-                if !found
-                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR, details: names_seen
+      @config.each_pair { |type, values|
+        next if !values.instance_of?(Array)
+        _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type, false)
+        values.each { |resource|
+          next if !resource.kind_of?(Hash) or resource["dependencies"].nil?
+
+          resource["dependencies"].each { |dependency|
+            # make sure the thing we depend on really exists
+            sibling = haveLitterMate?(dependency['name'], dependency['type'])
+            if !sibling
+              MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR
+              ok = false
+              next
+            end
+
+            # Fudge dependency declarations to account for virtual_names
+            if sibling['virtual_name'] == dependency['name']
+              dependency['name'] = sibling['name']
+            end
+
+            next if dependency['no_create_wait']
+
+            # Check for a circular relationship. This only goes one layer deep,
+            # but more is a lot to ask.
+            if sibling['dependencies']
+              sibling['dependencies'].each { |sib_dep|
+                next if sib_dep['type'] != cfg_name or sib_dep['no_create_wait']
+                cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
+                if cousin and cousin['name'] == resource['name']
+                  MU.log "Circular dependency #{type} #{resource['name']} => #{dependency['name']} => #{sib_dep['name']}", MU::ERR
                   ok = false
                 end
               }
-              if append.size > 0
-                append.uniq!
-                resource["dependencies"].concat(append)
-              end
-              if delete.size > 0
-                delete.each { |delete_me|
-                  resource["dependencies"].delete(delete_me)
-                }
-              end
             end
           }
-        end
+
+        }
       }
-      return ok
+
+      ok
     end
 
     # Ugly text-manipulation to recursively resolve some placeholder strings
@@ -1213,7 +1210,7 @@ module MU
       types.each { |type|
         config[type] = @kittens[type] if @kittens[type].size > 0
       }
-      ok = false if !MU::Config.check_dependencies(config)
+      ok = false if !check_dependencies
 
       # TODO enforce uniqueness of resource names
       raise ValidationError if !ok
