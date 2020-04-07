@@ -229,7 +229,7 @@ module MU
         @clouds.each { |cloud|
           @scraped.each_pair { |type, resources|
             res_class = begin
-              MU::Cloud.loadCloudType(cloud, type)
+              MU::Cloud.resourceClass(cloud, type)
             rescue MU::Cloud::MuCloudResourceNotImplemented
               # XXX I don't think this can actually happen
               next

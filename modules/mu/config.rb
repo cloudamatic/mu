@@ -525,7 +525,7 @@ module MU
       # cloud-specific schema.
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
       myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
-      more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
+      more_required, more_schema = MU::Cloud.resourceClass(descriptor["cloud"], type).schema(self)
       if more_schema
         MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
       end
@@ -544,7 +544,7 @@ module MU
       end
 
       # Make sure a sensible region has been targeted, if applicable
-      classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
+      classobj = MU::Cloud.cloudClass(descriptor["cloud"])
       if descriptor["region"]
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
@@ -665,7 +665,6 @@ module MU
       if (descriptor['ingress_rules'] or
          ["server", "server_pool", "database", "cache_cluster"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
-        fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
         acl = haveLitterMate?(fwname, "firewall_rules")
         already_exists = !acl.nil?
@@ -676,7 +675,7 @@ module MU
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
-        if !fw_classobj.isGlobal?
+        if !MU::Cloud.resourceClass(descriptor["cloud"], "FirewallRule").isGlobal?
           acl['region'] = descriptor['region']
           acl['region'] ||= classobj.myRegion(acl['credentials'])
         else
@@ -831,7 +830,7 @@ module MU
         # Run the cloud class's deeper validation, unless we've already failed
         # on stuff that will cause spurious alarms further in
         if ok
-          parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
+          parser = MU::Cloud.resourceClass(descriptor['cloud'], type)
           original_descriptor = MU::Config.stripConfig(descriptor)
           passed = parser.validateConfig(descriptor, self)
 
@@ -841,7 +840,7 @@ module MU
           end
 
           # Make sure we've been configured with the right credentials
-          cloudbase = Object.const_get("MU").const_get("Cloud").const_get(descriptor['cloud'])
+          cloudbase = MU::Cloud.cloudClass(descriptor['cloud'])
           credcfg = cloudbase.credConfig(descriptor['credentials'])
           if !credcfg or credcfg.empty?
             raise ValidationError, "#{descriptor['cloud']} #{cfg_name} #{descriptor['name']} declares credential set #{descriptor['credentials']}, but no such credentials exist for that cloud provider"

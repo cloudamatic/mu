@@ -29,8 +29,7 @@ module MU
           rescue LoadError
             next
           end
-          res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
-          _required, res_schema = res_class.schema(self)
+          _required, res_schema = MU::Cloud.resourceClass(cloud, classname).schema(self)
           docschema["properties"][attrs[:cfg_plural]]["items"]["description"] ||= ""
           docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+res_class.quality
           res_schema.each { |key, cfg|
@@ -61,7 +60,7 @@ module MU
         MU::Cloud.supportedClouds.each { |cloud|
           res_class = nil
           begin
-            res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
+            res_class = MU::Cloud.resourceClass(cloud, classname)
           rescue MU::Cloud::MuCloudResourceNotImplemented
             next
           end

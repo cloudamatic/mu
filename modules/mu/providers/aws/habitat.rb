@@ -144,7 +144,7 @@ module MU
         def self.orgMasterCreds?(credentials = nil)
           acct_num = MU::Cloud::AWS.iam(credentials:  credentials).list_users.users.first.arn.split(/:/)[4]
 
-          parentorg = MU::Cloud::AWS::Folder.find(credentials: credentials).values.first
+          parentorg = MU::Cloud.resourceClass("AWS", "Folder").find(credentials: credentials).values.first
           acct_num == parentorg.master_account_id
         end
 

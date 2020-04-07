@@ -420,8 +420,8 @@ module MU
             db["dependencies"] ||= []
             db["dependencies"] << {
               "type" => "database",
-              "name" => db["source"]["name"],
-              "phase" => "groom"
+              "name" => db["source"]["name"]#,
+#              "phase" => "groom"
             }
           end
           db["source"]["cloud"] ||= db["cloud"]

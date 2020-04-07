@@ -925,7 +925,7 @@ end
           toplevel_required = []
           aws_resource_types = MU::Cloud.resource_types.keys.reject { |t|
             begin
-              MU::Cloud.loadCloudType("AWS", t)
+              MU::Cloud.resourceClass("AWS", t)
               false
             rescue MuCloudResourceNotImplemented
               true

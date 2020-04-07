@@ -261,6 +261,7 @@ module MU
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
       def kitten(mommacat = @mommacat, shallow: false, debug: false)
         return nil if !@cloud or !@type
+        loglevel = debug ? MU::NOTICE : MU::DEBUG
 
         if @obj
           @deploy_id ||= @obj.deploy_id
@@ -270,6 +271,7 @@ module MU
         end
 
         if mommacat
+          MU.log "Looking for #{@type} #{@name} #{@id} in deploy #{mommacat.deploy_id}", loglevel
           @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: debug)
           if @obj # initialize missing attributes, if we can
             @id ||= @obj.cloud_id

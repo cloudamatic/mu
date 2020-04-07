@@ -122,7 +122,7 @@ module MU
         }
 
         creds.each_pair { |provider, credsets_inner|
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
+          cloudclass = MU::Cloud.cloudClass(provider)
           credsets_inner.keys.each { |c|
             cloudclass.cleanDeploy(MU.deploy_id, credentials: c, noop: @noop)
           }
@@ -160,7 +160,7 @@ module MU
     def self.listUsedCredentials(credsets)
       creds = {}
       MU::Cloud.availableClouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        cloudclass = MU::Cloud.cloudClass(cloud)
         if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
           creds[cloud] ||= {}
           cloudclass.listCredentials.each { |credset|
@@ -181,7 +181,7 @@ module MU
     private_class_method :listUsedCredentials
 
     def self.cleanCloud(cloud, habitats, regions, credsets)
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       credsets.each_pair { |credset, acct_regions|
         next if @credsused and !@credsused.include?(credset)
         global_vs_region_semaphore = Mutex.new
@@ -214,8 +214,8 @@ module MU
 
     def self.cleanRegion(cloud, credset, region, global_vs_region_semaphore, global_done, habitats)
       had_failures = false
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
+      cloudclass = MU::Cloud.cloudClass(cloud)
+      habitatclass = MU::Cloud.resourceClass(cloud, "Habitat")
 
       projects = []
       if habitats
@@ -282,8 +282,7 @@ module MU
         begin
           skipme = false
           global_vs_region_semaphore.synchronize {
-            MU::Cloud.loadCloudType(cloud, t)
-            if Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(t).isGlobal?
+            if MU::Cloud.resourceClass(cloud, t).isGlobal?
               global_done[habitat] ||= []
               if !global_done[habitat].include?(t)
                 global_done[habitat] << t
@@ -337,9 +336,8 @@ module MU
             flags['known'] << found.cloud_id                            
           end
         end
-        resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
 
-        resclass.cleanup(
+        MU::Cloud.loadBaseType(type).cleanup(
           noop: @noop,
           ignoremaster: @ignoremaster,
           region: region,

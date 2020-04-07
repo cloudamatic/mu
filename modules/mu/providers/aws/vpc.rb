@@ -1777,7 +1777,7 @@ module MU
             }
 
             on_retry = Proc.new {
-              MU::Cloud::AWS::FirewallRule.cleanup(
+              MU::Cloud.resourceClass("AWS", "FirewallRule").cleanup(
                 noop: noop,
                 region: region,
                 credentials: credentials,
@@ -1794,7 +1794,7 @@ module MU
             if !MU::Cloud::AWS.isGovCloud?(region)
               mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region, credentials: credentials).values.first
               if !mu_zone.nil?
-                MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true, credentials: credentials)
+                MU::Cloud.resourceClass("AWS", "DNSZone").toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true, credentials: credentials)
               end
             end
           }

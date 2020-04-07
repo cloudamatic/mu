@@ -543,7 +543,7 @@ module MU
           # Clouds that don't have some kind of native NAT gateway can also
           # leverage this host to honor "gateway" => "#NAT" situations.
           if !can_peer and !already_peered and have_public and vpc["create_bastion"]
-            serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
+            serverclass = MU::Cloud.resourceClass(vpc["cloud"], "Server")
             bastion = serverclass.genericNAT.dup
             bastion["groomer_variables"] = {
               "nat_ip_block" => vpc["ip_block"].to_s
@@ -600,7 +600,7 @@ module MU
               MU.log "Skipping malformed VPC peer in #{vpc['name']}", MU::ERR, details: peer
               next
             end
-            peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+            peer["#MU_CLOUDCLASS"] = MU::Cloud.loadBaseType("VPC")
             # We check for multiple siblings because some implementations
             # (Google) can split declared VPCs into parts to get the mimic the
             # routing behaviors we expect.

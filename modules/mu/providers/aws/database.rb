@@ -254,6 +254,7 @@ module MU
           # Finding subnets, creating security groups/adding holes, create subnet group
           subnet_ids = []
 
+dependencies
           raise MuError.new "Didn't find the VPC specified for #{@mu_name}", details: @config["vpc"].to_h unless @vpc
 
           mySubnets.each { |subnet|
@@ -435,10 +436,9 @@ module MU
         def createNewSnapshot
           snap_id = @deploy.getResourceName(@config["name"]) + Time.new.strftime("%M%S").to_s
           src_ref = MU::Config::Ref.get(@config["source"])
-          src_ref.kitten
+          src_ref.kitten(@deploy)
           if !src_ref.id
-            MU.log "Failed to get an id from reference for creating a snapshot", MU::ERR, details: @config['source']
-            raise "Failed to get an id from reference for creating a snapshot"
+            raise MuError.new "#{@mu_name} failed to get an id from reference for creating a snapshot", details: @config['source']
           end
           params = {
             :tags => @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
@@ -665,7 +665,7 @@ module MU
               "type" => "string",
               "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"]
             },
-            "ingress_rules" => MU::Cloud::AWS::FirewallRule.ingressRuleAddtlSchema
+            "ingress_rules" => MU::Cloud.resourceClass("AWS", "FirewallRule").ingressRuleAddtlSchema
           }
           [toplevel_required, schema]
         end
@@ -1020,7 +1020,6 @@ module MU
         def add_cluster_node
           cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten(@deploy, debug: true)
           if cluster.nil? or cluster.cloud_id.nil?
-puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']['name']).class.name
             raise MuError.new "Failed to resolve parent cluster of #{@mu_name}", details: @config["member_of_cluster"].to_h
           end
 
@@ -1380,7 +1379,7 @@ puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']
             return if db.nil?
           }
 
-          MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: cloud_id, target: (cluster ? db.endpoint : db.endpoint.address), cloudclass: MU::Cloud::Database, delete: true) if !noop
+          MU::Cloud.resourceClass("AWS", "DNSZone").genericMuDNSEntry(name: cloud_id, target: (cluster ? db.endpoint : db.endpoint.address), cloudclass: MU::Cloud::Database, delete: true) if !noop
 
           if %w{deleting deleted}.include?(cluster ? db.status : db.db_instance_status)
             MU.log "#{cloud_id} has already been terminated", MU::WARN
@@ -1445,7 +1444,7 @@ puts @deploy.findLitterMate(type: "database", name: @config['member_of_cluster']
             secgroup = MU::Cloud::AWS.rds(region: region, credentials: credentials).describe_db_security_groups(db_security_group_name: cloud_id)
             rdssecgroups << cloud_id if !secgroup.nil?
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
-            MU.log "No such RDS security group #{sg} to purge", MU::DEBUG
+            MU.log "No such RDS security group #{cloud_id} to purge", MU::DEBUG
           end
 
           # RDS security groups can depend on EC2 security groups, do these last

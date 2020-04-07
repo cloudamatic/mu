@@ -180,8 +180,6 @@ module MU
         ]
       end
 
-      resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("FirewallRule")
-
       if rules_only
         return rules
       end
@@ -217,7 +215,7 @@ module MU
         acl['project'] = acl["vpc"]["habitat"]["id"] || acl["vpc"]["habitat"]["name"]
       end
       acl.delete("vpc") if !acl["vpc"]
-      if !resclass.isGlobal? and !region.nil? and !region.empty?
+      if !MU::Cloud.resourceClass(cloud, "FirewallRule").isGlobal? and !region.nil? and !region.empty?
         acl["region"] = region
       end
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
