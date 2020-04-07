@@ -235,7 +235,7 @@ module example.com/cloudfunction
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
+          return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
           # Make sure we catch regional *and* zone functions
           found = MU::Cloud::Google::Function.find(credentials: credentials, region: region, project: flags["habitat"])
           found.each_pair { |cloud_id, desc|
@@ -373,7 +373,7 @@ module example.com/cloudfunction
                 }
               }
             },
-            "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
+            "service_account" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["service_account"],
             "runtime" => {
               "type" => "string",
               "enum" => %w{nodejs go python nodejs8 nodejs10 python37 go111 go113},
@@ -524,7 +524,7 @@ module example.com/cloudfunction
               ok = false
             end
           else
-            function = MU::Cloud::Google::User.genericServiceAccount(function, configurator)
+            function = MU::Cloud.resourceClass("Google", "User").genericServiceAccount(function, configurator)
           end
 
 #          siblings = configurator.haveLitterMate?(nil, "vpcs", has_multiple: true)

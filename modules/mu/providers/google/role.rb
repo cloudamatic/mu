@@ -271,13 +271,13 @@ module MU
           my_org = MU::Cloud::Google.getOrg(credentials)
           if my_org
             scopes["organizations"] = [my_org.name]
-            folders = MU::Cloud::Google::Folder.find(credentials: credentials)
+            folders = MU::Cloud.resourceClass("Google", "Folder").find(credentials: credentials)
             if folders and folders.size > 0
               scopes["folders"] = folders.keys
             end
           end
 
-          projects = MU::Cloud::Google::Habitat.find(credentials: credentials)
+          projects = MU::Cloud.resourceClass("Google", "Habitat").find(credentials: credentials)
           if projects and projects.size > 0
             scopes["projects"] = projects.keys
           end
@@ -407,12 +407,12 @@ module MU
                 # email field (which is the "real" id most of the time)
                 real_id = nil
                 if entity_type == "group"
-                  found = MU::Cloud::Google::Group.find(cloud_id: entity_id, credentials: credentials)
+                  found = MU::Cloud.resourceClass("Google", "Group").find(cloud_id: entity_id, credentials: credentials)
                   if found[entity_id]
                     real_id = found[entity_id].id
                   end
                 elsif entity_type == "user"
-                  found = MU::Cloud::Google::User.find(cloud_id: entity_id, credentials: credentials)
+                  found = MU::Cloud.resourceClass("Google", "User").find(cloud_id: entity_id, credentials: credentials)
                   if found[entity_id]
                     real_id = found[entity_id].id
                   end
@@ -563,7 +563,7 @@ module MU
           if args[:project]
             canned = Hash[MU::Cloud::Google.iam(credentials: args[:credentials]).list_roles.roles.map { |r| [r.name, r] }]
             begin
-              MU::Cloud::Google::Habitat.bindings(args[:project], credentials: args[:credentials]).each { |binding|
+              MU::Cloud.resourceClass("Google", "Habitat").bindings(args[:project], credentials: args[:credentials]).each { |binding|
                 found[binding.role] = canned[binding.role]
               }
             rescue ::Google::Apis::ClientError => e
@@ -908,15 +908,15 @@ module MU
                 insertBinding("organizations", my_org.name, binding)
               }
 
-              MU::Cloud::Google::Folder.find(credentials: credentials).keys.each { |folder|
-                MU::Cloud::Google::Folder.bindings(folder, credentials: credentials).each { |binding|
+              MU::Cloud.resourceClass("Google", "Folder").find(credentials: credentials).keys.each { |folder|
+                MU::Cloud.resourceClass("Google", "Folder").bindings(folder, credentials: credentials).each { |binding|
                   insertBinding("folders", folder, binding)
                 }
               }
             end
-            MU::Cloud::Google::Habitat.find(credentials: credentials).keys.each { |project|
+            MU::Cloud.resourceClass("Google", "Habitat").find(credentials: credentials).keys.each { |project|
               begin
-                MU::Cloud::Google::Habitat.bindings(project, credentials: credentials).each { |binding|
+                MU::Cloud.resourceClass("Google", "Habitat").bindings(project, credentials: credentials).each { |binding|
                   insertBinding("projects", project, binding)
                 }
               rescue ::Google::Apis::ClientError => e

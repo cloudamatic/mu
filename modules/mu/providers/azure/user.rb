@@ -107,7 +107,7 @@ module MU
         def groom
           if @config['roles']
             @config['roles'].each { |role|
-              MU::Cloud::Azure::Role.assignTo(cloud_desc.principal_id, role_name: role, credentials: @config['credentials'])
+              MU::Cloud.resourceClass("Azure", "Role").assignTo(cloud_desc.principal_id, role_name: role, credentials: @config['credentials'])
             }
           end
         end

@@ -146,7 +146,7 @@ module MU
           return nil if @config.nil? or @deploy.nil?
 
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-          if !@config["vpc"].nil? and !MU::Cloud::Azure::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+          if !@config["vpc"].nil? and !MU::Cloud.resourceClass("Azure", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 
             if !@nat.nil? and @nat.mu_name != @mu_name
               if @nat.cloud_desc.nil?
@@ -189,7 +189,7 @@ module MU
           end
 
           _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
-          if !nat_ssh_host and !MU::Cloud::Azure::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+          if !nat_ssh_host and !MU::Cloud.resourceClass("Azure", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
           end
@@ -384,7 +384,7 @@ module MU
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
           # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
-          if MU::Cloud::Azure::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials']) or public_ips.size == 0
+          if MU::Cloud.resourceClass("Azure", "VPC").haveRouteToInstance?(cloud_desc, credentials: @config['credentials']) or public_ips.size == 0
             @config['canonical_ip'] = private_ips.first
             return private_ips.first
           else
@@ -463,7 +463,7 @@ module MU
           hosts_schema = MU::Config::CIDR_PRIMITIVE
           hosts_schema["pattern"] = "^(\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}|\\*)$"
           schema = {
-            "roles" => MU::Cloud::Azure::User.schema(config)[1]["roles"],
+            "roles" => MU::Cloud.resourceClass("Azure", "User").schema(config)[1]["roles"],
             "ingress_rules" => {
               "items" => {
                 "properties" => {

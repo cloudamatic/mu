@@ -90,7 +90,7 @@ module MU
             end
           elsif @config['external']
             @cloud_id = @config['email']
-            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
+            MU::Cloud.resourceClass("Google", "Role").bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           else
             if !@config['email']
               domains = MU::Cloud::Google.admin_directory(credentials: @credentials).list_domains(@customer)
@@ -122,10 +122,10 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['external']
-            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
+            MU::Cloud.resourceClass("Google", "Role").bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
           elsif @config['type'] == "interactive"
             need_update = false
-            MU::Cloud::Google::Role.bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
+            MU::Cloud.resourceClass("Google", "Role").bindFromConfig("user", @cloud_id, @config['roles'], credentials: @config['credentials'])
 
             if @config['force_password_change'] and !cloud_desc.change_password_at_next_login
               MU.log "Forcing #{@mu_name} to change their password at next login", MU::NOTICE
@@ -170,7 +170,7 @@ module MU
             end
 
           else
-            MU::Cloud::Google::Role.bindFromConfig("serviceAccount", @cloud_id.gsub(/.*?\/([^\/]+)$/, '\1'), @config['roles'], credentials: @config['credentials'])
+            MU::Cloud.resourceClass("Google", "Role").bindFromConfig("serviceAccount", @cloud_id.gsub(/.*?\/([^\/]+)$/, '\1'), @config['roles'], credentials: @config['credentials'])
             if @config['create_api_key']
               resp = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(
                 cloud_desc.name
@@ -275,7 +275,7 @@ module MU
                 next if user_email.nil?
                 next if !user_email.match(/^[^\/]+@[^\/]+$/)
 
-                MU::Cloud::Google::Role.removeBindings("user", user_email, credentials: credentials, noop: noop)
+                MU::Cloud.resourceClass("Google", "Role").removeBindings("user", user_email, credentials: credentials, noop: noop)
               }
 
             end
@@ -416,7 +416,7 @@ module MU
             return nil
           end
 
-          user_roles = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
+          user_roles = MU::Cloud.resourceClass("Google", "Role").getAllBindings(@config['credentials'])["by_entity"]
 
           if cloud_desc.nil?
             MU.log "FAILED TO FIND CLOUD DESCRIPTOR FOR #{self}", MU::ERR, details: @config
@@ -439,13 +439,13 @@ module MU
             if user_roles["serviceAccount"] and
                user_roles["serviceAccount"][bok['cloud_id']] and
                user_roles["serviceAccount"][bok['cloud_id']].size > 0
-              bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["serviceAccount"][bok['cloud_id']])
+              bok['roles'] = MU::Cloud.resourceClass("Google", "Role").entityBindingsToSchema(user_roles["serviceAccount"][bok['cloud_id']])
             end
           else
             if user_roles["user"] and
                user_roles["user"][bok['cloud_id']] and
                user_roles["user"][bok['cloud_id']].size > 0
-              bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(user_roles["user"][bok['cloud_id']], credentials: @config['credentials'])
+              bok['roles'] = MU::Cloud.resourceClass("Google", "Role").entityBindingsToSchema(user_roles["user"][bok['cloud_id']], credentials: @config['credentials'])
             end
             bok['given_name'] = cloud_desc.name.given_name if cloud_desc.name.given_name and !cloud_desc.name.given_name.empty?
             bok['family_name'] = cloud_desc.name.family_name if cloud_desc.name.family_name and !cloud_desc.name.family_name.empty?
@@ -528,7 +528,7 @@ If we are binding (rather than creating) a user and no roles are specified, we w
             "roles" => {
               "type" => "array",
               "description" => "One or more Google IAM roles to associate with this user.",
-              "items" => MU::Cloud::Google::Role.ref_schema
+              "items" => MU::Cloud.resourceClass("Google", "Role").ref_schema
             }
           }
           [toplevel_required, schema]

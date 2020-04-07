@@ -89,8 +89,8 @@ module MU
             machine_type: size,
             service_accounts: [@service_acct],
             labels: labels,
-            disks: MU::Cloud::Google::Server.diskConfig(@config, false, false, credentials: @config['credentials']),
-            network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
+            disks: MU::Cloud.resourceClass("Google", "Server").diskConfig(@config, false, false, credentials: @config['credentials']),
+            network_interfaces: MU::Cloud.resourceClass("Google", "Server").interfaceConfig(@config, @vpc),
             metadata: metadata,
             tags: MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
           )
@@ -324,11 +324,11 @@ end
         def self.schema(config)
           toplevel_required = []
           schema = {
-            "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
-            "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
-            "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
-            "scopes" => MU::Cloud::Google::Server.schema(config)[1]["scopes"],
-            "network_tags" => MU::Cloud::Google::Server.schema(config)[1]["network_tags"],
+            "ssh_user" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["ssh_user"],
+            "metadata" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["metadata"],
+            "service_account" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["service_account"],
+            "scopes" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["scopes"],
+            "network_tags" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["network_tags"],
             "availability_zone" => {
               "type" => "string",
               "description" => "Target a specific availability zone for this pool, which will create zonal instance managers and scalers instead of regional ones."
@@ -382,7 +382,7 @@ end
           if pool['basis']['launch_config']
             launch = pool["basis"]["launch_config"]
 
-            launch['size'] = MU::Cloud::Google::Server.validateInstanceType(launch["size"], pool["region"])
+            launch['size'] = MU::Cloud.resourceClass("Google", "Server").validateInstanceType(launch["size"], pool["region"])
             ok = false if launch['size'].nil?
 
             if launch['image_id'].nil?
@@ -397,7 +397,7 @@ end
 
             real_image = nil
             begin
-              real_image = MU::Cloud::Google::Server.fetchImage(launch['image_id'].to_s, credentials: pool['credentials'])
+              real_image = MU::Cloud.resourceClass("Google", "Server").fetchImage(launch['image_id'].to_s, credentials: pool['credentials'])
             rescue ::Google::Apis::ClientError => e
               MU.log e.inspect, MU::WARN
             end
@@ -433,7 +433,7 @@ end
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
+          return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}

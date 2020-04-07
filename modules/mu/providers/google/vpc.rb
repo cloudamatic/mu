@@ -539,7 +539,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
+          return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
@@ -565,7 +565,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                   MU.log e.message, MU::WARN
                   if e.message.match(/Failed to delete network (.+)/)
                     network_name = Regexp.last_match[1]
-                    fwrules = MU::Cloud::Google::FirewallRule.find(project: flags['habitat'], credentials: credentials)
+                    fwrules = MU::Cloud.resourceClass("Google", "FirewallRule").find(project: flags['habitat'], credentials: credentials)
                     fwrules.reject! { |_name, desc|
                       !desc.network.match(/.*?\/#{Regexp.quote(network_name)}$/)
                     }

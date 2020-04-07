@@ -657,7 +657,7 @@ module MU
           end
 
           if bok['service_account']
-            found = MU::Cloud::Google::User.find(
+            found = MU::Cloud.resourceClass("Google", "User").find(
               credentials: bok['credentials'],
               project: bok['project'],
               cloud_id: bok['service_account']
@@ -747,7 +747,7 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
 
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
+          return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
           clusters = []
 
           # Make sure we catch regional *and* zone clusters
@@ -817,10 +817,10 @@ module MU
               "type" => "integer",
               "description" => "The number of local SSD disks to be attached to workers. See https://cloud.google.com/compute/docs/disks/local-ssd#local_ssd_limits"
             },
-            "ssh_user" => MU::Cloud::Google::Server.schema(config)[1]["ssh_user"],
-            "metadata" => MU::Cloud::Google::Server.schema(config)[1]["metadata"],
-            "service_account" => MU::Cloud::Google::Server.schema(config)[1]["service_account"],
-            "scopes" => MU::Cloud::Google::Server.schema(config)[1]["scopes"],
+            "ssh_user" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["ssh_user"],
+            "metadata" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["metadata"],
+            "service_account" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["service_account"],
+            "scopes" => MU::Cloud.resourceClass("Google", "Server").schema(config)[1]["scopes"],
             "private_cluster" => {
               "description" => "Set a GKE cluster to be private, that is segregated into its own hidden VPC.",
               "type" => "object",
@@ -1045,7 +1045,7 @@ module MU
               ok = false
             end
           else
-            cluster = MU::Cloud::Google::User.genericServiceAccount(cluster, configurator)
+            cluster = MU::Cloud.resourceClass("Google", "User").genericServiceAccount(cluster, configurator)
           end
 
           if cluster['dependencies']
@@ -1141,7 +1141,7 @@ module MU
             end
           end
 
-          cluster['instance_type'] = MU::Cloud::Google::Server.validateInstanceType(cluster["instance_type"], cluster["region"], project: cluster['project'], credentials: cluster['credentials'])
+          cluster['instance_type'] = MU::Cloud.resourceClass("Google", "Server").validateInstanceType(cluster["instance_type"], cluster["region"], project: cluster['project'], credentials: cluster['credentials'])
           ok = false if cluster['instance_type'].nil?
 
           if !MU::Master.kubectl

@@ -492,7 +492,7 @@ next if !create
           return nil if @config.nil? or @deploy.nil?
 
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-          if !@config["vpc"].nil? and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
+          if !@config["vpc"].nil? and !MU::Cloud.resourceClass("Google", "VPC").haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
 
             if !@nat.nil?
               if @nat.cloud_desc.nil?
@@ -623,7 +623,7 @@ next if !create
           end
 
           _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
-          if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
+          if !nat_ssh_host and !MU::Cloud.resourceClass("Google", "VPC").haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
 # XXX check if canonical_ip is in the private ranges
 #            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
           end
@@ -992,7 +992,7 @@ next if !create
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
           # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
-          if MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, credentials: @config['credentials']) or public_ips.size == 0
+          if MU::Cloud.resourceClass("Google", "VPC").haveRouteToInstance?(cloud_desc, credentials: @config['credentials']) or public_ips.size == 0
             @config['canonical_ip'] = private_ips.first
             return private_ips.first
           else
@@ -1292,7 +1292,7 @@ next if !create
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
+          return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
 
 # XXX make damn sure MU.deploy_id is set
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
@@ -1356,7 +1356,7 @@ next if !create
         def self.schema(config)
           toplevel_required = []
           schema = {
-            "roles" => MU::Cloud::Google::User.schema(config)[1]["roles"],
+            "roles" => MU::Cloud.resourceClass("Google", "User").schema(config)[1]["roles"],
             "windows_admin_username" => {
               "type" => "string",
               "default" => "muadmin"
@@ -1534,12 +1534,12 @@ next if !create
               ok = false
             end
           else
-            server = MU::Cloud::Google::User.genericServiceAccount(server, configurator)
+            server = MU::Cloud.resourceClass("Google", "User").genericServiceAccount(server, configurator)
           end
 
           subnets = nil
           if !server['vpc']
-            vpcs = MU::Cloud::Google::VPC.find(credentials: server['credentials'])
+            vpcs = MU::Cloud.resourceClass("Google", "VPC").find(credentials: server['credentials'])
             if vpcs["default"]
               server["vpc"] ||= {}
               server["vpc"]["vpc_id"] = vpcs["default"].self_link
@@ -1554,7 +1554,7 @@ next if !create
           if !server['vpc']['subnet_id'] and server['vpc']['subnet_name'].nil?
             if !subnets
               if server["vpc"]["vpc_id"]
-                vpcs = MU::Cloud::Google::VPC.find(cloud_id: server["vpc"]["vpc_id"])
+                vpcs = MU::Cloud.resourceClass("Google", "VPC").find(cloud_id: server["vpc"]["vpc_id"])
                 subnets = vpcs["default"].subnetworks.sample
               end
             end

@@ -564,7 +564,8 @@ module MU
             }
             vpc["dependencies"] << {
               "type" => "server",
-              "name" => bastion['name'],
+              "name" => bastion['name'], 
+              "no_create_wait" => true
             }
             vpc["bastion"] = MU::Config::Ref.get(
               name: bastion['name'],
@@ -619,14 +620,16 @@ module MU
                     append << append_me
                     vpc["dependencies"] << {
                       "type" => "vpc",
-                      "name" => sib['name']
+                      "name" => sib['name'],
+                      "phase" => "groom"
                     }
                   end
                   delete << peer
                 else
                   vpc["dependencies"] << {
                     "type" => "vpc",
-                    "name" => peer['vpc']["name"]
+                    "name" => peer['vpc']["name"],
+                    "phase" => "groom"
                   }
                 end
                 delete << peer if sib['name'] == vpc['name']

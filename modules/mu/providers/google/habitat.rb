@@ -61,7 +61,7 @@ module MU
           if @config['parent']['name'] and !@config['parent']['id']
             @config['parent']['deploy_id'] = @deploy.deploy_id
           end
-          parent = MU::Cloud::Google::Folder.resolveParent(@config['parent'], credentials: @config['credentials'])
+          parent = MU::Cloud.resourceClass("Google", "Folder").resolveParent(@config['parent'], credentials: @config['credentials'])
           if !parent
             MU.log "Unable to resolve parent resource of Google Project #{@config['name']}", MU::ERR, details: @config['parent']
             raise "Unable to resolve parent resource of Google Project #{@config['name']}"

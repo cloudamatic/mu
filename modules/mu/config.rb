@@ -872,6 +872,7 @@ module MU
         _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type, false)
         values.each { |resource|
           next if !resource.kind_of?(Hash) or resource["dependencies"].nil?
+          resource['dependencies'].uniq!
 
           resource["dependencies"].each { |dependency|
             # make sure the thing we depend on really exists
@@ -887,16 +888,22 @@ module MU
               dependency['name'] = sibling['name']
             end
 
-            next if dependency['no_create_wait']
+            # Check for a circular relationship that will lead to a deadlock
+            # when creating resource. This only goes one layer deep, and does
+            # not consider groom-phase deadlocks.
+            if dependency['phase'] == "groom" or dependency['no_create_wait'] or (
+                 !MU::Cloud.resourceClass(sibling['cloud'], type).deps_wait_on_my_creation and
+                 !MU::Cloud.resourceClass(resource['cloud'], type).waits_on_parent_completion
+               )
+              next
+            end
 
-            # Check for a circular relationship. This only goes one layer deep,
-            # but more is a lot to ask.
             if sibling['dependencies']
               sibling['dependencies'].each { |sib_dep|
                 next if sib_dep['type'] != cfg_name or sib_dep['no_create_wait']
                 cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
                 if cousin and cousin['name'] == resource['name']
-                  MU.log "Circular dependency #{type} #{resource['name']} => #{dependency['name']} => #{sib_dep['name']}", MU::ERR
+                  MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]
                   ok = false
                 end
               }

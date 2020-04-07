@@ -209,7 +209,7 @@ end
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
           flags["habitat"] ||= MU::Cloud::Google.defaultProject(credentials)
-          return if !MU::Cloud::Google::Habitat.isLive?(flags["habitat"], credentials)
+          return if !MU::Cloud.resourceClass("Google", "Habitat").isLive?(flags["habitat"], credentials)
           filter = %Q{(labels.mu-id = "#{MU.deploy_id.downcase}")}
           if !ignoremaster and MU.mu_public_ip
             filter += %Q{ AND (labels.mu-master-ip = "#{MU.mu_public_ip.gsub(/\./, "_")}")}
@@ -440,7 +440,7 @@ end
             elsif acl['vpc']['habitat'] and acl['vpc']['habitat']['name']
               acl['vpc']['project'] = acl['vpc']['habitat']['name']
             end
-            correct_vpc = MU::Cloud::Google::VPC.pickVPC(
+            correct_vpc = MU::Cloud.resourceClass("Google", "VPC").pickVPC(
               acl['vpc'],
               acl,
               "firewall_rule",

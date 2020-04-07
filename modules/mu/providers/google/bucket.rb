@@ -243,7 +243,7 @@ module MU
                   grantees[binding.role] << { "id" => grantee }
                 elsif grantee.match(/^serviceAccount:(.*)/)
                   sa_name = Regexp.last_match[1]
-                  if MU::Cloud::Google::User.cannedServiceAcctName?(sa_name)
+                  if MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(sa_name)
                     grantees[binding.role] << { "id" => grantee }
                   else
                     grantees[binding.role] << MU::Config::Ref.get(

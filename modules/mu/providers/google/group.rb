@@ -44,7 +44,7 @@ module MU
             resp = MU::Cloud::Google.admin_directory(credentials: @credentials).insert_group(group_obj)
             @cloud_id = resp.email
 
-            MU::Cloud::Google::Role.bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'])
+            MU::Cloud.resourceClass("Google", "Role").bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'])
           else
             @cloud_id = @config['name'].sub(/@.*/, "")+"@"+@config['domain']
           end
@@ -52,7 +52,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          MU::Cloud::Google::Role.bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'], debug: true)
+          MU::Cloud.resourceClass("Google", "Role").bindFromConfig("group", @cloud_id, @config['roles'], credentials: @config['credentials'], debug: true)
 
           if @config['members']
             resolved_desired = []
@@ -166,7 +166,7 @@ module MU
 
           if flags['known']
             flags['known'].each { |group|
-              MU::Cloud::Google::Role.removeBindings("group", group, credentials: credentials, noop: noop)
+              MU::Cloud.resourceClass("Google", "Role").removeBindings("group", group, credentials: credentials, noop: noop)
             }
           end
         end
@@ -222,10 +222,10 @@ module MU
 #              type: "users"
 #            )
 #          }
-          group_roles = MU::Cloud::Google::Role.getAllBindings(@config['credentials'])["by_entity"]
+          group_roles = MU::Cloud.resourceClass("Google", "Role").getAllBindings(@config['credentials'])["by_entity"]
           if group_roles["group"] and group_roles["group"][bok['cloud_id']] and
              group_roles["group"][bok['cloud_id']].size > 0
-            bok['roles'] = MU::Cloud::Google::Role.entityBindingsToSchema(group_roles["group"][bok['cloud_id']], credentials: @config['credentials'])
+            bok['roles'] = MU::Cloud.resourceClass("Google", "Role").entityBindingsToSchema(group_roles["group"][bok['cloud_id']], credentials: @config['credentials'])
           end
 
           bok
@@ -264,7 +264,7 @@ If we are binding (rather than creating) a group and no roles are specified, we 
 
             "roles" => {
               "type" => "array",
-              "items" => MU::Cloud::Google::Role.ref_schema
+              "items" => MU::Cloud.resourceClass("Google", "Role").ref_schema
             }
           }
           [toplevel_required, schema]
