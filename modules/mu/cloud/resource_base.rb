@@ -1011,9 +1011,6 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
             end
             false
           end
-
-          require 'mu/cloud/winrm_sessions'
-          require 'mu/cloud/ssh_sessions'
         end
 
         # Wrap the instance methods that this cloud resource type has to
@@ -1083,6 +1080,9 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
 
       } # end dynamic class generation block
     } # end resource type iteration
+
+    require 'mu/cloud/winrm_sessions'
+    require 'mu/cloud/ssh_sessions'
 
   end
 
