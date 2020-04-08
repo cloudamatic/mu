@@ -578,12 +578,18 @@ MESSAGE_END
             if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
               parent = parent_type+"_"+dependency["name"]+"_groom"
               addDependentThread(parent, "#{name}_groom")
-              if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "groom"
+              if !dependency["no_create_wait"] and (
+                   parent_class.deps_wait_on_my_creation or
+                   resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
+                   dependency['phase'] == "groom"
+                 )
                 addDependentThread(parent, "#{name}_create")
               end
             end
           }
         end
+        MU.log "Thread dependencies #{res_type}[#{name}]", MU::DEBUG, details: { "create" => @dependency_threads["#{name}_create"], "groom" => @dependency_threads["#{name}_groom"] }
+        @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
       }
     end
 
