@@ -555,7 +555,7 @@ MESSAGE_END
         @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
 
         MU.log "Setting dependencies for #{name}", MU::DEBUG, details: resource["dependencies"]
-        if resource["dependencies"] != nil then
+        if !resource["dependencies"].nil? then
           resource["dependencies"].each { |dependency|
             parent_class = MU::Cloud.loadBaseType(dependency['type'])
 

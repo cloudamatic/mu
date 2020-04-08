@@ -886,6 +886,8 @@ module MU
         _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type, false)
         values.each { |resource|
           next if !resource.kind_of?(Hash) or resource["dependencies"].nil?
+          addme = []
+          deleteme = []
 
           resource["dependencies"].each { |dependency|
             # make sure the thing we depend on really exists
@@ -901,12 +903,28 @@ module MU
             # have no way to guess which of a collection of resources is the
             # real correct one.
             if sibling['virtual_name'] == dependency['name']
+              real_resources = []
+              found_exact = false
               resource["dependencies"].each { |dep_again|
                 if dep_again['type'] == dependency['type'] and sibling['name'] == dep_again['name']
                   dependency['name'] = sibling['name']
+                  found_exact = true
                   break
                 end
               }
+              if !found_exact
+                all_siblings = haveLitterMate?(dependency['name'], dependency['type'], has_multiple: true)
+                if all_siblings.size > 0
+                  all_siblings.each { |s|
+                    newguy = dependency.clone
+                    newguy['name'] = s['name']
+                    addme << newguy
+                  }
+                  deleteme << dependency
+                  MU.log "Expanding dependency which maps to virtual resources to all matching real resources", MU::NOTICE, details: { sibling['virtual_name'] => addme }
+                  next
+                end
+              end
             end
 
             # Check for a circular relationship that will lead to a deadlock
@@ -930,6 +948,8 @@ module MU
               }
             end
           }
+          resource["dependencies"].reject! { |dep| deleteme.include?(dep) }
+          resource["dependencies"].concat(addme)
           resource["dependencies"].uniq!
 
         }
