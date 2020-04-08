@@ -1021,6 +1021,25 @@ module MU
             cluster['ip_aliases'] = true
           end
 
+          # try to stake out some nice /21s for our networking config
+          if cluster['ip_aliases'] and cluster["vpc"] and cluster["vpc"]["id"]
+            habarg = if cluster["vpc"]["habitat"] and cluster["vpc"]["habitat"]["id"]
+              cluster["vpc"]["habitat"]["id"]
+            else
+              cluster["project"]
+            end
+            found = MU::MommaCat.findStray("Google", "vpcs", cloud_id: cluster["vpc"]["id"], credentials: cluster["credentials"], habitats: [habarg], dummy_ok: true)
+            if found and found.size == 1
+              myvpc = found.first
+# XXX this might not make sense with custom_subnet
+              cluster['pod_ip_block'] ||= myvpc.getUnusedAddressBlock(max_bits: 21)
+              cluster['services_ip_block'] ||= myvpc.getUnusedAddressBlock(exclude: [cluster['pod_ip_block']], max_bits: 21)
+              if cluster['tpu']
+                cluster['tpu_ip_block'] ||= myvpc.getUnusedAddressBlock(exclude: [cluster['pod_ip_block'], cluster['services_ip_block']], max_bits: 21)
+              end
+            end
+          end
+
           if cluster['service_account']
             cluster['service_account']['cloud'] = "Google"
             cluster['service_account']['habitat'] ||= MU::Config::Ref.get(

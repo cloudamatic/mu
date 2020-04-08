@@ -946,6 +946,41 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           createRoute(route, network: @url, tags: [MU::Cloud::Google.nameStr(server.mu_name)])
         end
 
+        # Looks at existing subnets, and attempts to find the next available
+        # IP block that's roughly similar to the ones we already have. This
+        # checks against secondary IP ranges, as well as each subnet's primary
+        # CIDR block.
+        # @param exclude [Array<String>]: One or more CIDRs to treat as unavailable, in addition to those allocated to existing subnets
+        # @return [String]
+        def getUnusedAddressBlock(exclude: [], max_bits: 28)
+          used_ranges = exclude.map { |cidr| NetAddr::IPv4Net.parse(cidr) }
+          subnets.each { |s|
+            used_ranges << NetAddr::IPv4Net.parse(s.cloud_desc.ip_cidr_range)
+            if s.cloud_desc.secondary_ip_ranges
+              used_ranges.concat(s.cloud_desc.secondary_ip_ranges.map { |r| NetAddr::IPv4Net.parse(r.ip_cidr_range) })
+            end
+          }
+# XXX sort used_ranges
+          candidate = used_ranges.first.next_sib
+
+          begin
+            if candidate.netmask.prefix_len > max_bits
+              candidate = candidate.resize(max_bits)
+            end
+            try_again = false
+            used_ranges.each { |cidr|
+              if !cidr.rel(candidate).nil?
+                candidate = candidate.next_sib
+                try_again = true
+                break
+              end
+            }
+            try_again = false if candidate.nil?
+          end while try_again
+
+          candidate.to_s
+        end
+
         private
 
         def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, _publicroute = true, credentials: nil)
