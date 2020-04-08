@@ -17,40 +17,15 @@ module MU
   # other provisioning layers.
   class Cloud
 
+    # Generic class methods (.find, .cleanup, etc) are defined in wrappers.rb
+    require 'mu/cloud/wrappers'
+
     @@resource_types.keys.each { |name|
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
         attr_reader :cloudclass
         attr_reader :cloudobj
         attr_reader :destroyed
         attr_reader :delayed_save
-
-        def self.shortname
-          name.sub(/.*?::([^:]+)$/, '\1')
-        end
-
-        def self.cfg_plural
-          MU::Cloud.resource_types[shortname.to_sym][:cfg_plural]
-        end
-
-        def self.has_multiples
-          MU::Cloud.resource_types[shortname.to_sym][:has_multiples]
-        end
-
-        def self.cfg_name
-          MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
-        end
-
-        def self.can_live_in_vpc
-          MU::Cloud.resource_types[shortname.to_sym][:can_live_in_vpc]
-        end
-
-        def self.waits_on_parent_completion
-          MU::Cloud.resource_types[shortname.to_sym][:waits_on_parent_completion]
-        end
-
-        def self.deps_wait_on_my_creation
-          MU::Cloud.resource_types[shortname.to_sym][:deps_wait_on_my_creation]
-        end
 
         # Print something palatable when we're called in a string context.
         def to_s
@@ -841,113 +816,6 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           }
         end
 
-        # Defaults any resources that don't declare their release-readiness to
-        # ALPHA. That'll learn 'em.
-        def self.quality
-          MU::Cloud::ALPHA
-        end
-
-        # Return a list of "container" artifacts, by class, that apply to this
-        # resource type in a cloud provider. This is so methods that call find
-        # know whether to call +find+ with identifiers for parent resources.
-        # This is similar in purpose to the +isGlobal?+ resource class method,
-        # which tells our search functions whether or not a resource scopes to
-        # a region.  In almost all cases this is one-entry list consisting of
-        # +:Habitat+. Notable exceptions include most implementations of
-        # +Habitat+, which either reside inside a +:Folder+ or nothing at all;
-        # whereas a +:Folder+ tends to not have any containing parent. Very few
-        # resource implementations will need to override this.
-        # A +nil+ entry in this list is interpreted as "this resource can be
-        # global."
-        # @return [Array<Symbol,nil>]
-        def self.canLiveIn
-          if self.shortname == "Folder"
-            [nil, :Folder]
-          elsif self.shortname == "Habitat"
-            [:Folder]
-          else
-            [:Habitat]
-          end
-        end
-
-        def self.find(*flags)
-          allfound = {}
-
-          MU::Cloud.availableClouds.each { |cloud|
-            begin
-              args = flags.first
-              next if args[:cloud] and args[:cloud] != cloud
-              # skip this cloud if we have a region argument that makes no
-              # sense there
-              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-              next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty? or cloudbase.credConfig(args[:credentials]).nil?
-              if args[:region] and cloudbase.respond_to?(:listRegions)
-                if !cloudbase.listRegions(credentials: args[:credentials])
-                  MU.log "Failed to get region list for credentials #{args[:credentials]} in cloud #{cloud}", MU::ERR, details: caller
-                else
-                  next if !cloudbase.listRegions(credentials: args[:credentials]).include?(args[:region])
-                end
-              end
-              begin
-                cloudclass = MU::Cloud.resourceClass(cloud, shortname)
-              rescue MU::MuError
-                next
-              end
-
-              found = cloudclass.find(args)
-              if !found.nil?
-                if found.is_a?(Hash)
-                  allfound.merge!(found)
-                else
-                  raise MuError, "#{cloudclass}.find returned a non-Hash result"
-                end
-              end
-            rescue MuCloudResourceNotImplemented
-            end
-          }
-          allfound
-        end
-
-        # Wrapper for the cleanup class method of underlying cloud object implementations.
-        def self.cleanup(*flags)
-          ok = true
-          params = flags.first
-          clouds = MU::Cloud.supportedClouds
-          if params[:cloud]
-            clouds = [params[:cloud]]
-            params.delete(:cloud)
-          end
-
-          clouds.each { |cloud|
-            begin
-              cloudclass = MU::Cloud.resourceClass(cloud, shortname)
-
-              if cloudclass.isGlobal?
-                params.delete(:region)
-              end
-
-              raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
-              MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
-              cloudclass.cleanup(params)
-            rescue MuCloudResourceNotImplemented
-              MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
-            rescue StandardError => e
-              in_msg = cloud
-              if params and params[:region]
-                in_msg += " "+params[:region]
-              end
-              if params and params[:flags] and params[:flags]["project"] and !params[:flags]["project"].empty?
-                in_msg += " project "+params[:flags]["project"]
-              end
-              MU.log "Skipping #{shortname} cleanup method in #{in_msg} due to #{e.class.name}: #{e.message}", MU::WARN, details: e.backtrace
-              ok = false
-            end
-          }
-          MU::MommaCat.unlockAll
-
-          ok
-        end
-
         # A hook that is always called just before each instance method is
         # invoked, so that we can ensure that repetitive setup tasks (like
         # resolving +:resource_group+ for Azure resources) have always been
@@ -959,58 +827,8 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           end
         end
 
-        if shortname == "Database"
-
-          # Getting the password for a database's master user, and saving it in a database / cluster specific vault
-          def getPassword
-            if @config['password'].nil?
-              if @config['auth_vault'] && !@config['auth_vault'].empty?
-                @config['password'] = @groomclass.getSecret(
-                  vault: @config['auth_vault']['vault'],
-                  item: @config['auth_vault']['item'],
-                  field: @config['auth_vault']['password_field']
-                )
-              else
-                # Should we use random instead?
-                @config['password'] = Password.pronounceable(10..12)
-              end
-            end
-  
-            creds = {
-              "username" => @config["master_user"],
-              "password" => @config["password"]
-            }
-            @groomclass.saveSecret(vault: @mu_name, item: "database_credentials", data: creds)
-          end
-        end
-
-        if shortname == "DNSZone"
-          def self.genericMuDNSEntry(*flags)
-# XXX have this switch on a global config for where Mu puts its DNS
-            cloudclass = MU::Cloud.resourceClass(MU::Config.defaultCloud, "DNSZone")
-            cloudclass.genericMuDNSEntry(flags.first)
-          end
-          def self.createRecordsFromConfig(*flags)
-            cloudclass = MU::Cloud.resourceClass(MU::Config.defaultCloud, "DNSZone")
-            if !flags.nil? and flags.size == 1
-              cloudclass.createRecordsFromConfig(flags.first)
-            else
-              cloudclass.createRecordsFromConfig(*flags)
-            end
-          end
-        end
-
-        if shortname == "Server" or shortname == "ServerPool"
-          def windows?
-            return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 win2k19 windows}.include?(@config['platform'])
-            begin
-              return true if cloud_desc.respond_to?(:platform) and cloud_desc.platform == "Windows"
-# XXX ^ that's AWS-speak, doesn't cover GCP or anything else; maybe we should require cloud layers to implement this so we can just call @cloudobj.windows?
-            rescue MU::MuError
-              return false
-            end
-            false
-          end
+        if File.exist?(MU.myRoot+"/lib/modules/cloud/#{cfg_name}.rb")
+          require "modules/cloud/#{cfg_name}"
         end
 
         # Wrap the instance methods that this cloud resource type has to
