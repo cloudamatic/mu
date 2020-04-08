@@ -21,3 +21,12 @@ chef_gem "aws-sdk-core" do
   version "2.11.24"
   action :install
 end
+
+if platform_family?("rhel") or platform_family?("amazon")
+  if node['platform_version'].to_i == 6
+    package "python34-pip"
+    execute "/usr/bin/pip3 install awscli" do
+      not_if "test -x /usr/bin/aws"
+    end
+  end
+end

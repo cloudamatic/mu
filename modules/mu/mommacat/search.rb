@@ -60,7 +60,7 @@ module MU
       ) 
       _shortclass, _cfg_name, type, _classname, _attrs = MU::Cloud.getResourceNames(type, true)
 
-      cloudclass = MU::Cloud.assertSupportedCloud(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       return nil if cloudclass.virtual?
 
       if (tag_key and !tag_value) or (!tag_key and tag_value)
@@ -135,7 +135,7 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, **flags)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false, **flags)
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
 
       # If we specified a habitat, which we may also have done by its shorthand
@@ -159,12 +159,14 @@ module MU
       }
 
       @kitten_semaphore.synchronize {
+
         return nil if !@kittens.has_key?(type)
         matches = []
 
         @kittens[type].each { |habitat_group, sib_classes|
           next if habitat and habitat_group and habitat_group != habitat
           sib_classes.each_pair { |sib_class, cloud_objs|
+
             if attrs[:has_multiples]
               next if !name.nil? and name != sib_class or cloud_objs.empty?
               if !name.nil?
@@ -213,7 +215,7 @@ module MU
     end
 
     def self.generate_dummy_object(type, cloud, name, mu_name, cloud_id, desc, region, habitat, tag_value, calling_deploy, credentials)
-      resourceclass = MU::Cloud.loadCloudType(cloud, type)
+      resourceclass = MU::Cloud.resourceClass(cloud, type)
 
       use_name = if (name.nil? or name.empty?)
         if !mu_name.nil?
@@ -269,8 +271,8 @@ module MU
     private_class_method :generate_dummy_object
 
     def self.search_cloud_provider(type, cloud, habitats, region, cloud_id: nil, tag_key: nil, tag_value: nil, credentials: nil, flags: nil)
-      cloudclass = MU::Cloud.assertSupportedCloud(cloud)
-      resourceclass = MU::Cloud.loadCloudType(cloud, type)
+      cloudclass = MU::Cloud.cloudClass(cloud)
+      resourceclass = MU::Cloud.resourceClass(cloud, type)
 
       # Decide what regions we'll search, if applicable for this resource
       # type.

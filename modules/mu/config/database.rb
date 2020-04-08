@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/database.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/database.rb
     class Database
 
       # Base configuration schema for a Database
@@ -23,7 +23,7 @@ module MU
         {
         "type" => "object",
         "description" => "Create a dedicated database server.",
-        "required" => ["name", "engine", "size", "cloud", "storage"],
+        "required" => ["name", "engine", "size", "cloud"],
         "additionalProperties" => false,
         "properties" => {
             "groomer" => {
@@ -53,7 +53,7 @@ module MU
             },
             "engine_version" => {"type" => "string"},
             "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
+                "enum" => ["mysql", "postgres", "oracle", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
                 "type" => "string"
             },
             "add_cluster_node" => {
@@ -61,10 +61,7 @@ module MU
               "description" => "Internal use",
               "default" => false
             },
-            "member_of_cluster" => {
-              "description" => "Internal use",
-              "type" => "object"
-            },
+            "member_of_cluster" => MU::Config::Ref.schema(type: "databases", desc: "Internal use"),
             "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
             "dns_sync_wait" => {
                 "type" => "boolean",
@@ -78,20 +75,16 @@ module MU
             },
             "storage" => {
               "type" => "integer",
-              "description" => "Storage space for this database instance (GB)."
-            },
-            "storage_type" => {
-                "enum" => ["standard", "gp2", "io1"],
-                "type" => "string",
-                "default" => "gp2"
+              "description" => "Storage space for this database instance (GB).",
+              "default" => 20
             },
             "run_sql_on_deploy" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "description" => "Arbitrary SQL commands to run after the database is fully configred (PostgreSQL databases only).",
-                    "type" => "string"
-                }
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "description" => "Arbitrary SQL commands to run after the database is fully configred (PostgreSQL databases only).",
+                "type" => "string"
+              }
             },
             "port" => {"type" => "integer"},
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NAT_OPTS, "all_public"),
@@ -144,22 +137,24 @@ module MU
                 "default" => false
             },
             "creation_style" => {
-                "type" => "string",
-                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
-                "description" => "'new' - create a pristine database instances; 'existing' - use an existing database instance; 'new_snapshot' - create a snapshot of an existing database, and create a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.; 'point_in_time' - create database from point in time backup of an existing database",
-                "default" => "new"
+              "type" => "string",
+              "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
+              "description" => "+new+ creates a pristine database instance; +existing+ clones an existing database instance; +new_snapshot+ creates a snapshot of an existing database, then creates a new instance from that snapshot; +existing_snapshot+ creates database from a pre-existing snapshot; +point_in_time+ create database from point in time backup of an existing database. All styles other than +new+ require that +identifier+ or +source+ be set.",
+              "default" => "new"
             },
             "identifier" => {
-                "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
+              "type" => "string",
+              "description" => "Cloud id of a source database to use for creation styles other than +new+; use +source+ for more sophisticated resource references."
             },
+            "source" => MU::Config::Ref.schema(type: "databases", "desc": "Reference a source database to use for +creation_style+ settings +existing+, +new_snapshot+, +existing_snapshot+, or +point_in_time+."),
             "master_user" => {
               "type" => "string",
               "description" => "Set master user name for this database instance; if not specified a random username will be generated"
             },
             "restore_time" => {
               "type" => "string",
-              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style"
+              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style",
+              "default" => "latest"
             },
             "create_read_replica" => {
               "type" => "boolean",
@@ -215,27 +210,11 @@ module MU
       # Schema block for other resources to use when referencing a sibling Database
       # @return [Hash]
       def self.reference
-        {
-          "type" => "object",
-          "description" => "Incorporate a database object",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-            "db_id" => {"type" => "string"},
-            "db_name" => {"type" => "string"},
-            "region" => MU::Config.region_primitive,
-            "cloud" => MU::Config.cloud_primitive,
-            "tag" => {
-              "type" => "string",
-              "description" => "Identify this Database by a tag (key=value). Note that this tag must not match more than one resource.",
-              "pattern" => "^[^=]+=.+"
-            },
-            "deploy_id" => {
-              "type" => "string",
-              "description" => "Look for a Database fitting this description in another Mu deployment with this id.",
-            }
-          }
-        }
+        schema_aliases = [
+          { "db_id" => "id" },
+          { "db_name" => "name" }
+        ]
+        MU::Config::Ref.schema(schema_aliases, type: "databases")
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
@@ -266,6 +245,22 @@ module MU
           end
         end
 
+        if db["identifier"]
+          if db["source"]
+            if db["source"]["id"] != db["identifier"]
+              MU.log "Database #{db['name']} specified identifier '#{db["identifier"]}' with a source parameter that doesn't match", MU::ERR, db["source"]
+              ok = false
+            end
+          else
+            db["source"] = MU::Config::Ref.get(
+              id: db["identifier"],
+              cloud: db["cloud"],
+              credentials: db["credentials"],
+              type: "databases"
+            )
+          end
+          db.delete("identifier")
+        end
 
         if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
           MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
@@ -296,13 +291,13 @@ module MU
 
         if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
           ok = false
-          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
+          MU.log "Database '#{db['name']}' must provide restore_time when creation_style is point_in_time", MU::ERR
         end
 
         if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
-          if db["identifier"].nil?
+          if db["source"].nil?
             ok = false
-            MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
+            MU.log "Database '#{db['name']}' needs existing database/snapshot, but no identifier or source was specified", MU::ERR
           end
         end
 
@@ -336,10 +331,15 @@ module MU
             replica["credentials"] = db["credentials"]
             replica['create_read_replica'] = false
             replica["create_cluster"] = false
+            replica["region"] = db['read_replica_region']
+            if db['region'] != replica['region']
+              replica.delete("vpc")
+            end
             replica['read_replica_of'] = {
-              "db_name" => db['name'],
+              "name" => db['name'],
               "cloud" => db['cloud'],
-              "region" => db['read_replica_region'] || db['region']
+              "region" => db['region'],
+              "credentials" => db['credentials'],
             }
             replica['dependencies'] << {
               "type" => "database",
@@ -354,6 +354,7 @@ module MU
         # duplicating the declaration of the master as a new first-class
         # resource and tweaking it.
         if db["create_cluster"] and db['cluster_mode'] != "serverless"
+          db["add_cluster_node"] = false
           (1..db["cluster_node_count"]).each{ |num|
             node = Marshal.load(Marshal.dump(db))
             node["name"] = "#{db['name']}-#{num}"
@@ -363,9 +364,11 @@ module MU
             node["creation_style"] = "new"
             node["add_cluster_node"] = true
             node["member_of_cluster"] = {
-              "db_name" => db['name'],
+              "name" => db['name'],
               "cloud" => db['cloud'],
-              "region" => db['region']
+              "region" => db['region'],
+              "credentials" => db['credentials'],
+              "type" => "databases"
             }
             # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
             node['dependencies'] << {
@@ -387,55 +390,43 @@ module MU
         end
 
         if !db['read_replica_of'].nil?
-          rr = db['read_replica_of']
-          if !rr['db_name'].nil?
-            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
-          else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
-              ok = false
-            end
+          rr = MU::Config::Ref.get(db['read_replica_of'])
+          if rr.name and !rr.deploy_id
+            db['dependencies'] << { "name" => rr.name, "type" => "database" }
+          elsif !rr.kitten
+            MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+            ok = false
           end
         elsif db["member_of_cluster"]
-          rr = db["member_of_cluster"]
-          if rr['db_name']
-            if !configurator.haveLitterMate?(rr['db_name'], "databases")
-              MU.log "Database cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+          cluster = MU::Config::Ref.get(db["member_of_cluster"])
+          if cluster['name']
+            if !configurator.haveLitterMate?(cluster['name'], "databases")
+              MU.log "Database cluster node #{db['name']} references sibling source #{cluster['name']}, but I have no such database", MU::ERR
               ok = false
             end
           else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+            if !cluster.kitten
+              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: cluster.to_h
               ok = false
             end
           end
         end
+
+        if db["source"] 
+          
+          if db["source"]["name"] and
+             !db["source"]["deploy_id"] and
+             configurator.haveLitterMate?(db["source"]["name"], "databases")
+            db["dependencies"] ||= []
+            db["dependencies"] << {
+              "type" => "database",
+              "name" => db["source"]["name"]#,
+#              "phase" => "groom"
+            }
+          end
+          db["source"]["cloud"] ||= db["cloud"]
+        end
+
         db['dependencies'].uniq!
 
         read_replicas.each { |new_replica|

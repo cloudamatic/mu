@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/project.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/project.rb
     class Habitat
 
       # Base configuration schema for a Habitat

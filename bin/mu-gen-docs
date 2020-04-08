@@ -79,8 +79,7 @@ EOF
       impl_counts[type] ||= 0
       [a, b].each { |cloud|
         begin
-          myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-          case myclass.quality
+          case MU::Cloud.resourceClass(cloud, type).quality
           when MU::Cloud::RELEASE
             cloud_is_useful[cloud] = true
             counts[cloud] += 4
@@ -114,8 +113,7 @@ EOF
     cloudlist.each { |cloud|
       readme += "<td><center>"
       begin
-        myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-        case myclass.quality
+        case MU::Cloud.resourceClass(cloud, type).quality
         when MU::Cloud::RELEASE
           readme += "<img src='release.png' style='#{icon_style}' title='Release Quality' alt='[Release Quality]'>"
         when MU::Cloud::BETA

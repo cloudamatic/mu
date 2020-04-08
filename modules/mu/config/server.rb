@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/server.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/server.rb
     class Server
 
       # Verify that a server or server_pool has a valid LDAP config referencing
@@ -650,20 +650,12 @@ module MU
           end
 
           if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"]) and !configurator.nat_routes[server["vpc"]["subnet_name"]].empty?
-            server["dependencies"] << {
-              "type" => "server",
-              "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(server, configurator.nat_routes[server["vpc"]["subnet_name"]], "server", phase: "groom", no_create_wait: true)
           elsif !server["vpc"]["name"].nil?
             siblingvpc = configurator.haveLitterMate?(server["vpc"]["name"], "vpcs")
             if siblingvpc and siblingvpc['bastion'] and
-               server['name'] != siblingvpc['bastion'].to_h['name']
-              server["dependencies"] << {
-                "type" => "server",
-                "name" => siblingvpc['bastion'].to_h['name'],
-                "phase" => "groom"
-              }
+               server['name'] != siblingvpc['bastion']['name']
+              MU::Config.addDependency(server, siblingvpc['bastion']['name'], "server", phase: "groom", no_create_wait: true)
             end
           end
         end

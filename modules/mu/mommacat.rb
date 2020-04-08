@@ -318,7 +318,7 @@ module MU
           @original_config[type].each { |resource|
             if resource['cloud']
               cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
-              resclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud']).const_get(res_type.to_s)
+              resclass = MU::Cloud.resourceClass(resource['cloud'], res_type)
               if resclass.isGlobal?
 # XXX why was I doing this, urgh
                 next

@@ -236,7 +236,7 @@ module Mutools
       response = nil
       begin
         secret = get_deploy_secret
-        if secret.nil?
+        if secret.nil? or secret.empty?
           raise "Failed to fetch deploy secret, and I can't communicate with Momma Cat without it"
         end
 

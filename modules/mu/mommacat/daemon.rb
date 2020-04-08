@@ -33,7 +33,7 @@ module MU
       my_key = OpenSSL::PKey::RSA.new(@private_key)
 
       begin
-        if my_key.private_decrypt(ciphertext).force_encoding("UTF-8") == @deploy_secret.force_encoding("UTF-8")
+        if my_key.private_decrypt(ciphertext).force_encoding("UTF-8").chomp == @deploy_secret.force_encoding("UTF-8").chomp
           MU.log "Matched ciphertext for #{MU.deploy_id}", MU::INFO
           return true
         else

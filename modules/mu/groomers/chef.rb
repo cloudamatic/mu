@@ -368,7 +368,7 @@ module MU
             }
 
             if resp.exitcode == 1 and output_lines.join("\n").match(/Chef Client finished/)
-              MU.log "resp.exit code 1"
+              MU.log output_lines.last
             elsif resp.exitcode != 0
               raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output_lines.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
               raise MU::Groomer::RunError, output_lines.slice(output_lines.length-50, output_lines.length).join("")
@@ -625,15 +625,16 @@ module MU
             kb.name_args = [@server.mu_name]
             kb.config[:manual] = true
             kb.config[:winrm_transport] = :ssl
-            kb.config[:host] = @server.mu_name
             kb.config[:winrm_port] = 5986
             kb.config[:session_timeout] = timeout
             kb.config[:operation_timeout] = timeout
             if retries % 2 == 0
+              kb.config[:host] = canonical_addr
               kb.config[:winrm_authentication_protocol] = :basic
               kb.config[:winrm_user] = @server.config['windows_admin_username']
               kb.config[:winrm_password] = @server.getWindowsAdminPassword
             else
+              kb.config[:host] = @server.mu_name
               kb.config[:winrm_authentication_protocol] = :cert
               kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
               kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
@@ -804,6 +805,9 @@ retry
         end
       end
 
+      # Purge Chef resources matching a particular deploy
+      # @param deploy_id [String]
+      # @param noop [Boolean]
       def self.cleanup(deploy_id, noop = false)
         return nil if deploy_id.nil? or deploy_id.empty?
         begin

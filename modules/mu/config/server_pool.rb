@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/server_pool.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/server_pool.rb
     class ServerPool
 
       # Base configuration schema for a ServerPool

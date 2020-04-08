@@ -130,6 +130,16 @@ module MU
         self.to_s <=> other.to_s
       end
 
+      # Lets callers access us like a {Hash}
+      # @param attribute [String,Symbol]
+      def [](attribute)
+        if respond_to?(attribute.to_sym)
+          send(attribute.to_sym)
+        else
+          nil
+        end
+      end
+
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
@@ -249,8 +259,9 @@ module MU
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
-      def kitten(mommacat = @mommacat, shallow: false)
+      def kitten(mommacat = @mommacat, shallow: false, debug: false)
         return nil if !@cloud or !@type
+        loglevel = debug ? MU::NOTICE : MU::DEBUG
 
         if @obj
           @deploy_id ||= @obj.deploy_id
@@ -260,7 +271,8 @@ module MU
         end
 
         if mommacat
-          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: false)
+          MU.log "Looking for #{@type} #{@name} #{@id} in deploy #{mommacat.deploy_id}", loglevel
+          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: debug)
           if @obj # initialize missing attributes, if we can
             @id ||= @obj.cloud_id
             @mommacat ||= mommacat
@@ -283,7 +295,7 @@ end
           end
         end
 
-        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id)) and !shallow
+        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(@id)) and !shallow
           try_deploy_id = @deploy_id
 
           begin

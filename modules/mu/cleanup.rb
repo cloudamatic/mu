@@ -30,6 +30,8 @@ module MU
     @onlycloud = false
     @skipcloud = false
 
+    # Resource types, in the order in which we generally have to clean them up
+    # to disentangle them from one another.
     TYPES_IN_ORDER = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
 
     # Purge all resources associated with a deployment.
@@ -120,7 +122,7 @@ module MU
         }
 
         creds.each_pair { |provider, credsets_inner|
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(provider)
+          cloudclass = MU::Cloud.cloudClass(provider)
           credsets_inner.keys.each { |c|
             cloudclass.cleanDeploy(MU.deploy_id, credentials: c, noop: @noop)
           }
@@ -158,7 +160,7 @@ module MU
     def self.listUsedCredentials(credsets)
       creds = {}
       MU::Cloud.availableClouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        cloudclass = MU::Cloud.cloudClass(cloud)
         if $MU_CFG[cloud.downcase] and $MU_CFG[cloud.downcase].size > 0
           creds[cloud] ||= {}
           cloudclass.listCredentials.each { |credset|
@@ -179,7 +181,7 @@ module MU
     private_class_method :listUsedCredentials
 
     def self.cleanCloud(cloud, habitats, regions, credsets)
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       credsets.each_pair { |credset, acct_regions|
         next if @credsused and !@credsused.include?(credset)
         global_vs_region_semaphore = Mutex.new
@@ -212,8 +214,8 @@ module MU
 
     def self.cleanRegion(cloud, credset, region, global_vs_region_semaphore, global_done, habitats)
       had_failures = false
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      habitatclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get("Habitat")
+      cloudclass = MU::Cloud.cloudClass(cloud)
+      habitatclass = MU::Cloud.resourceClass(cloud, "Habitat")
 
       projects = []
       if habitats
@@ -280,8 +282,7 @@ module MU
         begin
           skipme = false
           global_vs_region_semaphore.synchronize {
-            MU::Cloud.loadCloudType(cloud, t)
-            if Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(t).isGlobal?
+            if MU::Cloud.resourceClass(cloud, t).isGlobal?
               global_done[habitat] ||= []
               if !global_done[habitat].include?(t)
                 global_done[habitat] << t
@@ -295,7 +296,7 @@ module MU
         rescue MU::Cloud::MuDefunctHabitat, MU::Cloud::MuCloudResourceNotImplemented
           next
         rescue MU::MuError, NoMethodError => e
-          MU.log "While checking mu/clouds/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
+          MU.log "While checking mu/providers/#{cloud.downcase}/#{cloudclass.cfg_name} for global-ness in cleanup: "+e.message, MU::WARN
           next
         rescue ::Aws::EC2::Errors::AuthFailure, ::Google::Apis::ClientError => e
           MU.log e.message+" in "+region, MU::ERR
@@ -335,9 +336,8 @@ module MU
             flags['known'] << found.cloud_id                            
           end
         end
-        resclass = Object.const_get("MU").const_get("Cloud").const_get(type)
 
-        resclass.cleanup(
+        MU::Cloud.loadBaseType(type).cleanup(
           noop: @noop,
           ignoremaster: @ignoremaster,
           region: region,
