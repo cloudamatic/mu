@@ -430,6 +430,39 @@ module MU
       @config.freeze
     end
 
+    # Insert a dependency into the config hash of a resource, with sensible
+    # error checking and de-duplication.
+    # @param resource [Hash]
+    # @param name [String]
+    # @param type [String]
+    # @param phase [String]
+    # @param no_create_wait [Boolean]
+    def self.addDependency(resource, name, type, phase: nil, no_create_wait: false)
+      if ![nil, "create", "groom"].include?(phase)
+        raise MuError, "Invalid phase '#{phase}' while adding dependency #{type} #{name} to #{resource['name']}"
+      end
+      resource['dependencies'] ||= []
+      _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
+
+      resource['dependencies'].each { |dep|
+        if dep['type'] == cfg_name and dep['name'].to_s == name.to_s
+          dep["no_create_wait"] = no_create_wait
+          dep["phase"] = phase if phase
+          return
+        end
+      }
+
+      newdep = {
+        "type" => cfg_name,
+        "name"  => name.to_s,
+        "no_create_wait" => no_create_wait
+      }
+      newdep["phase"] = phase if phase
+
+      resource['dependencies'] << newdep
+
+    end
+
     # See if a given resource is configured in the current stack
     # @param name [String]: The name of the resource being checked
     # @param type [String]: The type of resource being checked
@@ -558,11 +591,7 @@ module MU
         if descriptor['project'].nil?
           descriptor.delete('project')
         elsif haveLitterMate?(descriptor['project'], "habitats")
-          descriptor['dependencies'] ||= []
-          descriptor['dependencies'] << {
-            "type" => "habitat",
-            "name" => descriptor['project']
-          }
+          MU::Config.addDependency(descriptor, descriptor['project'], "habitat")
         end
       end
 
@@ -591,20 +620,14 @@ module MU
            haveLitterMate?(descriptor["vpc"]["name"], "vpcs") and
            descriptor["vpc"]['deploy_id'].nil? and
            descriptor["vpc"]['id'].nil?
-          descriptor["dependencies"] << {
-            "type" => "vpc",
-            "name" => descriptor["vpc"]["name"],
-          }
+          MU::Config.addDependency(descriptor, descriptor['vpc']['name'], "vpc")
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
 
           if siblingvpc and siblingvpc['bastion'] and
              ["server", "server_pool", "container_cluster"].include?(cfg_name) and
              !descriptor['bastion']
-            if descriptor['name'] != siblingvpc['bastion'].to_h['name']
-              descriptor["dependencies"] << {
-                "type" => "server",
-                "name" => siblingvpc['bastion'].to_h['name']
-              }
+            if descriptor['name'] != siblingvpc['bastion']['name']
+              MU::Config.addDependency(descriptor, siblingvpc['bastion']['name'], "server")
             end
           end
 
@@ -702,10 +725,7 @@ module MU
       if !descriptor["loadbalancers"].nil?
         descriptor["loadbalancers"].each { |lb|
           if !lb["concurrent_load_balancer"].nil?
-            descriptor["dependencies"] << {
-              "type" => "loadbalancer",
-              "name" => lb["concurrent_load_balancer"]
-            }
+            MU::Config.addDependency(descriptor, lb["concurrent_load_balancer"], "loadbalancer")
           end
         }
       end
@@ -714,10 +734,7 @@ module MU
       if !descriptor["storage_pools"].nil?
         descriptor["storage_pools"].each { |sp|
           if sp["name"]
-            descriptor["dependencies"] << {
-              "type" => "storage_pool",
-              "name" => sp["name"]
-            }
+            MU::Config.addDependency(descriptor, sp["name"], "storage_pool")
           end
         }
       end
@@ -728,10 +745,7 @@ module MU
           next if !acl_include["name"] and !acl_include["rule_name"]
           acl_include["name"] ||= acl_include["rule_name"]
           if haveLitterMate?(acl_include["name"], "firewall_rules")
-            descriptor["dependencies"] << {
-              "type" => "firewall_rule",
-              "name" => acl_include["name"]
-            }
+            MU::Config.addDependency(descriptor, acl_include["name"], "firewall_rule")
           elsif acl_include["name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -872,7 +886,6 @@ module MU
         _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type, false)
         values.each { |resource|
           next if !resource.kind_of?(Hash) or resource["dependencies"].nil?
-          resource['dependencies'].uniq!
 
           resource["dependencies"].each { |dependency|
             # make sure the thing we depend on really exists
@@ -883,9 +896,17 @@ module MU
               next
             end
 
-            # Fudge dependency declarations to account for virtual_names
+            # Fudge dependency declarations to quash virtual_names that we know
+            # are extraneous. Note that wee can't do all virtual names here; we
+            # have no way to guess which of a collection of resources is the
+            # real correct one.
             if sibling['virtual_name'] == dependency['name']
-              dependency['name'] = sibling['name']
+              resource["dependencies"].each { |dep_again|
+                if dep_again['type'] == dependency['type'] and sibling['name'] == dep_again['name']
+                  dependency['name'] = sibling['name']
+                  break
+                end
+              }
             end
 
             # Check for a circular relationship that will lead to a deadlock
@@ -909,6 +930,7 @@ module MU
               }
             end
           }
+          resource["dependencies"].uniq!
 
         }
       }

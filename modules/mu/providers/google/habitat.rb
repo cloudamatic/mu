@@ -376,11 +376,7 @@ module MU
           end
 
           if habitat['parent'] and habitat['parent']['name'] and !habitat['parent']['deploy_id'] and configurator.haveLitterMate?(habitat['parent']['name'], "folders")
-            habitat["dependencies"] ||= []
-            habitat["dependencies"] << {
-              "type" => "folder",
-              "name" => habitat['parent']['name']
-            }
+            MU::Config.addDependency(habitat, habitat['parent']['name'], "folder")
           end
 
           ok

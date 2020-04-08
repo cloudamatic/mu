@@ -1114,11 +1114,7 @@ If this value is not specified, and the role name matches the name of an existin
           if role['role_source'] == "project"
             role['project'] ||= MU::Cloud::Google.defaultProject(role['credentials'])
             if configurator.haveLitterMate?(role['project'], "habitats")
-              role['dependencies'] ||= []
-              role['dependencies'] << {
-                "type" => "habitat",
-                "name" => role['project']
-              }
+              MU::Config.addDependency(role, role['project'], "habitat")
             end
           end
 
@@ -1126,12 +1122,7 @@ If this value is not specified, and the role name matches the name of an existin
             role['bindings'].each { |binding|
               if binding['entity'] and binding['entity']['name'] and 
                  configurator.haveLitterMate?(binding['entity']['name'], binding['entity']['type'])
-                role['dependencies'] ||= []
-                role['dependencies'] << {
-                  "type" => binding['entity']['type'].sub(/s$/, ''),
-                  "name" => binding['entity']['name']
-                }
-
+                MU::Config.addDependency(role, binding['entity']['name'], binding['entity']['type'])
               end
             }
           end

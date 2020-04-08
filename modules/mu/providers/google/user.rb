@@ -614,15 +614,11 @@ If we are binding (rather than creating) a user and no roles are specified, we w
             ok = false
           end
 
-          user['dependencies'] ||= []
           if user['roles']
             user['roles'].each { |r|
               if r['role'] and r['role']['name'] and
                  (!r['role']['deploy_id'] and !r['role']['id'])
-                user['dependencies'] << {
-                  "type" => "role",
-                  "name" => r['role']['name']
-                }
+                MU::Config.addDependency(user, r['role']['name'], "role")
               end
 
               if !r["projects"] and !r["organizations"] and !r["folders"]
@@ -661,7 +657,6 @@ If we are binding (rather than creating) a user and no roles are specified, we w
             user['roles'] = parent['roles'].dup
           end
           configurator.insertKitten(user, "users", true)
-          parent['dependencies'] ||= []
           parent['service_account'] = MU::Config::Ref.get(
             type: "users",
             cloud: "Google",
@@ -669,10 +664,7 @@ If we are binding (rather than creating) a user and no roles are specified, we w
             project: user["project"],
             credentials: user["credentials"]
           )
-          parent['dependencies'] << {
-            "type" => "user",
-            "name" => user["name"]
-          }
+          MU::Config.addDependency(parent, user['name'], "user")
 
           parent
         end
