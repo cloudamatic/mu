@@ -53,7 +53,7 @@ module MU
       @default_parent = nil
 
       @clouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        cloudclass = MU::Cloud.cloudClass(cloud)
         next if cloudclass.listCredentials.nil?
 
         if cloud == "Google" and !@parent and @target_creds
@@ -90,7 +90,7 @@ module MU
 
           @types.each { |type|
             begin
-              resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+              resclass = MU::Cloud.resourceClass(cloud, type)
             rescue ::MU::Cloud::MuCloudResourceNotImplemented
               next
             end
@@ -372,8 +372,7 @@ module MU
           # theory
           realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
-            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
-            _toplevel_required, cloudschema = cloudclass.schema(self)
+            _toplevel_required, cloudschema = MU::Cloud.resourceClass(item['cloud'], type).schema(self)
 
             newschema = schema_chunk["items"].dup
             newschema["properties"].merge!(cloudschema)
@@ -422,7 +421,7 @@ module MU
               raise Incomplete if obj.nil?
               new_cfg = resolveReferences(resource, deploy, obj)
               new_cfg.delete("cloud_id")
-              cred_cfg = MU::Cloud.const_get(obj.cloud).credConfig(obj.credentials)
+              cred_cfg = MU::Cloud.cloudClass(obj.cloud).credConfig(obj.credentials)
               if cred_cfg['region'] == new_cfg['region']
                 new_cfg.delete('region')
               end
@@ -522,7 +521,7 @@ module MU
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
 
         if parent and parent.config
-          cred_cfg = MU::Cloud.const_get(parent.cloud).credConfig(parent.credentials)
+          cred_cfg = MU::Cloud.cloudClass(parent.cloud).credConfig(parent.credentials)
 
           if parent.config['region'] == hashcfg['region'] or
              cred_cfg['region'] == hashcfg['region']

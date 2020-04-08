@@ -31,7 +31,7 @@ module MU
           end
           _required, res_schema = MU::Cloud.resourceClass(cloud, classname).schema(self)
           docschema["properties"][attrs[:cfg_plural]]["items"]["description"] ||= ""
-          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+res_class.quality
+          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+MU::Cloud.resourceClass(cloud, classname).quality
           res_schema.each { |key, cfg|
             if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               only_children[attrs[:cfg_plural]] ||= {}

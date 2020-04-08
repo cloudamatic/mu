@@ -295,7 +295,7 @@ end
           end
         end
 
-        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud::Google::User.cannedServiceAcctName?(@id)) and !shallow
+        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(@id)) and !shallow
           try_deploy_id = @deploy_id
 
           begin
