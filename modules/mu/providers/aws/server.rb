@@ -399,7 +399,7 @@ module MU
       # Figure out what's needed to SSH into this server.
       # @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
       def getSSHConfig
-        describe(cloud_id: @cloud_id)
+        cloud_desc(use_cache: false) # make sure we're current
 # XXX add some awesome alternate names from metadata and make sure they end
 # up in MU::MommaCat's ssh config wangling
         return nil if @config.nil? or @deploy.nil?
@@ -444,8 +444,7 @@ module MU
       # administravia for a new instance.
       def postBoot(instance_id = nil)
         @cloud_id ||= instance_id
-        node, _config, deploydata = describe(cloud_id: @cloud_id)
-        @mu_name ||= node
+        _node, _config, deploydata = describe(cloud_id: @cloud_id)
 
         raise MuError, "Couldn't find instance #{@mu_name} (#{@cloud_id})" if !cloud_desc
         return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
@@ -1163,10 +1162,7 @@ module MU
             end
           end
 
-          if @cloud_id.nil?
-            describe
-            @cloud_id = cloud_desc.instance_id
-          end
+          @cloud_id ||= cloud_desc(use_cache: false).instance_id
           ssh_keydir = "#{Etc.getpwuid(Process.uid).dir}/.ssh"
           ssh_key_name = @deploy.ssh_key_name
 

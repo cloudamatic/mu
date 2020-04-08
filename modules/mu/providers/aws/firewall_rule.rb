@@ -764,7 +764,6 @@ module MU
         # "ingress_rules" structure parsed and validated by MU::Config.
         #########################################################################
         def setRules(rules, add_to_self: false, ingress: true, egress: false)
-          describe
           # XXX warn about attempt to set rules before we exist
           return if rules.nil? or rules.size == 0 or !@cloud_id
 
@@ -785,7 +784,7 @@ module MU
           ec2_rules = convertToEc2(rules)
           return if ec2_rules.nil?
 
-          ext_permissions = MU.structToHash(cloud_desc.ip_permissions)
+          ext_permissions = MU.structToHash(cloud_desc(use_cache: false).ip_permissions)
 
           purge_extraneous_rules(ec2_rules, ext_permissions)
 

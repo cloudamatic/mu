@@ -20,7 +20,7 @@ module MU
     # Generic class methods (.find, .cleanup, etc) are defined in wrappers.rb
     require 'mu/cloud/wrappers'
 
-    @@resource_types.keys.each { |name|
+    @@resource_types.each_key { |name|
       Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
         attr_reader :cloudclass
         attr_reader :cloudobj
@@ -80,7 +80,7 @@ module MU
 
           # We are a parent wrapper object. Initialize our child object and
           # housekeeping bits accordingly.
-          if self.class.name.match(/^MU::Cloud::([^:]+)$/)
+          if self.class.name =~ /^MU::Cloud::([^:]+)$/
             @live = true
             @delayed_save = args[:delayed_save]
             @method_semaphore = Mutex.new
@@ -148,7 +148,7 @@ module MU
 
             @cloud = @config['cloud']
             if !@cloud
-              if self.class.name.match(/^MU::Cloud::([^:]+)(?:::.+|$)/)
+              if self.class.name =~ /^MU::Cloud::([^:]+)(?:::.+|$)/
                cloudclass_name = Regexp.last_match[1]
                 if MU::Cloud.supportedClouds.include?(cloudclass_name)
                   @cloud = cloudclass_name
@@ -265,7 +265,7 @@ module MU
             @cloud
           elsif @config and @config['cloud']
             @config['cloud']
-          elsif self.class.name.match(/^MU::Cloud::([^:]+)::.+/)
+          elsif self.class.name =~ /^MU::Cloud::([^:]+)::.+/
             cloudclass_name = Regexp.last_match[1]
             if MU::Cloud.supportedClouds.include?(cloudclass_name)
               cloudclass_name
@@ -353,10 +353,10 @@ module MU
         # that are meant for our wrapped object.
         def method_missing(method_sym, *arguments)
           if @cloudobj
-            MU.log "INVOKING #{method_sym.to_s} FROM PARENT CLOUD OBJECT #{self}", MU::DEBUG, details: arguments
+            MU.log "INVOKING #{method_sym} FROM PARENT CLOUD OBJECT #{self}", MU::DEBUG, details: arguments
             @cloudobj.method(method_sym).call(*arguments)
           else
-            raise NoMethodError, "No such instance method #{method_sym.to_s} available on #{self.class.name}"
+            raise NoMethodError, "No such instance method #{method_sym} available on #{self.class.name}"
           end
         end
 
@@ -422,7 +422,7 @@ module MU
               end
 
               if !@cloud_desc_cache
-                MU.log "cloud_desc via #{self.class.name}.find() failed to locate a live object.\nWas called by #{caller[0]}", MU::WARN, details: args
+                MU.log "cloud_desc via #{self.class.name}.find() failed to locate a live object.\nWas called by #{caller(1..1)}", MU::WARN, details: args
               end
             rescue StandardError => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
@@ -556,7 +556,7 @@ module MU
                       break
                     elsif @config['vpc']['subnet_name'] and
                           names.include?(@config['vpc']['subnet_name'])
-puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
+#puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
                       @vpc = sibling
                       break
                     elsif @config['vpc']['subnet_id'] and
@@ -665,7 +665,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           # Google accounts usually have a useful default VPC we can use
           if @vpc.nil? and @project_id and @cloud == "Google" and
              self.class.can_live_in_vpc
-            MU.log "Seeing about default VPC for #{self.to_s}", MU::NOTICE
+            MU.log "Seeing about default VPC for #{self}", MU::NOTICE
             vpcs = MU::MommaCat.findStray(
               "Google",
               "vpc",
@@ -782,7 +782,7 @@ puts "CHOOSING #{@vpc.to_s} 'cause it has #{@config['vpc']['subnet_name']}"
           subnets = []
           @config["vpc"]["subnets"].each { |subnet|
             subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
-            raise MuError, "Couldn't find a live subnet for #{self.to_s} matching #{subnet} in #{@vpc.to_s} (#{@vpc.subnets.map { |s| s.name }.join(",")})" if subnet_obj.nil?
+            raise MuError.new "Couldn't find a live subnet for #{self} matching #{subnet} in #{@vpc}", details: @vpc.subnets.map { |s| s.name }.join(",") if subnet_obj.nil?
             subnets << subnet_obj
           }
 
