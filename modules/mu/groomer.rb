@@ -38,7 +38,7 @@ module MU
         begin
           groomerbase = loadGroomer(groomer)
           available << groomer if groomerbase.available?
-        rescue NameError
+        rescue LoadError
         end
       }
 

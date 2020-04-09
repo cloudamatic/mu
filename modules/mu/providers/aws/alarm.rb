@@ -321,7 +321,7 @@ module MU
               if !depclass.nil?
                 dimension["depclass"] = depclass
                 if !dimension["name"].nil? and !dimension["name"].empty?
-                  alarm["dependencies"] << { "name" => dimension["name"], "type" => depclass }
+                  MU::Config.addDependency(alarm, dimension["name"], depclass)
                 end
               end
             }

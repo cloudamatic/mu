@@ -542,11 +542,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-USER-FOO+"
               end
 
               if need_dependency
-                user["dependencies"] ||= []
-                user["dependencies"] << {
-                  "type" => "group",
-                  "name" => group
-                }
+                MU::Config.addDependency(user, group, "group")
               end
             }
           end

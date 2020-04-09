@@ -424,11 +424,7 @@ module MU
               }
             ]
           }
-          vpc["dependencies"] ||= []
-          vpc["dependencies"] << {
-            "type" => "firewall_rule",
-            "name" => vpc['name']+"-defaultfw"
-          }
+          MU::Config.addDependency(vpc, vpc['name']+"-defaultfw", "firewall_rule")
 
           if !configurator.insertKitten(default_acl, "firewall_rules", true)
             ok = false

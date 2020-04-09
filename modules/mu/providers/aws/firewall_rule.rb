@@ -648,36 +648,16 @@ module MU
 
             if rule['firewall_rules']
               rule['firewall_rules'].each { |sg|
-                if sg.is_a?(MU::Config::Ref) and sg.name
-  	              acl["dependencies"] << {
-    	              "type" => "firewall_rule",
-      	            "name" => sg.name,
-                    "no_create_wait" => true
-	                }
-                elsif sg['name'] and !sg['deploy_id']
-  	              acl["dependencies"] << {
-    	              "type" => "firewall_rule",
-      	            "name" => sg['name'],
-                    "no_create_wait" => true
-	                }
+                if sg['name'] and !sg['deploy_id']
+                  MU::Config.addDependency(acl, sg['name'], "firewall_rule", no_create_wait: true)
                 end
               }
             end
 
             if rule['loadbalancers']
               rule['loadbalancers'].each { |lb|
-                if lb.is_a?(MU::Config::Ref) and lb.name
-  	              acl["dependencies"] << {
-    	              "type" => "loadbalancer",
-      	            "name" => lb.name,
-                    "phase" => "groom"
-	                }
-                elsif lb['name'] and !lb['deploy_id']
-  	              acl["dependencies"] << {
-                    "type" => "loadbalancer",
-                    "name" => lb['name'],
-                    "phase" => "groom"
-	                }
+                if lb['name'] and !lb['deploy_id']
+                  MU::Config.addDependency(acl, lb['name'], "loadbalancer", phase: "groom")
                 end
               }
             end

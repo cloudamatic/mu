@@ -1051,11 +1051,7 @@ module MU
             if cluster['service_account']['name'] and
                !cluster['service_account']['id'] and
                !cluster['service_account']['deploy_id']
-              cluster['dependencies'] ||= []
-              cluster['dependencies'] << {
-                "type" => "user",
-                "name" => cluster['service_account']['name']
-              }
+              MU::Config.addDependency(cluster, cluster['service_account']['name'], "user")
             end
             found = MU::Config::Ref.get(cluster['service_account'])
             # XXX verify that found.kitten fails when it's supposed to

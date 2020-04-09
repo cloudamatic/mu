@@ -218,11 +218,7 @@ module MU
               "Azure Kubernetes Service Cluster Admin Role"
             ]
           }
-          cluster['dependencies'] ||= []
-          cluster['dependencies'] << {
-            "type" => "user",
-            "name" => cluster["name"]+"user"
-          }
+          MU::Config.addDependency(cluster, cluster['name']+"user", "user")
 
           ok = false if !configurator.insertKitten(svcacct_desc, "users")
 

@@ -1087,11 +1087,7 @@ end
             role['policies'].each { |policy|
               policy['targets'].each { |target|
                 if target['type']
-                  role['dependencies'] ||= []
-                  role['dependencies'] << {
-                    "name" => target['identifier'],
-                    "type" => target['type']
-                  }
+                  MU::Config.addDependency(role, target['identifier'], target['type'])
                 end
               }
             }

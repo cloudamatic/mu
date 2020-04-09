@@ -505,11 +505,7 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
             function["add_firewall_rules"] << {"name" => fwname}
             function["permissions"] ||= []
             function["permissions"] << "network"
-            function['dependencies'] ||= []
-            function['dependencies'] << {
-              "name" => fwname,
-              "type" => "firewall_rule"
-            }
+            MU::Config.addDependency(function, fwname, "firewall_rule")
           end
 
           if !function['iam_role']
@@ -541,13 +537,9 @@ MU.log shortname, MU::NOTICE, details: function.configuration.role
             }
             configurator.insertKitten(roledesc, "roles")
 
-            function['dependencies'] ||= []
             function['iam_role'] = function['name']+"execrole"
 
-            function['dependencies'] << {
-              "type" => "role",
-              "name" => function['name']+"execrole"
-            }
+            MU::Config.addDependency(function, function['name']+"execrole", "role")
           end
 
           ok

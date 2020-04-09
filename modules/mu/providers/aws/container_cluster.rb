@@ -1296,7 +1296,7 @@ start = Time.now
                 end
 
                 if !created_generic_loggroup
-                  cluster["dependencies"] << { "type" => "log", "name" => logname }
+                  MU::Config.addDependency(cluster, logname, "log")
                   logdesc = {
                     "name" => logname,
                     "region" => cluster["region"],
@@ -1335,10 +1335,7 @@ start = Time.now
                     }
                     configurator.insertKitten(roledesc, "roles")
 
-                    cluster["dependencies"] << {
-                      "type" => "role",
-                      "name" => rolename
-                    }
+                    MU::Config.addDependency(cluster, rolename, "role")
                   end
 
                   created_generic_loggroup = true
@@ -1367,11 +1364,7 @@ start = Time.now
             role["tags"] = cluster["tags"] if !cluster["tags"].nil?
             role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
             configurator.insertKitten(role, "roles")
-            cluster['dependencies'] << {
-              "type" => "role",
-              "name" => cluster["name"]+"pods",
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(cluster, cluster["name"]+"pods", "role", phase: "groom")
             if !MU::Master.kubectl
               MU.log "Since I can't find a kubectl executable, you will have to handle all service account, user, and role bindings manually!", MU::WARN
             end
@@ -1483,12 +1476,7 @@ start = Time.now
                 "AmazonEKS_CNI_Policy",
                 "AmazonEC2ContainerRegistryReadOnly"
               ]
-              worker_pool["dependencies"] = [
-                {
-                  "type" => "container_cluster",
-                  "name" => cluster['name']
-                }
-              ]
+              MU::Config.addDependency(worker_pool, cluster["name"], "container_cluster")
               worker_pool["run_list"] = ["recipe[mu-tools::eks]"]
 							worker_pool["run_list"].concat(cluster["run_list"]) if cluster["run_list"]
               MU::Config::Server.common_properties.keys.each { |k|
@@ -1502,10 +1490,7 @@ start = Time.now
             configurator.insertKitten(worker_pool, "server_pools")
 
             if cluster["flavor"] == "ECS"
-              cluster["dependencies"] << {
-                "name" => cluster["name"]+"workers",
-                "type" => "server_pool",
-              }
+              MU::Config.addDependency(cluster, cluster["name"]+"workers", "server_pool")
             end
 
           end
@@ -1527,11 +1512,7 @@ start = Time.now
             role["tags"] = cluster["tags"] if !cluster["tags"].nil?
             role["optional_tags"] = cluster["optional_tags"] if !cluster["optional_tags"].nil?
             configurator.insertKitten(role, "roles")
-            cluster['dependencies'] << {
-              "type" => "role",
-              "name" => cluster["name"]+"controlplane",
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(cluster, cluster["name"]+"controlplane", "role", phase: "groom")
           end
 
           ok

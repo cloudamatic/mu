@@ -340,11 +340,7 @@ If we are binding (rather than creating) a group and no roles are specified, we 
           if group['members']
             group['members'].each { |m|
               if configurator.haveLitterMate?(m, "users")
-                group['dependencies'] ||= []
-                group['dependencies'] << {
-                  "name" => m,
-                  "type" => "user"
-                }
+                MU::Config.addDependency(group, m, "user")
               end
             }
           end
@@ -353,11 +349,7 @@ If we are binding (rather than creating) a group and no roles are specified, we 
             group['roles'].each { |r|
               if r['role'] and r['role']['name'] and
                  (!r['role']['deploy_id'] and !r['role']['id'])
-                group['dependencies'] ||= []
-                group['dependencies'] << {
-                  "type" => "role",
-                  "name" => r['role']['name']
-                }
+                MU::Config.addDependency(group, r['role']['name'], "role")
               end
             }
           end

@@ -825,10 +825,7 @@ module MU
               end
   
               if !record['mu_type'].nil?
-                zone["dependencies"] << {
-                  "type" => record['mu_type'],
-                  "name" => record['target']
-                }
+                MU::Config.addDependency(zone, record['target'], record['mu_type'])
               end
   
               if record.has_key?('healthchecks') && !record['healthchecks'].empty?

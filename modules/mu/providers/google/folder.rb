@@ -355,11 +355,7 @@ MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_d
           end
 
           if folder['parent'] and folder['parent']['name'] and !folder['parent']['deploy_id'] and configurator.haveLitterMate?(folder['parent']['name'], "folders")
-            folder["dependencies"] ||= []
-            folder["dependencies"] << {
-              "type" => "folder",
-              "name" => folder['parent']['name']
-            }
+            MU::Config.addDependency(folder, folder['parent']['name'], "folder")
           end
 
           ok

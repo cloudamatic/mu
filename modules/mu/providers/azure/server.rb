@@ -612,18 +612,8 @@ module MU
             if !configurator.insertKitten(vpc, "vpcs", true)
               ok = false
             end
-            server['dependencies'] ||= []
-
-            server['dependencies'] << {
-              "type" => "vpc",
-              "name" => server['name']+"vpc"
-            }
-# XXX what happens if there's no natstion here?
-            server['dependencies'] << {
-              "type" => "server",
-              "name" => server['name']+"vpc-natstion",
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(server, server['name']+"vpc", "vpc")
+            MU::Config.addDependency(server, server['name']+"vpc-natstion", "server", phase: "groom")
             server['vpc'] = {
               "name" => server['name']+"vpc",
               "subnet_pref" => "private"
@@ -640,11 +630,7 @@ module MU
             "credentials" => server["credentials"],
             "roles" => server["roles"]
           }
-          server['dependencies'] ||= []
-          server['dependencies'] << {
-            "type" => "user",
-            "name" => server["name"]+"user"
-          }
+          MU::Config.addDependency(server, server['name']+"user", "user")
 
           ok = false if !configurator.insertKitten(svcacct_desc, "users")
 

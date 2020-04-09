@@ -378,7 +378,7 @@ module MU
 
           if dom['slow_logs']
             if configurator.haveLitterMate?(dom['slow_logs'], "log")
-              dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
+              MU::Config.addDependency(dom, dom['slow_logs'], "log")
             else
               log_group = MU::Cloud.resourceClass("AWS", "Log").find(cloud_id: dom['slow_logs'], region: dom['region']).values.first
               if !log_group
@@ -395,7 +395,7 @@ module MU
               "credentials" => dom['credentials']
             }
             ok = false if !configurator.insertKitten(log_group, "logs")
-            dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
+            MU::Config.addDependency(dom, dom['slow_logs'], "log")
           end
 
           if dom['advanced_options']
@@ -456,12 +456,7 @@ module MU
                 ]
               }
               configurator.insertKitten(roledesc, "roles")
-
-              dom['dependencies'] ||= []
-              dom['dependencies'] << {
-                "type" => "role",
-                "name" => dom['name']+"cognitorole"
-              }
+              MU::Config.addDependency(dom, dom['name']+"cognitorole", "role")
             end
 
           end

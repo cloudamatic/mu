@@ -1804,12 +1804,7 @@ module MU
           end
 
           configurator.insertKitten(role, "roles")
-
-          server["dependencies"] ||= []
-          server["dependencies"] << {
-            "type" => "role",
-            "name" => server["name"]
-          }
+          MU::Config.addDependency(server, server["name"], "role")
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
@@ -1860,10 +1855,7 @@ module MU
             server["loadbalancers"].each { |lb|
               lb["name"] ||= lb["concurrent_load_balancer"]
               if lb["name"]
-                server["dependencies"] << {
-                  "type" => "loadbalancer",
-                  "name" => lb["name"]
-                }
+                MU::Config.addDependency(server, lb["name"], "loadbalancer")
               end
             }
           end

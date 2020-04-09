@@ -916,11 +916,7 @@ module MU
             logdesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
 #            logdesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
             configurator.insertKitten(logdesc, "logs")
-            vpc['dependencies'] ||= []
-            vpc['dependencies'] << {
-              "type" => "log",
-              "name" => vpc['name']+"loggroup"
-            }
+            MU::Config.addDependency(vpc, vpc['name']+"loggroup", "log")
 
             roledesc = {
               "name" => vpc['name']+"logrole",
@@ -958,11 +954,7 @@ module MU
             roledesc["tags"] = vpc["tags"] if !vpc["tags"].nil?
             roledesc["optional_tags"] = vpc["optional_tags"] if !vpc["optional_tags"].nil?
             configurator.insertKitten(roledesc, "roles")
-            vpc['dependencies'] ||= []
-            vpc['dependencies'] << {
-              "type" => "role",
-              "name" => vpc['name']+"logrole"
-            }
+            MU::Config.addDependency(vpc, vpc['name']+"logrole", "role")
           end
 
           subnet_routes = Hash.new
@@ -1013,10 +1005,7 @@ module MU
                 subnet_routes[table['name']].each { |subnet|
                   nat_routes[subnet] = route['nat_host_name']
                 }
-                vpc['dependencies'] << {
-                  "type" => "server",
-                  "name" => route['nat_host_name']
-                }
+                MU::Config.addDependency(vpc, route['nat_host_name'], "server", no_create_wait: true)
               elsif route['gateway'] == '#NAT'
                 vpc['create_nat_gateway'] = true
                 private_rtbs << table['name']

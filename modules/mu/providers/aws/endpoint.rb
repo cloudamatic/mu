@@ -472,11 +472,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           endpoint['methods'].each { |m|
             if m['integrate_with'] and m['integrate_with']['name']
               if m['integrate_with']['type'] != "aws_generic"
-                endpoint['dependencies'] ||= []
-                endpoint['dependencies'] << {
-                  "type" => m['integrate_with']['type'],
-                  "name" => m['integrate_with']['name']
-                }
+                MU::Config.addDependency(endpoint, m['integrate_with']['name'], m['integrate_with']['type'])
               end
 
               m['integrate_with']['backend_http_method'] ||= m['type']
@@ -525,13 +521,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 end
                 configurator.insertKitten(roledesc, "roles")
 
-                endpoint['dependencies'] ||= []
                 m['iam_role'] = endpoint['name']+"-"+m['integrate_with']['name']
-
-                endpoint['dependencies'] << {
-                  "type" => "role",
-                  "name" => endpoint['name']+"-"+m['integrate_with']['name']
-                }
+                MU::Config.addDependency(endpoint, m['iam_role'], "role")
               end
             end
           }

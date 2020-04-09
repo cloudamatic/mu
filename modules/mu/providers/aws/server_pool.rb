@@ -930,11 +930,7 @@ module MU
 
               role['credentials'] = pool['credentials'] if pool['credentials']
               configurator.insertKitten(role, "roles")
-              pool["dependencies"] ||= []
-              pool["dependencies"] << {
-                "type" => "role",
-                "name" => pool["name"]
-              }
+              MU::Config.addDependency(pool, pool['name'], "role")
             end
             launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
@@ -948,7 +944,7 @@ module MU
               end
             end
             if launch["server"] != nil
-              pool["dependencies"] << {"type" => "server", "name" => launch["server"]}
+              MU::Config.addDependency(pool, launch["server"], "server", phase: "groom")
 # XXX I dunno, maybe toss an error if this isn't done already
 #              servers.each { |server|
 #                if server["name"] == launch["server"]

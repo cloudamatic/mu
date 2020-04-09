@@ -327,16 +327,10 @@ module MU
               failq.delete("failqueue")
               ok = false if !configurator.insertKitten(failq, "msg_queues")
               queue['failqueue']['name'] = failq['name']
-              queue['dependencies'] << {
-                "name" => failq['name'],
-                "type" => "msg_queue"
-              }
+              MU::Config.addDependency(queue, failq["name"], "msg_queue")
             else
               if configurator.haveLitterMate?(queue['failqueue']['name'], "msg_queue")
-                queue['dependencies'] << {
-                  "name" => queue['failqueue']['name'],
-                  "type" => "msg_queue"
-                }
+                MU::Config.addDependency(queue, queue['failqueue']['name'], "msg_queue")
               else
                 failq = MU::Cloud::AWS::MsgQueue.find(cloud_id: queue['failqueue']['name'])
                 if !failq
