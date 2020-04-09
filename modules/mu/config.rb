@@ -1236,12 +1236,7 @@ module MU
                     "port" => db["port"],
                     "sgs" => [cfg_name+server['name']]
                   }
-
-                  ruleset["dependencies"] << {
-                    "name" => cfg_name+server['name'],
-                    "type" => "firewall_rule",
-                    "no_create_wait" => true
-                  }
+                  MU::Config.addDependency(ruleset, cfg_name+server['name'], "firewall_rule", no_create_wait: true)
                 end
               }
             }

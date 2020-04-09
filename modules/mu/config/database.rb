@@ -341,11 +341,7 @@ module MU
               "region" => db['region'],
               "credentials" => db['credentials'],
             }
-            replica['dependencies'] << {
-              "type" => "database",
-              "name" => db["name"],
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(replica, db["name"], "database", phase: "groom")
             read_replicas << replica
           end
         end
@@ -371,11 +367,7 @@ module MU
               "type" => "databases"
             }
             # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
-            node['dependencies'] << {
-              "type" => "database",
-              "name" => db["name"],
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(node, db["name"], "database", phase: "groom")
             cluster_nodes << node
 
            # Alarms are set on each DB cluster node, not on the cluster itself,
@@ -393,6 +385,7 @@ module MU
           rr = MU::Config::Ref.get(db['read_replica_of'])
           if rr.name and !rr.deploy_id
             db['dependencies'] << { "name" => rr.name, "type" => "database" }
+            MU::Config.addDependency(db, rr.name, "database")
           elsif !rr.kitten
             MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
             ok = false
@@ -417,12 +410,7 @@ module MU
           if db["source"]["name"] and
              !db["source"]["deploy_id"] and
              configurator.haveLitterMate?(db["source"]["name"], "databases")
-            db["dependencies"] ||= []
-            db["dependencies"] << {
-              "type" => "database",
-              "name" => db["source"]["name"]#,
-#              "phase" => "groom"
-            }
+            MU::Config.addDependency(db, db["source"]["name"], "database")
           end
           db["source"]["cloud"] ||= db["cloud"]
         end

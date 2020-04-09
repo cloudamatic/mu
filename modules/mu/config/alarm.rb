@@ -281,11 +281,7 @@ module MU
               }
               ok = false if !configurator.insertKitten(notifier, "notifiers")
             end
-            alarm["dependencies"] ||= []
-            alarm["dependencies"] << {
-              "name" => alarm["notification_group"],
-              "type" => "notifier"
-            }
+            MU::Config.addDependency(alarm, alarm["notification_group"], "notifier")
           end
         end
 
