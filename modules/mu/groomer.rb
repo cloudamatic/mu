@@ -30,6 +30,21 @@ module MU
       ["Chef", "Ansible"]
     end
 
+    # List of known/supported groomers which are installed and appear to be working
+    # @return [Array<String>]
+    def self.availableGroomers
+      available = []
+      MU::Groomer.supportedGroomers.each { |groomer|
+        begin
+          groomerbase = loadGroomer(groomer)
+          available << groomer if groomerbase.available?
+        rescue NameError
+        end
+      }
+
+      available
+    end
+
     # Instance methods that any Groomer plugin must implement
     def self.requiredMethods
       [:preClean, :bootstrap, :haveBootstrapped?, :run, :saveDeployData, :getSecret, :saveSecret, :deleteSecret, :reinstall]
