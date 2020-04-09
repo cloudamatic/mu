@@ -378,7 +378,7 @@ style long name, like +IAMTESTS-DEV-2018112815-IS-GROUP-FOO+. This parameter wil
           if group['members']
             group['members'].each { |user|
               if configurator.haveLitterMate?(user, "users")
-                MU::Config.addDependency(group, user, "group")
+                MU::Config.addDependency(group, user, "user")
               else
                 found = MU::Cloud.resourceClass("AWS", "User").find(cloud_id: user)
                 if found.nil? or found.empty?

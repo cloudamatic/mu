@@ -615,7 +615,6 @@ end
                   )
                   JSON.parse(URI.decode(version.policy_version.document))
                 end
-
                 bok["policies"] = MU::Cloud::AWS::Role.doc2MuPolicies(pol.policy_name, doc, bok["policies"])
               end
             }
@@ -695,6 +694,7 @@ end
           end
 
           bok["attachable_policies"].uniq! if bok["attachable_policies"]
+          bok["name"].gsub!(/[^a-zA-Z0-9_\-]/, "_")
 
           bok
         end
@@ -706,6 +706,10 @@ end
         # @return [Array<Hash>]
         def self.doc2MuPolicies(basename, doc, policies = [])
           policies ||= []
+
+          if !doc["Statement"].is_a?(Array)
+            doc["Statement"] = [doc["Statement"]]
+          end
 
           doc["Statement"].each { |s|
             if !s["Action"]
