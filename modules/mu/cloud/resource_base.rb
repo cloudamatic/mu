@@ -534,7 +534,7 @@ module MU
               MU.log "Attempting findLitterMate on VPC for #{self}", loglevel, details: @config['vpc']
 
               sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
-              if sib_by_name.is_a?(Array)
+              if sib_by_name.is_a?(Hash)
                 if sib_by_name.size == 1
                   @vpc = matches.first
                   MU.log "Single VPC match for #{self}", loglevel, details: @vpc.to_s
@@ -543,7 +543,7 @@ module MU
                   # we got multiple matches, try to pick one by preferred subnet
                   # behavior
                   MU.log "Sorting a bunch of VPC matches for #{self}", loglevel, details: sib_by_name.map { |s| s.to_s }.join(", ")
-                  sib_by_name.each { |sibling|
+                  sib_by_name.values.each { |sibling|
                     all_private = sibling.subnets.map { |s| s.private? }.all?(true)
                     all_public = sibling.subnets.map { |s| s.private? }.all?(false)
                     names = sibling.subnets.map { |s| s.name }
@@ -566,7 +566,7 @@ module MU
                     end
                   }
                   if !@vpc
-                    sibling = sib_by_name.sample
+                    sibling = sib_by_name.values.sample
                     MU.log "Got multiple matching VPCs for #{self.class.cfg_name} #{@mu_name}, so I'm arbitrarily choosing #{sibling.mu_name}", MU::WARN, details: @config['vpc']
                     @vpc = sibling
                   end
