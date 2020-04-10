@@ -570,14 +570,10 @@ module MU
             orig_cfg['environment'] = @environment # not always set in old deploys
             if attrs[:has_multiples]
               data.keys.each { |mu_name|
-                attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load)
+                addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load))
               }
             else
-              # XXX hack for old deployments, this can go away some day
-              if data['mu_name'].nil?
-                raise MuError, "Unable to find or guess a Mu name for #{res_type}: #{res_name} in #{@deploy_id}"
-              end
-              attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
+              addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id']))
             end
           rescue StandardError => e
             if e.class != MU::Cloud::MuCloudResourceNotImplemented

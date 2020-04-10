@@ -30,7 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [])
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -44,6 +44,7 @@ module MU
       @savedeploys = savedeploys
       @diff = diff
       @habitats = habitats
+      @regions = regions
       @habitats ||= []
       @scrub_mu_isms = scrub_mu_isms
     end
@@ -106,6 +107,7 @@ module MU
               credentials: credset,
               allow_multi: true,
               habitats: @habitats.dup,
+              region: @regions,
               dummy_ok: true,
               skip_provider_owned: true,
 #              debug: false#,

@@ -80,6 +80,9 @@ module MU
 
           @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
 
+          if args[:from_cloud_desc] and args[:from_cloud_desc].is_a?(Aws::RDS::Types::DBCluster)
+            @config['create_cluster'] = true
+          end
           if @config['source']
             @config["source"] = MU::Config::Ref.get(@config["source"])
           elsif @config["read_replica_of"]
@@ -198,12 +201,14 @@ module MU
                 resp.send("db_#{noun}s").each { |db|
                   found[db.send("db_#{noun}_identifier".to_sym)] = db
                 }
-              end while marker.nil?
+              end while !marker.nil?
             }
+            if args[:cluster] or !args.has_key?(:cluster)
+              fetch.call("cluster")
+              pp found
+            end
             if !args[:cluster]
               fetch.call("instance")
-            elsif args[:cluster] or !args.has_key?(:cluster)
-              fetch.call("cluster")
             end
             if args[:tag_key] and args[:tag_value]
               keep = []
@@ -226,6 +231,35 @@ module MU
           end
 
           return found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "region" => @config['region'],
+            "credentials" => @credentials,
+            "cloud_id" => @cloud_id,
+            "create_cluster" => @config['create_cluster']
+          }
+
+          noun = bok["create_cluster"] ? "cluster" : "db"
+          tags = MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).list_tags_for_resource(
+            resource_name: MU::Cloud::AWS::Database.getARN(@cloud_id, noun, "rds", region: @config['region'], credentials: @credentials)
+          ).tag_list
+MU.log "tags for #{noun} #{@cloud_id}", MU::WARN, details: tags
+          bok["name"] = @cloud_id
+# cloud_desc.db_cluster_members
+#              arn = MU::Cloud::AWS::Database.getARN(resource.send(id_method), arn_type, "rds", region: region, credentials: credentials)
+#              tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+
+#          pp cloud_desc
+          exit if bok["create_cluster"]
+#          realname = MU::Adoption.tagsToName(bok['tags'])
+
+          bok
         end
 
         # Construct an Amazon Resource Name for an RDS resource. The RDS API is
@@ -505,7 +539,7 @@ dependencies
         end
 
         # @return [Array<Thread>]
-        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster)
+        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster, known: [])
           deletia = []
 
           resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).send(describe_method)
@@ -518,7 +552,7 @@ dependencies
               next
             end
 
-            if should_delete?(tags, ignoremaster)
+            if should_delete?(tags, resource.send(id_method), ignoremaster, MU.deploy_id, MU.mu_public_ip, known)
               deletia << resource.send(id_method)
             end
           }
@@ -542,15 +576,15 @@ dependencies
         def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
 
           ["instance", "cluster"].each { |type|
-            threaded_resource_purge("describe_db_#{type}s".to_sym, "db_#{type}s".to_sym, "db_#{type}_identifier".to_sym, (type == "instance" ? "db" : "cluster"), region, credentials, ignoremaster) { |id|
-              terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials, cluster: (type == "cluster"))
+            threaded_resource_purge("describe_db_#{type}s".to_sym, "db_#{type}s".to_sym, "db_#{type}_identifier".to_sym, (type == "instance" ? "db" : "cluster"), region, credentials, ignoremaster, known: flags['known']) { |id|
+              terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials, cluster: (type == "cluster"), known: flags['known'])
   
             }.each { |t|
               t.join
             }
           }
 
-          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster) { |id|
+          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, known: flags['known']) { |id|
             MU.log "Deleting RDS subnet group #{id}"
             MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
               MU::Cloud::AWS.rds(region: region).delete_db_subnet_group(db_subnet_group_name: id) if !noop
@@ -558,7 +592,7 @@ dependencies
           }
 
           ["db", "db_cluster"].each { |type|
-            threads.concat threaded_resource_purge("describe_#{type}_parameter_groups".to_sym, "#{type}_parameter_groups".to_sym, "#{type}_parameter_group_name".to_sym, (type == "db" ? "pg" : "cluster-pg"), region, credentials, ignoremaster) { |id|
+            threads.concat threaded_resource_purge("describe_#{type}_parameter_groups".to_sym, "#{type}_parameter_groups".to_sym, "#{type}_parameter_group_name".to_sym, (type == "db" ? "pg" : "cluster-pg"), region, credentials, ignoremaster, known: flags['known']) { |id|
               MU.log "Deleting RDS #{type} parameter group #{id}"
               MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
                 MU::Cloud::AWS.rds(region: region).send("delete_#{type}_parameter_group", { "#{type}_parameter_group_name".to_sym => id }) if !noop
@@ -1334,7 +1368,8 @@ dependencies
         end
         private_class_method :run_sql_mysql
 
-        def self.should_delete?(tags, ignoremaster = false, deploy_id = MU.deploy_id, master_ip = MU.mu_public_ip)
+        def self.should_delete?(tags, cloud_id, ignoremaster = false, deploy_id = MU.deploy_id, master_ip = MU.mu_public_ip, known = [])
+
           found_muid = false
           found_master = false
           tags.each { |tag|
@@ -1346,6 +1381,8 @@ dependencies
               true
             elsif !ignoremaster && found_muid && found_master
               true
+            elsif known and cloud_id and known.include?(cloud_id)
+              true
             else
               false
             end
@@ -1356,7 +1393,7 @@ dependencies
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil, cluster: false)
+        def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil, credentials: nil, cluster: false, known: [])
           db ||= MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials, cluster: cluster).values.first if cloud_id
           db_obj ||= MU::MommaCat.findStray(
             "AWS",
@@ -1370,6 +1407,11 @@ dependencies
           if db_obj
             cloud_id ||= db_obj.cloud_id
             db ||= db_obj.cloud_desc
+            ["parameter_group_name", "subnet_group_name"].each { |attr|
+              if db_obj.config[attr]
+                known << db_obj.config[attr]
+              end
+            }
           end
 
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor (#{cloud_id})" if db.nil? or cloud_id.nil?

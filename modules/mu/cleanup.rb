@@ -324,16 +324,17 @@ module MU
     def self.call_cleanup(type, credset, provider, flags, region)
       if @mommacat.nil? or @mommacat.numKittens(types: [type]) > 0
         if @mommacat
+
           found = @mommacat.findLitterMate(type: type, return_all: true, credentials: credset)
-          flags['known'] ||= []
-          if found.is_a?(Array)
-            found.each { |k|
-              flags['known'] << k.cloud_id
-            }
-          elsif found and found.is_a?(Hash)
-            flags['known'] << found['cloud_id']
-          elsif found
-            flags['known'] << found.cloud_id                            
+
+          if found
+            flags['known'] = if found.is_a?(Array)
+              found.map { |k| k.cloud_id }
+            elsif found.is_a?(Hash)
+              found.each_value.map { |k| k.cloud_id }
+            else
+              [found.cloud_id]
+            end
           end
         end
 

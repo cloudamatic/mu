@@ -107,6 +107,7 @@ module MU
       matches = []
 
       credlist.each { |creds|
+#            next if region and region.is_a?(Array) and !region.empty? and !region.include?(r)
         cloud_descs = search_cloud_provider(type, cloud, habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds, flags: flags)
 
         cloud_descs.each_pair.each { |p, regions|
@@ -161,8 +162,7 @@ module MU
       @kitten_semaphore.synchronize {
 
         return nil if !@kittens.has_key?(type)
-        matches = []
-
+        matches = {}
         @kittens[type].each { |habitat_group, sib_classes|
           next if habitat and habitat_group and habitat_group != habitat
           sib_classes.each_pair { |sib_class, cloud_objs|
@@ -171,7 +171,8 @@ module MU
               next if !name.nil? and name != sib_class or cloud_objs.empty?
               if !name.nil?
                 if return_all
-                  return cloud_objs.dup
+                  matches.merge!(cloud_objs.clone)
+                  next
                 elsif cloud_objs.size == 1 and does_match.call(cloud_objs.values.first)
                   return cloud_objs.values.first
                 end
@@ -179,17 +180,21 @@ module MU
               
               cloud_objs.each_value { |obj|
                 if does_match.call(obj)
-                  return (return_all ? cloud_objs.clone : obj.clone)
+                  if return_all
+                    matches.merge!(cloud_objs.clone)
+                  else
+                    return obj.clone
+                  end
                 end
               }
-            # has_multiples is false
+            # has_multiples is false, "cloud_objs" is actually a singular object
             elsif (name.nil? and does_match.call(cloud_objs)) or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)
-              matches << cloud_objs.clone
+              matches[cloud_objs.config['name']] = cloud_objs.clone
             end
           }
         }
 
-        return matches.first if matches.size == 1
+        return matches.values.first if matches.size == 1
 
         return matches if return_all and matches.size > 1
       }
@@ -279,7 +284,15 @@ module MU
       regions = if resourceclass.isGlobal?
         [nil]
       else
-        region ? [region] : cloudclass.listRegions(credentials: credentials)
+        if region
+          if region.is_a?(Array) and !region.empty?
+            region
+          else
+            [region]
+          end
+        else
+          cloudclass.listRegions(credentials: credentials)
+        end
       end
 
       # Decide what habitats (accounts/projects/subscriptions) we'll

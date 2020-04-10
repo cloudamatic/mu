@@ -48,6 +48,7 @@ $opt = Optimist::options do
   opt :diff, "List the differences between what we find and an existing, saved deploy from a previous run, if one exists.", :required => false, :type => :boolean
   opt :grouping, "Methods for grouping found resources into separate Baskets.\n\n"+MU::Adoption::GROUPMODES.keys.map { |g| "* "+g.to_s+": "+MU::Adoption::GROUPMODES[g] }.join("\n")+"\n\n", :required => false, :type => :string, :default => "logical"
   opt :habitats, "Limit scope of searches to the named accounts/projects/subscriptions, instead of search all habitats visible to our credentials.", :required => false, :type => :strings
+  opt :regions, "Restrict to operating on a subset of available regions, instead of all that we know about.", :require => false, :type => :strings
   opt :scrub, "Whether to set scrub_mu_isms in the BoKs we generate", :default => $MU_CFG.has_key?('adopt_scrub_mu_isms') ? $MU_CFG['adopt_scrub_mu_isms'] : false
 end
 
@@ -103,7 +104,7 @@ if !ok
 end
 
 
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats], scrub_mu_isms: $opt[:scrub])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats], scrub_mu_isms: $opt[:scrub], regions: $opt[:regions])
 found = adoption.scrapeClouds
 if found.nil? or found.empty?
   MU.log "No resources found to adopt", MU::WARN, details: {"clouds" => clouds, "types" => types }

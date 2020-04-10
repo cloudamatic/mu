@@ -827,8 +827,8 @@ module MU
           end
         end
 
-        if File.exist?(MU.myRoot+"/lib/modules/cloud/#{cfg_name}.rb")
-          require "modules/cloud/#{cfg_name}"
+        if File.exist?(MU.myRoot+"/modules/mu/cloud/#{cfg_name}.rb")
+          require "mu/cloud/#{cfg_name}"
         end
 
         # Wrap the instance methods that this cloud resource type has to
