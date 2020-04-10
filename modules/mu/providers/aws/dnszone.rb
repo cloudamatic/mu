@@ -345,7 +345,7 @@ module MU
             rescue Aws::Route53::Errors::LastVPCAssociation => e
               MU.log e.inspect, MU::WARN
             rescue Aws::Route53::Errors::VPCAssociationNotFound
-              MU.log "VPC #{vpc_id} access to zone #{id} already revoked", MU::WARN
+              MU.log "VPC #{vpc_id} access to zone #{id} already revoked", MU::NOTICE
             end
           end
         end

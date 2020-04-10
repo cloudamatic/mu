@@ -838,9 +838,23 @@ module MU
             vpcs = resp if !resp.empty?
           }
 
+#          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_vpc_peering_connections(
+#            filters: [
+#              {
+#                name: "requester-vpc-info.vpc-id",
+#                values: [@cloud_id]
+#              },
+#              {
+#                name: "accepter-vpc-info.vpc-id",
+#                values: [peer_id.to_s]
+#              }
+#            ]
+#          )
+
           if !vpcs.empty?
             gwthreads = []
             vpcs.each { |vpc|
+              purge_peering_connections(noop, vpc.vpc_id, region: region, credentials: credentials)
               # NAT gateways don't have any tags, and we can't assign them a name. Lets find them based on a VPC ID
               gwthreads << Thread.new {
                 purge_nat_gateways(noop, vpc_id: vpc.vpc_id, region: region, credentials: credentials)
@@ -1699,6 +1713,61 @@ module MU
         end
         private_class_method :purge_dhcpopts
 
+        def self.purge_peering_connections(noop, vpc_id, region: MU.curRegion, credentials: nil)
+          my_peer_conns = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_peering_connections(
+            filters: [
+              {
+                name: "requester-vpc-info.vpc-id",
+                values: [vpc_id]
+              }
+            ]
+          ).vpc_peering_connections
+          my_peer_conns.concat(MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_peering_connections(
+            filters: [
+              {
+                name: "accepter-vpc-info.vpc-id",
+                values: [vpc_id]
+              }
+            ]
+          ).vpc_peering_connections)
+
+          my_peer_conns.each { |cnxn|
+            [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
+              MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_vpc, region: region, credentials: credentials).each { |rtb_id|
+                begin
+                  resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_route_tables(
+                    route_table_ids: [rtb_id]
+                  )
+                rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound
+                  next
+                end
+                resp.route_tables.each { |rtb|
+                  rtb.routes.each { |route|
+                    if route.vpc_peering_connection_id == cnxn.vpc_peering_connection_id
+                      MU.log "Removing route #{route.destination_cidr_block} from route table #{rtb_id} in VPC #{peer_vpc}"
+                      MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_route(
+                          route_table_id: rtb_id,
+                          destination_cidr_block: route.destination_cidr_block
+                      ) if !noop
+                    end
+                  }
+                }
+              }
+            }
+            MU.log "Deleting VPC peering connection #{cnxn.vpc_peering_connection_id}"
+            begin
+              MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc_peering_connection(
+                vpc_peering_connection_id: cnxn.vpc_peering_connection_id
+              ) if !noop
+            rescue Aws::EC2::Errors::InvalidStateTransition
+              MU.log "VPC peering connection #{cnxn.vpc_peering_connection_id} not in removable (state #{cnxn.status.code})", MU::WARN
+            rescue Aws::EC2::Errors::OperationNotPermitted => e
+              MU.log "VPC peering connection #{cnxn.vpc_peering_connection_id} refuses to delete: #{e.message}", MU::WARN
+            end
+          }
+        end
+        private_class_method :purge_peering_connections
+
         # Remove all VPCs associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
@@ -1713,57 +1782,7 @@ module MU
           return if vpcs.nil? or vpcs.size == 0
 
           vpcs.each { |vpc|
-            my_peer_conns = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_peering_connections(
-              filters: [
-                {
-                  name: "requester-vpc-info.vpc-id",
-                  values: [vpc.vpc_id]
-                }
-              ]
-            ).vpc_peering_connections
-            my_peer_conns.concat(MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_vpc_peering_connections(
-              filters: [
-                {
-                  name: "accepter-vpc-info.vpc-id",
-                  values: [vpc.vpc_id]
-                }
-              ]
-            ).vpc_peering_connections)
-            my_peer_conns.each { |cnxn|
-
-              [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
-                MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_vpc, region: region, credentials: credentials).each { |rtb_id|
-                  begin
-                    resp = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_route_tables(
-                      route_table_ids: [rtb_id]
-                    )
-                  rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound
-                    next
-                  end
-                  resp.route_tables.each { |rtb|
-                    rtb.routes.each { |route|
-                      if route.vpc_peering_connection_id == cnxn.vpc_peering_connection_id
-                        MU.log "Removing route #{route.destination_cidr_block} from route table #{rtb_id} in VPC #{peer_vpc}"
-                        MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_route(
-                            route_table_id: rtb_id,
-                            destination_cidr_block: route.destination_cidr_block
-                        ) if !noop
-                      end
-                    }
-                  }
-                }
-              }
-              MU.log "Deleting VPC peering connection #{cnxn.vpc_peering_connection_id}"
-              begin
-                MU::Cloud::AWS.ec2(credentials: credentials, region: region).delete_vpc_peering_connection(
-                    vpc_peering_connection_id: cnxn.vpc_peering_connection_id
-                ) if !noop
-              rescue Aws::EC2::Errors::InvalidStateTransition
-                MU.log "VPC peering connection #{cnxn.vpc_peering_connection_id} not in removable (state #{cnxn.status.code})", MU::WARN
-              rescue Aws::EC2::Errors::OperationNotPermitted => e
-                MU.log "VPC peering connection #{cnxn.vpc_peering_connection_id} refuses to delete: #{e.message}", MU::WARN
-              end
-            }
+            purge_peering_connections(noop, vpc.vpc_id, region: region, credentials: credentials)
 
             on_retry = Proc.new {
               MU::Cloud.resourceClass("AWS", "FirewallRule").cleanup(
