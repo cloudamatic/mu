@@ -655,7 +655,7 @@ module MU
     new_cfg = $MU_CFG.dup
     examples = {}
     MU::Cloud.supportedClouds.each { |cloud|
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       begin
         if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
           cfg_blob = cloudclass.hosted_config
@@ -811,11 +811,7 @@ module MU
   # @param groomer [String]: The grooming agent to load.
   # @return [Class]: The class object implementing this groomer agent
   def self.loadGroomer(groomer)
-    if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
-      raise MuError, "Requested to use unsupported grooming agent #{groomer}"
-    end
-    require "mu/groomers/#{groomer.downcase}"
-    return Object.const_get("MU").const_get("Groomer").const_get(groomer)
+    MU::Groomer.loadGroomer(groomer)
   end
 
   @@myRegion_var = nil
@@ -969,8 +965,7 @@ module MU
 
   @@myCloudDescriptor = nil
   if MU.myCloud
-    svrclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud).const_get("Server")
-    found = svrclass.find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
+    found = MU::Cloud.resourceClass(MU.myCloud, "Server").find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
 #    found = MU::MommaCat.findStray(MU.myCloud, "server", cloud_id: @@myInstanceId, dummy_ok: true, region: MU.myRegion)
     if !found.nil? and found.size == 1
       @@myCloudDescriptor = found.values.first
@@ -983,8 +978,7 @@ module MU
   def self.myVPCObj
     return nil if MU.myCloud.nil?
     return @@myVPCObj_var if @@myVPCObj_var
-    cloudclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud)
-    @@myVPCObj_var ||= cloudclass.myVPCObj
+    @@myVPCObj_var ||= MU::Cloud.cloudClass(MU.myCloud).myVPCObj
     @@myVPCObj_var
   end
 
@@ -1109,10 +1103,9 @@ module MU
 
     clouds = platform.nil? ? MU::Cloud.supportedClouds : [platform]
     clouds.each { |cloud|
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      bucketname = cloudclass.adminBucketName(credentials)
+      bucketname = MU::Cloud.cloudClass(cloud).adminBucketName(credentials)
       begin
-        if platform or (cloudclass.hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
+        if platform or (MU::Cloud.cloudClass(cloud).hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
           return bucketname
         end
       end

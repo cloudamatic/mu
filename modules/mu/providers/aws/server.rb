@@ -1736,8 +1736,7 @@ module MU
 
             MU::Cloud.availableClouds.each { |cloud|
               next if cloud == "AWS"
-              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-              foreign_types = (cloudbase.listInstanceTypes).values.first
+              foreign_types = (MU::Cloud.cloudClass(cloud).listInstanceTypes).values.first
               if foreign_types.size == 1
                 foreign_types = foreign_types.values.first
               end

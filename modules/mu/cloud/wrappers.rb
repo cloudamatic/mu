@@ -88,7 +88,7 @@ module MU
               next if args[:cloud] and args[:cloud] != cloud
               # skip this cloud if we have a region argument that makes no
               # sense there
-              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              cloudbase = MU::Cloud.cloudClass(cloud)
               next if cloudbase.listCredentials.nil? or cloudbase.listCredentials.empty? or cloudbase.credConfig(args[:credentials]).nil?
               if args[:region] and cloudbase.respond_to?(:listRegions)
                 if !cloudbase.listRegions(credentials: args[:credentials])

@@ -253,8 +253,7 @@ module MU
               seen << resource['credentials']
             else
               cloudconst = @original_config['cloud'] ? @original_config['cloud'] : MU::Config.defaultCloud
-              Object.const_get("MU").const_get("Cloud").const_get(cloudconst)
-              seen << cloudclass.credConfig(name_only: true)
+              seen << MU::Cloud.cloudClass(cloudconst).credConfig(name_only: true)
             end
           }
         end
@@ -289,11 +288,10 @@ module MU
                 habitats << hab_ref.id
               end
             elsif resource['cloud']
-              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
               # XXX this should be a general method implemented by each cloud
               # provider
               if resource['cloud'] == "Google"
-                habitats << cloudclass.defaultProject(resource['credentials'])
+                habitats << MU::Cloud.cloudClass(resource['cloud']).defaultProject(resource['credentials'])
               end
             end
           }
@@ -317,13 +315,11 @@ module MU
         if @original_config[type]
           @original_config[type].each { |resource|
             if resource['cloud']
-              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
-              resclass = MU::Cloud.resourceClass(resource['cloud'], res_type)
-              if resclass.isGlobal?
+              if MU::Cloud.resourceClass(resource['cloud'], res_type).isGlobal?
 # XXX why was I doing this, urgh
                 next
               elsif !resource['region']
-                regions << cloudclass.myRegion
+                regions << MU::Cloud.cloudClass(resource['cloud']).myRegion(resource['credentials'])
               end
             end
             if resource['region']
@@ -838,7 +834,7 @@ MAIL_HEAD_END
         end
 
         if resource and resource.config and resource.config['cloud']
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource.config['cloud'])
+          cloudclass = MU::Cloud.cloudClass(resource.config['cloud'])
 
           cloudclass.writeDeploySecret(@deploy_id, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
           cloudclass.writeDeploySecret(@deploy_id, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])

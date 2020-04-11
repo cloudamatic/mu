@@ -98,7 +98,7 @@ module MU
               raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
             end
             @cloudclass = MU::Cloud.resourceClass(my_cloud, self.class.shortname)
-            @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(my_cloud)
+            @cloudparentclass = MU::Cloud.cloudClass(my_cloud)
             @cloudobj = @cloudclass.new(
               mommacat: args[:mommacat],
               kitten_cfg: args[:kitten_cfg],
@@ -166,7 +166,7 @@ module MU
             end
 
             @cloudclass = MU::Cloud.resourceClass(@cloud, self.class.shortname)
-            @cloudparentclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud)
+            @cloudparentclass = MU::Cloud.cloudClass(@cloud)
 
             # A pre-existing object, you say?
             if args[:cloud_id]
@@ -181,7 +181,7 @@ module MU
               # If we can build us an ::Id object for @cloud_id instead of a
               # string, do so.
               begin
-                idclass = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("Id")
+                idclass = @cloudparentclass.const_get(:Id)
                 long_id = if @deploydata and @deploydata[idclass.idattr.to_s]
                   @deploydata[idclass.idattr.to_s]
                 elsif self.respond_to?(idclass.idattr)

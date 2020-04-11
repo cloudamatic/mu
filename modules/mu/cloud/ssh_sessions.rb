@@ -140,8 +140,6 @@ module MU
           session = nil
           retries = 0
 
-          vpc_class = Object.const_get("MU").const_get("Cloud").const_get(@cloud).const_get("VPC")
-
           # XXX WHY is this a thing
           Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
           }
@@ -205,7 +203,7 @@ module MU
               msg = "ssh #{ssh_user}@#{@mu_name}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
               if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                 MU.log msg, MU::NOTICE
-                if !vpc_class.haveRouteToInstance?(cloud_desc, credentials: @credentials) and
+                if !MU::Cloud.resourceClass(@cloud, "VPC").haveRouteToInstance?(cloud_desc, credentials: @credentials) and
                    canonical_ip.match(/(^127\.)|(^192\.168\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^::1$)|(^[fF][cCdD])/) and
                    !nat_ssh_host
                   MU.log "Node #{@mu_name} at #{canonical_ip} looks like it's in a private address space, and I don't appear to have a direct route to it. It may not be possible to connect with this routing!", MU::WARN

@@ -463,9 +463,9 @@ module MU
         if name == type.to_sym or
             cloudclass[:cfg_name] == type or
             cloudclass[:cfg_plural] == type or
-            Object.const_get("MU").const_get("Cloud").const_get(name) == type
+            MU::Cloud.loadBaseType(name) == type
           type = name
-          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name), cloudclass]
+          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], MU::Cloud.loadBaseTypMU::Cloud.loadBaseType(name), cloudclass]
         end
       }
       if assert
@@ -593,7 +593,7 @@ module MU
 
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        cloudclass = const_get("MU").const_get("Cloud").const_get(cloud)
         myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
 
         @@resource_types[shortclass.to_sym][:class].each { |class_method|

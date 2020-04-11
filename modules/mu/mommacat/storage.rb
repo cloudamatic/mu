@@ -512,9 +512,8 @@ module MU
       if !@original_config['scrub_mu_isms'] and !@no_artifacts
         credsets.each_pair { |cloud, creds|
           creds.uniq!
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
           creds.each { |credentials|
-            cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
+            MU::Cloud.cloudClass(cloud).writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
           }
         }
       end
