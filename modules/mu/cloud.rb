@@ -465,7 +465,7 @@ module MU
             cloudclass[:cfg_plural] == type or
             MU::Cloud.loadBaseType(name) == type
           type = name
-          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], MU::Cloud.loadBaseTypMU::Cloud.loadBaseType(name), cloudclass]
+          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], MU::Cloud.loadBaseType(name), cloudclass]
         end
       }
       if assert
