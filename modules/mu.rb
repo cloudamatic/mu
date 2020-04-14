@@ -83,7 +83,7 @@ class Hash
   end
 
   # Recursively compare two hashes
-  def diff(with, on = self, level: 0, parents: [])
+  def diff(with, on = self, level: 0, print: false, parents: [], report: {})
     return if with.nil? and on.nil?
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
@@ -93,6 +93,10 @@ class Hash
     tree = ""
     indentsize = 0
     parents.each { |p|
+    if p.nil?
+      pp parents
+      next
+    end
       tree += (" " * indentsize) + p + " => \n"
       indentsize += 2
     }
@@ -104,12 +108,19 @@ class Hash
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        diff(with[k], on[k], level: level+1, parents: parents + [k])
+        report[k] = {}
+        diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k])
       }
       on_unique.each { |k|
+        report["removed"] ||= {}
+        report["removed"][k] = on[k]
+#puts "HASH CHANGE -#{PP.pp({k => on[k] }, '')}"
         changes << "- ".red+PP.pp({k => on[k] }, '')
       }
       with_unique.each { |k|
+        report["added"] ||= {}
+        report["added"][k] = with[k]
+#puts "HASH CHANGE +#{PP.pp({k => on[k] }, '')}"
         changes << "+ ".green+PP.pp({k => with[k]}, '')
       }
     elsif on.is_a?(Array)
@@ -144,7 +155,7 @@ class Hash
                 elt['entity']['id']
               end
 
-              diff(other_elt, elt, level: level+1, parents: parents + [namestr])
+              diff(other_elt, elt, level: level+1, parents: parents + [namestr], report: report)
               break
             end
           }
@@ -163,32 +174,39 @@ class Hash
 #      end
 #    end
       on_unique.each { |e|
+#puts "ARRAY CHANGE -#{PP.pp(Hash.bok_minimize(e), '')}"
         changes << if e.is_a?(Hash)
           "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
+#puts "ARRAY ELEMENT CHANGE -#{e.to_s}"
           "- ".red+e.to_s
         end
       }
       with_unique.each { |e|
         changes << if e.is_a?(Hash)
+#puts "ARRAY CHANGE +#{PP.pp(Hash.bok_minimize(e), '')}"
           "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
+#puts "ARRAY ELEMENT CHANGE +#{e.to_s}"
           "+ ".green+e.to_s
         end
       }
     else
       if on != with
+#puts "LEAF CHANGE -#{on.to_s} +#{with.to_s}"
         changes << "-".red+" #{on.to_s}"
         changes << "+".green+" #{with.to_s}"
       end
     end
 
-    if changes.size > 0
+    if changes.size > 0 and print
       puts tree
       changes.each { |c|
         puts indent+c
       }
     end
+
+    report
   end
 
   # Implement a merge! that just updates each hash leaf as needed, not 

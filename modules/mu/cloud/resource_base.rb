@@ -866,7 +866,7 @@ module MU
             else
               retval = @cloudobj.method(method).call
             end
-            if (method == :create or method == :groom or method == :postBoot) and
+            if [:create, :groom, :postBoot, :toKitten].include?(method) and
                (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
               @deploydata ||= deploydata # XXX I don't remember why we're not just doing this from the get-go; maybe because we prefer some mangling occurring in @deploy.notify?

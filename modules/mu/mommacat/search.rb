@@ -128,6 +128,8 @@ module MU
       matches
     end
 
+    @object_load_fails = false
+
     # Return the resource object of another member of this deployment
     # @param type [String,Symbol]: The type of resource
     # @param name [String]: The name of the resource as defined in its 'name' Basket of Kittens field
@@ -161,7 +163,15 @@ module MU
 
       @kitten_semaphore.synchronize {
 
-        return nil if !@kittens.has_key?(type)
+        if !@kittens.has_key?(type)
+          return nil if @original_config[type].nil?
+          loadObjects(false)
+          if @object_load_fails or !@kittens[type]
+            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size.to_s} #{type}, but loadObjects did not populate any into @kittens", MU::ERR, @deployment.keys
+            @object_load_fails = true
+            return nil
+          end
+        end
         matches = {}
         @kittens[type].each { |habitat_group, sib_classes|
           next if habitat and habitat_group and habitat_group != habitat

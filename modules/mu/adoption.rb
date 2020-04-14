@@ -222,9 +222,13 @@ module MU
         }
 
         deploy = MU::MommaCat.findMatchingDeploy(origin)
-        if @diff and !deploy
-          MU.log "--diff was set but I failed to find a deploy like me to compare to", MU::ERR, details: origin
-          exit 1
+        if @diff
+          if !deploy
+            MU.log "--diff was set but I failed to find a deploy like me to compare to", MU::ERR, details: origin
+            exit 1
+          else
+            MU.log "Will diff against #{deploy.deploy_id}", MU::NOTICE, details: origin
+          end
         end
 
         threads = []
@@ -333,8 +337,8 @@ module MU
             exit 1
           end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
-
-          prevcfg.diff(newcfg)
+          report = prevcfg.diff(newcfg, print: true)
+#          pp report
           exit
         end
       }
@@ -421,6 +425,10 @@ module MU
             obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
             begin
               raise Incomplete if obj.nil?
+              if save
+                deploydata = obj.notify
+                deploy.notify(attrs[:cfg_plural], resource['name'], deploydata, triggering_node: obj)
+              end
               new_cfg = resolveReferences(resource, deploy, obj)
               new_cfg.delete("cloud_id")
               cred_cfg = MU::Cloud.cloudClass(obj.cloud).credConfig(obj.credentials)
@@ -433,6 +441,7 @@ module MU
               end
               processed << new_cfg
             rescue Incomplete
+#MU.log "#{attrs[:cfg_name]} #{resource['name']} didn't show up from findLitterMate", MU::WARN, details: deploy.original_config[attrs[:cfg_plural]].reject { |r| r['name'] != "" }
             end
           }
 
