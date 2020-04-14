@@ -182,6 +182,7 @@ module MU
       @appname ||= @original_config['name'] if @original_config
       @timestamp = timestamp
       @environment = environment
+      @original_config['environment'] ||= @environment if @original_config
 
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)

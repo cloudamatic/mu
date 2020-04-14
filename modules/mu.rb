@@ -89,6 +89,7 @@ class Hash
       return # XXX ...however we're flagging differences
     end
     return if on == with
+    ["added", "removed", "changed"].each { |f| report[f] ||= [] }
 
     tree = ""
     indentsize = 0
@@ -105,19 +106,14 @@ class Hash
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        report[k] = {}
-        diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k])
+        diff(with[k], on[k], level: level+1, parents: parents + [k], report: report, print: print)
       }
       on_unique.each { |k|
-        report["removed"] ||= {}
-        report["removed"][k] = on[k]
-#puts "HASH CHANGE -#{PP.pp({k => on[k] }, '')}"
+        report["removed"] << { "field" => k, "parents" => parents, "value" => on[k] }
         changes << "- ".red+PP.pp({k => on[k] }, '')
       }
       with_unique.each { |k|
-        report["added"] ||= {}
-        report["added"][k] = with[k]
-#puts "HASH CHANGE +#{PP.pp({k => on[k] }, '')}"
+        report["added"] << { "field" => k, "parents" => parents, "value" => on[k] }
         changes << "+ ".green+PP.pp({k => with[k]}, '')
       }
     elsif on.is_a?(Array)
@@ -152,7 +148,7 @@ class Hash
                 elt['entity']['id']
               end
 
-              diff(other_elt, elt, level: level+1, parents: parents + [namestr], report: report)
+              diff(other_elt, elt, level: level+1, parents: parents + [namestr], report: report, print: print)
               break
             end
           }
@@ -171,26 +167,26 @@ class Hash
 #      end
 #    end
       on_unique.each { |e|
-#puts "ARRAY CHANGE -#{PP.pp(Hash.bok_minimize(e), '')}"
         changes << if e.is_a?(Hash)
+          report["removed"] << { "parents" => parents, "value" => e }
           "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
-#puts "ARRAY ELEMENT CHANGE -#{e.to_s}"
+          report["removed"] << { "parents" => parents, "value" => e }
           "- ".red+e.to_s
         end
       }
       with_unique.each { |e|
         changes << if e.is_a?(Hash)
-#puts "ARRAY CHANGE +#{PP.pp(Hash.bok_minimize(e), '')}"
+          report["added"] << { "parents" => parents, "value" => e }
           "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
-#puts "ARRAY ELEMENT CHANGE +#{e.to_s}"
+          report["added"] << { "parents" => parents, "value" => e }
           "+ ".green+e.to_s
         end
       }
     else
       if on != with
-#puts "LEAF CHANGE -#{on.to_s} +#{with.to_s}"
+        report["changed"] << { "parents" => parents, "old" => on, "new" => with }
         changes << "-".red+" #{on.to_s}"
         changes << "+".green+" #{with.to_s}"
       end

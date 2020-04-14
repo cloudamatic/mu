@@ -520,6 +520,8 @@ module MU
     end
 
     def loadObjects(delay_descriptor_load)
+      # Load up MU::Cloud objects for all our kittens in this deploy
+
       MU::Cloud.resource_types.each_pair { |res_type, attrs|
         type = attrs[:cfg_plural]
         next if !@deployment.has_key?(type)
@@ -565,8 +567,6 @@ module MU
           end
 
           begin
-            # Load up MU::Cloud objects for all our kittens in this deploy
-            orig_cfg['environment'] = @environment # not always set in old deploys
             if attrs[:has_multiples]
               data.keys.each { |mu_name|
                 addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load))
