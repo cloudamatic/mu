@@ -338,6 +338,7 @@ module MU
           end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
           report = prevcfg.diff(newcfg, print: true)
+#          sendAdminSlack("Grooming FAILED for `#{kitten.mu_name}` with `#{e.message}` :crying_cat_face:", msg: e.backtrace.join("\n"))
 #          pp report
           exit
         end
@@ -452,24 +453,23 @@ module MU
 
       # Pare out global values like +cloud+ or +region+ that appear to be
       # universal in the deploy we're creating.
-      def scrub_globals(h, field)
+      scrub_globals = Proc.new { |h, field|
         if h.is_a?(Hash)
           newhash = {}
           h.each_pair { |k, v|
             next if k == field
-            newhash[k] = scrub_globals(v, field)
+            newhash[k] = scrub_globals.call(v, field)
           }
           h = newhash
         elsif h.is_a?(Array)
           newarr = []
           h.each { |v|
-            newarr << scrub_globals(v, field)
+            newarr << scrub_globals.call(v, field)
           }
           h = newarr
         end
-
         h
-      end
+      }
 
       globals.each_pair { |field, counts|
         next if counts.size != 1
@@ -479,7 +479,7 @@ module MU
           if bok[attrs[:cfg_plural]]
             new_resources = []
             bok[attrs[:cfg_plural]].each { |resource|
-              new_resources << scrub_globals(resource, field)
+              new_resources << scrub_globals.call(resource, field)
             }
             bok[attrs[:cfg_plural]] = new_resources
           end
@@ -489,6 +489,7 @@ module MU
       scrubSchemaDefaults(bok, MU::Config.schema)
 
       if save
+        deploy.updateBasketofKittens(bok)
         MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
         deploy.save!(force: true, origin: origin)
       end

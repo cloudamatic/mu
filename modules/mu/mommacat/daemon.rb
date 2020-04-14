@@ -165,11 +165,11 @@ module MU
         if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exist?(deploy_dir+"/.cleanup."+cloud_id) and !File.exist?(deploy_dir+"/.cleanup")
           MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
           sendAdminSlack("Grooming FAILED for `#{kitten.mu_name}` with `#{e.message}` :crying_cat_face:", msg: e.backtrace.join("\n"))
-         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-           msg: e.inspect,
-           data: e.backtrace,
-           debug: true
-         )
+          sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+            msg: e.inspect,
+            data: e.backtrace,
+            debug: true
+          )
           raise e if reraise_fail
         else
           MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"

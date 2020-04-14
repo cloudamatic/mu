@@ -93,10 +93,7 @@ class Hash
     tree = ""
     indentsize = 0
     parents.each { |p|
-    if p.nil?
-      pp parents
-      next
-    end
+      p ||= "<nil>"
       tree += (" " * indentsize) + p + " => \n"
       indentsize += 2
     }

@@ -94,6 +94,9 @@ module MU
             end
 
             my_cloud = args[:kitten_cfg]['cloud'].to_s || MU::Config.defaultCloud
+            if (my_cloud.nil? or my_cloud.empty?) and args[:mommacat]
+              my_cloud = args[:mommacat].original_config['cloud']
+            end
             if my_cloud.nil? or !MU::Cloud.supportedClouds.include?(my_cloud)
               raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
             end
