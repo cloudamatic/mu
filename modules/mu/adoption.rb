@@ -338,15 +338,60 @@ module MU
           end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
           report = prevcfg.diff(newcfg, print: true)
-#          sendAdminSlack("Grooming FAILED for `#{kitten.mu_name}` with `#{e.message}` :crying_cat_face:", msg: e.backtrace.join("\n"))
-#          pp report
-          exit
+          if MU.muCfg['adopt_change_notify']
+            notifyChanges(deploy, report)
+          end
         end
       }
       @boks
     end
 
     private
+
+    def notifyChanges(deploy, report)
+      if MU.muCfg['adopt_change_notify']['slack']
+        ["added", "removed", "changed"].each { |c|
+          next if !report[c] or report[c].empty?
+          report[c].each { |item|
+            shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(item["parents"].first, false)
+
+            noun = if shortclass
+              shortclass
+            else
+              "Resource"
+            end
+
+            verb = if item['parents'].size > 1
+              "modified"
+            else
+              c
+            end
+
+            text = if item['value'].is_a?(Hash) and item['value']['name']
+              "#{noun} \*#{item['value']['name']}\* was \*#{verb}\*."
+            else
+              "A #{noun} was #{verb}."
+            end
+
+            item['parents'].shift if shortclass
+            if !item["parents"].empty?
+              text += " Path:\n\n`"+item["parents"].join(" => ")+"`"
+            end
+
+            if item['value'] and (item['value'].is_a?(Array) or item['value'].is_a?(Hash))
+              deploy.sendAdminSlack(text, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], msg: PP.pp(item['value'], ''))
+              MU.log text, MU::NOTICE, details: item['value']
+            else
+              deploy.sendAdminSlack(text, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'])
+              MU.log text
+            end
+          }
+        }
+      end
+
+      if MU.muCfg['adopt_change_notify']['email']
+      end
+    end
 
     def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, type: nil)
       return if schema_chunk.nil?

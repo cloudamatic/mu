@@ -611,16 +611,21 @@ module MU
     # @param subject [String]: The subject line of the message.
     # @param msg [String]: The message body.
     # @return [void]
-    def sendAdminSlack(subject, msg: "")
-      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
-         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
+    def sendAdminSlack(subject, msg: "", scrub_mu_isms: true)
+      if MU.muCfg['slack'] and MU.muCfg['slack']['webhook'] and
+         (!MU.muCfg['slack']['skip_environments'] or !MU.muCfg['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
         require 'slack-notifier'
-        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
+        begin
+          slack = Slack::Notifier.new MU.muCfg['slack']['webhook']
+          prefix = scrub_mu_isms ? subject : "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}"
 
-        if msg and !msg.empty?
-          slack.ping "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}:\n\n```#{msg}\n```", channel: $MU_CFG['slack']['channel']
-        else
-          slack.ping "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}", channel: $MU_CFG['slack']['channel']
+          if msg and !msg.empty?
+            slack.ping "#{prefix}:\n\n```#{msg}```", channel: MU.muCfg['slack']['channel']
+          else
+            slack.ping prefix, channel: MU.muCfg['slack']['channel']
+          end
+        rescue Slack::Notifier::APIError => e
+          MU.log "Failed to send message to slack: #{e.message}", MU::ERR, details: MU.muCfg['slack']
         end
       end
     end
