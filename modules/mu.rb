@@ -83,22 +83,12 @@ class Hash
   end
 
   # Recursively compare two hashes
-  def diff(with, on = self, level: 0, print: false, parents: [], report: {})
+  def diff(with, on = self, level: 0, parents: [], report: {})
     return if with.nil? and on.nil?
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
     end
     return if on == with
-
-    tree = ""
-    indentsize = 0
-    report_tree = {}
-    parents.each { |p|
-      p ||= "<no name>"
-      tree += (" " * indentsize) + p + " => \n"
-      indentsize += 2
-    }
-    indent = (" " * indentsize)
 
     changes = []
     if on.is_a?(Hash)
@@ -106,7 +96,7 @@ class Hash
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k], print: print)
+        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k])
         if report_data and !report_data.empty?
           report ||= {}
           report[k] = report_data
@@ -114,11 +104,9 @@ class Hash
       }
       on_unique.each { |k|
         report[k] = { :action => :removed, :parents => parents, :value => on[k] }
-        changes << "- ".red+PP.pp({k => on[k] }, '')
       }
       with_unique.each { |k|
         report[k] = { :action => :added, :parents => parents, :value => with[k] }
-        changes << "+ ".green+PP.pp({k => with[k]}, '')
       }
     elsif on.is_a?(Array)
       return if with == on
@@ -132,9 +120,6 @@ class Hash
       on.sort.each { |elt|
         if elt.is_a?(Hash) and MU::MommaCat.getChunkName(elt)
           elt_namestr = MU::MommaCat.getChunkName(elt)
-if elt_namestr.nil?
-  MU.log "Failed to come up with a name string for this guy #{parents.join(" => ")}", MU::WARN, details: elt
-end
 
           with.sort.each { |other_elt|
             other_elt_namestr = MU::MommaCat.getChunkName(other_elt)
@@ -143,7 +128,7 @@ end
               done << elt
               done << other_elt
               break if elt == other_elt # if they're identical, we're done
-              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], print: print)
+              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr])
               if report_data and !report_data.empty?
                 report ||= {}
                 report[elt_namestr] = report_data
@@ -161,40 +146,30 @@ end
         namestr = MU::MommaCat.getChunkName(e)
 
         report ||= {}
-        changes << if e.is_a?(Hash)
+        if e.is_a?(Hash)
           report[namestr] = { :action => :removed, :parents => parents, :value => e }
-          "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
           report[namestr] = { :action => :removed, :parents => parents, :value => e }
-          "- ".red+e.to_s
         end
       }
+
       # Case 3: This array entry exists in the new version, but not the old one
       with_unique.each { |e|
         namestr = MU::MommaCat.getChunkName(e)
 
         report ||= {}
-        changes << if e.is_a?(Hash)
+        if e.is_a?(Hash)
           report[namestr] = { :action => :added, :parents => parents, :value => e }
-          "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
           report[namestr] = { :action => :added, :parents => parents, :value => e }
-          "+ ".green+e.to_s
         end
       }
+
+    # A plain old leaf node of data
     else
       if on != with
         report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with }
-        changes << "-".red+" #{on.to_s}"
-        changes << "+".green+" #{with.to_s}"
       end
-    end
-
-    if changes.size > 0 and print
-      puts tree
-      changes.each { |c|
-        puts indent+c
-      }
     end
 
     report

@@ -47,6 +47,41 @@ module MU
 
     end
 
+    # Given a piece of a BoK resource descriptor Hash, come up with a shorthand
+    # string to give it a name for human readers. If nothing reasonable can be
+    # extracted, returns nil.
+    # @param obj [Hash]
+    # @param array_of [String]
+    # @return [String,nil]
+    def self.getChunkName(obj, array_of = nil)
+      return nil if obj.nil?
+      if [String, Integer, Boolean].include?(obj.class)
+        return obj
+      end
+      obj_type = array_of || obj['type']
+      obj_name = obj['name'] || obj['id'] || obj['mu_name'] || obj['cloud_id']
+      if obj_name
+        if obj_type
+          "#{obj_type}[#{obj_name}]"
+        else
+          obj_name
+        end
+      else
+        found_it = nil
+        ["entity", "role"].each { |subtype|
+          if obj[subtype] and obj[subtype].is_a?(Hash)
+            found_it = if obj[subtype]["id"]
+              obj[subtype]['id']
+            elsif obj[subtype]["type"] and obj[subtype]["name"]
+              "#{obj[subtype]['type']}[#{obj[subtype]['name']}]"
+            end
+            break
+          end
+        }
+        found_it
+      end
+    end
+
     # Generate a three-character string which can be used to unique-ify the
     # names of resources which might potentially collide, e.g. Windows local
     # hostnames, Amazon Elastic Load Balancers, or server pool instances.

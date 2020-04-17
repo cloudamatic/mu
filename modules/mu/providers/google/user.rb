@@ -58,7 +58,7 @@ module MU
               account_id: acct_id,
               service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
                 display_name: @mu_name,
-                description: @config['scrub_mu_isms'] ? nil : @deploy.deploy_id
+                description: @config['scrub_mu_isms'] ? @config['description'] : @deploy.deploy_id
               )
             )
             if @config['use_if_exists']
@@ -429,6 +429,10 @@ module MU
 
           if bok['type'] == "service"
             bok['name'].gsub!(/@.*/, '')
+            if cloud_desc.description and !cloud_desc.description.empty? and
+               !cloud_desc.description.match(/^[A-Z0-9_-]+-[A-Z0-9_-]+-\d{10}-[A-Z]{2}$/)
+              bok['description'] = cloud_desc.description
+            end
             bok['project'] = @project_id
             keys = MU::Cloud::Google.iam(credentials: @config['credentials']).list_project_service_account_keys(@cloud_id)
 
@@ -500,6 +504,10 @@ If we are binding (rather than creating) a user and no roles are specified, we w
             "last_name" => {
               "type" => "string",
               "description" => "Alias for +family_name+"
+            },
+            "description" => {
+              "type" => "string",
+              "description" => "Comment field for service accounts, which we normally use to store the originating deploy's deploy id, since GCP service accounts do not have labels. This field is only honored if +scrub_mu_isms+ is set."
             },
             "email" => {
               "type" => "string",

@@ -611,23 +611,37 @@ module MU
     # @param subject [String]: The subject line of the message.
     # @param msg [String]: The message body.
     # @return [void]
-    def sendAdminSlack(subject, msg: "", scrub_mu_isms: true)
+    def sendAdminSlack(subject, msg: "", scrub_mu_isms: true, snippets: [], noop: false)
       if MU.muCfg['slack'] and MU.muCfg['slack']['webhook'] and
          (!MU.muCfg['slack']['skip_environments'] or !MU.muCfg['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
         require 'slack-notifier'
+        slackargs = nil
+        keyword_args = { channel: MU.muCfg['slack']['channel'] }
         begin
           slack = Slack::Notifier.new MU.muCfg['slack']['webhook']
           prefix = scrub_mu_isms ? subject : "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}"
 
-          if msg and !msg.empty?
-            slack.ping "#{prefix}:\n\n```#{msg}```", channel: MU.muCfg['slack']['channel']
+          text = if msg and !msg.empty?
+            "#{prefix}:\n\n```#{msg}```"
           else
-            slack.ping prefix, channel: MU.muCfg['slack']['channel']
+            prefix
+          end
+
+          if snippets and snippets.size > 0
+            keyword_args[:attachments] = snippets
+          end
+
+          if !noop
+            slack.ping(text, **keyword_args)
+          else
+            MU.log "Would send to #{MU.muCfg['slack']['channel']}", MU::NOTICE, details: [ text, keyword_args ]
           end
         rescue Slack::Notifier::APIError => e
-          MU.log "Failed to send message to slack: #{e.message}", MU::ERR, details: MU.muCfg['slack']
+          MU.log "Failed to send message to slack: #{e.message}", MU::ERR, details: keyword_args
+          return false
         end
       end
+      true
     end
 
     # Send an email notification to a deployment's administrators.
