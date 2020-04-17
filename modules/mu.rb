@@ -89,12 +89,12 @@ class Hash
       return # XXX ...however we're flagging differences
     end
     return if on == with
-    ["added", "removed", "changed"].each { |f| report[f] ||= [] }
 
     tree = ""
     indentsize = 0
+    report_tree = {}
     parents.each { |p|
-      p ||= "<nil>"
+      p ||= "<no name>"
       tree += (" " * indentsize) + p + " => \n"
       indentsize += 2
     }
@@ -106,14 +106,18 @@ class Hash
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        diff(with[k], on[k], level: level+1, parents: parents + [k], report: report, print: print)
+        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k], print: print)
+        if report_data and !report_data.empty?
+          report ||= {}
+          report[k] = report_data
+        end
       }
       on_unique.each { |k|
-        report["removed"] << { "field" => k, "parents" => parents, "value" => on[k] }
+        report[k] = { :action => :removed, :parents => parents, :value => on[k] }
         changes << "- ".red+PP.pp({k => on[k] }, '')
       }
       with_unique.each { |k|
-        report["added"] << { "field" => k, "parents" => parents, "value" => on[k] }
+        report[k] = { :action => :added, :parents => parents, :value => with[k] }
         changes << "+ ".green+PP.pp({k => with[k]}, '')
       }
     elsif on.is_a?(Array)
@@ -126,29 +130,24 @@ class Hash
       # sorting arrays full of weird, non-primitive types.
       done = []
       on.sort.each { |elt|
-        if elt.is_a?(Hash) and elt['name'] or elt['entity']# or elt['cloud_id']
-          with.sort.each { |other_elt|
-            # Figure out what convention this thing is using for resource identification
-            compare_a, compare_b = if elt['name'].nil? and elt["id"].nil? and !elt["entity"].nil? and !other_elt["entity"].nil?
-              [elt["entity"], other_elt["entity"]]
-            else
-              [elt, other_elt]
-            end
+        if elt.is_a?(Hash) and MU::MommaCat.getChunkName(elt)
+          elt_namestr = MU::MommaCat.getChunkName(elt)
+if elt_namestr.nil?
+  MU.log "Failed to come up with a name string for this guy #{parents.join(" => ")}", MU::WARN, details: elt
+end
 
-            if (compare_a['name'] and compare_b['name'] == compare_a['name']) or
-               (compare_a['name'].nil? and !compare_a["id"].nil? and compare_a["id"] == compare_b["id"])
-              break if elt == other_elt
+          with.sort.each { |other_elt|
+            other_elt_namestr = MU::MommaCat.getChunkName(other_elt)
+            # Case 1: The array element exists in both version of this array
+            if elt_namestr and other_elt_namestr and elt_namestr == other_elt_namestr
               done << elt
               done << other_elt
-              namestr = if elt['type']
-                "#{elt['type']}[#{elt['name']}]"
-              elsif elt['name']
-                elt['name']
-              elsif elt['entity'] and elt["entity"]["id"]
-                elt['entity']['id']
+              break if elt == other_elt # if they're identical, we're done
+              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], print: print)
+              if report_data and !report_data.empty?
+                report ||= {}
+                report[elt_namestr] = report_data
               end
-
-              diff(other_elt, elt, level: level+1, parents: parents + [namestr], report: report, print: print)
               break
             end
           }
@@ -156,37 +155,36 @@ class Hash
       }
       on_unique = (on - with) - done
       with_unique = (with - on) - done
-#    if on_unique.size > 0 or with_unique.size > 0
-#      if before_a != after_a
-#        MU.log "A BEFORE", MU::NOTICE, details: before_a
-#        MU.log "A AFTER", MU::NOTICE, details: after_a
-#      end
-#      if before_b != after_b
-#        MU.log "B BEFORE", MU::NOTICE, details: before_b
-#        MU.log "B AFTER", MU::NOTICE, details: after_b
-#      end
-#    end
+
+      # Case 2: This array entry exists in the old version, but not the new one
       on_unique.each { |e|
+        namestr = MU::MommaCat.getChunkName(e)
+
+        report ||= {}
         changes << if e.is_a?(Hash)
-          report["removed"] << { "parents" => parents, "value" => e }
+          report[namestr] = { :action => :removed, :parents => parents, :value => e }
           "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
-          report["removed"] << { "parents" => parents, "value" => e }
+          report[namestr] = { :action => :removed, :parents => parents, :value => e }
           "- ".red+e.to_s
         end
       }
+      # Case 3: This array entry exists in the new version, but not the old one
       with_unique.each { |e|
+        namestr = MU::MommaCat.getChunkName(e)
+
+        report ||= {}
         changes << if e.is_a?(Hash)
-          report["added"] << { "parents" => parents, "value" => e }
+          report[namestr] = { :action => :added, :parents => parents, :value => e }
           "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
         else
-          report["added"] << { "parents" => parents, "value" => e }
+          report[namestr] = { :action => :added, :parents => parents, :value => e }
           "+ ".green+e.to_s
         end
       }
     else
       if on != with
-        report["changed"] << { "parents" => parents, "old" => on, "new" => with }
+        report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with }
         changes << "-".red+" #{on.to_s}"
         changes << "+".green+" #{with.to_s}"
       end
