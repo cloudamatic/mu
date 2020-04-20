@@ -94,7 +94,6 @@ module MU
     def updateBasketofKittens(new_conf)
       loadDeploy
       if new_conf == @original_config
-        MU.log "#{@deploy_id}", MU::WARN
         return
       end
 
@@ -106,8 +105,8 @@ module MU
       config.flock(File::LOCK_UN)
       config.close
 
-      @original_config = new_conf
-#      save! # XXX this will happen later, more sensibly
+      @original_config = new_conf.clone
+      save! # XXX this will happen later, more sensibly
       MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
     end
 
