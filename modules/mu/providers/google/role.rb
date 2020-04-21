@@ -1099,7 +1099,7 @@ If this value is not specified, and the role name matches the name of an existin
                 MU.log "None of the directory service privileges available to credentials #{role['credentials']} map to the ones declared for role #{role['name']}", MU::ERR, details: role['import'].sort
                 ok = false
               elsif missing.size > 0
-                MU.log "Some directory service privileges declared for role #{role['name']} aren't available to credentials #{role['credentials']}, will skip", MU::WARN, details: missing
+                MU.log "Some directory service privileges declared for role #{role['name']} aren't available to credentials #{role['credentials']}, will skip", MU::DEBUG, details: missing
               end
             end
           end
