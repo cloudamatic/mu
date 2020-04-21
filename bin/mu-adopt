@@ -40,6 +40,7 @@ $opt = Optimist::options do
   opt :credentials, "Override the 'credentials' value in our generated Baskets of Kittens to target a single, specific account. Our default behavior is to set each resource to deploy into the account from which it was sourced.", :required => false, :type => :string
   opt :savedeploys, "Generate actual deployment metadata in #{MU.dataDir}/deployments, as though the resources we found were created with mu-deploy. If we are generating more than one configuration, and a resource needs to reference another resource (e.g. to declare a VPC in which to reside), this will allow us to reference them as virtual resource, rather than by raw cloud identifier.", :required => false, :type => :boolean, :default => false
   opt :diff, "List the differences between what we find and an existing, saved deploy from a previous run, if one exists.", :required => false, :type => :boolean
+  opt :merge_changes, "When using --diff, merge detected changes into the baseline deploy after reporting on them.", :required => false, :type => :boolean, :default => false
   opt :grouping, "Methods for grouping found resources into separate Baskets.\n\n"+MU::Adoption::GROUPMODES.keys.map { |g| "* "+g.to_s+": "+MU::Adoption::GROUPMODES[g] }.join("\n")+"\n\n", :required => false, :type => :string, :default => "logical"
   opt :habitats, "Limit scope of searches to the named accounts/projects/subscriptions, instead of search all habitats visible to our credentials.", :required => false, :type => :strings
   opt :regions, "Restrict to operating on a subset of available regions, instead of all that we know about.", :require => false, :type => :strings
@@ -97,8 +98,7 @@ if !ok
   exit 1
 end
 
-
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats], scrub_mu_isms: $opt[:scrub], regions: $opt[:regions])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats], scrub_mu_isms: $opt[:scrub], regions: $opt[:regions], merge: $opt[:merge_changes])
 found = adoption.scrapeClouds
 if found.nil? or found.empty?
   MU.log "No resources found to adopt", MU::WARN, details: {"clouds" => clouds, "types" => types }

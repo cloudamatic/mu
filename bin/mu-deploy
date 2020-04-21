@@ -135,7 +135,7 @@ if $opts[:update]
 # TODO consider whether this is useful/valid
 #  old_conf = JSON.parse(File.read(deploy.deploy_dir+"/basket_of_kittens.json"))
 #  stack_conf = old_conf.merge(stack_conf)
-  deploy.updateBasketofKittens(stack_conf)
+  deploy.updateBasketofKittens(stack_conf, skip_validation: true)
   deployer = MU::Deploy.new(
     deploy.environment,
     verbosity: verbosity,

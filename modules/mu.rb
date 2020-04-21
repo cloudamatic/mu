@@ -89,6 +89,10 @@ class Hash
       return # XXX ...however we're flagging differences
     end
     return if on == with
+if parents.include?("group") or parents.include?("groups") and on.is_a?(Array) and on.first.is_a?(Hash)
+  MU.log "this fecker under #{parents.join(" => ")}", MU::WARN, details: on.map { |o| o['name'] }.reject! { |r| !["gcp-cto", "gcp-sys-ops"].include?(r) }
+  MU.log "vs", MU::WARN, details: with.map { |o| o['name'] }.reject! { |r| !["gcp-cto", "gcp-sys-ops"].include?(r) }
+end
 
     changes = []
     if on.is_a?(Hash)
@@ -118,13 +122,13 @@ class Hash
       # sorting arrays full of weird, non-primitive types.
       done = []
       on.sort.each { |elt|
-        if elt.is_a?(Hash) and MU::MommaCat.getChunkName(elt)
-          elt_namestr = MU::MommaCat.getChunkName(elt)
+        if elt.is_a?(Hash) and !MU::MommaCat.getChunkName(elt).first.nil?
+          elt_namestr, elt_location = MU::MommaCat.getChunkName(elt)
 
           with.sort.each { |other_elt|
-            other_elt_namestr = MU::MommaCat.getChunkName(other_elt)
+            other_elt_namestr, other_elt_location = MU::MommaCat.getChunkName(other_elt)
             # Case 1: The array element exists in both version of this array
-            if elt_namestr and other_elt_namestr and elt_namestr == other_elt_namestr
+            if elt_namestr and other_elt_namestr and elt_namestr == other_elt_namestr and (elt_location.nil? or other_elt_location.nil? or elt_location == other_elt_location)
               done << elt
               done << other_elt
               break if elt == other_elt # if they're identical, we're done
@@ -143,7 +147,7 @@ class Hash
 
       # Case 2: This array entry exists in the old version, but not the new one
       on_unique.each { |e|
-        namestr = MU::MommaCat.getChunkName(e)
+        namestr = MU::MommaCat.getChunkName(e).first
 
         report ||= {}
         if e.is_a?(Hash)
@@ -155,7 +159,7 @@ class Hash
 
       # Case 3: This array entry exists in the new version, but not the old one
       with_unique.each { |e|
-        namestr = MU::MommaCat.getChunkName(e)
+        namestr = MU::MommaCat.getChunkName(e).first
 
         report ||= {}
         if e.is_a?(Hash)

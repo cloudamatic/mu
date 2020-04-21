@@ -594,7 +594,7 @@ module MU
                   role = MU::Cloud::Google.iam(credentials: args[:credentials]).get_role(r)
                   found[role.name] = role
                 elsif !found[r]
-                  MU.log "NEED TO GET #{r}", MU::WARN
+#                  MU.log "NEED TO GET #{r}", MU::WARN
                 end
               }
             end
@@ -688,7 +688,7 @@ module MU
               ids, _names, _privs = MU::Cloud::Google::Role.privilege_service_to_name(@config['credentials'])
               cloud_desc.role_privileges.each { |priv|
                 if !ids[priv.service_id]
-                  MU.log "Role privilege defined for a service id with no name I can find, writing with raw id", MU::WARN, details: priv
+                  MU.log "Role privilege defined for a service id with no name I can find, writing with raw id", MU::DEBUG, details: priv
                   bok["import"] << priv.service_id+"/"+priv.privilege_name
                 else
                   bok["import"] << ids[priv.service_id]+"/"+priv.privilege_name
@@ -900,7 +900,7 @@ module MU
                 end
 
                 role = MU::Cloud::Google.admin_directory(credentials: credentials).get_role(MU::Cloud::Google.customerID(credentials), binding.role_id)
-                MU.log "Failed to find entity #{binding.assigned_to} referenced in GSuite/Cloud Identity binding to role #{role.role_name}", MU::WARN, details: role
+                MU.log "Failed to find entity #{binding.assigned_to} referenced in GSuite/Cloud Identity binding to role #{role.role_name}", MU::DEBUG, details: role
               }
 
               resp = MU::Cloud::Google.resource_manager(credentials: credentials).get_organization_iam_policy(my_org.name)
@@ -914,7 +914,7 @@ module MU
                 }
               }
             end
-            MU::Cloud.resourceClass("Google", "Habitat").find(credentials: credentials).keys.each { |project|
+            MU::Cloud::Google.listHabitats(credentials).each { |project|
               begin
                 MU::Cloud.resourceClass("Google", "Habitat").bindings(project, credentials: credentials).each { |binding|
                   insertBinding("projects", project, binding)

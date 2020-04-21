@@ -447,6 +447,7 @@ module MU
           res_name = @config['name'] if !@config.nil?
           @credentials ||= @config['credentials'] if !@config.nil?
           deploydata = nil
+
           if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
               !@deploy.deployment.nil? and
               !@deploy.deployment[res_type].nil? and
@@ -884,6 +885,9 @@ module MU
               deploydata.delete("#MUOBJECT")
               @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             elsif method == :notify
+              if retval.nil?
+                MU.log self.to_s+" didn't return any metadata from notify", MU::WARN, details: @cloudobj.cloud_desc
+              end
               retval['cloud_id'] = @cloudobj.cloud_id.to_s if !@cloudobj.cloud_id.nil?
               retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?

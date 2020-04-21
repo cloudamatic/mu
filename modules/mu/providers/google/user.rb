@@ -26,10 +26,12 @@ module MU
           # If we're being reverse-engineered from a cloud descriptor, use that
           # to determine what sort of account we are.
           if args[:from_cloud_desc]
+            @cloud_desc_cache = args[:from_cloud_desc]
             MU::Cloud::Google.admin_directory
             MU::Cloud::Google.iam
             if args[:from_cloud_desc].class == ::Google::Apis::AdminDirectoryV1::User
               @config['type'] = "interactive"
+              @cloud_id = args[:from_cloud_desc].primary_email
             elsif args[:from_cloud_desc].class == ::Google::Apis::IamV1::ServiceAccount
               @config['type'] = "service"
               @config['name'] = args[:from_cloud_desc].display_name
@@ -46,6 +48,10 @@ module MU
             @deploy.getResourceName(@config["name"])
           else
             @config['name']
+          end
+
+          if @config['type'] == "interactive" and @config['email']
+            @cloud_id ||= @config['email']
           end
 
         end
@@ -195,6 +201,7 @@ module MU
           if @config['type'] == "interactive" or !@config['type']
              @config['type'] ||= "interactive"
             if !@config['external']
+              @cloud_id ||= @config['email']
               @cloud_desc_cache = MU::Cloud::Google.admin_directory(credentials: @config['credentials']).get_user(@cloud_id)
             else
               return nil
@@ -226,7 +233,7 @@ module MU
           else
             {}
           end
-          description.delete(:etag)
+          description.delete(:etag) if description
           description
         end
 

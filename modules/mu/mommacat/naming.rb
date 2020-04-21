@@ -47,31 +47,33 @@ module MU
 
     end
 
-    # Given a piece of a BoK resource descriptor Hash, come up with a shorthand
-    # string to give it a name for human readers. If nothing reasonable can be
+    # Given a piece of a BoK resource descriptor Hash, come up with shorthand
+    # strings to give it a name for human readers. If nothing reasonable can be
     # extracted, returns nil.
     # @param obj [Hash]
     # @param array_of [String]
-    # @return [String,nil]
+    # @return [Array<String,nil>]
     def self.getChunkName(obj, array_of = nil)
-      return nil if obj.nil?
+      return [nil, nil] if obj.nil?
       if [String, Integer, Boolean].include?(obj.class)
-        return obj
+        return [obj, nil]
       end
       obj_type = array_of || obj['type']
       obj_name = obj['name'] || obj['id'] || obj['mu_name'] || obj['cloud_id']
-      if obj_name
+
+      name_string = if obj_name
         if obj_type
           "#{obj_type}[#{obj_name}]"
         else
-          obj_name
+          obj_name.dup
         end
       else
         found_it = nil
+        using = nil
         ["entity", "role"].each { |subtype|
           if obj[subtype] and obj[subtype].is_a?(Hash)
             found_it = if obj[subtype]["id"]
-              obj[subtype]['id']
+              obj[subtype]['id'].dup
             elsif obj[subtype]["type"] and obj[subtype]["name"]
               "#{obj[subtype]['type']}[#{obj[subtype]['name']}]"
             end
@@ -80,6 +82,28 @@ module MU
         }
         found_it
       end
+      name_string.gsub!(/\[.+?\](\[.+?\]$)/, '\1') if name_string # source is frozen so we can't just do gsub!
+
+      location = if obj['project']
+        obj['project']
+      elsif obj['habitat'] and (obj['habitat']['id'] or obj['habitat']['name'])
+        obj['habitat']['name'] || obj['habitat']['id']
+      else
+        hab_str = nil
+        ['projects', 'habitats'].each { |key|
+
+          if obj[key] and obj[key].is_a?(Array)
+            hab_str = obj[key].map { |p|
+              (p["name"] || p["id"]).gsub(/^.*?[^\/]+\/([^\/]+)$/, '\1')
+            }.join(", ")
+            name_string.gsub!(/^.*?[^\/]+\/([^\/]+)$/, '\1') if name_string
+            break
+          end
+        }
+        hab_str
+      end
+
+      [name_string, location]
     end
 
     # Generate a three-character string which can be used to unique-ify the

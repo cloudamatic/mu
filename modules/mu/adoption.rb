@@ -30,7 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [])
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -47,6 +47,7 @@ module MU
       @regions = regions
       @habitats ||= []
       @scrub_mu_isms = scrub_mu_isms
+      @merge = merge
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -125,6 +126,10 @@ module MU
                   next
                 end
                 # XXX apply any filters (e.g. MU-ID tags)
+                if obj.cloud_id.nil?
+                  MU.log "This damn thing gave me no cloud id, what do I even do with that", MU::ERR, details: obj
+                  exit
+                end
                 @scraped[type][obj.cloud_id] = obj
               }
             end
@@ -266,6 +271,9 @@ module MU
                   kitten_cfg.delete("credentials") if @target_creds
                   class_semaphore.synchronize {
                     bok[res_class.cfg_plural] << kitten_cfg
+                    if !kitten_cfg['cloud_id']
+                      MU.log "No cloud id in this #{res_class.cfg_name} kitten!", MU::ERR, details: kitten_cfg
+                    end
                   }
                   count += 1
                 end
@@ -331,7 +339,8 @@ module MU
         end
 
         if deploy and @diff
-          prevcfg = MU::Config.manxify(vacuum(deploy.original_config, deploy: deploy))
+          prev_vacuumed = vacuum(deploy.original_config, deploy: deploy)
+          prevcfg = MU::Config.manxify(prev_vacuumed)
           if !prevcfg
             MU.log "#{deploy.deploy_id} didn't have a working original config for me to compare", MU::ERR
             exit 1
@@ -340,6 +349,10 @@ module MU
           report = prevcfg.diff(newcfg)
           if MU.muCfg['adopt_change_notify']
             notifyChanges(deploy, report)
+          end
+          if @merge
+            MU.log "Saving changes to #{deploy.deploy_id}"
+            deploy.updateBasketofKittens(newcfg)
           end
         end
       }
@@ -350,8 +363,7 @@ module MU
 
     # @param tier [Hash]
     # @param parent_key [String]
-    # @param formatting [String]: Should be one of +console+, +email+, or +slack+
-    def crawlChangeReport(tier, parent_key = nil, formatting: "console")
+    def crawlChangeReport(tier, parent_key = nil, indent: "")
       report = []
       if tier.is_a?(Array)
         tier.each { |a|
@@ -368,54 +380,86 @@ module MU
             "in"
           end
 
-          loc = ""
-          type_of = parent_key.sub(/s$/, '') if parent_key
-
-          name = if tier[:value] and tier[:value].is_a?(Hash)
-            MU::MommaCat.getChunkName(tier[:value], type_of)
-          elsif parent_key
-            parent_key
-          end
-
+          loc = name = ""
+          type_of = parent_key.sub(/s$|\[.*/, '') if parent_key
 
           if tier[:value] and tier[:value].is_a?(Hash)
-            if tier[:value]['project']
-              loc = " #{preposition} \*"+tier[:value]['project']+"\*"
-            elsif tier[:value]['habitat'] and tier[:value]['habitat']['id']
-              loc = " #{preposition} \*"+tier[:value]['habitat']['id']+"\*"
-            end
+            name, loc = MU::MommaCat.getChunkName(tier[:value], type_of)
+          elsif parent_key
+            name = parent_key
           end
 
-          text = "`"+(name ? name : type_of)+"`"
-          text ||= ""
-          text += " was #{tier[:action]}#{loc}"
-          
-
+          path_str = []
+          slack_path_str = ""
           if tier[:parents] and tier[:parents].size > 2
             path = tier[:parents].clone
             path.shift
             path.shift
-            text += " under `"+path.join("/")+"`"
+            for c in (0..(path.size-1)) do
+              path_str << ("  " * (c+2)) + (path[c] || "<nil>")
+            end
+            slack_path_str += " under `"+path.join("/")+"`"
           end
-          text += "."
+          path_str << "" if !path_str.empty?
 
+          plain = (name ? name : type_of) if name or type_of
+          plain ||= "" # XXX but this is a problem
+          plain += " ("+loc+")" if loc and !loc.empty?
+
+          slack = "`"+plain+"`"
+          slack += " was #{tier[:action]} #{preposition} \*#{loc}\*" if loc and !loc.empty?
+
+          if tier[:action] == :added
+            color = "+ ".green + plain
+            plain = "+ " + plain
+          elsif tier[:action] == :removed
+            color = "- ".red + plain
+            plain = "- " + plain
+          end
+          plain = path_str.join(" => \n") + indent + plain
+          color = path_str.join(" => \n") + indent + color
+
+          slack += slack_path_str+"."
+          myreport = {
+            "slack" => slack,
+            "plain" => plain,
+            "color" => color
+          }
+
+          append = ""
           if tier[:value] and (tier[:value].is_a?(Array) or tier[:value].is_a?(Hash))
-            if tier[:value].is_a?(Hash) and (tier[:value].keys - ["id", "name", "type"]).size > 0
-              report << { "text" => text, "details" => tier[:value] }
+            if tier[:value].is_a?(Hash)
+              if name
+                tier[:value].delete("entity")
+                tier[:value].delete(name.sub(/\[.*/, '')) if name
+              end
+              if (tier[:value].keys - ["id", "name", "type"]).size > 0
+                myreport["details"] = tier[:value].clone
+                append = PP.pp(tier[:value], '').gsub(/(^|\n)/, '\1'+indent)
+              end
             else
-              report << { "text" => text }
+              append = indent+"["+tier[:value].map { |v| MU::MommaCat.getChunkName(v, type_of).reverse.join("/") || v.to_s.light_blue }.join(", ")+"]"
             end
           else
             tier[:value] ||= "<nil>"
-            report << { "text" => text+" New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*" }
+            myreport["slack"] = slack+" New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
+            append = tier[:value].to_s.bold
           end
-        else
-          tier.each_pair { |k, v|
-            next if !(v.is_a?(Hash) or v.is_a?(Array))
-            sub_report = crawlChangeReport(v, k)
-            report.concat(sub_report) if sub_report and !sub_report.empty?
-          }
+          if append and !append.empty?
+            myreport["plain"] += " =>\n  "+indent+append
+            myreport["color"] += " =>\n  "+indent+append
+          end
+
+          report << myreport if tier[:action]
         end
+
+        # Just because we've got changes at this level doesn't mean there aren't
+        # more further down.
+        tier.each_pair { |k, v|
+          next if !(v.is_a?(Hash) or v.is_a?(Array))
+          sub_report = crawlChangeReport(v, k, indent: indent+"  ")
+          report.concat(sub_report) if sub_report and !sub_report.empty?
+        }
       end
 
       report
@@ -423,40 +467,58 @@ module MU
 
 
     def notifyChanges(deploy, report)
-exit
-      if MU.muCfg['adopt_change_notify']['slack']
-        snippet_threshold = MU.muCfg['adopt_change_notify']['slack_snippet_threshold'] || 5
-        report.each_pair { |res_type, resources|
-          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(res_type, false)
-          noun = shortclass ? shortclass.to_s : res_type.capitalize
+      snippet_threshold = (MU.muCfg['adopt_change_notify'] && MU.muCfg['adopt_change_notify']['slack_snippet_threshold']) || 5
 
-          resources.each_pair { |name, data|
-            verb = if data[:action]
-              data[:action]
+      report.each_pair { |res_type, resources|
+        shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(res_type, false)
+        next if !shortclass # we don't really care about Mu metadata changes
+        resources.each_pair { |name, data|
+          if MU::MommaCat.getChunkName(data[:value], res_type).first.nil?
+            symbol = if data[:action] == :added
+              "+".green
+            elsif data[:action] == :removed
+              "-".red
             else
-              "modified"
+              "~".yellow
             end
+            puts (symbol+" "+res_type+"["+name+"]")
+          end
 
-            slacktext = "#{noun} \*#{name}\* was #{verb}"
-            snippets = []
+          noun = shortclass ? shortclass.to_s : res_type.capitalize
+          verb = if data[:action]
+            data[:action].to_s
+          else
+            "modified"
+          end
 
-            if [:added, :removed].include?(data[:action]) and data[:value]
-              snippets << { text: "```"+JSON.pretty_generate(data[:value])+"```" }
-            else
-            changes = crawlChangeReport(data)
+          changes = crawlChangeReport(data, res_type)
+
+          slacktext = "#{noun} \*#{name}\* was #{verb}"
+          snippets = []
+
+          if [:added, :removed].include?(data[:action]) and data[:value]
+            snippets << { text: "```"+JSON.pretty_generate(data[:value])+"```" }
+          else
             changes.each { |c|
-              slacktext += "\n • "+c["text"]
+              slacktext += "\n • "+c["slack"]
               if c["details"]
                 details = JSON.pretty_generate(c["details"])
                 snippets << { text: "```"+JSON.pretty_generate(c["details"])+"```" }
               end
             }
+          end
 
-            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets)
-            end
+          changes.each { |c|
+            puts c["color"]
           }
+          puts ""
+
+          if MU.muCfg['adopt_change_notify']['slack']
+            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets, noop: true)
+          end
+
         }
-      end
+      }
 
       if MU.muCfg['adopt_change_notify']['email']
       end
@@ -542,7 +604,7 @@ exit
               raise Incomplete if obj.nil?
               if save
                 deploydata = obj.notify
-                deploy.notify(attrs[:cfg_plural], resource['name'], deploydata, triggering_node: obj)
+                deploy.notify(attrs[:cfg_plural], resource['name'], deploydata, triggering_node: obj) # XXX make sure this doesn't force a save
               end
               new_cfg = resolveReferences(resource, deploy, obj)
               new_cfg.delete("cloud_id")
@@ -603,7 +665,6 @@ exit
       scrubSchemaDefaults(bok, MU::Config.schema)
 
       if save
-        deploy.updateBasketofKittens(bok)
         MU.log "Committing adopted deployment to #{MU.dataDir}/deployments/#{deploy.deploy_id}", MU::NOTICE, details: origin
         deploy.save!(force: true, origin: origin)
       end
@@ -756,6 +817,10 @@ exit
 
             if !@scraped[typename][kitten['cloud_id']]
               MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR, details: kitten
+              if kitten['cloud_id'].nil?
+                pp caller
+                exit
+              end
               next
             end
 
@@ -766,7 +831,8 @@ exit
             deploy.addKitten(
               attrs[:cfg_plural],
               kitten['name'],
-              @scraped[typename][kitten['cloud_id']]
+              @scraped[typename][kitten['cloud_id']],
+              do_notify: true
             )
           }
         end

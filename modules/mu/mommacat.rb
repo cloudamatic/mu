@@ -167,6 +167,7 @@ module MU
       @need_deploy_flush = false
       @node_cert_semaphore = Mutex.new
       @deployment = deployment_data
+
       @deployment['mu_public_ip'] = MU.mu_public_ip
       @private_key = nil
       @public_key = nil
@@ -398,7 +399,7 @@ module MU
     # @param type [String]:
     # @param name [String]:
     # @param object [MU::Cloud]:
-    def addKitten(type, name, object)
+    def addKitten(type, name, object, do_notify: false)
       if !type or !name or !object or !object.mu_name
         raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
       end
@@ -406,7 +407,7 @@ module MU
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
       object.intoDeploy(self)
 
-      @kitten_semaphore.synchronize {
+      add_block = Proc.new {
         @kittens[type] ||= {}
         @kittens[type][object.habitat] ||= {}
         if attrs[:has_multiples]
@@ -415,7 +416,20 @@ module MU
         else
           @kittens[type][object.habitat][name] = object
         end
+        if do_notify
+          notify(type, name, object.notify, triggering_node: object, delayed_save: true)
+        end
       }
+
+      begin
+        @kitten_semaphore.synchronize {
+          add_block.call()
+        }
+      rescue ThreadError => e
+        # already locked by a parent call to this method, so this should be safe
+        raise e if !e.message.match(/recursive locking/)
+        add_block.call()
+      end
     end
 
     # Encrypt a string with the deployment's public key.
@@ -533,10 +547,9 @@ module MU
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
-      return if @no_artifacts
 
       begin
-        MU::MommaCat.lock("deployment-notification")
+        MU::MommaCat.lock("deployment-notification") if !@no_artifacts
 
         if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
           loadDeploy(true) # make sure we're saving the latest and greatest
@@ -575,7 +588,7 @@ module MU
             @deployment[type][key] = data
             MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
           end
-          save!(key) if !delayed_save
+          save!(key) if !delayed_save and !@no_artifacts
         else
           have_deploy = true
           if @deployment[type].nil? or @deployment[type][key].nil?
@@ -600,10 +613,10 @@ module MU
               end
             }
           end
-          save! if !delayed_save
+          save! if !delayed_save and !@no_artifacts
         end
       ensure
-        MU::MommaCat.unlock("deployment-notification")
+        MU::MommaCat.unlock("deployment-notification") if !@no_artifacts
       end
     end
 
