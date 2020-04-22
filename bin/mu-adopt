@@ -112,10 +112,7 @@ boks.each_pair { |appname, bok|
   File.open("#{appname}.yaml", "w") { |f|
     f.write JSON.parse(JSON.generate(bok)).to_yaml
   }
-  conf_engine = MU::Config.new("#{appname}.yaml")
-  stack_conf = conf_engine.config
 #  puts stack_conf.to_yaml
-  MU.log "#{appname}.yaml validated successfully", MU::NOTICE
   MU::Cloud.resource_types.each_pair { |type, cfg|
     if bok[cfg[:cfg_plural]]
       MU.log "#{bok[cfg[:cfg_plural]].size.to_s} #{cfg[:cfg_plural]}", MU::NOTICE

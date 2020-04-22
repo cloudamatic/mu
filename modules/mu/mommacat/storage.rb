@@ -91,7 +91,7 @@ module MU
     # Overwrite this deployment's configuration with a new version. Save the
     # previous version as well.
     # @param new_conf [Hash]: A new configuration, fully resolved by {MU::Config}
-    def updateBasketofKittens(new_conf, skip_validation: false)
+    def updateBasketofKittens(new_conf, skip_validation: false, save_now: false)
       loadDeploy
       if new_conf == @original_config
         return
@@ -102,9 +102,8 @@ module MU
       if !skip_validation
         f = Tempfile.new(@deploy_id)
         f.write JSON.parse(JSON.generate(new_conf)).to_yaml
-        conf_engine = MU::Config.new(f.path)
+        conf_engine = MU::Config.new(f.path) # will throw an exception if it's bad, adoption should catch this and cope reasonably
         f.close
-        new_conf = conf_engine.config
       end
 
       backup = "#{deploy_dir}/basket_of_kittens.json.#{Time.now.to_i.to_s}"
@@ -116,8 +115,10 @@ module MU
       config.close
 
       @original_config = new_conf.clone
-#      save! # XXX this will happen later, more sensibly
-      MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
+      if save_now
+        save!
+        MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
+      end
     end
 
     @lock_semaphore = Mutex.new

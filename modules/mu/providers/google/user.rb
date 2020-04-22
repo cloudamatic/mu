@@ -363,8 +363,10 @@ module MU
           else
             if cred_cfg['masquerade_as']
               resp = MU::Cloud::Google.admin_directory(credentials: args[:credentials]).list_users(customer: MU::Cloud::Google.customerID(args[:credentials]), show_deleted: false)
+# XXX this ain't exactly performant, do some caching or something
               if resp and resp.users
                 resp.users.each { |u|
+                  next if args[:cloud_id] and !args[:cloud_id] != u.primary_email
                   found[u.primary_email] = u
                 }
               end

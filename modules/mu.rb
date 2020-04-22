@@ -82,17 +82,13 @@ class Hash
     0
   end
 
-  # Recursively compare two hashes
+  # Recursively compare two Mu Basket of Kittens hashes and report the differences
   def diff(with, on = self, level: 0, parents: [], report: {})
     return if with.nil? and on.nil?
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
     end
     return if on == with
-if parents.include?("group") or parents.include?("groups") and on.is_a?(Array) and on.first.is_a?(Hash)
-  MU.log "this fecker under #{parents.join(" => ")}", MU::WARN, details: on.map { |o| o['name'] }.reject! { |r| !["gcp-cto", "gcp-sys-ops"].include?(r) }
-  MU.log "vs", MU::WARN, details: with.map { |o| o['name'] }.reject! { |r| !["gcp-cto", "gcp-sys-ops"].include?(r) }
-end
 
     changes = []
     if on.is_a?(Hash)
@@ -107,10 +103,10 @@ end
         end
       }
       on_unique.each { |k|
-        report[k] = { :action => :removed, :parents => parents, :value => on[k] }
+        report[k] = { :action => :removed, :parents => parents, :value => on[k].clone }
       }
       with_unique.each { |k|
-        report[k] = { :action => :added, :parents => parents, :value => with[k] }
+        report[k] = { :action => :added, :parents => parents, :value => with[k].clone }
       }
     elsif on.is_a?(Array)
       return if with == on
@@ -151,9 +147,9 @@ end
 
         report ||= {}
         if e.is_a?(Hash)
-          report[namestr] = { :action => :removed, :parents => parents, :value => e }
+          report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
         else
-          report[namestr] = { :action => :removed, :parents => parents, :value => e }
+          report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
         end
       }
 
@@ -163,20 +159,20 @@ end
 
         report ||= {}
         if e.is_a?(Hash)
-          report[namestr] = { :action => :added, :parents => parents, :value => e }
+          report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
         else
-          report[namestr] = { :action => :added, :parents => parents, :value => e }
+          report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
         end
       }
 
     # A plain old leaf node of data
     else
       if on != with
-        report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with }
+        report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with.clone }
       end
     end
 
-    report
+    report.freeze
   end
 
   # Implement a merge! that just updates each hash leaf as needed, not 

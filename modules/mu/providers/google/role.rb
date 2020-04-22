@@ -753,6 +753,9 @@ module MU
                         if foreign
                           { "id" => entity }
                         else
+                          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(mu_entitytype)
+                          MU.log "Role #{@cloud_id}: Skipping #{shortclass} binding for #{entity}; we are adopting that type and will set bindings from that resource", MU::DEBUG
+                          next if args[:types].include?(shortclass)
                           MU::Config::Ref.get(
                             id: entity,
                             cloud: "Google",
@@ -778,6 +781,7 @@ module MU
                   }
                 }
               }
+
               bok["bindings"] ||= []
               refmap.each_pair { |entity, scopes|
                 newbinding = { "entity" => entity }
@@ -1125,6 +1129,7 @@ If this value is not specified, and the role name matches the name of an existin
                 MU::Config.addDependency(role, binding['entity']['name'], binding['entity']['type'])
               end
             }
+            role['bindings'].uniq!
           end
 
           ok

@@ -265,7 +265,7 @@ module MU
               end
               threads << Thread.new(obj_thr) { |obj|
 
-                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)
+                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats, types: @types)
                 if kitten_cfg
                   print "."
                   kitten_cfg.delete("credentials") if @target_creds
@@ -331,6 +331,7 @@ module MU
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
         MU.log "Minimizing footprint of #{count.to_s} found resources", MU::DEBUG
+
         @boks[bok['appname']] = vacuum(bok, origin: origin, save: @savedeploys)
 
         if @diff and !deploy
@@ -346,14 +347,19 @@ module MU
             exit 1
           end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
+
           report = prevcfg.diff(newcfg)
-          if MU.muCfg['adopt_change_notify']
-            notifyChanges(deploy, report)
+          if report
+
+            if MU.muCfg['adopt_change_notify']
+              notifyChanges(deploy, report.freeze)
+            end
+            if @merge
+              MU.log "Saving changes to #{deploy.deploy_id}"
+              deploy.updateBasketofKittens(newcfg, save_now: true)
+            end
           end
-          if @merge
-            MU.log "Saving changes to #{deploy.deploy_id}"
-            deploy.updateBasketofKittens(newcfg)
-          end
+
         end
       }
       @boks
@@ -405,6 +411,7 @@ module MU
           plain = (name ? name : type_of) if name or type_of
           plain ||= "" # XXX but this is a problem
           plain += " ("+loc+")" if loc and !loc.empty?
+          color = plain
 
           slack = "`"+plain+"`"
           slack += " was #{tier[:action]} #{preposition} \*#{loc}\*" if loc and !loc.empty?
@@ -491,7 +498,7 @@ module MU
             "modified"
           end
 
-          changes = crawlChangeReport(data, res_type)
+          changes = crawlChangeReport(data.freeze, res_type)
 
           slacktext = "#{noun} \*#{name}\* was #{verb}"
           snippets = []
@@ -514,7 +521,7 @@ module MU
           puts ""
 
           if MU.muCfg['adopt_change_notify']['slack']
-            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets, noop: true)
+            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets)
           end
 
         }
@@ -642,7 +649,7 @@ module MU
           h.each { |v|
             newarr << scrub_globals.call(v, field)
           }
-          h = newarr
+          h = newarr.uniq
         end
         h
       }
@@ -767,7 +774,7 @@ module MU
             MU.log "Dropping unresolved value", MU::WARN, details: value
           end
         }
-        cfg = new_array
+        cfg = new_array.uniq
       end
 
       cfg
