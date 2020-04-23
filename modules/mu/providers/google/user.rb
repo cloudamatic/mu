@@ -383,6 +383,7 @@ module MU
           name.match(/\b\d+\-compute@developer\.gserviceaccount\.com$/) or
           name.match(/\bproject-\d+@storage-transfer-service\.iam\.gserviceaccount\.com$/) or
           name.match(/\b\d+@cloudbuild\.gserviceaccount\.com$/) or
+          name.match(/\b\d+@cloudservices\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@containerregistry\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@container-analysis\.iam\.gserviceaccount\.com$/) or
           name.match(/\bservice-\d+@compute-system\.iam\.gserviceaccount\.com$/) or

@@ -742,26 +742,37 @@ module MU
                   entity_types.each_pair { |entity_type, entities|
                     mu_entitytype = (entity_type == "serviceAccount" ? "user" : entity_type)+"s"
                     entities.each { |entity|
+                      next if entity.nil?
                       foreign = if entity_type == "serviceAccount" and entity.match(/@(.*?)\.iam\.gserviceaccount\.com/)
                         !MU::Cloud::Google.listHabitats(@credentials).include?(Regexp.last_match[1])
                       end
+
                       entity_ref = if entity_type == "organizations"
                         { "id" => ((org == my_org.name and @config['credentials']) ? @config['credentials'] : org) }
                       elsif entity_type == "domain"
                         { "id" => entity }
                       else
+                        shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(mu_entitytype)
+                        if args[:types].include?(shortclass) and
+                           !(entity_type == "serviceAccount" and
+                             MU::Cloud::Google::User.cannedServiceAcctName?(entity))
+                          MU.log "Role #{@cloud_id}: Skipping #{shortclass} binding for #{entity}; we are adopting that type and will set bindings from that resource", MU::DEBUG
+                          next
+                        end
+
                         if foreign
                           { "id" => entity }
                         else
-                          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(mu_entitytype)
-                          MU.log "Role #{@cloud_id}: Skipping #{shortclass} binding for #{entity}; we are adopting that type and will set bindings from that resource", MU::DEBUG
-                          next if args[:types].include?(shortclass) and !MU::Cloud::Google::User.cannedServiceAcctName?(entity)
                           MU::Config::Ref.get(
                             id: entity,
                             cloud: "Google",
                             type: mu_entitytype
                           )
                         end
+                      end
+                      if entity_ref.nil?
+                        MU.log "I somehow ended up with a nil entity reference for #{entity_type} #{entity}", MU::ERR, details: [ bok, bindings ]
+                        next
                       end
                       refmap ||= {}
                       refmap[entity_ref] ||= {}
