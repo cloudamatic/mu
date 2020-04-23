@@ -307,13 +307,13 @@ module MU
                 if sibling['name'] == kitten_cfg['name']
                   MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: kitten_cfg
                   if kitten_cfg['parent'] and kitten_cfg['parent'].respond_to?(:id) and kitten_cfg['parent'].id
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['parent'].id
+                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['parent'].id
                   elsif kitten_cfg['project']
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['project']
+                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['project']
                   elsif kitten_cfg['region']
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['region']
+                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['region']
                   elsif kitten_cfg['cloud_id']
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
                   else
                     raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
                   end
@@ -386,8 +386,9 @@ module MU
             "in"
           end
 
-          loc = name = ""
+          name = ""
           type_of = parent_key.sub(/s$|\[.*/, '') if parent_key
+          loc = tier[:habitat]
 
           if tier[:value] and tier[:value].is_a?(Hash)
             name, loc = MU::MommaCat.getChunkName(tier[:value], type_of)
@@ -401,20 +402,23 @@ module MU
             path = tier[:parents].clone
             path.shift
             path.shift
+            path.pop if path.last == name
             for c in (0..(path.size-1)) do
               path_str << ("  " * (c+2)) + (path[c] || "<nil>")
             end
-            slack_path_str += " under `"+path.join("/")+"`"
+            slack_path_str += " under `"+path.join("/")+"`" if path.size > 0
           end
           path_str << "" if !path_str.empty?
 
           plain = (name ? name : type_of) if name or type_of
           plain ||= "" # XXX but this is a problem
+          slack = "`"+plain+"`"
+
           plain += " ("+loc+")" if loc and !loc.empty?
           color = plain
 
-          slack = "`"+plain+"`"
-          slack += " was #{tier[:action]} #{preposition} \*#{loc}\*" if loc and !loc.empty?
+          slack += " was #{tier[:action]}"
+          slack += "#{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
 
           if tier[:action] == :added
             color = "+ ".green + plain
@@ -501,6 +505,9 @@ module MU
           changes = crawlChangeReport(data.freeze, res_type)
 
           slacktext = "#{noun} \*#{name}\* was #{verb}"
+          if data[:habitat]
+            slacktext += " in \*#{data[:habitat]}\*"
+          end
           snippets = []
 
           if [:added, :removed].include?(data[:action]) and data[:value]

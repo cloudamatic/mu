@@ -83,7 +83,7 @@ class Hash
   end
 
   # Recursively compare two Mu Basket of Kittens hashes and report the differences
-  def diff(with, on = self, level: 0, parents: [], report: {})
+  def diff(with, on = self, level: 0, parents: [], report: {}, habitat: nil)
     return if with.nil? and on.nil?
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
@@ -96,7 +96,7 @@ class Hash
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k])
+        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k], habitat: habitat)
         if report_data and !report_data.empty?
           report ||= {}
           report[k] = report_data
@@ -104,9 +104,11 @@ class Hash
       }
       on_unique.each { |k|
         report[k] = { :action => :removed, :parents => parents, :value => on[k].clone }
+        report[k][:habitat] = habitat if habitat
       }
       with_unique.each { |k|
         report[k] = { :action => :added, :parents => parents, :value => with[k].clone }
+        report[k][:habitat] = habitat if habitat
       }
     elsif on.is_a?(Array)
       return if with == on
@@ -128,7 +130,7 @@ class Hash
               done << elt
               done << other_elt
               break if elt == other_elt # if they're identical, we're done
-              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr])
+              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], habitat: elt_location)
               if report_data and !report_data.empty?
                 report ||= {}
                 report[elt_namestr] = report_data
@@ -143,32 +145,27 @@ class Hash
 
       # Case 2: This array entry exists in the old version, but not the new one
       on_unique.each { |e|
-        namestr = MU::MommaCat.getChunkName(e).first
+        namestr, loc = MU::MommaCat.getChunkName(e)
 
         report ||= {}
-        if e.is_a?(Hash)
-          report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
-        else
-          report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
-        end
+        report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
+        report[namestr][:habitat] = loc if loc
       }
 
       # Case 3: This array entry exists in the new version, but not the old one
       with_unique.each { |e|
-        namestr = MU::MommaCat.getChunkName(e).first
+        namestr, loc = MU::MommaCat.getChunkName(e)
 
         report ||= {}
-        if e.is_a?(Hash)
-          report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
-        else
-          report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
-        end
+        report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
+        report[namestr][:habitat] = loc if loc
       }
 
     # A plain old leaf node of data
     else
       if on != with
         report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with.clone }
+        report[:habitat] = habitat if habitat
       end
     end
 
