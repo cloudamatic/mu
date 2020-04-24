@@ -93,7 +93,7 @@ module MU
         ['projects', 'habitats'].each { |key|
 
           if obj[key] and obj[key].is_a?(Array)
-            hab_str = obj[key].map { |p|
+            hab_str = obj[key].sort.map { |p|
               (p["name"] || p["id"]).gsub(/^.*?[^\/]+\/([^\/]+)$/, '\1')
             }.join(", ")
             name_string.gsub!(/^.*?[^\/]+\/([^\/]+)$/, '\1') if name_string

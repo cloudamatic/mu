@@ -305,18 +305,7 @@ module MU
               bok[res_class.cfg_plural].each { |sibling|
                 next if kitten_cfg == sibling
                 if sibling['name'] == kitten_cfg['name']
-                  MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: kitten_cfg
-                  if kitten_cfg['parent'] and kitten_cfg['parent'].respond_to?(:id) and kitten_cfg['parent'].id
-                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['parent'].id
-                  elsif kitten_cfg['project']
-                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['project']
-                  elsif kitten_cfg['region']
-                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['region']
-                  elsif kitten_cfg['cloud_id']
-                    kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
-                  else
-                    raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
-                  end
+                  MU::Adoption.deDuplicateName(kitten_cfg, res_class)
                   MU.log "De-duplication: Renamed #{res_class.cfg_name} name '#{sibling['name']}' => '#{kitten_cfg['name']}'", MU::NOTICE
                   break
                 end
@@ -332,7 +321,8 @@ module MU
 # their config footprint
         MU.log "Minimizing footprint of #{count.to_s} found resources", MU::DEBUG
 
-        @boks[bok['appname']] = vacuum(bok, origin: origin, save: @savedeploys)
+        generated_deploy = generateStubDeploy(bok)
+        @boks[bok['appname']] = vacuum(bok, origin: origin, deploy: generated_deploy, save: @savedeploys)
 
         if @diff and !deploy
           MU.log "diff flag set, but no comparable deploy provided for #{bok['appname']}", MU::ERR
@@ -340,7 +330,7 @@ module MU
         end
 
         if deploy and @diff
-          prev_vacuumed = vacuum(deploy.original_config, deploy: deploy)
+          prev_vacuumed = vacuum(deploy.original_config, deploy: deploy, keep_missing: true, copy_from: generated_deploy)
           prevcfg = MU::Config.manxify(prev_vacuumed)
           if !prevcfg
             MU.log "#{deploy.deploy_id} didn't have a working original config for me to compare", MU::ERR
@@ -418,7 +408,7 @@ module MU
           color = plain
 
           slack += " was #{tier[:action]}"
-          slack += "#{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
+          slack += " #{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
 
           if tier[:action] == :added
             color = "+ ".green + plain
@@ -528,7 +518,7 @@ module MU
           puts ""
 
           if MU.muCfg['adopt_change_notify']['slack']
-            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets)
+            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets, noop: false)
           end
 
         }
@@ -593,8 +583,7 @@ module MU
     # Do the same for our main objects: if they all use the same credentials,
     # for example, remove the explicit +credentials+ attributes and set that
     # value globally, once.
-    def vacuum(bok, origin: nil, save: false, deploy: nil)
-      deploy ||= generateStubDeploy(bok)
+    def vacuum(bok, origin: nil, save: false, deploy: nil, copy_from: nil, keep_missing: false)
 
       globals = {
         'cloud' => {},
@@ -614,11 +603,20 @@ module MU
               end
             }
             obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+            inject_metadata = save
+            if obj.nil? and copy_from
+              obj = copy_from.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+              if obj
+                inject_metadata = true
+                obj.intoDeploy(deploy, force: true)
+              end
+            end
+
             begin
               raise Incomplete if obj.nil?
-              if save
+              if inject_metadata
                 deploydata = obj.notify
-                deploy.notify(attrs[:cfg_plural], resource['name'], deploydata, triggering_node: obj) # XXX make sure this doesn't force a save
+                deploy.notify(attrs[:cfg_plural], resource['name'], deploydata, triggering_node: obj)
               end
               new_cfg = resolveReferences(resource, deploy, obj)
               new_cfg.delete("cloud_id")
@@ -632,7 +630,11 @@ module MU
               end
               processed << new_cfg
             rescue Incomplete
-#MU.log "#{attrs[:cfg_name]} #{resource['name']} didn't show up from findLitterMate", MU::WARN, details: deploy.original_config[attrs[:cfg_plural]].reject { |r| r['name'] != "" }
+              if keep_missing
+                processed << resource
+              else
+                MU.log "#{attrs[:cfg_name]} #{resource['name']} didn't show up from findLitterMate", MU::WARN, details: deploy.original_config[attrs[:cfg_plural]].reject { |r| r['name'] != "" }
+              end
             end
           }
 
@@ -853,6 +855,21 @@ module MU
       }
 
       deploy
+    end
+
+    def self.deDuplicateName(kitten_cfg, res_class)
+      orig_name = kitten_cfg['name'].dup
+      if kitten_cfg['parent'] and kitten_cfg['parent'].respond_to?(:id) and kitten_cfg['parent'].id
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['parent'].id
+      elsif kitten_cfg['project']
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['project']
+      elsif kitten_cfg['region']
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['region']
+      elsif kitten_cfg['cloud_id']
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+      else
+        raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{orig_name} and couldn't come up with a good way to differentiate them"
+      end
     end
 
     # Go through everything we've scraped and update our mappings of cloud ids

@@ -79,7 +79,9 @@ class Hash
     }
     return 0 if self == other # that was easy!
     # compare elements and decide who's "bigger" based on their totals?
-    0
+
+    # fine, try some brute force and just hope everything implements to_s
+    self.flatten.map { |e| e.to_s }.join() <=> other.flatten.map { |e| e.to_s }.join()
   end
 
   # Recursively compare two Mu Basket of Kittens hashes and report the differences
@@ -91,11 +93,13 @@ class Hash
     return if on == with
 
     changes = []
+    report ||= {}
     if on.is_a?(Hash)
       on_unique = (on.keys - with.keys)
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
+
         report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k], habitat: habitat)
         if report_data and !report_data.empty?
           report ||= {}
@@ -125,12 +129,13 @@ class Hash
 
           with.sort.each { |other_elt|
             other_elt_namestr, other_elt_location = MU::MommaCat.getChunkName(other_elt)
+
             # Case 1: The array element exists in both version of this array
             if elt_namestr and other_elt_namestr and elt_namestr == other_elt_namestr and (elt_location.nil? or other_elt_location.nil? or elt_location == other_elt_location)
               done << elt
               done << other_elt
               break if elt == other_elt # if they're identical, we're done
-              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], habitat: elt_location)
+              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], habitat: (elt_location || habitat))
               if report_data and !report_data.empty?
                 report ||= {}
                 report[elt_namestr] = report_data

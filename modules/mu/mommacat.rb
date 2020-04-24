@@ -549,7 +549,7 @@ module MU
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
 
       begin
-        MU::MommaCat.lock("deployment-notification") if !@no_artifacts
+        MU::MommaCat.lock("deployment-notification", deploy_id: @deploy_id) if !@no_artifacts
 
         if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
           loadDeploy(true) # make sure we're saving the latest and greatest
@@ -616,7 +616,7 @@ module MU
           save! if !delayed_save and !@no_artifacts
         end
       ensure
-        MU::MommaCat.unlock("deployment-notification") if !@no_artifacts
+        MU::MommaCat.unlock("deployment-notification", deploy_id: @deploy_id) if !@no_artifacts
       end
     end
 

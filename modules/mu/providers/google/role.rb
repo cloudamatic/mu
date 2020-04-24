@@ -760,15 +760,11 @@ module MU
                           next
                         end
 
-                        if foreign
-                          { "id" => entity }
-                        else
-                          MU::Config::Ref.get(
-                            id: entity,
-                            cloud: "Google",
-                            type: mu_entitytype
-                          )
-                        end
+                        MU::Config::Ref.get(
+                          id: entity,
+                          cloud: "Google",
+                          type: mu_entitytype
+                        )
                       end
                       if entity_ref.nil?
                         MU.log "I somehow ended up with a nil entity reference for #{entity_type} #{entity}", MU::ERR, details: [ bok, bindings ]
