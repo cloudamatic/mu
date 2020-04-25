@@ -18,20 +18,22 @@ module MU
   class Cloud
 
     # Generic methods for all Server/ServerPool implementations
-    class Server
+    [:Server, :ServerPool].each { |name|
+      Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
 
-      def windows?
-        return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 win2k19 windows}.include?(@config['platform'])
-        begin
-          return true if cloud_desc.respond_to?(:platform) and cloud_desc.platform == "Windows"
+        def windows?
+          return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 win2k19 windows}.include?(@config['platform'])
+          begin
+            return true if cloud_desc.respond_to?(:platform) and cloud_desc.platform == "Windows"
 # XXX ^ that's AWS-speak, doesn't cover GCP or anything else; maybe we should require cloud layers to implement this so we can just call @cloudobj.windows?
-        rescue MU::MuError
-          return false
+          rescue MU::MuError
+            return false
+          end
+          false
         end
-        false
-      end
 
-    end
+      }
+    }
 
   end
 

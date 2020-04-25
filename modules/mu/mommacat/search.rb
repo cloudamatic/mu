@@ -165,9 +165,15 @@ module MU
 
         if !@kittens.has_key?(type)
           return nil if @original_config[type].nil?
-          loadObjects(false)
+          begin
+            loadObjects(false)
+          rescue ThreadError => e
+            if e.message !~ /deadlock/
+              raise e
+            end
+          end
           if @object_load_fails or !@kittens[type]
-            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size.to_s} #{type}, but loadObjects did not populate any into @kittens", MU::ERR, @deployment.keys
+            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size.to_s} #{type}, but loadObjects could not populate any from deployment metadata", MU::ERR
             @object_load_fails = true
             return nil
           end
