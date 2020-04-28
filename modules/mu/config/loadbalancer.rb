@@ -309,14 +309,14 @@ module MU
                     "items" => {
                       "type" => "object",
                       "description" => "Rules to route requests to different target groups based on the request path",
-                      "required" => ["conditions", "order"],
+                      "required" => ["order"],
                       "additionalProperties" => false,
                       "properties" => {
                         "conditions" => {
                           "type" => "array",
                           "items" => {
                             "type" => "object",
-                            "description" => "Rule condition",
+                            "description" => "Rule conditionl; if none are specified (or if none match) the default action will be performed.",
                             "required" => ["field", "values"],
                             "additionalProperties" => false,
                             "properties" => {
