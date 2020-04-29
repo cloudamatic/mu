@@ -67,7 +67,7 @@ module MU
                 if target['vpc']["subnet_name"]
                   subnet_obj = vpc.getSubnet(name: target['vpc']["subnet_name"])
                   if subnet_obj.nil?
-                    raise MuError, "Failed to locate subnet from #{subnet} in StoragePool #{@config['name']}:#{target['name']}"
+                    raise MuError, "Failed to locate subnet from #{target['vpc']["subnet_name"]} in StoragePool #{@config['name']}:#{target['name']}"
                   end
                   target['vpc']['subnet_id'] = subnet_obj.cloud_id
                 end
@@ -261,48 +261,28 @@ module MU
           targets = {}
 
           if @config['mount_points'] && !@config['mount_points'].empty?
+            mount_targets = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
+              file_system_id: storage_pool.file_system_id
+            ).mount_targets
+
             @config['mount_points'].each { |mp|
               subnet = nil
               dependencies
-              mp_vpc = if mp['vpc'] and mp['vpc']['vpc_name']
-                @deploy.findLitterMate(type: "vpc", name: mp['vpc']['vpc_name'], credentials: @config['credentials'])
-              elsif mp['vpc']
-                MU::MommaCat.findStray(
-                  @config['cloud'],
-                  "vpcs",
-                  deploy_id: mp['vpc']["deploy_id"],
-                  credentials: @config['credentials'],
-                  mu_name: mp['vpc']["mu_name"],
-                  cloud_id: mp['vpc']['vpc_id'],
-                  region: @config['region'],
-                  dummy_ok: false
-                ).first
-# XXX non-sibling, findStray version
-              end
+              mp_vpc = MU::Config::Ref.get(mp['vpc']).kitten
 
-              mount_targets = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
-                file_system_id: storage_pool.file_system_id
-              ).mount_targets
 
-#              subnet_obj = mp_vpc.subnets.select { |s|
-#                s.name == mp["vpc"]["subnet_name"] or s.cloud_id == mp["vpc"]["subnet_id"]
-#              }.first
+              subnet_obj = mp_vpc.subnets.select { |s|
+                s.name == mp["vpc"]["subnet_name"] or s.cloud_id == mp["vpc"]["subnet_id"]
+              }.first
               mount_target = nil
-              mp_vpc.subnets.each { |subnet_obj|
-                mount_targets.map { |t|
-                  subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
-                  if subnet_cidr_obj.contains(NetAddr::IPv4.parse(t.ip_address))
-                    mount_target = t
-                    subnet = subnet_obj.cloud_desc
-                  end
-                }
-                break if mount_target
+              mount_targets.each { |t|
+                subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
+                if subnet_cidr_obj.contains(NetAddr::IPv4.parse(t.ip_address))
+                  mount_target = t
+                  subnet = subnet_obj.cloud_desc
+                  break
+                end
               }
-
-              # mount_target = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
-                # mount_target_id: mp["cloud_id"]
-              # ).mount_targets.first
-
 
               targets[mp["name"]] = {
                 "owner_id" => mount_target.owner_id,
@@ -493,6 +473,9 @@ module MU
 
           if pool['mount_points'] && !pool['mount_points'].empty?
             pool['mount_points'].each{ |mp|
+              if mp['vpc'] and mp['vpc']['name']
+                MU::Config.addDependency(pool, mp['vpc']['name'], "vpc")
+              end
               if mp['ingress_rules']
                 fwname = "storage-#{mp['name']}"
                 acl = {

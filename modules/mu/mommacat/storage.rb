@@ -124,7 +124,7 @@ module MU
         next if !@deployment.has_key?(attrs[:cfg_plural])
         deletia = []
         @deployment[attrs[:cfg_plural]].each_pair { |res_name, data|
-          orig_cfg = findResourceConfig(attrs[:cfg_plural], res_name, scrub_with)
+          orig_cfg = findResourceConfig(attrs[:cfg_plural], res_name, (scrub_with || @original_config))
 
           if orig_cfg.nil?
             MU.log "#{res_type} #{res_name} no longer configured, will remove deployment metadata", MU::NOTICE

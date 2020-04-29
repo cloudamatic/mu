@@ -783,7 +783,7 @@ MAIL_HEAD_END
       end
 
       siblings = findLitterMate(type: "server", return_all: true)
-      return if siblings.nil? or siblings.empty?
+      return if siblings.nil? or (siblings.respond_to?(:empty?) and siblings.empty?)
 
       update_servers = []
       siblings.each_pair { |mu_name, node|

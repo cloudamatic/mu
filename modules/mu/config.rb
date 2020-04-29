@@ -619,7 +619,8 @@ module MU
         if !descriptor["vpc"]["name"].nil? and
            haveLitterMate?(descriptor["vpc"]["name"], "vpcs") and
            descriptor["vpc"]['deploy_id'].nil? and
-           descriptor["vpc"]['id'].nil?
+           descriptor["vpc"]['id'].nil? and
+           !(cfg_name == "vpc" and descriptor['name'] == descriptor['vpc']['name'])
           MU::Config.addDependency(descriptor, descriptor['vpc']['name'], "vpc")
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
 
@@ -745,7 +746,7 @@ module MU
           next if !acl_include["name"] and !acl_include["rule_name"]
           acl_include["name"] ||= acl_include["rule_name"]
           if haveLitterMate?(acl_include["name"], "firewall_rules")
-            MU::Config.addDependency(descriptor, acl_include["name"], "firewall_rule")
+            MU::Config.addDependency(descriptor, acl_include["name"], "firewall_rule", no_create_wait: (cfg_name == "vpc"))
           elsif acl_include["name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -884,6 +885,7 @@ module MU
       @config.each_pair { |type, values|
         next if !values.instance_of?(Array)
         _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type, false)
+        next if !cfg_name
         values.each { |resource|
           next if !resource.kind_of?(Hash) or resource["dependencies"].nil?
           addme = []
@@ -942,7 +944,7 @@ module MU
                 next if sib_dep['type'] != cfg_name or sib_dep['no_create_wait']
                 cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
                 if cousin and cousin['name'] == resource['name']
-                  MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]
+                  MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['type']} #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]
                   ok = false
                 end
               }
