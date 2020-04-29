@@ -164,7 +164,7 @@ module MU
       @kitten_semaphore.synchronize {
 
         if !@kittens.has_key?(type)
-          return nil if @original_config[type].nil?
+          return nil if !@original_config or @original_config[type].nil?
           begin
             loadObjects(false)
           rescue ThreadError => e
@@ -173,7 +173,7 @@ module MU
             end
           end
           if @object_load_fails or !@kittens[type]
-            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size.to_s} #{type}, but loadObjects could not populate any from deployment metadata", MU::ERR
+            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size.to_s} #{type}, but loadObjects could not populate any from deployment metadata", MU::ERR if !@object_load_fails
             @object_load_fails = true
             return nil
           end

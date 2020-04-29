@@ -564,8 +564,8 @@ module MU
             next
           end
 
-          if orig_cfg['vpc'] and orig_cfg['vpc'].is_a?(Hash)
-            ref = if orig_cfg['vpc']['id'] and orig_cfg['vpc']['id'].is_a?(Hash)
+          if orig_cfg['vpc']
+            ref = if orig_cfg['vpc']['id']
               orig_cfg['vpc']['id']['mommacat'] = self
               MU::Config::Ref.get(orig_cfg['vpc']['id'])
             else
