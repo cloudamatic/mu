@@ -111,7 +111,12 @@ module MU
             raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
 # These should actually call the method live instead of caching a static value
             PUBLIC_ATTRS.each { |a|
-              instance_variable_set(("@"+a.to_s).to_sym, @cloudobj.send(a))
+              begin
+                instance_variable_set(("@"+a.to_s).to_sym, @cloudobj.send(a))
+              rescue NoMethodError => e
+                MU.log "#{@cloudclass.name} failed to implement method '#{a}'", MU::ERR, details: e.message
+                raise e
+              end
             }
             @deploy ||= args[:mommacat]
             @deploy_id ||= @deploy.deploy_id if @deploy

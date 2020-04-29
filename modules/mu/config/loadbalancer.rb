@@ -64,6 +64,45 @@ module MU
         }
       end
 
+      # Generate schema for a LoadBalancer redirect
+      # @return [Hash]
+      def self.redirect
+        {
+          "type" => "object",
+          "title" => "redirect",
+          "additionalProperties" => false,
+          "description" => "Instruct our LoadBalancer to redirect traffic to another host, port, and/or path.",
+          "properties" => {
+            "protocol" => {
+              "type" => "string",
+              "default" => "HTTPS"
+            },
+            "port" => {
+              "type" => "integer",
+              "default" => 443
+            },
+            "host" => {
+              "type" => "string",
+              "default" => "\#{host}"
+            },
+            "path" => {
+              "type" => "string",
+              "default" => "/\#{path}"
+            },
+            "query" => {
+              "type" => "string",
+              "default" => "\#{query}"
+            },
+            "status_code" => {
+              "type" => "integer",
+              "description" => "The HTTP status code when issuing a redirect",
+              "default" => 301,
+              "enum" => [301, 302]
+            },
+          }
+        }
+      end
+
       # Base configuration schema for a LoadBalancer
       # @return [Hash]
       def self.schema
@@ -279,6 +318,7 @@ module MU
                     "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
                     "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP, SSL, or UDP. SSL and UDP are only valid in Google Cloud."
                   },
+                  "redirect" => MU::Config::LoadBalancer.redirect,
                   "targetgroup" => {
                     "type" => "string",
                     "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
@@ -309,14 +349,14 @@ module MU
                     "items" => {
                       "type" => "object",
                       "description" => "Rules to route requests to different target groups based on the request path",
-                      "required" => ["order"],
+                      "required" => ["order", "conditions"],
                       "additionalProperties" => false,
                       "properties" => {
                         "conditions" => {
                           "type" => "array",
                           "items" => {
                             "type" => "object",
-                            "description" => "Rule conditionl; if none are specified (or if none match) the default action will be performed.",
+                            "description" => "Rule conditionl; if none are specified (or if none match) the default action will be set.",
                             "required" => ["field", "values"],
                             "additionalProperties" => false,
                             "properties" => {
@@ -339,17 +379,22 @@ module MU
                           "type" => "array",
                           "items" => {
                             "type" => "object",
-                            "description" => "Rule action",
-                            "required" => ["action", "targetgroup"],
+                            "description" => "Rule action, which must specify one of +targetgroup+ or +redirect+",
+                            "required" => ["action"],
                             "additionalProperties" => false,
                             "properties" => {
                               "action" => {
                                 "type" => "string",
                                 "default" => "forward",
                                 "description" => "An action to take when a match occurs. Currently, only forwarding to a targetgroup is supported.",
-                                "enum" => ["forward"]
+                                "enum" => ["forward", "redirect"]
                               },
+                              "redirect" => MU::Config::LoadBalancer.redirect,
                               "targetgroup" => {
+                                "type" => "string",
+                                "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
+                              },
+                              "redirect" => {
                                 "type" => "string",
                                 "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
                               }

@@ -239,16 +239,35 @@ module MU
             end
           end
 
+          redirect_block = Proc.new { |r|
+            {
+              :protocol => r['protocol'],
+              :port => r['port'].to_s,
+              :host => r['host'],
+              :path => r['path'],
+              :query => r['query'],
+              :status_code => "HTTP_"+r['status_code'].to_s
+            }
+          }
+
           if !@config['classic']
             @config["listeners"].each { |l|
-              if !@targetgroups.has_key?(l['targetgroup'])
-                raise MuError, "Listener in #{@mu_name} configured for target group #{l['targetgroup']}, but I don't have data on a targetgroup by that name"
-              end
-              listen_descriptor = {
-                :default_actions => [{
+              action = if l['redirect']
+                {
+                  :type => "redirect",
+                  :redirect_config => redirect_block.call(l['redirect'])
+                }
+              else
+                if !@targetgroups.has_key?(l['targetgroup'])
+                  raise MuError, "Listener in #{@mu_name} configured for target group #{l['targetgroup']}, but I don't have data on a targetgroup by that name"
+                end
+                {
                   :target_group_arn => @targetgroups[l['targetgroup']].target_group_arn,
                   :type => "forward"
-                }], 
+                }
+              end
+              listen_descriptor = {
+                :default_actions => [ action ],
                 :load_balancer_arn => lb.load_balancer_arn,
                 :port => l['lb_port'], 
                 :protocol => l['lb_protocol']
@@ -276,10 +295,17 @@ module MU
                     :actions => []
                   }
                   rule['actions'].each { |a|
-                    rule_descriptor[:actions] << {
-                      :target_group_arn => @targetgroups[a['targetgroup']].target_group_arn,
-                      :type => a['action']
-                    }
+                    rule_descriptor[:actions] << if a['action'] == "forward"
+                      {
+                        :target_group_arn => @targetgroups[a['targetgroup']].target_group_arn,
+                        :type => a['action']
+                      }
+                    elsif a['action'] == "redirect"
+                      {
+                        :redirect_config => redirect_block.call(rule['redirect']),
+                        :type => a['action']
+                      }
+                    end
                   }
                   MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).create_rule(rule_descriptor)
                 }
@@ -904,6 +930,7 @@ module MU
           return matches
 
         end
+
       end
     end
   end

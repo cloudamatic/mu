@@ -1555,7 +1555,11 @@ module MU
           return if !instance
 
           id ||= instance.instance_id
-          MU::MommaCat.lock(".cleanup-"+id)
+          begin
+            MU::MommaCat.lock(".cleanup-"+id)
+          rescue Errno::ENOENT => e
+            MU.log "No lock for terminating instance #{id} due to missing metadata", MU::DEBUG
+          end
 
           ips, names = getAddresses(instance, region: region, credentials: credentials)
           targets = ips +names
@@ -1610,7 +1614,11 @@ module MU
           end
 
           MU.log "#{instance.instance_id}#{server_obj ? " ("+server_obj.mu_name+")" : ""} terminated" if !noop
-          MU::MommaCat.unlock(".cleanup-"+id)
+          begin
+            MU::MommaCat.unlock(".cleanup-"+id)
+          rescue Errno::ENOENT => e
+            MU.log "No lock for terminating instance #{id} due to missing metadata", MU::DEBUG
+          end
 
         end
 
