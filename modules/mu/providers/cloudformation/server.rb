@@ -55,8 +55,8 @@ module MU
             scrub_mu_isms: @config['scrub_mu_isms']
           )
 
-          @disk_devices = MU::Cloud::AWS::Server.disk_devices
-          @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
+          @disk_devices = MU::Cloud.resourceClass("AWS", "Server").disk_devices
+          @ephemeral_mappings = MU::Cloud.resourceClass("AWS", "Server").ephemeral_mappings
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -190,7 +190,7 @@ module MU
           cfm_volume_map = {}
           if @config["storage"]
             @config["storage"].each { |vol|
-              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              mapping, cfm_mapping = MU::Cloud.resourceClass("AWS", "Server").convertBlockDeviceMapping(vol)
               configured_storage << mapping
 #                vol_name, vol_template = MU::Cloud::CloudFormation.cloudFormationBase("volume", name: "volume"+@cfm_name+mapping[:device_name])
 #                MU::Cloud::CloudFormation.setCloudFormationProp(vol_template[vol_name], "Size", mapping[:ebs][:volume_size].to_s)
@@ -353,7 +353,7 @@ module MU
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          MU::Cloud::AWS::Server.schema(config)
+          MU::Cloud.resourceClass("AWS", "Server").schema(config)
         end
 
         # Confirm that the given instance size is valid for the given region.
@@ -362,7 +362,7 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
-          MU::Cloud::AWS::Server.validateInstanceType(size, region)
+          MU::Cloud.resourceClass("AWS", "Server").validateInstanceType(size, region)
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
@@ -370,14 +370,14 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
-          MU::Cloud::AWS::Server.validateConfig(server, configurator)
+          MU::Cloud.resourceClass("AWS", "Server").validateConfig(server, configurator)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
         def self.isGlobal?
-          MU::Cloud::AWS::Server.isGlobal?
+          MU::Cloud.resourceClass("AWS", "Server").isGlobal?
         end
 
       end #class

@@ -176,7 +176,7 @@ module MU
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          MU::Cloud::AWS::LoadBalancer.schema(config)
+          MU::Cloud.resourceClass("AWS", "LoadBalancer").schema(config)
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
@@ -184,14 +184,14 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
-          MU::Cloud::AWS::LoadBalancer.validateConfig(server, configurator)
+          MU::Cloud.resourceClass("AWS", "LoadBalancer").validateConfig(server, configurator)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
         def self.isGlobal?
-          MU::Cloud::AWS::LoadBalancer.isGlobal?
+          MU::Cloud.resourceClass("AWS", "LoadBalancer").isGlobal?
         end
 
       end

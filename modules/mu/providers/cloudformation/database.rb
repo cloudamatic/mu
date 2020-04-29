@@ -64,8 +64,8 @@ module MU
           basename = @config["name"].to_s
           basename = basename+@deploy.timestamp+MU.seed.downcase if !@config['scrub_mu_isms']
           basename.gsub!(/[^a-z0-9]/i, "")
-          @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
-          @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config)
+          @config["db_name"] = MU::Cloud.resourceClass("AWS", "Database").getName(basename, type: "dbname", config: @config)
+          @config['master_user'] = MU::Cloud.resourceClass("AWS", "Database").getName(basename, type: "dbuser", config: @config)
 
           if @config["create_cluster"]
             @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dbcluster", self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
@@ -249,7 +249,7 @@ module MU
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          MU::Cloud::AWS::Database.schema(config)
+          MU::Cloud.resourceClass("AWS", "Database").schema(config)
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
@@ -257,14 +257,14 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
-          MU::Cloud::AWS::Database.validateConfig(server, configurator)
+          MU::Cloud.resourceClass("AWS", "Database").validateConfig(server, configurator)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
         def self.isGlobal?
-          MU::Cloud::AWS::Database.isGlobal?
+          MU::Cloud.resourceClass("AWS", "Database").isGlobal?
         end
 
 

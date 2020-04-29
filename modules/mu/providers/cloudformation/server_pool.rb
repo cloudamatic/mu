@@ -129,13 +129,13 @@ module MU
 
             if launch_desc["storage"]
               launch_desc["storage"].each { |vol|
-                mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+                mapping, cfm_mapping = MU::Cloud.resourceClass("AWS", "Server").convertBlockDeviceMapping(vol)
                 if cfm_mapping.size > 0
                   MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "BlockDeviceMappings", cfm_mapping)
                 end
               }
             end
-            MU::Cloud::AWS::Server.ephemeral_mappings.each { |mapping|
+            MU::Cloud.resourceClass("AWS", "Server.ephemeral_mappings").each { |mapping|
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "BlockDeviceMappings", { "DeviceName" => mapping[:device_name], "VirtualName" => mapping[:virtual_name] })
             }
 
@@ -263,7 +263,7 @@ module MU
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          MU::Cloud::AWS::ServerPool.schema(config)
+          MU::Cloud.resourceClass("AWS", "ServerPool").schema(config)
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
@@ -271,14 +271,14 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
-          MU::Cloud::AWS::ServerPool.validateConfig(server, configurator)
+          MU::Cloud.resourceClass("AWS", "ServerPool").validateConfig(server, configurator)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
         def self.isGlobal?
-          MU::Cloud::AWS::ServerPool.isGlobal?
+          MU::Cloud.resourceClass("AWS", "ServerPool").isGlobal?
         end
 
       end

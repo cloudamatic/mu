@@ -137,7 +137,7 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)
           # Just use the AWS implemention
-          MU::Cloud::AWS::FirewallRule.validateConfig(acl, config)
+          MU::Cloud.resourceClass("AWS", "FirewallRule").validateConfig(acl, config)
         end
 
         private
@@ -291,14 +291,14 @@ module MU
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
-          MU::Cloud::AWS::FirewallRule.schema(config)
+          MU::Cloud.resourceClass("AWS", "FirewallRule").schema(config)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
         # @return [Boolean]
         def self.isGlobal?
-          MU::Cloud::AWS::FirewallRule.isGlobal?
+          MU::Cloud.resourceClass("AWS", "FirewallRule").isGlobal?
         end
 
       end #class
