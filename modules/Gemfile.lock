@@ -54,7 +54,7 @@ GEM
       public_suffix (>= 2.0.2, < 4.0)
     ast (2.4.0)
     aws-eventstream (1.1.0)
-    aws-sdk-core (2.11.494)
+    aws-sdk-core (2.11.495)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.1.2)
@@ -475,7 +475,7 @@ GEM
       azure_service_fabric (~> 0.18.0)
     azure_service_fabric (0.18.0)
       ms_rest_azure (~> 0.11.1)
-    berkshelf (7.0.9)
+    berkshelf (7.0.10)
       chef (>= 13.6.52)
       chef-config
       cleanroom (~> 1.0)

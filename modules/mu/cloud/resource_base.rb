@@ -545,7 +545,7 @@ module MU
               sib_by_name = @deploy.findLitterMate(name: @config['vpc']['name'], type: "vpcs", return_all: true, habitat: @config['vpc']['project'], debug: debug)
               if sib_by_name.is_a?(Hash)
                 if sib_by_name.size == 1
-                  @vpc = matches.first
+                  @vpc = sib_by_name.values.first
                   MU.log "Single VPC match for #{self}", loglevel, details: @vpc.to_s
                 else
 # XXX ok but this is the wrong place for this really the config parser needs to sort this out somehow

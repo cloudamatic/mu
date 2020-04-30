@@ -210,9 +210,10 @@ module MU
           }
         }
 
+        return matches if return_all and matches.size >= 1
+
         return matches.values.first if matches.size == 1
 
-        return matches if return_all and matches.size > 1
       }
 
       return nil
