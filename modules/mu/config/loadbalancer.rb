@@ -393,10 +393,6 @@ module MU
                               "targetgroup" => {
                                 "type" => "string",
                                 "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
-                              },
-                              "redirect" => {
-                                "type" => "string",
-                                "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
                               }
                             }
                           }
