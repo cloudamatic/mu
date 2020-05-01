@@ -1522,7 +1522,7 @@ end
                     resp = resp.__getobj__ if resp.respond_to?(:__getobj__)
                     retval.send(concat_to).concat(resp.send(concat_to))
                     new_page = resp.send(paginator) if !resp.nil?
-                  end while !resp.nil? and new_page.nil? and new_page.empty?
+                  end while !resp.nil? and !new_page.nil? and !new_page.empty?
                 end
               end
               rescue StandardError => e
