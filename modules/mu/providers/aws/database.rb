@@ -205,7 +205,6 @@ module MU
             }
             if args[:cluster] or !args.has_key?(:cluster)
               fetch.call("cluster")
-              pp found
             end
             if !args[:cluster]
               fetch.call("instance")
@@ -232,7 +231,7 @@ module MU
 
           return found
         end
-
+        
         # Reverse-map our cloud description into a runnable config hash.
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
@@ -242,22 +241,78 @@ module MU
             "region" => @config['region'],
             "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "create_cluster" => @config['create_cluster']
           }
+          bok["create_cluster"] = true if @config['create_cluster']
+
+          # Don't adopt cluster members, they'll be picked up by the parent
+          # cluster
+          if !bok["create_cluster"] and cloud_desc.db_cluster_identifier and !cloud_desc.db_cluster_identifier.empty?
+            return nil
+          end
 
           noun = bok["create_cluster"] ? "cluster" : "db"
           tags = MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).list_tags_for_resource(
             resource_name: MU::Cloud::AWS::Database.getARN(@cloud_id, noun, "rds", region: @config['region'], credentials: @credentials)
           ).tag_list
-MU.log "tags for #{noun} #{@cloud_id}", MU::WARN, details: tags
-          bok["name"] = @cloud_id
-# cloud_desc.db_cluster_members
-#              arn = MU::Cloud::AWS::Database.getARN(resource.send(id_method), arn_type, "rds", region: region, credentials: credentials)
-#              tags = MU::Cloud::AWS.rds(credentials: credentials, region: region).list_tags_for_resource(resource_name: arn).tag_list
+          if tags and !tags.empty?
+            bok['tags'] = MU.structToHash(tags, stringify_keys: true)
+            bok['name'] = MU::Adoption.tagsToName(bok['tags'])
+          end
+          bok["name"] ||= @cloud_id
+          bok['engine'] = cloud_desc.engine
+          bok['engine_version'] = cloud_desc.engine_version
+          bok['master_user'] = cloud_desc.master_username
+          bok['backup_retention_period'] = cloud_desc.backup_retention_period
 
-#          pp cloud_desc
-          exit if bok["create_cluster"]
-#          realname = MU::Adoption.tagsToName(bok['tags'])
+          params = if bok['create_cluster']
+            MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).describe_db_cluster_parameters(
+              db_cluster_parameter_group_name: cloud_desc.db_cluster_parameter_group
+            ).parameters
+          else
+            MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).describe_db_parameters(
+              db_parameter_group_name: cloud_desc.db_parameter_groups.first.db_parameter_group_name
+            ).parameters
+          end
+
+          params.reject! { |p| ["engine-default", "system"].include?(p.source) }
+          if params and params.size > 0
+            bok['parameter_group_parameters'] = params.map { |p|
+              { "key" => p.parameter_name, "value" => p.parameter_value }
+            }
+          end
+
+          if bok['create_cluster']
+            bok['cluster_node_count'] = cloud_desc.db_cluster_members.size
+
+            sizes = []
+            vpcs = []
+            # we have no sensible way to handle heterogenous cluster members, so
+            # for now just assume they're all the same
+            cloud_desc.db_cluster_members.each { |db|
+              member = MU::Cloud::AWS::Database.find(cloud_id: db.db_instance_identifier, region: @config['region'], credentials: @credentials).values.first
+#              MU.log "derp", MU::NOTICE, details: member
+              sizes << member.db_instance_class
+              if member.db_subnet_group and member.db_subnet_group.vpc_id
+                vpcs << member.db_subnet_group
+              end
+              bok
+            }
+            sizes.uniq!
+            vpcs.uniq!
+            bok['size'] = sizes.sort.first if !sizes.empty?
+            if !vpcs.empty?
+              myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: vpcs.sort.first.vpc_id, credentials: @credentials, region: @config['region'], dummy_ok: true, no_deploy_search: true).first
+              bok['vpc'] = myvpc.getReference(vpcs.sort.first.subnets.map { |s| s.subnet_identifier })
+            end
+          else
+            bok['size'] = cloud_desc.db_instance_class
+            if cloud_desc.db_subnet_group
+              myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: cloud_desc.db_subnet_group.vpc_id, credentials: @credentials, region: @config['region'], dummy_ok: true, no_deploy_search: true).first
+              bok['vpc'] = myvpc.getReference(cloud_desc.db_subnet_group.subnets.map { |s| s.subnet_identifier })
+            end
+          end
+
+          MU.log bok['name'], MU::NOTICE, details: bok
 
           bok
         end

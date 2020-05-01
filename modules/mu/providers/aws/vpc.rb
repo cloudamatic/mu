@@ -1295,6 +1295,36 @@ module MU
           cfg_fragment
         end
 
+        # Return a {MU::Config::Ref} that indicates this VPC.
+        # @param subnet_ids [Array<String>]: Optional list of subnet ids with which to infer a +subnet_pref+ parameter.
+        # @return [MU::Config::Ref]
+        def getReference(subnet_ids = [])
+          have_private = have_public = false
+          subnets.each { |s|
+            next if subnet_ids and !subnet_ids.empty? and !subnet_ids.include?(s.cloud_id)
+            if s.private?
+              have_private = true
+            else
+              have_public = true
+            end
+          }
+          subnet_pref = if have_private == have_public
+            "any"
+          elsif have_private
+            "all_private"
+          elsif have_public
+            "all_public"
+          end
+          MU::Config::Ref.get(
+            id: @cloud_id,
+            cloud: "AWS",
+            credentials: @credentials,
+            region: @config['region'],
+            type: "vpcs",
+            subnet_pref: subnet_pref
+          )
+        end
+
         private
 
         def peerWith(peer)
