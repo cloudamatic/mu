@@ -1454,19 +1454,83 @@ end
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
+          # make sure error symbols are loaded for our exception handling later
           require "aws-sdk-core"
+          require "aws-sdk-core/rds"
+          require "aws-sdk-core/ec2"
+          require "aws-sdk-core/route53"
+          require "aws-sdk-core/iam"
+          require "aws-sdk-core/efs"
+          require "aws-sdk-core/pricing"
+          require "aws-sdk-core/apigateway"
+          require "aws-sdk-core/ecs"
+          require "aws-sdk-core/eks"
+          require "aws-sdk-core/cloudwatchlogs"
+          require "aws-sdk-core/elasticloadbalancing"
+          require "aws-sdk-core/elasticloadbalancingv2"
+          require "aws-sdk-core/autoscaling"
+          require "aws-sdk-core/client_waiters"
+          require "aws-sdk-core/waiters/errors"
 
           retries = 0
           begin
             MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments
-            retval = nil
-            if !arguments.nil? and arguments.size == 1
-              retval = @api.method(method_sym).call(arguments[0])
-            elsif !arguments.nil? and arguments.size > 0
-              retval = @api.method(method_sym).call(*arguments)
-            else
-              retval = @api.method(method_sym).call
+
+              retval = if !arguments.nil? and arguments.size == 1
+                @api.method(method_sym).call(arguments[0])
+              elsif !arguments.nil? and arguments.size > 0
+                @api.method(method_sym).call(*arguments)
+              else
+                @api.method(method_sym).call
+              end
+
+            if !retval.nil?
+              begin
+              page_markers = [:marker, :next_token]
+              paginator = nil
+              new_page = nil
+              [:next_token, :marker].each { |m|
+                if !retval.nil? and retval.respond_to?(m)
+                  paginator = m
+                  new_page = retval.send(paginator)
+                  break
+                end
+              }
+
+              if paginator and new_page and !new_page.empty?
+                resp = retval.respond_to?(:__getobj__) ? retval.__getobj__ : retval
+                concat_to = resp.class.instance_methods(false).reject { |m|
+                  m.to_s.match(/=$/) or m == paginator or resp.send(m).nil? or !resp.send(m).is_a?(Array)
+                }
+                if concat_to.size != 1
+                  MU.log "Tried to figure out where I might append paginated results for a #{resp.class.name}, but failed", MU::DEBUG, details: concat_to
+                else
+                  concat_to = concat_to.first
+                  new_args = arguments ? arguments.dup : [{}]
+                  begin
+                    if new_args.is_a?(Array) and new_args.size == 1 and new_args.first.is_a?(Hash)
+                      new_args[0][paginator] = new_page
+                    elsif new_args.is_a?(Hash)
+                      new_args[paginator] = new_page
+                    end
+
+                    resp = if !arguments.nil? and arguments.size == 1
+                      @api.method(method_sym).call(new_args[0])
+                    elsif !arguments.nil? and arguments.size > 0
+                      @api.method(method_sym).call(*new_args)
+                    end
+                    resp = resp.__getobj__ if resp.respond_to?(:__getobj__)
+                    retval.send(concat_to).concat(resp.send(concat_to))
+                    new_page = resp.send(paginator) if !resp.nil?
+                  end while !resp.nil? and new_page.nil? and new_page.empty?
+                end
+              end
+              rescue StandardError => e
+                MU.log "Made a good-faith effort to auto-paginate API call to #{method_sym} and failed with #{e.message}", MU::DEBUG, details: arguments
+                raise e
+              end
             end
+
             return retval
           rescue Aws::RDS::Errors::Throttling, Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException, Net::ReadTimeout, Faraday::TimeoutError, Aws::CloudWatchLogs::Errors::ThrottlingException => e
             if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
