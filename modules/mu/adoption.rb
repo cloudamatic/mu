@@ -67,7 +67,6 @@ module MU
 
         cloudclass.listCredentials.each { |credset|
           next if @sources and !@sources.include?(credset)
-
           cfg = cloudclass.credConfig(credset)
           if cfg and cfg['restrict_to_habitats']
             cfg['restrict_to_habitats'] << cfg['project'] if cfg['project']
@@ -117,7 +116,7 @@ module MU
 
             if found and found.size > 0
               if resclass.cfg_plural == "habitats"
-                found.reject! { |h| !cloudclass.listHabitats(credset).include?(h) }
+                found.reject! { |h| !cloudclass.listHabitats(credset).include?(h.cloud_id) }
               end
               MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
@@ -207,7 +206,34 @@ module MU
         prefix = "mu" if prefix.empty? # so that appnames aren't ever empty
       end
 
+      # Find any previous deploys with this particular profile, which we'll use
+      # later for --diff.
+      @existing_deploys = {}
+      @existing_deploys_by_id = {}
+      @origins = {}
+      @types_found_in = {}
       groupings.each_pair { |appname, types|
+        allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
+        next if (types & allowed_types).size == 0
+        origin = {
+          "appname" => prefix+appname,
+          "types" => (types & allowed_types).sort,
+          "habitats" => @habitats.sort,
+          "group_by" => @group_by.to_s
+        }
+
+        @existing_deploys[appname] = MU::MommaCat.findMatchingDeploy(origin)
+        @existing_deploys_by_id[@existing_deploys[appname].deploy_id] = @existing_deploys[appname]
+        @origins[appname] = origin
+        origin['types'].each { |t|
+          @types_found_in[t] = @existing_deploys[appname]
+        }
+      }
+
+      groupings.each_pair { |appname, types|
+        allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
+        next if (types & allowed_types).size == 0
+
         bok = { "appname" => prefix+appname }
         if @scrub_mu_isms
           bok["scrub_mu_isms"] = true
@@ -217,22 +243,12 @@ module MU
         end
 
         count = 0
-        allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
-        next if (types & allowed_types).size == 0
-        origin = {
-          "appname" => bok['appname'],
-          "types" => (types & allowed_types).sort,
-          "habitats" => @habitats.sort,
-          "group_by" => @group_by.to_s
-        }
-
-        deploy = MU::MommaCat.findMatchingDeploy(origin)
         if @diff
-          if !deploy
-            MU.log "--diff was set but I failed to find a deploy like me to compare to", MU::ERR, details: origin
+          if !@existing_deploys[appname]
+            MU.log "--diff was set but I failed to find a deploy like '#{appname}' to compare to (have #{@existing_deploys.keys.join(", ")})", MU::ERR, details: @origins[appname]
             exit 1
           else
-            MU.log "Will diff current live resources against #{deploy.deploy_id}", MU::NOTICE, details: origin
+            MU.log "Will diff current live resources against #{@existing_deploys[appname].deploy_id}", MU::NOTICE, details: @origins[appname]
           end
         end
 
@@ -322,31 +338,31 @@ module MU
         MU.log "Minimizing footprint of #{count.to_s} found resources", MU::DEBUG
 
         generated_deploy = generateStubDeploy(bok)
-        @boks[bok['appname']] = vacuum(bok, origin: origin, deploy: generated_deploy, save: @savedeploys)
+        @boks[bok['appname']] = vacuum(bok, origin: @origins[appname], deploy: generated_deploy, save: @savedeploys)
 
-        if @diff and !deploy
+        if @diff and !@existing_deploys[appname]
           MU.log "diff flag set, but no comparable deploy provided for #{bok['appname']}", MU::ERR
           exit 1
         end
 
-        if deploy and @diff
-          prev_vacuumed = vacuum(deploy.original_config, deploy: deploy, keep_missing: true, copy_from: generated_deploy)
+        if @diff
+          prev_vacuumed = vacuum(@existing_deploys[appname].original_config, deploy: @existing_deploys[appname], keep_missing: true, copy_from: generated_deploy)
           prevcfg = MU::Config.manxify(prev_vacuumed)
           if !prevcfg
-            MU.log "#{deploy.deploy_id} didn't have a working original config for me to compare", MU::ERR
+            MU.log "#{@existing_deploys[appname].deploy_id} didn't have a working original config for me to compare", MU::ERR
             exit 1
           end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
-
           report = prevcfg.diff(newcfg)
+
           if report
 
             if MU.muCfg['adopt_change_notify']
-              notifyChanges(deploy, report.freeze)
+              notifyChanges(@existing_deploys[appname], report.freeze)
             end
             if @merge
-              MU.log "Saving changes to #{deploy.deploy_id}"
-              deploy.updateBasketofKittens(newcfg, save_now: true)
+              MU.log "Saving changes to #{@existing_deploys[appname].deploy_id}"
+              @existing_deploys[appname].updateBasketofKittens(newcfg, save_now: true)
             end
           end
 
@@ -689,11 +705,33 @@ module MU
     end
 
     def resolveReferences(cfg, deploy, parent)
+      mask_deploy_id = false
+
+      check_deploy_id = Proc.new { |cfgblob|
+        (deploy and
+         (cfgblob.is_a?(MU::Config::Ref) or cfgblob.is_a?(Hash)) and
+         cfgblob['deploy_id'] and
+         cfgblob['deploy_id'] != deploy.deploy_id and
+         @diff and
+         @types_found_in[cfgblob['type']] and
+         @types_found_in[cfgblob['type']].deploy_id == cfgblob['deploy_id']
+        )
+      }
+
+      mask_deploy_id = check_deploy_id.call(cfg)
+
       if cfg.is_a?(MU::Config::Ref)
-        cfg.kitten(deploy) || cfg.kitten
+        if mask_deploy_id
+          cfg.delete("deploy_id")
+          cfg.delete("mommacat")
+          cfg.kitten(deploy)
+        else
+          cfg.kitten(deploy) || cfg.kitten
+        end
+
         hashcfg = cfg.to_h
 
-        if cfg.kitten(deploy)
+        if cfg.kitten
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
 
           if littermate and littermate.config['name']
@@ -784,6 +822,11 @@ module MU
           end
         }
         cfg = new_array.uniq
+      end
+
+      if mask_deploy_id or check_deploy_id.call(cfg)
+        cfg.delete("deploy_id")
+        MU.log "#{parent} in #{deploy.deploy_id} references something in #{@types_found_in[cfg['type']].deploy_id}, ditching extraneous deploy_id", MU::DEBUG, details: cfg.to_h
       end
 
       cfg
