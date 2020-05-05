@@ -285,7 +285,7 @@ module MU
               next if p.lifecycle_state == "DELETE_REQUESTED"
               found[p.project_id] = p
             }
-            @@list_projects_cache = found
+            @@list_projects_cache = found.clone
           end
 
           found

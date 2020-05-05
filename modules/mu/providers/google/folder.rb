@@ -138,7 +138,7 @@ module MU
         # Return the metadata for this folders's configuration
         # @return [Hash]
         def notify
-          desc = MU.structToHash(MU::Cloud::Google.folder(credentials: @config['credentials']).get_folder("folders/"+@cloud_id))
+          desc = MU.structToHash(cloud_desc)
           desc["mu_name"] = @mu_name
           desc["parent"] = @parent
           desc["cloud_id"] = @cloud_id
@@ -236,10 +236,10 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching resources
         def self.find(**args)
           found = {}
-
           # Recursively search a GCP folder hierarchy for a folder matching our
           # supplied name or identifier.
           def self.find_matching_folder(parent, name: nil, id: nil, credentials: nil)
+
             resp = MU::Cloud::Google.folder(credentials: credentials).list_folders(parent: parent)
             if resp and resp.folders
               resp.folders.each { |f|
@@ -278,6 +278,7 @@ module MU
             end
           else
             resp = MU::Cloud::Google.folder(credentials: args[:credentials]).list_folders(parent: parent)
+
             if resp and resp.folders
               resp.folders.each { |folder|
                 next if folder.lifecycle_state == "DELETE_REQUESTED"
@@ -310,7 +311,6 @@ module MU
           bok['cloud_id'] = cloud_desc.name
           bok['name'] = cloud_desc.display_name#+bok['cloud_id'] # only way to guarantee uniqueness
           if cloud_desc.parent.match(/^folders\/(.*)/)
-MU.log bok['display_name']+" generating reference", MU::NOTICE, details: cloud_desc.parent
             bok['parent'] = MU::Config::Ref.get(
               id: cloud_desc.parent,
               cloud: "Google",
