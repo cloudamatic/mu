@@ -140,6 +140,13 @@ module MU
         end
       end
 
+      # Unset an attribute. Sort of. We can't actually do that, so nil it out
+      # and we get the behavior we want.
+      def delete(attribute)
+        attribute = ("@"+attribute).to_sym if attribute.to_s !~ /^@/
+        instance_variable_set(attribute.to_sym, nil)
+      end
+
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
@@ -272,7 +279,14 @@ module MU
 
         if mommacat and !caller.grep(/`findLitterMate'/) # XXX the dumbest
           MU.log "Looking for #{@type} #{@name} #{@id} in deploy #{mommacat.deploy_id}", loglevel
-          @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: debug)
+          begin
+            @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: debug)
+          rescue StandardError => e
+            if e.message =~ /deadlock/
+              MU.log "Saw a recursive deadlock trying to fetch kitten for Ref object in deploy #{mmommacat.deploy_id}", MU::ERR, details: to_h
+            end
+            raise e
+          end
           if @obj # initialize missing attributes, if we can
             @id ||= @obj.cloud_id
             @mommacat ||= mommacat

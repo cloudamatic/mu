@@ -342,6 +342,8 @@ module MU
       return $?.exitstatus
     end
 
+    @@notified_on_pid = {}
+
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
     def self.status
@@ -352,7 +354,8 @@ module MU
         pid = File.read(daemonPidFile).chomp.to_i
         begin
           Process.getpgid(pid)
-          MU.log "Momma Cat running with pid #{pid.to_s}"
+          MU.log "Momma Cat running with pid #{pid.to_s}", (@@notified_on_pid[pid] ? MU::DEBUG : MU::INFO) # shush
+          @@notified_on_pid[pid] = true
           return true
         rescue Errno::ESRCH
         end

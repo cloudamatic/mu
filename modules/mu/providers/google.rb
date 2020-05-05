@@ -236,7 +236,7 @@ module MU
       # @param sibling_only [Boolean]
       # @return [MU::Config::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
-        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy
+        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy if !caller.grep(/`findLitterMate'/) # XXX the dumbest
 
         if !project_obj and !sibling_only
           resp = MU::MommaCat.findStray(
@@ -1025,8 +1025,10 @@ MU.log e.message, MU::WARN, details: e.inspect
           "default"
         end 
 
+        with_id ||= creds['org'] if creds['org'] 
         return @@orgmap[credname] if @@orgmap.has_key?(credname)
         resp = MU::Cloud::Google.resource_manager(credentials: credname).search_organizations
+
         if resp and resp.organizations
           # XXX no idea if it's possible to be a member of multiple orgs
           if !with_id
@@ -1034,7 +1036,8 @@ MU.log e.message, MU::WARN, details: e.inspect
             return resp.organizations.first
           else
             resp.organizations.each { |org|
-              if org.name == with_id
+              if org.name == with_id or org.display_name == with_id or
+                 org.name == "organizations/#{with_id}"
                 @@orgmap[credname] = org
                 return org
               end
