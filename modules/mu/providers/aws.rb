@@ -1519,6 +1519,7 @@ end
                     elsif !arguments.nil? and arguments.size > 0
                       @api.method(method_sym).call(*new_args)
                     end
+                    break if resp.nil?
                     resp = resp.__getobj__ if resp.respond_to?(:__getobj__)
                     retval.send(concat_to).concat(resp.send(concat_to))
                     new_page = resp.send(paginator) if !resp.nil?

@@ -79,6 +79,7 @@ module MU
             end
 
           @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+          @config["parameter_group_name"] ||= @mu_name
 
           if args[:from_cloud_desc] and args[:from_cloud_desc].is_a?(Aws::RDS::Types::DBCluster)
             @config['create_cluster'] = true
@@ -128,8 +129,7 @@ module MU
             createSubnetGroup
 
             if @config.has_key?("parameter_group_family")
-              @config["parameter_group_name"] = @mu_name
-              createDBParameterGroup(true)
+              manageDbParameterGroup(true)
             end
 
             @config["cluster_identifier"] ||= @cloud_id
@@ -194,14 +194,10 @@ module MU
 
           else
             fetch = Proc.new { |noun|
-              marker = nil
-              begin
-                resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).send("describe_db_#{noun}s".to_sym)
-                marker = resp.marker
-                resp.send("db_#{noun}s").each { |db|
-                  found[db.send("db_#{noun}_identifier".to_sym)] = db
-                }
-              end while !marker.nil?
+              resp = MU::Cloud::AWS.rds(credentials: args[:credentials], region: args[:region]).send("describe_db_#{noun}s".to_sym)
+              resp.send("db_#{noun}s").each { |db|
+                found[db.send("db_#{noun}_identifier".to_sym)] = db
+              }
             }
             if args[:cluster] or !args.has_key?(:cluster)
               fetch.call("cluster")
@@ -242,15 +238,14 @@ module MU
             "credentials" => @credentials,
             "cloud_id" => @cloud_id,
           }
-          bok["create_cluster"] = true if @config['create_cluster']
 
           # Don't adopt cluster members, they'll be picked up by the parent
           # cluster
-          if !bok["create_cluster"] and cloud_desc.db_cluster_identifier and !cloud_desc.db_cluster_identifier.empty?
+          if !@config["create_cluster"] and cloud_desc.db_cluster_identifier and !cloud_desc.db_cluster_identifier.empty?
             return nil
           end
 
-          noun = bok["create_cluster"] ? "cluster" : "db"
+          noun = @config["create_cluster"] ? "cluster" : "db"
           tags = MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).list_tags_for_resource(
             resource_name: MU::Cloud::AWS::Database.getARN(@cloud_id, noun, "rds", region: @config['region'], credentials: @credentials)
           ).tag_list
@@ -263,6 +258,7 @@ module MU
           bok['engine_version'] = cloud_desc.engine_version
           bok['master_user'] = cloud_desc.master_username
           bok['backup_retention_period'] = cloud_desc.backup_retention_period
+          bok["create_cluster"] = true if @config['create_cluster']
 
           params = if bok['create_cluster']
             MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).describe_db_cluster_parameters(
@@ -276,13 +272,31 @@ module MU
 
           params.reject! { |p| ["engine-default", "system"].include?(p.source) }
           if params and params.size > 0
-            bok['parameter_group_parameters'] = params.map { |p|
+            bok[(bok['create_cluster'] ? "cluster_" : "")+'parameter_group_parameters'] = params.map { |p|
               { "key" => p.parameter_name, "value" => p.parameter_value }
             }
           end
 
+          bok['add_firewall_rules'] = cloud_desc.vpc_security_groups.map { |sg|
+            MU::Config::Ref.get(
+              id: sg.vpc_security_group_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              region: @config['region'],
+              type: "firewall_rules",
+            )
+          }
+          bok['preferred_backup_window'] = cloud_desc.preferred_backup_window
+          bok['preferred_maintenance_window'] = cloud_desc.preferred_maintenance_window
+          bok['backup_retention_period'] = cloud_desc.backup_retention_period if cloud_desc.backup_retention_period > 1
+          bok['multi_az_on_groom'] = true if cloud_desc.multi_az
+          bok['storage_encrypted'] = true if cloud_desc.storage_encrypted
+          bok['auto_minor_version_upgrade'] = true if cloud_desc.auto_minor_version_upgrade
+
           if bok['create_cluster']
             bok['cluster_node_count'] = cloud_desc.db_cluster_members.size
+            bok['cluster_mode'] = cloud_desc.engine_mode
+            bok['port'] = cloud_desc.port
 
             sizes = []
             vpcs = []
@@ -290,7 +304,7 @@ module MU
             # for now just assume they're all the same
             cloud_desc.db_cluster_members.each { |db|
               member = MU::Cloud::AWS::Database.find(cloud_id: db.db_instance_identifier, region: @config['region'], credentials: @credentials).values.first
-#              MU.log "derp", MU::NOTICE, details: member
+MU.log "derp", MU::WARN, details: member
               sizes << member.db_instance_class
               if member.db_subnet_group and member.db_subnet_group.vpc_id
                 vpcs << member.db_subnet_group
@@ -310,10 +324,30 @@ module MU
               myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: cloud_desc.db_subnet_group.vpc_id, credentials: @credentials, region: @config['region'], dummy_ok: true, no_deploy_search: true).first
               bok['vpc'] = myvpc.getReference(cloud_desc.db_subnet_group.subnets.map { |s| s.subnet_identifier })
             end
+            bok['storage_type'] = cloud_desc.storage_type
+            bok['storage'] = cloud_desc.allocated_storage
+            bok['license_model'] = cloud_desc.license_model
+            bok['publicly_accessible'] = true if cloud_desc.publicly_accessible
+            bok['port'] = cloud_desc.endpoint.port
+
+            if cloud_desc.read_replica_source_db_instance_identifier
+              bok['read_replica_of'] = MU::Config::Ref.get(
+                id: cloud_desc.read_replica_source_db_instance_identifier.split(/:/).last,
+                name: cloud_desc.read_replica_source_db_instance_identifier.split(/:/).last,
+                cloud: "AWS",
+                region: cloud_desc.read_replica_source_db_instance_identifier.split(/:/)[3],
+                credentials: @credentials,
+                type: "databases",
+              )
+            end
           end
 
-          MU.log bok['name'], MU::NOTICE, details: bok
-
+          if cloud_desc.enabled_cloudwatch_logs_exports and
+             cloud_desc.enabled_cloudwatch_logs_exports.size > 0
+MU.log bok['name'], MU::NOTICE, details: { "desc" => cloud_desc, "bok" => bok }
+#            bok['cloudwatch_logs'] = 
+          end
+MU.log bok['name'], MU::NOTICE, details: cloud_desc if bok['name'] == "pgcluster"
           bok
         end
 
@@ -383,25 +417,39 @@ dependencies
         end
 
         # Create a database parameter group.
-        def createDBParameterGroup(cluster = false)
+        def manageDbParameterGroup(cluster = false, create: true)
+          name_param = cluster ? :db_cluster_parameter_group_name : :db_parameter_group_name
+          fieldname = cluster ? "cluster_parameter_group_parameters" : "db_parameter_group_parameters"
+
           params = {
             db_parameter_group_family: @config["parameter_group_family"],
             description: "Parameter group for #{@mu_name}",
             tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
           }
-          params[cluster ? :db_cluster_parameter_group_name : :db_parameter_group_name] = @config["parameter_group_name"]
-          MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
+          params[name_param] = @config["parameter_group_name"]
 
-          MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
-          fieldname = cluster ? "cluster_parameter_group_parameters" : "db_parameter_group_parameters"
+          if create
+            MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
 
-          if @config[fieldname] && !@config[fieldname].empty?
+            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
+          end
+
+
+          if @config[fieldname] and !@config[fieldname].empty?
+
+            old_values = MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).send(cluster ? :describe_db_cluster_parameters : :describe_db_parameters, { name_param => @config["parameter_group_name"] } ).parameters
+            old_values.map! { |p| [p.parameter_name, p.parameter_value] }.flatten
+            old_values = old_values.to_h
+
             params = []
             @config[fieldname].each { |item|
+              next if old_values[item["name"]] == item['value']
               params << {parameter_name: item['name'], parameter_value: item['value'], apply_method: item['apply_method']}
             }
+            return if params.empty?
 
-            MU.log "Modifiying parameter group #{@config["parameter_group_name"]}"
+            MU.log "Modifiying parameter group #{@config["parameter_group_name"]}", MU::NOTICE, details: params
+
             if cluster
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster_parameter_group(
                 db_cluster_parameter_group_name: @config["parameter_group_name"],
@@ -419,6 +467,7 @@ dependencies
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config["create_cluster"]
+            manageDbParameterGroup(true, create: false)
             @config['cluster_node_count'] ||= 1
             if @config['cluster_mode'] == "serverless"
               MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_current_db_cluster_capacity(
@@ -427,24 +476,48 @@ dependencies
               )
             end
           else
+            manageDbParameterGroup(create: false)
 
             # Run SQL on deploy
             if @config['run_sql_on_deploy']
               run_sql_commands
             end
 
-            # set multi-az on deploy
-            if @config['multi_az_on_deploy']
-              if !database.multi_az
-                MU.log "Setting multi-az on #{@config['identifier']}"
-                MU.retrier([Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState], wait: 15, max: 15) {
-                  MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
-                    db_instance_identifier: @config['identifier'],
-                    apply_immediately: true,
-                    multi_az: true
-                  )
-                }
+            mods = {
+              db_instance_identifier: @cloud_id,
+#              master_user_password: @config["password"],
+            }
+
+            if !cloud_desc.multi_az and (@config['multi_az_on_deploy'] or @config['multi_az_on_create'])
+              mods[:multi_az] = true
+            end
+
+#pp cloud_desc
+            [:backup_retention_period, :preferred_backup_window, :preferred_maintenance_window, :allow_major_version_upgrade, :auto_minor_version_upgrade].each { |field|
+              if @config[field.to_s] and
+                 cloud_desc.respond_to?(field) and
+                 cloud_desc.send(field) != @config[field.to_s]
+                mods[field] = @config[field.to_s]
               end
+            }
+
+            mods[:allocated_storage] = @config['storage'] if cloud_desc.allocated_storage != @config['storage']
+
+            if @config['cloudwatch_logs'] and cloud_desc.enabled_cloudwatch_logs_exports.sort != @config['cloudwatch_logs'].sort
+              mods[:cloudwatch_logs_export_configuration] = {
+                enable_log_types: @config['cloudwatch_logs'],
+                disable_log_types: cloud_desc.enabled_cloudwatch_logs_exports - @config['cloudwatch_logs']
+              }
+            end
+# XXX it's a stupid array
+#              db_parameter_group_name: @config["parameter_group_name"],
+
+            if mods.size > 1
+              mods[:apply_immediately] = true
+              MU.log "Modifying RDS instance #{@cloud_id}", MU::NOTICE, details: mods
+              wait_until_available
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @credentials).modify_db_instance(mods)
+              wait_until_available
             end
           end
 
@@ -770,41 +843,37 @@ dependencies
           end
 
           engines = {}
-          marker = nil
 
-          begin
-            resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_engine_versions(marker: marker)
-            marker = resp.marker
+          resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).describe_db_engine_versions
 
-            if resp and resp.db_engine_versions
-              resp.db_engine_versions.each { |version|
-                engines[version.engine] ||= {
-                  "versions" => [],
-                  "families" => [],
-                  "features" => {},
-                  "raw" => {}
-                }
-                engines[version.engine]['versions'] << version.engine_version
-                engines[version.engine]['families'] << version.db_parameter_group_family
-                engines[version.engine]['raw'][version.engine_version] = version
-                [:supports_read_replica, :supports_log_exports_to_cloudwatch_logs].each { |feature|
-                  if version.respond_to?(feature) and version.send(feature) == true
-                    engines[version.engine]['features'][version.engine_version] ||= []
-                    engines[version.engine]['features'][version.engine_version] << feature
-                  end
-                }
-
+          if resp and resp.db_engine_versions
+            resp.db_engine_versions.each { |version|
+              engines[version.engine] ||= {
+                "versions" => [],
+                "families" => [],
+                "features" => {},
+                "raw" => {}
               }
-              engines.each_key { |e|
-                engines[e]["versions"].uniq!
-                engines[e]["versions"].sort! { |a, b| MU.version_sort(a, b) }
-                engines[e]["families"].uniq!
+              engines[version.engine]['versions'] << version.engine_version
+              engines[version.engine]['families'] << version.db_parameter_group_family
+              engines[version.engine]['raw'][version.engine_version] = version
+              [:supports_read_replica, :supports_log_exports_to_cloudwatch_logs].each { |feature|
+                if version.respond_to?(feature) and version.send(feature) == true
+                  engines[version.engine]['features'][version.engine_version] ||= []
+                  engines[version.engine]['features'][version.engine_version] << feature
+                end
               }
 
-            else
-              MU.log "Failed to get list of valid RDS engine versions in #{db['region']}, proceeding without proper validation", MU::WARN
-            end
-          end while !marker.nil?
+            }
+            engines.each_key { |e|
+              engines[e]["versions"].uniq!
+              engines[e]["versions"].sort! { |a, b| MU.version_sort(a, b) }
+              engines[e]["families"].uniq!
+            }
+
+          else
+            MU.log "Failed to get list of valid RDS engine versions in #{db['region']}, proceeding without proper validation", MU::WARN
+          end
 
           @@engine_cache[credentials][region] = engines
           return engine ? @@engine_cache[credentials][region][engine] : @@engine_cache[credentials][region]
@@ -1099,7 +1168,7 @@ dependencies
 
           if @config.has_key?("parameter_group_family")
             @config["parameter_group_name"] = @mu_name
-            createDBParameterGroup
+            manageDbParameterGroup
           end
 
           createDb
@@ -1118,7 +1187,7 @@ dependencies
           @config["creation_style"] = "new" if @config["creation_style"] != "new"
           if @config.has_key?("parameter_group_family")
             @config["parameter_group_name"] = @mu_name
-            createDBParameterGroup
+            manageDbParameterGroup
           end
 
           createDb
@@ -1132,11 +1201,13 @@ dependencies
           params[:engine_version] = @config["engine_version"]
           params[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
           params[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
+          params[:backup_retention_period] = @config["backup_retention_period"] if @config["backup_retention_period"]
 
           if @config['create_cluster']
             params[:database_name] = @config["db_name"]
             params[:db_cluster_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
           else
+            params[:enable_cloudwatch_logs_exports] = @config['cloudwatch_logs'] if @config['cloudwatch_logs'] and !@config['cloudwatch_logs'].empty?
             params[:db_name] = @config["db_name"] if !@config['add_cluster_node']
             params[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
           end
