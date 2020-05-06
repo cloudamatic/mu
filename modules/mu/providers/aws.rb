@@ -1508,17 +1508,24 @@ end
                   concat_to = concat_to.first
                   new_args = arguments ? arguments.dup : [{}]
                   begin
-                    if new_args.is_a?(Array) and new_args.size == 1 and new_args.first.is_a?(Hash)
-                      new_args[0][paginator] = new_page
+                    if new_args.is_a?(Array)
+                      new_args << {} if new_args.empty?
+                      if new_args.size == 1 and new_args.first.is_a?(Hash)
+                        new_args[0][paginator] = new_page
+                      else
+                        MU.log "I don't know how to insert a #{paginator} into these arguments for #{method_sym}", MU::WARN, details: new_args
+                      end
                     elsif new_args.is_a?(Hash)
                       new_args[paginator] = new_page
                     end
 
-                    resp = if !arguments.nil? and arguments.size == 1
-                      @api.method(method_sym).call(new_args[0])
-                    elsif !arguments.nil? and arguments.size > 0
-                      @api.method(method_sym).call(*new_args)
-                    end
+                    MU.log "Attempting magic pagination for #{method_sym}", MU::DEBUG, details: new_args
+
+#                    resp = if !arguments.nil? and arguments.size == 1
+#                      @api.method(method_sym).call(new_args[0])
+#                    elsif !arguments.nil? and arguments.size > 0
+                    resp = @api.method(method_sym).call(*new_args)
+#                    end
                     break if resp.nil?
                     resp = resp.__getobj__ if resp.respond_to?(:__getobj__)
                     retval.send(concat_to).concat(resp.send(concat_to))
