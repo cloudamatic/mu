@@ -363,7 +363,6 @@ module MU
           bok['backup_retention_period'] = cloud_desc.backup_retention_period if cloud_desc.backup_retention_period > 1
           bok['multi_az_on_groom'] = true if cloud_desc.multi_az
           bok['storage_encrypted'] = true if cloud_desc.storage_encrypted
-          bok['auto_minor_version_upgrade'] = true if cloud_desc.auto_minor_version_upgrade
 
           if bok['create_cluster']
             bok['cluster_node_count'] = cloud_desc.db_cluster_members.size
@@ -392,6 +391,7 @@ MU.log "derp", MU::WARN, details: member
             end
           else
             bok['size'] = cloud_desc.db_instance_class
+            bok['auto_minor_version_upgrade'] = true if cloud_desc.auto_minor_version_upgrade
             if cloud_desc.db_subnet_group
               myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: cloud_desc.db_subnet_group.vpc_id, credentials: @credentials, region: @config['region'], dummy_ok: true, no_deploy_search: true).first
               bok['vpc'] = myvpc.getReference(cloud_desc.db_subnet_group.subnets.map { |s| s.subnet_identifier })

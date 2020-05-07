@@ -223,11 +223,13 @@ module MU
         }
 
         @existing_deploys[appname] = MU::MommaCat.findMatchingDeploy(origin)
-        @existing_deploys_by_id[@existing_deploys[appname].deploy_id] = @existing_deploys[appname]
-        @origins[appname] = origin
-        origin['types'].each { |t|
-          @types_found_in[t] = @existing_deploys[appname]
-        }
+        if @existing_deploys[appname]
+          @existing_deploys_by_id[@existing_deploys[appname].deploy_id] = @existing_deploys[appname]
+          @origins[appname] = origin
+          origin['types'].each { |t|
+            @types_found_in[t] = @existing_deploys[appname]
+          }
+        end
       }
 
       groupings.each_pair { |appname, types|
