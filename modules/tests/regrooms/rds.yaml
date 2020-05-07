@@ -8,13 +8,16 @@ databases:
   size: db.t3.medium
   engine: postgres
   engine_version: "10"  
-  auto_minor_version_upgrade: true
-  backup_retention_period: 10
+  allow_major_version_upgrade: true
+  auto_minor_version_upgrade: false
+  backup_retention_period: 8
   cluster_node_count: 2
   create_cluster: true
   cluster_parameter_group_parameters:
   - name: log_disconnections
     value: "0"
+  - name: authentication_timeout
+    value: "35"
   vpc:
     name: rdstests
   master_user: Bob
@@ -32,15 +35,15 @@ databases:
   engine: mariadb
   db_parameter_group_parameters:
   - name: autocommit
-    value: "0"
+    value: "1"
   vpc:
     name: rdstests
   region: us-east-1
   create_read_replica: true
-  allow_major_version_upgrade: true
   read_replica_region: us-east-2
   cloudwatch_logs:
   - slowquery
+  - error
   multi_az_on_create: true
   master_user: Bob
 - name: maria-from-snap
