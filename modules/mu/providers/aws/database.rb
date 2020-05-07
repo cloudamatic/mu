@@ -71,7 +71,6 @@ module MU
             :db_subnet_group_name,
             :db_security_groups,
             :vpc_security_group_ids,
-            :apply_immediately,
             :master_user_password,
             :db_parameter_group_name,
             :backup_retention_period,
@@ -110,7 +109,6 @@ module MU
           ],
           "cluster" => [
             :new_db_cluster_identifier,
-            :apply_immediately,
             :backup_retention_period,
             :db_cluster_parameter_group_name,
             :vpc_security_group_ids,
@@ -198,7 +196,7 @@ module MU
 
           if @config["create_cluster"]
             getPassword
-            createSubnetGroup
+            manageSubnetGroup
 
             if @config.has_key?("parameter_group_family")
               manageDbParameterGroup(true)
@@ -375,7 +373,7 @@ module MU
             # for now just assume they're all the same
             cloud_desc.db_cluster_members.each { |db|
               member = MU::Cloud::AWS::Database.find(cloud_id: db.db_instance_identifier, region: @config['region'], credentials: @credentials).values.first
-MU.log "derp", MU::WARN, details: member
+
               sizes << member.db_instance_class
               if member.db_subnet_group and member.db_subnet_group.vpc_id
                 vpcs << member.db_subnet_group
@@ -445,7 +443,7 @@ MU.log bok['name'], MU::NOTICE, details: cloud_desc if bok['name'] == "pgcluster
         end
 
         # Create a subnet group for a database.
-        def createSubnetGroup
+        def manageSubnetGroup
           # Finding subnets, creating security groups/adding holes, create subnet group
           subnet_ids = []
 
@@ -468,21 +466,26 @@ dependencies
           if subnet_ids.empty?
             raise MuError, "Couldn't find subnets in #{@vpc} to add to #{@config["subnet_group_name"]}. Make sure the subnets are valid and publicly_accessible is set correctly"
           else
-            # Create subnet group
-            resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
-              db_subnet_group_name: @config["subnet_group_name"],
-              db_subnet_group_description: @config["subnet_group_name"],
-              subnet_ids: subnet_ids,
-              tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+            resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_subnet_groups(
+              db_subnet_group_name: @config["subnet_group_name"]
             )
-            @config["subnet_group_name"] = resp.db_subnet_group.db_subnet_group_name
-
-            if @dependencies.has_key?('firewall_rule')
-              @config["vpc_security_group_ids"] = []
-              @dependencies['firewall_rule'].each_value { |sg|
-                @config["vpc_security_group_ids"] << sg.cloud_id
-              }
+            if !resp or !resp.db_subnet_groups or resp.db_subnet_groups.empty?
+              # Create subnet group
+              resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
+                db_subnet_group_name: @config["subnet_group_name"],
+                db_subnet_group_description: @config["subnet_group_name"],
+                subnet_ids: subnet_ids,
+                tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+              )
+            else
+# XXX ensure subnet group matches our config?
             end
+
+            myFirewallRules.each { |sg|
+              next if sg.cloud_desc.vpc_id != @vpc.cloud_id
+              @config["vpc_security_group_ids"] ||= []
+              @config["vpc_security_group_ids"] << sg.cloud_id
+            }
           end
 
           allowBastionAccess
@@ -542,9 +545,10 @@ dependencies
         # Called automatically by {MU::Deploy#createResources}
         def groom
           cloud_desc(use_cache: false)
+          manageSubnetGroup if @vpc
+          manageDbParameterGroup(@config["create_cluster"], create: false)
 
           noun = @config['create_cluster'] ? "cluster" : "instance"
-          manageDbParameterGroup(@config["create_cluster"], create: false)
 
           mods = {
             "db_#{noun}_identifier".to_sym => @cloud_id
@@ -556,6 +560,17 @@ dependencies
               mods[k] = v
             end
           }
+
+          existing_sgs = cloud_desc.vpc_security_groups.map { |sg|
+            sg.vpc_security_group_id
+          }.sort
+
+          if !@config["add_cluster_node"] and !@config["member_of_cluster"] and
+             @config["vpc_security_group_ids"] and
+             existing_sgs != @config["vpc_security_group_ids"].sort
+            mods[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
+          end
+
 
           if @config['cloudwatch_logs'] and cloud_desc.enabled_cloudwatch_logs_exports.sort != @config['cloudwatch_logs'].sort
             mods[:cloudwatch_logs_export_configuration] = {
@@ -581,15 +596,6 @@ dependencies
             if !cloud_desc.multi_az and (@config['multi_az_on_deploy'] or @config['multi_az_on_create'])
               mods[:multi_az] = true
             end
-
-#            if !@config['member_of_cluster'] and !@config['read_replica_of']
-#              [:backup_retention_period, :preferred_backup_window, :preferred_maintenance_window, :allow_major_version_upgrade, :auto_minor_version_upgrade].each { |field|
-#                if @config[field.to_s] and
-#                   cloud_desc.respond_to?(field) and
-#                   cloud_desc.send(field) != @config[field.to_s]
-#                  mods[field] = @config[field.to_s]
-#                end
-#              }
 
 # XXX how do we guard this? do we?
 #              master_user_password: @config["password"],
@@ -661,12 +667,10 @@ dependencies
           end
 
           # Otherwise go get our generic EC2 ruleset and punch a hole in it
-          if @dependencies.has_key?('firewall_rule')
-            @dependencies['firewall_rule'].each_value { |sg|
-              sg.addRule([cidr], proto: "tcp", port: cloud_desc.endpoint.port)
-              break
-            }
-          end
+          myFirewallRules.each { |sg|
+            sg.addRule([cidr], proto: "tcp", port: cloud_desc.endpoint.port)
+            break
+          }
         end
 
         # Return the metadata for this ContainerCluster
@@ -1029,7 +1033,7 @@ dependencies
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
         # @param db [Hash]: The resource to process and validate
-        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a ember
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(db, _configurator)
           ok = true
@@ -1112,6 +1116,7 @@ dependencies
               auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
               license_model: @config["license_model"],
               db_subnet_group_name: @config["subnet_group_name"],
+              vpc_security_group_ids: @config["vpc_security_group_ids"],
               publicly_accessible: @config["publicly_accessible"],
               copy_tags_to_snapshot: true,
               tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
@@ -1251,7 +1256,7 @@ dependencies
 
           getPassword
           if @config['source'].nil? or @config['region'] != @config['source'].region
-            createSubnetGroup if @vpc
+            manageSubnetGroup if @vpc
           else
             MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
           end
