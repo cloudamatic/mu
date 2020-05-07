@@ -461,7 +461,10 @@ module MU
             end
           else
             tier[:value] ||= "<nil>"
-            myreport["slack"] = slack+" New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
+            myreport["slack"] = slack
+            if ![:added, :removed].include?(tier[:action])
+              myreport["slack"] += " New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
+            end
             append = tier[:value].to_s.bold
           end
           if append and !append.empty?
