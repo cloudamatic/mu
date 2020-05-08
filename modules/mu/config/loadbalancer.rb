@@ -300,7 +300,7 @@ module MU
               "type" => "array",
               "items" => {
                 "type" => "object",
-                "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
+                "required" => ["lb_protocol", "lb_port"],
                 "additionalProperties" => false,
                 "description" => "A list of port/protocols which this Load Balancer should answer.",
                 "properties" => {
@@ -446,6 +446,10 @@ module MU
               "proto" => l["instance_protocol"],
               "port" => l["instance_port"]
             }
+            if l["redirect"]
+              tg["proto"] ||= l["redirect"]["protocol"]
+              tg["port"] ||= l["redirect"]["port"]
+            end
             l['healthcheck'] ||= lb['healthcheck'] if lb['healthcheck']
             if l["healthcheck"]
               hc_target = l['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
