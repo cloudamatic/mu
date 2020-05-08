@@ -64,6 +64,7 @@ module MU
           }
         }.freeze
 
+        # List of parameters that are legal to set in +modify_db_instance+ and +modify_db_cluster+
         MODIFIABLE = {
           "instance" => [
             :allocated_storage,

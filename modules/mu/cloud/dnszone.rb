@@ -20,11 +20,17 @@ module MU
     # Generic methods for all DNSZone implementations
     class DNSZone
 
+      # Set a generic .platform-mu DNS entry for a resource, and return the name
+      # that was set.
       def self.genericMuDNSEntry(*flags)
 # XXX have this switch on a global config for where Mu puts its DNS
         MU::Cloud.resourceClass(MU::Config.defaultCloud, "DNSZone").genericMuDNSEntry(flags.first)
       end
 
+      # Wrapper for {MU::Cloud::AWS::DNSZone.manageRecord}. Spawns threads to create all
+      # requested records in background and returns immediately.
+      # @param cfg [Array]: An array of parsed {MU::Config::BasketofKittens::dnszones::records} objects.
+      # @param target [String]: Optional target for the records to be created. Overrides targets embedded in cfg records.
       def self.createRecordsFromConfig(*flags)
         cloudclass = MU::Cloud.resourceClass(MU::Config.defaultCloud, "DNSZone")
         if !flags.nil? and flags.size == 1
