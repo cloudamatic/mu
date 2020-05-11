@@ -31,6 +31,7 @@ module MU
     }
 
     def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
+
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -425,9 +426,6 @@ module MU
           plain += " ("+loc+")" if loc and !loc.empty?
           color = plain
 
-          slack += " was #{tier[:action]}"
-          slack += " #{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
-
           if tier[:action] == :added
             color = "+ ".green + plain
             plain = "+ " + plain
@@ -435,10 +433,13 @@ module MU
             color = "- ".red + plain
             plain = "- " + plain
           end
+
+          slack += " #{tier[:action]} #{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
+
           plain = path_str.join(" => \n") + indent + plain
           color = path_str.join(" => \n") + indent + color
 
-          slack += slack_path_str+"."
+          slack += " "+slack_path_str+"."
           myreport = {
             "slack" => slack,
             "plain" => plain,
@@ -458,15 +459,19 @@ module MU
               end
             else
               append = indent+"["+tier[:value].map { |v| MU::MommaCat.getChunkName(v, type_of).reverse.join("/") || v.to_s.light_blue }.join(", ")+"]"
+              slack += " #{tier[:action].to_s}: "+tier[:value].map { |v| MU::MommaCat.getChunkName(v, type_of).reverse.join("/") || v.to_s }.join(", ")
             end
           else
             tier[:value] ||= "<nil>"
-            myreport["slack"] = slack
+            slack += " was #{tier[:action]}"
             if ![:added, :removed].include?(tier[:action])
               myreport["slack"] += " New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
             end
             append = tier[:value].to_s.bold
           end
+
+          myreport["slack"] = slack
+
           if append and !append.empty?
             myreport["plain"] += " =>\n  "+indent+append
             myreport["color"] += " =>\n  "+indent+append
@@ -538,15 +543,13 @@ module MU
           }
           puts ""
 
-          if MU.muCfg['adopt_change_notify']['slack']
+          if MU.muCfg['adopt_change_notify'] and MU.muCfg['adopt_change_notify']['slack']
             deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets, noop: false)
           end
 
         }
       }
 
-      if MU.muCfg['adopt_change_notify']['email']
-      end
     end
 
     def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, type: nil)
