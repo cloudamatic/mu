@@ -801,7 +801,7 @@ module MU
           end
           deploydata["region"] = @config['region'] if !@config['region'].nil?
           if !@named
-            MU::MommaCat.nameKitten(self)
+            MU::MommaCat.nameKitten(self, no_dns: true)
             @named = true
           end
 

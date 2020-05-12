@@ -277,17 +277,18 @@ module MU
     # SSH config entries, etc.
     # @param server [MU::Cloud::Server]: The {MU::Cloud::Server} we'll be setting up.
     # @param sync_wait [Boolean]: Whether to wait for DNS to fully synchronize before returning.
-    def self.nameKitten(server, sync_wait: false)
+    def self.nameKitten(server, sync_wait: false, no_dns: false)
       node, config, _deploydata = server.describe
 
       mu_zone = nil
       # XXX GCP!
-      if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
+      if !no_dns and MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
         zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
         mu_zone = zones.values.first if !zones.nil?
       end
+
       if !mu_zone.nil?
-        MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
+        MU::Cloud::DNSZone.genericMuDNSEntry(name: node.gsub(/[^a-z0-9!"\#$%&'\(\)\*\+,\-\/:;<=>\?@\[\]\^_`{\|}~\.]/, '-').gsub(/--|^-/, ''), target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
       else
         MU::Master.addInstanceToEtcHosts(server.canonicalIP, node)
       end

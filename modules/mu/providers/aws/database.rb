@@ -467,19 +467,19 @@ dependencies
           if subnet_ids.empty?
             raise MuError, "Couldn't find subnets in #{@vpc} to add to #{@config["subnet_group_name"]}. Make sure the subnets are valid and publicly_accessible is set correctly"
           else
-            resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_subnet_groups(
-              db_subnet_group_name: @config["subnet_group_name"]
-            )
-            if !resp or !resp.db_subnet_groups or resp.db_subnet_groups.empty?
+            resp = begin
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_subnet_groups(
+                db_subnet_group_name: @config["subnet_group_name"]
+              )
+# XXX ensure subnet group matches our config?
+            rescue ::Aws::RDS::Errors::DBSubnetGroupNotFoundFault
               # Create subnet group
-              resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
+              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
                 db_subnet_group_name: @config["subnet_group_name"],
                 db_subnet_group_description: @config["subnet_group_name"],
                 subnet_ids: subnet_ids,
                 tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
               )
-            else
-# XXX ensure subnet group matches our config?
             end
 
             myFirewallRules.each { |sg|
@@ -1091,7 +1091,7 @@ dependencies
             }
 
             if @vpc and @config["subnet_group_name"]
-              paramhash[:db_subnet_group_name] = @config["subnet_group_name"].downcase
+              paramhash[:db_subnet_group_name] = @config["subnet_group_name"]
             end
 
             if @config['cloudwatch_logs']
@@ -1278,7 +1278,7 @@ dependencies
 
           @config['cluster_identifier'] = cluster.cloud_id.downcase
           # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
-          @config["subnet_group_name"] = @config['cluster_identifier'] if @vpc
+          @config["subnet_group_name"] ||= cluster.cloud_id if @vpc
           @config["creation_style"] = "new" if @config["creation_style"] != "new"
           if @config.has_key?("parameter_group_family")
             manageDbParameterGroup
@@ -1333,6 +1333,8 @@ dependencies
           clean_parent_opts = Proc.new {
             [:storage_encrypted, :master_user_password, :engine_version, :allocated_storage, :backup_retention_period, :preferred_backup_window, :master_username, :db_name, :database_name].each { |p| params.delete(p) }
           }
+
+          noun = @config["create_cluster"] ? "cluster" : "instance"
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
