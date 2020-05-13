@@ -3,6 +3,35 @@ Style:
 Layout:
   Enabled: false
 
+# The default value of 15 is absurdly low
+Metrics/AbcSize:
+  Max: 75
+# The default value of 6 is absurdly low
+Metrics/CyclomaticComplexity:
+  Max: 30
+# The default value of 7 is absurdly low
+Metrics/PerceivedComplexity:
+  Max: 35
+# The default value of 10 is absurdly low
+Metrics/MethodLength:
+  Max: 200
+  ExcludedMethods: ["schema"]
+# The default value of 25 is absurdly low
+Metrics/BlockLength:
+  Max: 100
+# The default value of 100 is absurdly low
+Metrics/ClassLength:
+  Max: 1000
+
+# Default of 3 is reasonable, but we have some 4-deep cases that are also
+# reasonable
+Metrics/BlockNesting:
+  Max: 4
+# Default of 5 is reasonable, but we have some longer cases that are also
+# reasonable
+Metrics/ParameterLists:
+  Enabled: false
+
 # The alternative code doesn't seem to work
 Lint/UriEscapeUnescape:
   Enabled: false
@@ -31,6 +60,8 @@ Lint/SuppressedException:
 Naming/MethodName:
   Enabled: false
 Naming/VariableName:
+  Enabled: false
+Naming/MethodParameterName:
   Enabled: false
 
 # These genuinely matter

@@ -35,6 +35,12 @@ module MU
         end
       }
 
+      # Are the Chef libraries present and accounted for?
+      def self.available?(windows = false)
+        loadChefLib
+        @chefloaded
+      end
+
       @chefloaded = false
       @chefload_semaphore = Mutex.new
       # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
@@ -329,7 +335,7 @@ module MU
             }
           else
             MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
-            winrm = @server.getWinRMSession(haveBootstrapped? ? 1 : max_retries)
+            winrm = @server.getWinRMSession(haveBootstrapped? ? 2 : max_retries)
             if @server.windows? and @server.windowsRebootPending?(winrm)
               # Windows frequently gets stuck here
               if retries > 5
@@ -362,7 +368,7 @@ module MU
             }
 
             if resp.exitcode == 1 and output_lines.join("\n").match(/Chef Client finished/)
-              MU.log "resp.exit code 1"
+              MU.log output_lines.last
             elsif resp.exitcode != 0
               raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output_lines.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:|Rebooting server at a recipe's request|Chef::Exceptions::Reboot/)
               raise MU::Groomer::RunError, output_lines.slice(output_lines.length-50, output_lines.length).join("")
@@ -415,9 +421,9 @@ module MU
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message.dup
-            if purpose != "Base Windows configuration"
-              windows_try_ssh = !windows_try_ssh
-            end
+#            if purpose != "Base Windows configuration"
+#              windows_try_ssh = !windows_try_ssh
+#            end
             if e.is_a?(WinRM::WinRMError)
               if @server.windows? and retries >= 3 and retries % 3 == 0
                 # Mix in a hard reboot if WinRM isn't answering
@@ -619,13 +625,20 @@ module MU
             kb.name_args = [@server.mu_name]
             kb.config[:manual] = true
             kb.config[:winrm_transport] = :ssl
-            kb.config[:host] = @server.mu_name
             kb.config[:winrm_port] = 5986
             kb.config[:session_timeout] = timeout
             kb.config[:operation_timeout] = timeout
-            kb.config[:winrm_authentication_protocol] = :cert
-            kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
-            kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
+            if retries % 2 == 0
+              kb.config[:host] = canonical_addr
+              kb.config[:winrm_authentication_protocol] = :basic
+              kb.config[:winrm_user] = @server.config['windows_admin_username']
+              kb.config[:winrm_password] = @server.getWindowsAdminPassword
+            else
+              kb.config[:host] = @server.mu_name
+              kb.config[:winrm_authentication_protocol] = :cert
+              kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
+              kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
+            end
 #          kb.config[:ca_trust_file] = "#{MU.mySSLDir}/Mu_CA.pem"
             # XXX ca_trust_file doesn't work for some reason, so we have to set the below for now
             kb.config[:winrm_ssl_verify_mode] = :verify_none
@@ -675,7 +688,7 @@ module MU
                 preClean(false) # it's ok for this to fail
               rescue StandardError => e
               end
-              MU::Groomer::Chef.cleanup(@server.mu_name, nodeonly: true)
+              MU::Groomer::Chef.purge(@server.mu_name, nodeonly: true)
               @config['forced_preclean'] = true
               @server.reboot if @server.windows? # *sigh*
             end
@@ -792,12 +805,52 @@ retry
         end
       end
 
+      # Purge Chef resources matching a particular deploy
+      # @param deploy_id [String]
+      # @param noop [Boolean]
+      def self.cleanup(deploy_id, noop = false)
+        return nil if deploy_id.nil? or deploy_id.empty?
+        begin
+          if File.exist?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+            ::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+          end
+          deadnodes = []
+          ::Chef::Config[:environment] ||= MU.environment
+          q = ::Chef::Search::Query.new
+          begin
+            q.search("node", "tags_MU-ID:#{deploy_id}").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
+            }
+          rescue Net::HTTPServerException
+          end
+
+          begin
+            q.search("node", "name:#{deploy_id}-*").each { |item|
+              next if item.is_a?(Integer)
+              item.each { |node|
+                deadnodes << node.name
+              }
+            }
+          rescue Net::HTTPServerException
+          end
+          MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
+          deadnodes.uniq.each { |node|
+            MU::Groomer::Chef.purge(node, [], noop)
+          }
+        rescue LoadError
+        end
+
+      end
+
       # Expunge Chef resources associated with a node.
       # @param node [String]: The Mu name of the node in question.
       # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       # @param nodeonly [Boolean]: Just delete the node and its keys, but leave other artifacts
-      def self.cleanup(node, vaults_to_clean = [], noop = false, nodeonly: false)
+      def self.purge(node, vaults_to_clean = [], noop = false, nodeonly: false)
         loadChefLib
         MU.log "Deleting Chef resources associated with #{node}"
         if !nodeonly

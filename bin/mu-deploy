@@ -105,7 +105,7 @@ if $opts[:dryrun]
     Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :never) {
       begin
         Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :immediate) {
-          MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN, verbosity: MU::Logger::NORMAL
+          MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::NOTICE, verbosity: MU::Logger::NORMAL
           Thread.current.exit
         }
       ensure
@@ -124,7 +124,7 @@ if $opts[:dryrun]
       )
       cost_dummy_deploy.run
     rescue MU::Cloud::MuCloudResourceNotImplemented, MU::Cloud::MuCloudFlagNotImplemented
-      MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN, verbosity: MU::Logger::NORMAL
+      MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::NOTICE, verbosity: MU::Logger::NORMAL
     end
   end
   exit
@@ -135,7 +135,7 @@ if $opts[:update]
 # TODO consider whether this is useful/valid
 #  old_conf = JSON.parse(File.read(deploy.deploy_dir+"/basket_of_kittens.json"))
 #  stack_conf = old_conf.merge(stack_conf)
-  deploy.updateBasketofKittens(stack_conf)
+  deploy.updateBasketofKittens(stack_conf, skip_validation: true)
   deployer = MU::Deploy.new(
     deploy.environment,
     verbosity: verbosity,

@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/alarm.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/alarm.rb
     class Alarm
 
       # Sections of Alarm schema shared between Alarms as a first-class
@@ -281,11 +281,7 @@ module MU
               }
               ok = false if !configurator.insertKitten(notifier, "notifiers")
             end
-            alarm["dependencies"] ||= []
-            alarm["dependencies"] << {
-              "name" => alarm["notification_group"],
-              "type" => "notifier"
-            }
+            MU::Config.addDependency(alarm, alarm["notification_group"], "notifier")
           end
         end
 

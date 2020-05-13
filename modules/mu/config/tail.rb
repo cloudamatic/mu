@@ -117,6 +117,16 @@ module MU
       def gsub(*args)
         to_s.gsub(*args)
       end
+
+      # Lets callers access us like a {Hash}
+      # @param attribute [String,Symbol]
+      def [](attribute)
+        if respond_to?(attribute.to_sym)
+          send(attribute.to_sym)
+        else
+          nil
+        end
+      end
     end
 
     # Wrapper method for creating a {MU::Config::Tail} object as a reference to
@@ -133,6 +143,7 @@ module MU
     # @param pseudo [<Boolean>]: This is a pseudo-parameter, automatically provided, and not available as user input.
     # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
     def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
+      param = param.gsub(/[^a-z0-9_]/i, "_")
       if value.nil?
         if @@parameters.nil? or !@@parameters.has_key?(param)
           MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: @@parameters

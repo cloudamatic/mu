@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/msg_queue.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/msg_queue.rb
     class MsgQueue
 
       # Base configuration schema for a MsgQueue

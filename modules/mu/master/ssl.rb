@@ -160,7 +160,6 @@ module MU
 
         key = getKey(name, for_user: for_user)
 
-puts cn_str
         cn = OpenSSL::X509::Name.parse(cn_str)
 
         # If we're generating our local CA, we're not really doing a CSR, but

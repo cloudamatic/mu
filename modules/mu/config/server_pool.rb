@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/server_pool.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/server_pool.rb
     class ServerPool
 
       # Base configuration schema for a ServerPool
@@ -186,11 +186,7 @@ module MU
 
         if !pool["vpc"].nil?
           if !pool["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(pool["vpc"]["subnet_name"])
-            pool["dependencies"] << {
-              "type" => "pool",
-              "name" => configurator.nat_routes[pool["vpc"]["subnet_name"]],
-              "phase" => "groom"
-            }
+            MU::Config.addDependency(pool, configurator.nat_routes[pool["vpc"]["subnet_name"]], "server", phase: "groom", no_create_wait: true)
           end
         end
 # TODO make sure this is handled... somewhere
@@ -203,7 +199,7 @@ module MU
 #          }
 #        end
         if pool["basis"] and pool["basis"]["server"]
-          pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
+          MU::Config.addDependency(pool, pool["basis"]["server"], "server", phase: "groom")
         end
         if !pool['static_ip'].nil? and !pool['ip'].nil?
           ok = false

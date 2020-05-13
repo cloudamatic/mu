@@ -24,6 +24,10 @@ module MU
       class NoAnsibleExecError < MuError;
       end
 
+      # One or more Python dependencies missing
+      class AnsibleLibrariesError < MuError;
+      end
+
       # Location in which we'll find our Ansible executables. This only applies
       # to full-grown Mu masters; minimalist gem installs will have to make do
       # with whatever Ansible executables they can find in $PATH.
@@ -40,6 +44,10 @@ module MU
         @ansible_path = node.deploy.deploy_dir+"/ansible"
         @ansible_execs = MU::Groomer::Ansible.ansibleExecDir
 
+        if !MU::Groomer::Ansible.checkPythonDependencies(@server.windows?)
+          raise AnsibleLibrariesError, "One or more python dependencies not available"
+        end
+
         if !@ansible_execs or @ansible_execs.empty?
           raise NoAnsibleExecError, "No Ansible executables found in visible paths"
         end
@@ -54,6 +62,10 @@ module MU
         installRoles
       end
 
+      # Are Ansible executables and key libraries present and accounted for?
+      def self.available?(windows = false)
+        MU::Groomer::Ansible.checkPythonDependencies(windows)
+      end
 
       # Indicate whether our server has been bootstrapped with Ansible
       def haveBootstrapped?
@@ -66,6 +78,7 @@ module MU
       # @param permissions [Boolean]: If true, save the secret under the current active deploy (if any), rather than in the global location for this user
       # @param deploy_dir [String]: If permissions is +true+, save the secret here
       def self.saveSecret(vault: nil, item: nil, data: nil, permissions: false, deploy_dir: nil)
+
         if vault.nil? or vault.empty? or item.nil? or item.empty?
           raise MuError, "Must call saveSecret with vault and item names"
         end
@@ -73,7 +86,6 @@ module MU
           raise MuError, "Ansible vault/item names cannot include forward slashes"
         end
         pwfile = vaultPasswordFile
-        
 
         dir = if permissions
           if deploy_dir
@@ -95,8 +107,9 @@ module MU
         if File.exist?(path)
           MU.log "Overwriting existing vault #{vault} item #{item}"
         end
+
         File.open(path, File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
-          f.write data
+          f.write data.to_yaml
         }
 
         cmd = %Q{#{ansibleExecDir}/ansible-vault encrypt #{path} --vault-password-file #{pwfile}}
@@ -115,14 +128,23 @@ module MU
       # @param item [String]: The item within the repository to retrieve
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
-      def self.getSecret(vault: nil, item: nil, field: nil)
+      def self.getSecret(vault: nil, item: nil, field: nil, deploy_dir: nil)
         if vault.nil? or vault.empty?
           raise MuError, "Must call getSecret with at least a vault name"
         end
-
         pwfile = vaultPasswordFile
-        dir = secret_dir+"/"+vault
-        if !Dir.exist?(dir)
+
+        dir = nil
+        try = [secret_dir+"/"+vault]
+        try << deploy_dir+"/ansible/vaults/"+vault if deploy_dir
+        try << MU.mommacat.deploy_dir+"/ansible/vaults/"+vault if MU.mommacat.deploy_dir
+        try.each { |maybe_dir|
+          if Dir.exist?(maybe_dir) and (item.nil? or File.exist?(maybe_dir+"/"+item))
+            dir = maybe_dir
+            break
+          end
+        }
+        if dir.nil?
           raise MuNoSuchSecret, "No such vault #{vault}"
         end
 
@@ -135,17 +157,23 @@ module MU
           cmd = %Q{#{ansibleExecDir}/ansible-vault view #{itempath} --vault-password-file #{pwfile}}
           MU.log cmd
           a = `#{cmd}`
-          # If we happen to have stored recognizeable JSON, return it as parsed,
-          # which is a behavior we're used to from Chef vault. Otherwise, return
-          # a String.
+          # If we happen to have stored recognizeable JSON or YAML, return it
+          # as parsed, which is a behavior we're used to from Chef vault.
+          # Otherwise, return a String.
           begin
             data = JSON.parse(a)
-            if field and data[field]
-              data = data[field]
-            end
           rescue JSON::ParserError
-            data = a
+            begin
+              data = YAML.load(a)
+            rescue Psych::SyntaxError => e
+              data = a
+            end
           end
+          [vault, item, field].each { |tier|
+            if data and data.is_a?(Hash) and tier and data[tier]
+              data = data[tier]
+            end
+          }
         else
           data = []
           Dir.foreach(dir) { |entry|
@@ -160,7 +188,7 @@ module MU
 
       # see {MU::Groomer::Ansible.getSecret}
       def getSecret(vault: nil, item: nil, field: nil)
-        self.class.getSecret(vault: vault, item: item, field: field)
+        self.class.getSecret(vault: vault, item: item, field: field, deploy_dir: @server.deploy.deploy_dir)
       end
 
       # Delete a Ansible data bag / Vault
@@ -215,7 +243,9 @@ module MU
           play = {
             "hosts" => @server.config['name']
           }
-          play["become"] = "yes" if @server.config['ssh_user'] != "root"
+          if !@server.windows? and @server.config['ssh_user'] != "root"
+            play["become"] = "yes"
+          end
           play["roles"] = override_runlist if @server.config['run_list'] and !@server.config['run_list'].empty?
           play["vars"] = @server.config['ansible_vars'] if @server.config['ansible_vars']
 
@@ -227,7 +257,7 @@ module MU
           "#{@server.config['name']}.yml"
         end
 
-        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
+        cmd = %Q{cd #{@ansible_path} && echo "#{purpose}" && #{@ansible_execs}/ansible-playbook -i hosts #{playbook} --limit=#{@server.windows? ? @server.canonicalIP : @server.mu_name} --vault-password-file #{pwfile} --timeout=30 --vault-password-file #{@ansible_path}/.vault_pw -u #{ssh_user}}
 
         retries = 0
         begin
@@ -252,6 +282,7 @@ module MU
             sleep 30
             retries += 1
             MU.log "Failed Ansible run, will retry (#{retries.to_s}/#{max_retries.to_s})", MU::NOTICE, details: cmd
+
             retry
           else
             tmpfile.unlink if tmpfile
@@ -275,12 +306,12 @@ module MU
       # Bootstrap our server with Ansible- basically, just make sure this node
       # is listed in our deployment's Ansible inventory.
       def bootstrap
-        @inventory.add(@server.config['name'], @server.mu_name)
+        @inventory.add(@server.config['name'], @server.windows? ? @server.canonicalIP : @server.mu_name)
         play = {
           "hosts" => @server.config['name']
         }
 
-        if @server.config['ssh_user'] != "root"
+        if !@server.windows? and @server.config['ssh_user'] != "root"
           play["become"] = "yes"
         end
 
@@ -292,9 +323,26 @@ module MU
           play["vars"] = @server.config['ansible_vars']
         end
 
+        if @server.windows?
+          play["vars"] ||= {}
+          play["vars"]["ansible_connection"] = "winrm"
+          play["vars"]["ansible_winrm_scheme"] = "https"
+          play["vars"]["ansible_winrm_transport"] = "ntlm"
+          play["vars"]["ansible_winrm_server_cert_validation"] = "ignore" # XXX this sucks; use Mu_CA.pem if we can get it to work
+#          play["vars"]["ansible_winrm_ca_trust_path"] = "#{MU.mySSLDir}/Mu_CA.pem"
+          play["vars"]["ansible_user"] = @server.config['windows_admin_username']
+          win_pw = @server.getWindowsAdminPassword
+
+          pwfile = MU::Groomer::Ansible.vaultPasswordFile
+          cmd = %Q{#{MU::Groomer::Ansible.ansibleExecDir}/ansible-vault}
+          output = %x{#{cmd} encrypt_string '#{win_pw.gsub(/'/, "\\\\'")}' --vault-password-file #{pwfile}}
+
+          play["vars"]["ansible_password"] = output
+        end
+
         File.open(@ansible_path+"/"+@server.config['name']+".yml", File::CREAT|File::RDWR|File::TRUNC, 0600) { |f|
           f.flock(File::LOCK_EX)
-          f.puts [play].to_yaml
+          f.puts [play].to_yaml.sub(/ansible_password: \|-?[\n\s]+/, 'ansible_password: ') # Ansible doesn't like this (legal) YAML
           f.flock(File::LOCK_UN)
         }
       end
@@ -351,11 +399,18 @@ module MU
         allvars['deployment']
       end
 
+      # Nuke everything associated with a deploy. Since we're just some files
+      # in the deploy directory, this doesn't have to do anything.
+      def self.cleanup(deploy_id, noop = false)
+#        deploy = MU::MommaCat.new(MU.deploy_id)
+#        inventory = Inventory.new(deploy)
+      end
+
       # Expunge Ansible resources associated with a node.
       # @param node [String]: The Mu name of the node in question.
       # @param _vaults_to_clean [Array<Hash>]: Dummy argument, part of this method's interface but not used by the Ansible layer
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
-      def self.cleanup(node, _vaults_to_clean = [], noop = false)
+      def self.purge(node, _vaults_to_clean = [], noop = false)
         deploy = MU::MommaCat.new(MU.deploy_id)
         inventory = Inventory.new(deploy)
 #        ansible_path = deploy.deploy_dir+"/ansible"
@@ -388,6 +443,51 @@ module MU
         if !system(cmd, "encrypt_string", string, "--name", name, "--vault-password-file", pwfile)
           raise MuError, "Failed Ansible command: #{cmd} encrypt_string <redacted> --name #{name} --vault-password-file"
         end
+        output
+      end
+
+      # Hunt down and return a path for a Python executable
+      # @return [String]
+      def self.pythonExecDir
+        path = nil
+
+        if File.exist?(BINDIR+"/python")
+          path = BINDIR
+        else
+          paths = [ansibleExecDir]
+          paths.concat(ENV['PATH'].split(/:/))
+          paths << "/usr/bin" # not always in path, esp in pared-down Docker images
+          paths.reject! { |p| p.nil? }
+          paths.uniq.each { |bindir|
+            if File.exist?(bindir+"/python")
+              path = bindir
+              break
+            end
+          }
+        end
+        path
+      end
+
+      # Make sure what's in our Python requirements.txt is reflected in the
+      # Python we're about to run for Ansible
+      def self.checkPythonDependencies(windows = false)
+        return nil if !ansibleExecDir
+
+        execline = File.readlines(ansibleExecDir+"/ansible-playbook").first.chomp.sub(/^#!/, '')
+        if !execline
+          MU.log "Unable to extract a Python executable from #{ansibleExecDir}/ansible-playbook", MU::ERR
+          return false
+        end
+
+        require 'tempfile'
+        f = Tempfile.new("pythoncheck")
+        f.puts "import ansible"
+        f.puts "import winrm" if windows
+        f.close
+
+        system(%Q{#{execline} #{f.path}})
+        f.unlink
+        $?.exitstatus == 0 ? true : false
       end
 
       # Hunt down and return a path for Ansible executables
@@ -397,7 +497,9 @@ module MU
         if File.exist?(BINDIR+"/ansible-playbook")
           path = BINDIR
         else
-          ENV['PATH'].split(/:/).each { |bindir|
+          paths = ENV['PATH'].split(/:/)
+          paths << "/usr/bin"
+          paths.uniq.each { |bindir|
             if File.exist?(bindir+"/ansible-playbook")
               path = bindir
               if !File.exist?(bindir+"/ansible-vault")

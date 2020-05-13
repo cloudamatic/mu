@@ -1,0 +1,11 @@
+# groomers: Chef
+---
+appname: smoketest
+servers: 
+- name: centos6
+  platform: centos6
+  size: m3.medium
+  run_list:
+  - recipe[mu-tools::apply_security]
+  - recipe[mu-tools::updates]
+  - recipe[mu-tools::split_var_partitions]

@@ -10,6 +10,7 @@ servers:
 - name: <%= name %>
   groomer: Ansible
   platform: centos7
+  ssh_user: centos
   cloud: <%= cloud %>
 <% if cloud == "AWS" %>
   size: t2.medium

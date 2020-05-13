@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/container_cluster.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/container_cluster.rb
     class ContainerCluster
 
       # Base configuration schema for a ContainerCluster
@@ -48,7 +48,7 @@ module MU
               "properties" => {
                 "version" => {
                   "type" => "string",
-                  "default" => "1.13",
+                  "default" => "1.14",
                   "description" => "Version of Kubernetes control plane to deploy",
                 },
                 "max_pods" => {
@@ -102,6 +102,11 @@ module MU
         if cluster["max_size"] or cluster["min_size"]
           cluster["max_size"] ||= [cluster["instance_count"], cluster["min_size"]].reject { |c| c.nil? }.max
           cluster["min_size"] ||= [cluster["instance_count"], cluster["min_size"]].reject { |c| c.nil? }.min
+        end
+
+        if cluster['kubernetes_resources'] and !MU::Master.kubectl
+          MU.log "Cannot apply kubernetes resources without a working kubectl executable", MU::ERR
+          ok = false
         end
 
         ok

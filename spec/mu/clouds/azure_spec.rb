@@ -1,6 +1,6 @@
 require 'spec_helper'
 require 'yaml'
-require 'mu/clouds/azure'
+require 'mu/providers/azure'
 
 
 describe MU::Cloud::Azure do

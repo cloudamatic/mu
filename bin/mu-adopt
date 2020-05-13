@@ -21,12 +21,6 @@ require 'bundler/setup'
 require 'optimist'
 require 'mu'
 
-available_clouds = MU::Cloud.supportedClouds
-available_clouds.reject! { |cloud|
-  cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-  cloudclass.listCredentials.nil? or cloudclass.listCredentials.size == 0
-}
-
 available_types = MU::Cloud.resource_types.keys.map { |t| t.to_s }
 grouping_options = {
   "logical" => "Group resources in logical layers (folders and habitats together, users/roles/groups together, network resources together, etc)",
@@ -39,15 +33,18 @@ $opt = Optimist::options do
   EOS
   opt :appname, "The overarching name of the application stack we will generate", :required => false, :default => "mu", :type => :string
   opt :types, "The resource types to scan and import. Valid types: #{available_types.join(", ")}", :required => false, :type => :strings, :default => available_types
-  opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => available_clouds
+  opt :clouds, "The cloud providers to scan and import.", :required => false, :type => :strings, :default => MU::Cloud.availableClouds
   opt :parent, "Where applicable, resources which reside in the root folder or organization are configured with the specified parent in our target BoK", :required => false, :type => :string
   opt :billing, "Force-set this billing entity on created resources, instead of copying from the live resources", :required => false, :type => :string
   opt :sources, "One or more sets of credentials to use when importing resources. By default we will search and import from all sets of available credentials for each cloud provider specified with --clouds", :required => false, :type => :strings
   opt :credentials, "Override the 'credentials' value in our generated Baskets of Kittens to target a single, specific account. Our default behavior is to set each resource to deploy into the account from which it was sourced.", :required => false, :type => :string
   opt :savedeploys, "Generate actual deployment metadata in #{MU.dataDir}/deployments, as though the resources we found were created with mu-deploy. If we are generating more than one configuration, and a resource needs to reference another resource (e.g. to declare a VPC in which to reside), this will allow us to reference them as virtual resource, rather than by raw cloud identifier.", :required => false, :type => :boolean, :default => false
   opt :diff, "List the differences between what we find and an existing, saved deploy from a previous run, if one exists.", :required => false, :type => :boolean
+  opt :merge_changes, "When using --diff, merge detected changes into the baseline deploy after reporting on them.", :required => false, :type => :boolean, :default => false
   opt :grouping, "Methods for grouping found resources into separate Baskets.\n\n"+MU::Adoption::GROUPMODES.keys.map { |g| "* "+g.to_s+": "+MU::Adoption::GROUPMODES[g] }.join("\n")+"\n\n", :required => false, :type => :string, :default => "logical"
   opt :habitats, "Limit scope of searches to the named accounts/projects/subscriptions, instead of search all habitats visible to our credentials.", :required => false, :type => :strings
+  opt :regions, "Restrict to operating on a subset of available regions, instead of all that we know about.", :require => false, :type => :strings
+  opt :scrub, "Whether to set scrub_mu_isms in the BoKs we generate", :default => $MU_CFG.has_key?('adopt_scrub_mu_isms') ? $MU_CFG['adopt_scrub_mu_isms'] : false
 end
 
 ok = true
@@ -101,8 +98,7 @@ if !ok
   exit 1
 end
 
-
-adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats])
+adoption = MU::Adoption.new(clouds: clouds, types: types, parent: $opt[:parent], billing: $opt[:billing], sources: $opt[:sources], credentials: $opt[:credentials], group_by: $opt[:grouping].to_sym, savedeploys: $opt[:savedeploys], diff: $opt[:diff], habitats: $opt[:habitats], scrub_mu_isms: $opt[:scrub], regions: $opt[:regions], merge: $opt[:merge_changes])
 found = adoption.scrapeClouds
 if found.nil? or found.empty?
   MU.log "No resources found to adopt", MU::WARN, details: {"clouds" => clouds, "types" => types }
@@ -116,10 +112,7 @@ boks.each_pair { |appname, bok|
   File.open("#{appname}.yaml", "w") { |f|
     f.write JSON.parse(JSON.generate(bok)).to_yaml
   }
-  conf_engine = MU::Config.new("#{appname}.yaml")
-  stack_conf = conf_engine.config
 #  puts stack_conf.to_yaml
-  MU.log "#{appname}.yaml validated successfully", MU::NOTICE
   MU::Cloud.resource_types.each_pair { |type, cfg|
     if bok[cfg[:cfg_plural]]
       MU.log "#{bok[cfg[:cfg_plural]].size.to_s} #{cfg[:cfg_plural]}", MU::NOTICE

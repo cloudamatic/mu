@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/log.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/log.rb
     class Log
 
       # Base configuration schema for a Log

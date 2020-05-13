@@ -1,0 +1,23 @@
+# Test ECS
+# clouds: AWS
+---
+appname: smoketest
+vpcs:
+- name: ecs
+container_clusters:
+- name: ecsplain
+  flavor: ECS
+  instance_type: t2.medium
+  vpc:
+    name: ecs
+  containers:
+  - name: nginx
+    image: "nginx:1.8"
+- name: ecsfargate
+  flavor: Fargate
+  instance_type: t2.medium
+  vpc:
+    name: ecs
+  containers:
+  - name: nginx
+    image: "nginx:1.8"

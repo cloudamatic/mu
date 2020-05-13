@@ -22,10 +22,9 @@ module MU
     def self.defaultCloud
       configured = {}
       MU::Cloud.supportedClouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         if $MU_CFG[cloud.downcase] and !$MU_CFG[cloud.downcase].empty?
           configured[cloud] = $MU_CFG[cloud.downcase].size
-          configured[cloud] += 0.5 if cloudclass.hosted? # tiebreaker
+          configured[cloud] += 0.5 if MU::Cloud.cloudClass(cloud).hosted? # tiebreaker
         end
       }
       if configured.size > 0
@@ -34,8 +33,7 @@ module MU
         }.first
       else
         MU::Cloud.supportedClouds.each { |cloud|
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-          return cloud if cloudclass.hosted?
+          return cloud if MU::Cloud.cloudClass(cloud).hosted?
         }
         return MU::Cloud.supportedClouds.first
       end
@@ -83,9 +81,8 @@ module MU
     @@loadfails = []
     MU::Cloud.availableClouds.each { |cloud|
       next if @@loadfails.include?(cloud)
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
       begin
-        regions = cloudclass.listRegions()
+        regions = MU::Cloud.cloudClass(cloud).listRegions()
         @@allregions.concat(regions) if regions
       rescue MU::MuError => e
         @@loadfails << cloud
@@ -100,7 +97,7 @@ module MU
         @@allregions = []
         MU::Cloud.availableClouds.each { |cloud|
           next if @@loadfails.include?(cloud)
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          cloudclass = MU::Cloud.cloudClass(cloud)
           begin
             return @@allregions if !cloudclass.listRegions()
             @@allregions.concat(cloudclass.listRegions())
@@ -178,27 +175,27 @@ module MU
       {
         "type" => "array",
         "items" => {
-            "type" => "object",
-            "description" => "Declare other objects which this resource requires. This resource will wait until the others are available to create itself.",
-            "required" => ["name", "type"],
-            "additionalProperties" => false,
-            "properties" => {
-                "name" => {"type" => "string"},
-                "type" => {
-                    "type" => "string",
-                    "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
-                },
-                "phase" => {
-                  "type" => "string",
-                  "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
-                  "enum" => ["create", "groom"]
-                },
-                "no_create_wait" => {
-                    "type" => "boolean",
-                    "default" => false,
-                    "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
-                }
+          "type" => "object",
+          "description" => "Declare other objects which this resource requires. This resource will wait until the others are available to create itself.",
+          "required" => ["name", "type"],
+          "additionalProperties" => false,
+          "properties" => {
+            "name" => {"type" => "string"},
+            "type" => {
+              "type" => "string",
+              "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
+            },
+            "phase" => {
+              "type" => "string",
+              "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
+              "enum" => ["create", "groom"]
+            },
+            "no_create_wait" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
             }
+          }
         }
       }
     end
@@ -244,7 +241,7 @@ module MU
       schema["title"] = type.to_s
 
       if cloud
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(shortclass)
+        cloudclass = MU::Cloud.resourceClass(cloud, type)
 
         if cloudclass.respond_to?(:schema)
           _reqd, cloudschema = cloudclass.schema
@@ -276,15 +273,20 @@ module MU
             schema_chunk["properties"]["creation_style"] != "existing"
           schema_chunk["properties"].each_pair { |key, subschema|
             shortclass = if conf_chunk[key]
-              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
+              shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key, false)
               shortclass
             else
               nil
             end
 
             new_val = applySchemaDefaults(conf_chunk[key], subschema, depth+1, conf_chunk, type: shortclass).dup
-
-            conf_chunk[key] = Marshal.load(Marshal.dump(new_val)) if !new_val.nil?
+            if !new_val.nil?
+              begin
+                conf_chunk[key] = Marshal.load(Marshal.dump(new_val))
+              rescue TypeError
+                conf_chunk[key] = new_val.clone
+              end
+            end
           }
         end
       elsif schema_chunk["type"] == "array" and conf_chunk.kind_of?(Array)
@@ -293,11 +295,10 @@ module MU
           # schema information so that we set those defaults correctly.
           realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
-            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
-            _toplevel_required, cloudschema = cloudclass.schema(self)
+            _toplevel_required, cloudschema = MU::Cloud.resourceClass(item["cloud"], type).schema(self)
 
             newschema = schema_chunk["items"].dup
-            newschema["properties"].merge!(cloudschema)
+            MU::Config.schemaMerge(newschema["properties"], cloudschema, item["cloud"])
             newschema
           else
             schema_chunk["items"].dup
@@ -334,9 +335,9 @@ module MU
         return
       end
 
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud'])
-      shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
-      resclass = Object.const_get("MU").const_get("Cloud").const_get(kitten['cloud']).const_get(shortclass)
+      cloudclass = MU::Cloud.cloudClass(kitten['cloud'])
+
+      resclass = MU::Cloud.resourceClass(kitten['cloud'], type)
 
       schema_fields = ["us_only", "scrub_mu_isms", "credentials", "billing_acct"]
       if !resclass.isGlobal?

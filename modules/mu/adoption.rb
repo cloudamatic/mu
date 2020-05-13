@@ -30,7 +30,8 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [])
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
+
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -44,7 +45,10 @@ module MU
       @savedeploys = savedeploys
       @diff = diff
       @habitats = habitats
+      @regions = regions
       @habitats ||= []
+      @scrub_mu_isms = scrub_mu_isms
+      @merge = merge
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -52,7 +56,7 @@ module MU
       @default_parent = nil
 
       @clouds.each { |cloud|
-        cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+        cloudclass = MU::Cloud.cloudClass(cloud)
         next if cloudclass.listCredentials.nil?
 
         if cloud == "Google" and !@parent and @target_creds
@@ -64,6 +68,10 @@ module MU
 
         cloudclass.listCredentials.each { |credset|
           next if @sources and !@sources.include?(credset)
+          cfg = cloudclass.credConfig(credset)
+          if cfg and cfg['restrict_to_habitats']
+            cfg['restrict_to_habitats'] << cfg['project'] if cfg['project']
+          end
 
           if @parent
 # TODO handle different inputs (cloud_id, etc)
@@ -84,7 +92,7 @@ module MU
 
           @types.each { |type|
             begin
-              resclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
+              resclass = MU::Cloud.resourceClass(cloud, type)
             rescue ::MU::Cloud::MuCloudResourceNotImplemented
               next
             end
@@ -100,17 +108,28 @@ module MU
               credentials: credset,
               allow_multi: true,
               habitats: @habitats.dup,
+              region: @regions,
               dummy_ok: true,
-              debug: false,
-              flags: { "skip_provider_owned" => true }
+              skip_provider_owned: true,
+#              debug: false#,
             )
 
 
             if found and found.size > 0
+              if resclass.cfg_plural == "habitats"
+                found.reject! { |h| !cloudclass.listHabitats(credset).include?(h.cloud_id) }
+              end
               MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
               found.each { |obj|
+                if obj.habitat and !cloudclass.listHabitats(credset).include?(obj.habitat)
+                  next
+                end
                 # XXX apply any filters (e.g. MU-ID tags)
+                if obj.cloud_id.nil?
+                  MU.log "This damn thing gave me no cloud id, what do I even do with that", MU::ERR, details: obj
+                  exit
+                end
                 @scraped[type][obj.cloud_id] = obj
               }
             end
@@ -188,33 +207,59 @@ module MU
         prefix = "mu" if prefix.empty? # so that appnames aren't ever empty
       end
 
+      # Find any previous deploys with this particular profile, which we'll use
+      # later for --diff.
+      @existing_deploys = {}
+      @existing_deploys_by_id = {}
+      @origins = {}
+      @types_found_in = {}
       groupings.each_pair { |appname, types|
-        bok = { "appname" => prefix+appname }
-        if @target_creds
-          bok["credentials"] = @target_creds
-        end
-
-        count = 0
         allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
         next if (types & allowed_types).size == 0
         origin = {
-          "appname" => bok['appname'],
+          "appname" => prefix+appname,
           "types" => (types & allowed_types).sort,
           "habitats" => @habitats.sort,
           "group_by" => @group_by.to_s
         }
 
-        deploy = MU::MommaCat.findMatchingDeploy(origin)
-        if @diff and !deploy
-          MU.log "--diff was set but I failed to find a deploy like me to compare to", MU::ERR, details: origin
-          exit 1
+        @existing_deploys[appname] = MU::MommaCat.findMatchingDeploy(origin)
+        if @existing_deploys[appname]
+          @existing_deploys_by_id[@existing_deploys[appname].deploy_id] = @existing_deploys[appname]
+          @origins[appname] = origin
+          origin['types'].each { |t|
+            @types_found_in[t] = @existing_deploys[appname]
+          }
+        end
+      }
+
+      groupings.each_pair { |appname, types|
+        allowed_types = @types.map { |t| MU::Cloud.resource_types[t][:cfg_plural] }
+        next if (types & allowed_types).size == 0
+
+        bok = { "appname" => prefix+appname }
+        if @scrub_mu_isms
+          bok["scrub_mu_isms"] = true
+        end
+        if @target_creds
+          bok["credentials"] = @target_creds
+        end
+
+        count = 0
+        if @diff
+          if !@existing_deploys[appname]
+            MU.log "--diff was set but I failed to find a deploy like '#{appname}' to compare to (have #{@existing_deploys.keys.join(", ")})", MU::ERR, details: @origins[appname]
+            exit 1
+          else
+            MU.log "Will diff current live resources against #{@existing_deploys[appname].deploy_id}", MU::NOTICE, details: @origins[appname]
+          end
         end
 
         threads = []
         @clouds.each { |cloud|
           @scraped.each_pair { |type, resources|
             res_class = begin
-              MU::Cloud.loadCloudType(cloud, type)
+              MU::Cloud.resourceClass(cloud, type)
             rescue MU::Cloud::MuCloudResourceNotImplemented
               # XXX I don't think this can actually happen
               next
@@ -227,14 +272,27 @@ module MU
 
             Thread.abort_on_exception = true
             resources.values.each { |obj_thr|
+              obj_desc = nil
+              begin
+                obj_desc = obj_thr.cloud_desc
+              rescue StandardError
+              ensure
+                if !obj_desc
+                  MU.log cloud+" "+type.to_s+" "+obj_thr.cloud_id+" did not return a cloud descriptor, skipping", MU::WARN
+                  next
+                end
+              end
               threads << Thread.new(obj_thr) { |obj|
 
-                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats)
+                kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats, types: @types)
                 if kitten_cfg
                   print "."
                   kitten_cfg.delete("credentials") if @target_creds
                   class_semaphore.synchronize {
                     bok[res_class.cfg_plural] << kitten_cfg
+                    if !kitten_cfg['cloud_id']
+                      MU.log "No cloud id in this #{res_class.cfg_name} kitten!", MU::ERR, details: kitten_cfg
+                    end
                   }
                   count += 1
                 end
@@ -266,18 +324,7 @@ module MU
               bok[res_class.cfg_plural].each { |sibling|
                 next if kitten_cfg == sibling
                 if sibling['name'] == kitten_cfg['name']
-                  MU.log "#{res_class.cfg_name} name #{sibling['name']} unavailable, will attempt to rename duplicate object", MU::DEBUG, details: kitten_cfg
-                  if kitten_cfg['parent'] and kitten_cfg['parent'].respond_to?(:id) and kitten_cfg['parent'].id
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['parent'].id
-                  elsif kitten_cfg['project']
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['project']
-                  elsif kitten_cfg['region']
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['region']
-                  elsif kitten_cfg['cloud_id']
-                    kitten_cfg['name'] = kitten_cfg['name']+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
-                  else
-                    raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{sibling['name']} and couldn't come up with a good way to differentiate them"
-                  end
+                  MU::Adoption.deDuplicateName(kitten_cfg, res_class)
                   MU.log "De-duplication: Renamed #{res_class.cfg_name} name '#{sibling['name']}' => '#{kitten_cfg['name']}'", MU::NOTICE
                   break
                 end
@@ -292,29 +339,218 @@ module MU
 # Now walk through all of the Refs in these objects, resolve them, and minimize
 # their config footprint
         MU.log "Minimizing footprint of #{count.to_s} found resources", MU::DEBUG
-        @boks[bok['appname']] = vacuum(bok, origin: origin, save: @savedeploys)
 
-        if @diff and !deploy
+        generated_deploy = generateStubDeploy(bok)
+        @boks[bok['appname']] = vacuum(bok, origin: @origins[appname], deploy: generated_deploy, save: @savedeploys)
+
+        if @diff and !@existing_deploys[appname]
           MU.log "diff flag set, but no comparable deploy provided for #{bok['appname']}", MU::ERR
           exit 1
         end
 
-        if deploy and @diff
-          prevcfg = MU::Config.manxify(vacuum(deploy.original_config, deploy: deploy))
+        if @diff
+          prev_vacuumed = vacuum(@existing_deploys[appname].original_config, deploy: @existing_deploys[appname], keep_missing: true, copy_from: generated_deploy)
+          prevcfg = MU::Config.manxify(prev_vacuumed)
           if !prevcfg
-            MU.log "#{deploy.deploy_id} didn't have a working original config for me to compare", MU::ERR
+            MU.log "#{@existing_deploys[appname].deploy_id} didn't have a working original config for me to compare", MU::ERR
             exit 1
           end
           newcfg = MU::Config.manxify(@boks[bok['appname']])
+          report = prevcfg.diff(newcfg)
 
-          prevcfg.diff(newcfg)
-          exit
+          if report
+
+            if MU.muCfg['adopt_change_notify']
+              notifyChanges(@existing_deploys[appname], report.freeze)
+            end
+            if @merge
+              MU.log "Saving changes to #{@existing_deploys[appname].deploy_id}"
+              @existing_deploys[appname].updateBasketofKittens(newcfg, save_now: true)
+            end
+          end
+
         end
       }
       @boks
     end
 
     private
+
+    # @param tier [Hash]
+    # @param parent_key [String]
+    def crawlChangeReport(tier, parent_key = nil, indent: "")
+      report = []
+      if tier.is_a?(Array)
+        tier.each { |a|
+          sub_report = crawlChangeReport(a, parent_key)
+          report.concat(sub_report) if sub_report and !sub_report.empty?
+        }
+      elsif tier.is_a?(Hash)
+        if tier[:action]
+          preposition = if tier[:action] == :added
+            "to"
+          elsif tier[:action] == :removed
+            "from"
+          else
+            "in"
+          end
+
+          name = ""
+          type_of = parent_key.sub(/s$|\[.*/, '') if parent_key
+          loc = tier[:habitat]
+
+          if tier[:value] and tier[:value].is_a?(Hash)
+            name, loc = MU::MommaCat.getChunkName(tier[:value], type_of)
+          elsif parent_key
+            name = parent_key
+          end
+
+          path_str = []
+          slack_path_str = ""
+          if tier[:parents] and tier[:parents].size > 2
+            path = tier[:parents].clone
+            path.shift
+            path.shift
+            path.pop if path.last == name
+            for c in (0..(path.size-1)) do
+              path_str << ("  " * (c+2)) + (path[c] || "<nil>")
+            end
+            slack_path_str += " under `"+path.join("/")+"`" if path.size > 0
+          end
+          path_str << "" if !path_str.empty?
+
+          plain = (name ? name : type_of) if name or type_of
+          plain ||= "" # XXX but this is a problem
+          slack = "`"+plain+"`"
+
+          plain += " ("+loc+")" if loc and !loc.empty?
+          color = plain
+
+          if tier[:action] == :added
+            color = "+ ".green + plain
+            plain = "+ " + plain
+          elsif tier[:action] == :removed
+            color = "- ".red + plain
+            plain = "- " + plain
+          end
+
+          slack += " #{tier[:action]} #{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
+
+          plain = path_str.join(" => \n") + indent + plain
+          color = path_str.join(" => \n") + indent + color
+
+          slack += " "+slack_path_str+"."
+          myreport = {
+            "slack" => slack,
+            "plain" => plain,
+            "color" => color
+          }
+
+          append = ""
+          if tier[:value] and (tier[:value].is_a?(Array) or tier[:value].is_a?(Hash))
+            if tier[:value].is_a?(Hash)
+              if name
+                tier[:value].delete("entity")
+                tier[:value].delete(name.sub(/\[.*/, '')) if name
+              end
+              if (tier[:value].keys - ["id", "name", "type"]).size > 0
+                myreport["details"] = tier[:value].clone
+                append = PP.pp(tier[:value], '').gsub(/(^|\n)/, '\1'+indent)
+              end
+            else
+              append = indent+"["+tier[:value].map { |v| MU::MommaCat.getChunkName(v, type_of).reverse.join("/") || v.to_s.light_blue }.join(", ")+"]"
+              slack += " #{tier[:action].to_s}: "+tier[:value].map { |v| MU::MommaCat.getChunkName(v, type_of).reverse.join("/") || v.to_s }.join(", ")
+            end
+          else
+            tier[:value] ||= "<nil>"
+            slack += " was #{tier[:action]}"
+            if ![:added, :removed].include?(tier[:action])
+              myreport["slack"] += " New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
+            end
+            append = tier[:value].to_s.bold
+          end
+
+          myreport["slack"] = slack
+
+          if append and !append.empty?
+            myreport["plain"] += " =>\n  "+indent+append
+            myreport["color"] += " =>\n  "+indent+append
+          end
+
+          report << myreport if tier[:action]
+        end
+
+        # Just because we've got changes at this level doesn't mean there aren't
+        # more further down.
+        tier.each_pair { |k, v|
+          next if !(v.is_a?(Hash) or v.is_a?(Array))
+          sub_report = crawlChangeReport(v, k, indent: indent+"  ")
+          report.concat(sub_report) if sub_report and !sub_report.empty?
+        }
+      end
+
+      report
+    end
+
+
+    def notifyChanges(deploy, report)
+      snippet_threshold = (MU.muCfg['adopt_change_notify'] && MU.muCfg['adopt_change_notify']['slack_snippet_threshold']) || 5
+
+      report.each_pair { |res_type, resources|
+        shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(res_type, false)
+        next if !shortclass # we don't really care about Mu metadata changes
+        resources.each_pair { |name, data|
+          if MU::MommaCat.getChunkName(data[:value], res_type).first.nil?
+            symbol = if data[:action] == :added
+              "+".green
+            elsif data[:action] == :removed
+              "-".red
+            else
+              "~".yellow
+            end
+            puts (symbol+" "+res_type+"["+name+"]")
+          end
+
+          noun = shortclass ? shortclass.to_s : res_type.capitalize
+          verb = if data[:action]
+            data[:action].to_s
+          else
+            "modified"
+          end
+
+          changes = crawlChangeReport(data.freeze, res_type)
+
+          slacktext = "#{noun} \*#{name}\* was #{verb}"
+          if data[:habitat]
+            slacktext += " in \*#{data[:habitat]}\*"
+          end
+          snippets = []
+
+          if [:added, :removed].include?(data[:action]) and data[:value]
+            snippets << { text: "```"+JSON.pretty_generate(data[:value])+"```" }
+          else
+            changes.each { |c|
+              slacktext += "\n • "+c["slack"]
+              if c["details"]
+                details = JSON.pretty_generate(c["details"])
+                snippets << { text: "```"+JSON.pretty_generate(c["details"])+"```" }
+              end
+            }
+          end
+
+          changes.each { |c|
+            puts c["color"]
+          }
+          puts ""
+
+          if MU.muCfg['adopt_change_notify'] and MU.muCfg['adopt_change_notify']['slack']
+            deploy.sendAdminSlack(slacktext, scrub_mu_isms: MU.muCfg['adopt_scrub_mu_isms'], snippets: snippets, noop: false)
+          end
+
+        }
+      }
+
+    end
 
     def scrubSchemaDefaults(conf_chunk, schema_chunk, depth = 0, type: nil)
       return if schema_chunk.nil?
@@ -323,7 +559,7 @@ module MU
         deletia = []
         schema_chunk["properties"].each_pair { |key, subschema|
           next if !conf_chunk[key]
-          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key)
+          shortclass, _cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(key, false)
 
           if subschema["default_if"]
             subschema["default_if"].each { |cond|
@@ -347,8 +583,7 @@ module MU
           # theory
           realschema = if type and schema_chunk["items"] and schema_chunk["items"]["properties"] and item["cloud"] and MU::Cloud.supportedClouds.include?(item['cloud'])
 
-            cloudclass = Object.const_get("MU").const_get("Cloud").const_get(item["cloud"]).const_get(type)
-            _toplevel_required, cloudschema = cloudclass.schema(self)
+            _toplevel_required, cloudschema = MU::Cloud.resourceClass(item['cloud'], type).schema(self)
 
             newschema = schema_chunk["items"].dup
             newschema["properties"].merge!(cloudschema)
@@ -372,8 +607,7 @@ module MU
     # Do the same for our main objects: if they all use the same credentials,
     # for example, remove the explicit +credentials+ attributes and set that
     # value globally, once.
-    def vacuum(bok, origin: nil, save: false, deploy: nil)
-      deploy ||= generateStubDeploy(bok)
+    def vacuum(bok, origin: nil, save: false, deploy: nil, copy_from: nil, keep_missing: false)
 
       globals = {
         'cloud' => {},
@@ -393,11 +627,24 @@ module MU
               end
             }
             obj = deploy.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+            inject_metadata = save
+            if obj.nil? and copy_from
+              obj = copy_from.findLitterMate(type: attrs[:cfg_plural], name: resource['name'])
+              if obj
+                inject_metadata = true
+                obj.intoDeploy(deploy, force: true)
+              end
+            end
+
             begin
               raise Incomplete if obj.nil?
+              if inject_metadata
+                deploydata = obj.notify
+                deploy.notify(attrs[:cfg_plural], resource['name'], deploydata, triggering_node: obj)
+              end
               new_cfg = resolveReferences(resource, deploy, obj)
               new_cfg.delete("cloud_id")
-              cred_cfg = MU::Cloud.const_get(obj.cloud).credConfig(obj.credentials)
+              cred_cfg = MU::Cloud.cloudClass(obj.cloud).credConfig(obj.credentials)
               if cred_cfg['region'] == new_cfg['region']
                 new_cfg.delete('region')
               end
@@ -407,6 +654,11 @@ module MU
               end
               processed << new_cfg
             rescue Incomplete
+              if keep_missing
+                processed << resource
+              else
+                MU.log "#{attrs[:cfg_name]} #{resource['name']} didn't show up from findLitterMate", MU::WARN, details: deploy.original_config[attrs[:cfg_plural]].reject { |r| r['name'] != "" }
+              end
             end
           }
 
@@ -417,24 +669,23 @@ module MU
 
       # Pare out global values like +cloud+ or +region+ that appear to be
       # universal in the deploy we're creating.
-      def scrub_globals(h, field)
+      scrub_globals = Proc.new { |h, field|
         if h.is_a?(Hash)
           newhash = {}
           h.each_pair { |k, v|
             next if k == field
-            newhash[k] = scrub_globals(v, field)
+            newhash[k] = scrub_globals.call(v, field)
           }
           h = newhash
         elsif h.is_a?(Array)
           newarr = []
           h.each { |v|
-            newarr << scrub_globals(v, field)
+            newarr << scrub_globals.call(v, field)
           }
-          h = newarr
+          h = newarr.uniq
         end
-
         h
-      end
+      }
 
       globals.each_pair { |field, counts|
         next if counts.size != 1
@@ -444,7 +695,7 @@ module MU
           if bok[attrs[:cfg_plural]]
             new_resources = []
             bok[attrs[:cfg_plural]].each { |resource|
-              new_resources << scrub_globals(resource, field)
+              new_resources << scrub_globals.call(resource, field)
             }
             bok[attrs[:cfg_plural]] = new_resources
           end
@@ -462,9 +713,33 @@ module MU
     end
 
     def resolveReferences(cfg, deploy, parent)
+      mask_deploy_id = false
+
+      check_deploy_id = Proc.new { |cfgblob|
+        (deploy and
+         (cfgblob.is_a?(MU::Config::Ref) or cfgblob.is_a?(Hash)) and
+         cfgblob['deploy_id'] and
+         cfgblob['deploy_id'] != deploy.deploy_id and
+         @diff and
+         @types_found_in[cfgblob['type']] and
+         @types_found_in[cfgblob['type']].deploy_id == cfgblob['deploy_id']
+        )
+      }
+
+      mask_deploy_id = check_deploy_id.call(cfg)
+
       if cfg.is_a?(MU::Config::Ref)
+        if mask_deploy_id
+          cfg.delete("deploy_id")
+          cfg.delete("mommacat")
+          cfg.kitten(deploy)
+        else
+          cfg.kitten(deploy) || cfg.kitten
+        end
+
         hashcfg = cfg.to_h
-        if cfg.kitten(deploy)
+
+        if cfg.kitten
           littermate = deploy.findLitterMate(type: cfg.type, name: cfg.name, cloud_id: cfg.id, habitat: cfg.habitat)
 
           if littermate and littermate.config['name']
@@ -486,16 +761,16 @@ module MU
               hashcfg.delete("name") if cfg.id and !cfg.deploy_id
             end
           end
-        elsif hashcfg["id"] # reference to raw cloud ids is reasonable
+        elsif hashcfg["id"] and !hashcfg["name"]
           hashcfg.delete("deploy_id")
-          hashcfg.delete("name")
         else
           pp parent.cloud_desc
           raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
         end
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
+
         if parent and parent.config
-          cred_cfg = MU::Cloud.const_get(parent.cloud).credConfig(parent.credentials)
+          cred_cfg = MU::Cloud.cloudClass(parent.cloud).credConfig(parent.credentials)
 
           if parent.config['region'] == hashcfg['region'] or
              cred_cfg['region'] == hashcfg['region']
@@ -554,7 +829,12 @@ module MU
             MU.log "Dropping unresolved value", MU::WARN, details: value
           end
         }
-        cfg = new_array
+        cfg = new_array.uniq
+      end
+
+      if mask_deploy_id or check_deploy_id.call(cfg)
+        cfg.delete("deploy_id")
+        MU.log "#{parent} in #{deploy.deploy_id} references something in #{@types_found_in[cfg['type']].deploy_id}, ditching extraneous deploy_id", MU::DEBUG, details: cfg.to_h
       end
 
       cfg
@@ -604,6 +884,10 @@ module MU
 
             if !@scraped[typename][kitten['cloud_id']]
               MU.log "No object in scraped tree for #{attrs[:cfg_name]} #{kitten['cloud_id']} (#{kitten['name']})", MU::ERR, details: kitten
+              if kitten['cloud_id'].nil?
+                pp caller
+                exit
+              end
               next
             end
 
@@ -614,13 +898,29 @@ module MU
             deploy.addKitten(
               attrs[:cfg_plural],
               kitten['name'],
-              @scraped[typename][kitten['cloud_id']]
+              @scraped[typename][kitten['cloud_id']],
+              do_notify: true
             )
           }
         end
       }
 
       deploy
+    end
+
+    def self.deDuplicateName(kitten_cfg, res_class)
+      orig_name = kitten_cfg['name'].dup
+      if kitten_cfg['parent'] and kitten_cfg['parent'].respond_to?(:id) and kitten_cfg['parent'].id
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['parent'].id
+      elsif kitten_cfg['project']
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['project']
+      elsif kitten_cfg['region']
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['region']
+      elsif kitten_cfg['cloud_id']
+        kitten_cfg['name'] = kitten_cfg['name']+"-"+kitten_cfg['cloud_id'].gsub(/[^a-z0-9]/i, "-")
+      else
+        raise MU::Config::DuplicateNameError, "Saw duplicate #{res_class.cfg_name} name #{orig_name} and couldn't come up with a good way to differentiate them"
+      end
     end
 
     # Go through everything we've scraped and update our mappings of cloud ids

@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/collection.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/collection.rb
     class Collection
 
       # Base configuration schema for a Collection

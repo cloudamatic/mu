@@ -24,10 +24,8 @@ require 'mu'
 Dir.chdir(MU.installDir)
 
 credentials = []
-MU::Cloud.supportedClouds.each { |cloud|
-  cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-  next if cloudclass.listCredentials.nil? or cloudclass.listCredentials.size == 0
-  credentials.concat(cloudclass.listCredentials)
+MU::Cloud.availableClouds.each { |cloud|
+  credentials.concat(MU::Cloud.cloudClass(cloud).listCredentials)
 }
 credentials.uniq!
 

@@ -42,7 +42,7 @@ only = ARGV
 
 files = Dir.glob("*.yaml", base: dir)
 files.concat(Dir.glob("*.yml", base: dir))
-baseclouds = MU::Cloud.supportedClouds.reject { |c| c == "CloudFormation" }
+baseclouds = MU::Cloud.availableClouds.reject { |c| c == "CloudFormation" }
 
 commands = {}
 failures = []
@@ -56,20 +56,33 @@ end
 
 files.each { |f|
   clouds = baseclouds.dup
+  groomer_match = true
   File.open(dir+"/"+f).readlines.each { |l|
     l.chomp!
-    next if !l.match(/^\s*#\s*clouds: (.*)/)
-    clouds = []
-    cloudstr = Regexp.last_match[1]
-    cloudstr.split(/\s*,\s*/).each { |c|
-      baseclouds.each { |cloud|
-        if cloud.match(/^#{Regexp.quote(c)}$/i)
-          clouds << cloud
+    if l.match(/^\s*#\s*clouds: (.*)/)
+      clouds = []
+      cloudstr = Regexp.last_match[1]
+      cloudstr.split(/\s*,\s*/).each { |c|
+        baseclouds.each { |cloud|
+          if cloud.match(/^#{Regexp.quote(c)}$/i)
+            clouds << cloud
+          end
+        }
+      }
+    elsif l.match(/^\s*#\s*groomers: (.*)/)
+      groomerstr = Regexp.last_match[1]
+      groomerstr.split(/\s*,\s*/).each { |g|
+        if !MU::Groomer.availableGroomers.include?(g)
+          MU.log "#{f} requires groomer #{g}, which is not available. This test will be skipped.", MU::NOTICE
+          groomer_match = false
         end
       }
-    }
-    break
+    end
   }
+  if !groomer_match
+    next
+  end
+
   clouds.each { |cloud|
     cmd = "mu-deploy #{f} --cloud #{cloud} #{$opts[:full] ? "" : "--dryrun"}"
     commands[cmd] = {

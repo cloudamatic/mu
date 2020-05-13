@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/dnszone.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/dnszone.rb
     class DNSZone
 
       # Base configuration schema for a DNSZone

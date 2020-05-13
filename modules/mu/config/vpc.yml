@@ -1,7 +1,6 @@
 <% if complexity == 'complex' %>
 name: <%= vpc_name %>
 create_nat_gateway: true
-ip_block: 10.231.0.0/16
 enable_traffic_logging: true
 region: us-east-2
 availability_zones:

@@ -2,6 +2,7 @@
 centos6: &centos6 OpenLogic/CentOS/6
 #centos7: &centos7 westernoceansoftwaresprivatelimited/centos-7-6/centos-7-6-server
 centos7: &centos7 OpenLogic/CentOS/7
+centos8: &centos7 OpenLogic/CentOS/8
 rhel8: &rhel8 RedHat/RHEL/8
 rhel7: &rhel7 RedHat/RHEL/7
 rhel6: &rhel6 RedHat/RHEL/6

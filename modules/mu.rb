@@ -79,38 +79,40 @@ class Hash
     }
     return 0 if self == other # that was easy!
     # compare elements and decide who's "bigger" based on their totals?
-    0
+
+    # fine, try some brute force and just hope everything implements to_s
+    self.flatten.map { |e| e.to_s }.join() <=> other.flatten.map { |e| e.to_s }.join()
   end
 
-  # Recursively compare two hashes
-  def diff(with, on = self, level: 0, parents: [])
+  # Recursively compare two Mu Basket of Kittens hashes and report the differences
+  def diff(with, on = self, level: 0, parents: [], report: {}, habitat: nil)
     return if with.nil? and on.nil?
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
     end
     return if on == with
 
-    tree = ""
-    indentsize = 0
-    parents.each { |p|
-      tree += (" " * indentsize) + p + " => \n"
-      indentsize += 2
-    }
-    indent = (" " * indentsize)
-
     changes = []
+    report ||= {}
     if on.is_a?(Hash)
       on_unique = (on.keys - with.keys)
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        diff(with[k], on[k], level: level+1, parents: parents + [k])
+
+        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k], habitat: habitat)
+        if report_data and !report_data.empty?
+          report ||= {}
+          report[k] = report_data
+        end
       }
       on_unique.each { |k|
-        changes << "- ".red+PP.pp({k => on[k] }, '')
+        report[k] = { :action => :removed, :parents => parents, :value => on[k].clone }
+        report[k][:habitat] = habitat if habitat
       }
       with_unique.each { |k|
-        changes << "+ ".green+PP.pp({k => with[k]}, '')
+        report[k] = { :action => :added, :parents => parents, :value => with[k].clone }
+        report[k][:habitat] = habitat if habitat
       }
     elsif on.is_a?(Array)
       return if with == on
@@ -122,29 +124,22 @@ class Hash
       # sorting arrays full of weird, non-primitive types.
       done = []
       on.sort.each { |elt|
-        if elt.is_a?(Hash) and elt['name'] or elt['entity']# or elt['cloud_id']
-          with.sort.each { |other_elt|
-            # Figure out what convention this thing is using for resource identification
-            compare_a, compare_b = if elt['name'].nil? and elt["id"].nil? and !elt["entity"].nil? and !other_elt["entity"].nil?
-              [elt["entity"], other_elt["entity"]]
-            else
-              [elt, other_elt]
-            end
+        if elt.is_a?(Hash) and !MU::MommaCat.getChunkName(elt).first.nil?
+          elt_namestr, elt_location = MU::MommaCat.getChunkName(elt)
 
-            if (compare_a['name'] and compare_b['name'] == compare_a['name']) or
-               (compare_a['name'].nil? and !compare_a["id"].nil? and compare_a["id"] == compare_b["id"])
-              break if elt == other_elt
+          with.sort.each { |other_elt|
+            other_elt_namestr, other_elt_location = MU::MommaCat.getChunkName(other_elt)
+
+            # Case 1: The array element exists in both version of this array
+            if elt_namestr and other_elt_namestr and elt_namestr == other_elt_namestr and (elt_location.nil? or other_elt_location.nil? or elt_location == other_elt_location)
               done << elt
               done << other_elt
-              namestr = if elt['type']
-                "#{elt['type']}[#{elt['name']}]"
-              elsif elt['name']
-                elt['name']
-              elsif elt['entity'] and elt["entity"]["id"]
-                elt['entity']['id']
+              break if elt == other_elt # if they're identical, we're done
+              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], habitat: (elt_location || habitat))
+              if report_data and !report_data.empty?
+                report ||= {}
+                report[elt_namestr] = report_data
               end
-
-              diff(other_elt, elt, level: level+1, parents: parents + [namestr])
               break
             end
           }
@@ -152,43 +147,34 @@ class Hash
       }
       on_unique = (on - with) - done
       with_unique = (with - on) - done
-#    if on_unique.size > 0 or with_unique.size > 0
-#      if before_a != after_a
-#        MU.log "A BEFORE", MU::NOTICE, details: before_a
-#        MU.log "A AFTER", MU::NOTICE, details: after_a
-#      end
-#      if before_b != after_b
-#        MU.log "B BEFORE", MU::NOTICE, details: before_b
-#        MU.log "B AFTER", MU::NOTICE, details: after_b
-#      end
-#    end
+
+      # Case 2: This array entry exists in the old version, but not the new one
       on_unique.each { |e|
-        changes << if e.is_a?(Hash)
-          "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
-        else
-          "- ".red+e.to_s
-        end
+        namestr, loc = MU::MommaCat.getChunkName(e)
+
+        report ||= {}
+        report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
+        report[namestr][:habitat] = loc if loc
       }
+
+      # Case 3: This array entry exists in the new version, but not the old one
       with_unique.each { |e|
-        changes << if e.is_a?(Hash)
-          "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
-        else
-          "+ ".green+e.to_s
-        end
+        namestr, loc = MU::MommaCat.getChunkName(e)
+
+        report ||= {}
+        report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
+        report[namestr][:habitat] = loc if loc
       }
+
+    # A plain old leaf node of data
     else
       if on != with
-        changes << "-".red+" #{on.to_s}"
-        changes << "+".green+" #{with.to_s}"
+        report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with.clone }
+        report[:habitat] = habitat if habitat
       end
     end
 
-    if changes.size > 0
-      puts tree
-      changes.each { |c|
-        puts indent+c
-      }
-    end
+    report.freeze
   end
 
   # Implement a merge! that just updates each hash leaf as needed, not 
@@ -212,8 +198,29 @@ class Hash
 end
 
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
+module MU
+
+  # For log entries that should only be logged when we're in verbose mode
+  DEBUG = 0.freeze
+  # For ordinary log entries
+  INFO = 1.freeze
+  # For more interesting log entries which are not errors
+  NOTICE = 2.freeze
+  # Log entries for non-fatal errors
+  WARN = 3.freeze
+  # Log entries for non-fatal errors
+  WARNING = 3.freeze
+  # Log entries for fatal errors
+  ERR = 4.freeze
+  # Log entries for fatal errors
+  ERROR = 4.freeze
+  # Log entries that will be held and displayed/emailed at the end of deploy,
+  # cleanup, etc.
+  SUMMARY = 5.freeze
+end
 
 require 'mu/logger'
+
 module MU
 
   # Subclass core thread so we can gracefully handle it when we hit system
@@ -263,6 +270,7 @@ module MU
       end while newguy.nil?
 
       @@mu_global_thread_semaphore.synchronize {
+        MU.dupGlobals(Thread.current.object_id, target_thread: newguy)
         @@mu_global_threads << newguy
       }
 
@@ -272,8 +280,9 @@ module MU
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
-    def initialize(message = nil)
-      MU.log message, MU::ERR, details: caller[2] if !message.nil?
+    def initialize(message = nil, silent: false, details: nil)
+      details ||= caller[2]
+      MU.log message, MU::ERR, details: details if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
@@ -285,14 +294,76 @@ module MU
   # Wrapper class for temporary Exceptions. Gives our internals something to
   # inherit that will log a notice message appropriately before bubbling up.
   class MuNonFatal < StandardError
-    def initialize(message = nil)
-      MU.log message, MU::NOTICE if !message.nil?
+    def initialize(message = nil, silent: false)
+      MU.log message, MU::NOTICE if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
         super message
       end
     end
+  end
+
+  # Boilerplate retry block executor, for making cloud API calls which might
+  # fail transiently.
+  #
+  # @param catchme [Array<Exception>]: Exception classes which should be caught and retried
+  # @param wait [Integer]: Number of seconds to wait between retries
+  # @param max [Integer]: Maximum number of retries; if less than 1, will retry indefinitely
+  # @param ignoreme [Array<Exception>]: Exception classes which can be silently treated as success. This will override any +loop_if+ block and return automatically (after invoking +always+, if the latter was specified).
+  # @param on_retry [Proc]: Optional block of code to invoke during retries
+  # @param always [Proc]: Optional block of code to invoke before returning or failing, a bit like +ensure+
+  # @param loop_if [Proc]: Optional block of code to invoke which will cause our block to be rerun until true
+  # @param loop_msg [String]: Message to display every third attempt
+  def self.retrier(catchme = nil, wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil, loop_if: nil, loop_msg: nil)
+
+    loop_if ||= Proc.new { false }
+
+    retries = 0
+    begin
+      retries += 1
+      loglevel = ((retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
+      log_attempts = retries.to_s
+      log_attempts += (max > 0 ? "/"+max.to_s : "")
+      yield(retries, wait) if block_given?
+      if loop_if.call
+        MU.log loop_msg, loglevel, details: log_attempts if loop_msg
+        sleep wait
+      end
+    rescue StandardError => e
+      if catchme and catchme.include?(e.class)
+        if max > 0 and retries >= max
+          always.call if always and always.is_a?(Proc)
+          if ignoreme.include?(e.class)
+            return
+          else
+            raise e
+          end
+        end
+
+        if on_retry and on_retry.is_a?(Proc)
+          on_retry.call(e)
+        end
+
+        if retries == max-1
+          MU.log e.message, MU::WARN, details: caller
+          sleep wait # wait extra on the final attempt
+        else
+          MU.log e.message, loglevel, details: log_attempts
+        end
+
+        sleep wait
+        retry
+      elsif ignoreme and ignoreme.include?(e.class)
+        always.call if always and always.is_a?(Proc)
+        return
+      else
+        always.call if always and always.is_a?(Proc)
+        raise e
+      end
+    end while loop_if.call and (max < 1 or retries < max)
+
+    always.call if always and always.is_a?(Proc)
   end
 
   if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
@@ -394,20 +465,20 @@ module MU
   @@global_var_semaphore = Mutex.new
 
   # Set one of our global per-thread variables.
-  def self.setVar(name, value)
+  def self.setVar(name, value, target_thread: Thread.current)
     @@global_var_semaphore.synchronize {
-      @@globals[Thread.current.object_id] ||= Hash.new
-      @@globals[Thread.current.object_id][name] ||= Hash.new
-      @@globals[Thread.current.object_id][name] = value
+      @@globals[target_thread.object_id] ||= Hash.new
+      @@globals[target_thread.object_id][name] ||= Hash.new
+      @@globals[target_thread.object_id][name] = value
     }
   end
 
   # Copy the set of global variables in use by another thread, typically our
   # parent thread.
-  def self.dupGlobals(parent_thread_id)
+  def self.dupGlobals(parent_thread_id, target_thread: Thread.current)
     @@globals[parent_thread_id] ||= {}
     @@globals[parent_thread_id].each_pair { |name, value|
-      setVar(name, value)
+      setVar(name, value, target_thread: target_thread)
     }
   end
 
@@ -535,9 +606,10 @@ module MU
   end
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level = MU::INFO, details: nil, html: false, verbosity: nil, color: true)
+  def self.log(msg, level = MU::INFO, shorthand_details = nil, details: nil, html: false, verbosity: nil, color: true)
     return if (level == MU::DEBUG and verbosity and verbosity <= MU::Logger::LOUD)
     return if verbosity and verbosity == MU::Logger::SILENT
+    details ||= shorthand_details
 
     if (level == MU::ERR or
         level == MU::WARN or
@@ -556,25 +628,6 @@ module MU
     @@logger.log(msg, level, details: details, html: html, verbosity: verbosity, color: color)
   end
 
-  # For log entries that should only be logged when we're in verbose mode
-  DEBUG = 0.freeze
-  # For ordinary log entries
-  INFO = 1.freeze
-  # For more interesting log entries which are not errors
-  NOTICE = 2.freeze
-  # Log entries for non-fatal errors
-  WARN = 3.freeze
-  # Log entries for non-fatal errors
-  WARNING = 3.freeze
-  # Log entries for fatal errors
-  ERR = 4.freeze
-  # Log entries for fatal errors
-  ERROR = 4.freeze
-  # Log entries that will be held and displayed/emailed at the end of deploy,
-  # cleanup, etc.
-  SUMMARY = 5.freeze
-
-
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
   autoload :MommaCat, 'mu/mommacat'
@@ -588,7 +641,7 @@ module MU
     new_cfg = $MU_CFG.dup
     examples = {}
     MU::Cloud.supportedClouds.each { |cloud|
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       begin
         if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
           cfg_blob = cloudclass.hosted_config
@@ -744,11 +797,7 @@ module MU
   # @param groomer [String]: The grooming agent to load.
   # @return [Class]: The class object implementing this groomer agent
   def self.loadGroomer(groomer)
-    if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
-      raise MuError, "Requested to use unsupported grooming agent #{groomer}"
-    end
-    require "mu/groomers/#{groomer.downcase}"
-    return Object.const_get("MU").const_get("Groomer").const_get(groomer)
+    MU::Groomer.loadGroomer(groomer)
   end
 
   @@myRegion_var = nil
@@ -902,8 +951,7 @@ module MU
 
   @@myCloudDescriptor = nil
   if MU.myCloud
-    svrclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud).const_get("Server")
-    found = svrclass.find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
+    found = MU::Cloud.resourceClass(MU.myCloud, "Server").find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
 #    found = MU::MommaCat.findStray(MU.myCloud, "server", cloud_id: @@myInstanceId, dummy_ok: true, region: MU.myRegion)
     if !found.nil? and found.size == 1
       @@myCloudDescriptor = found.values.first
@@ -916,8 +964,7 @@ module MU
   def self.myVPCObj
     return nil if MU.myCloud.nil?
     return @@myVPCObj_var if @@myVPCObj_var
-    cloudclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud)
-    @@myVPCObj_var ||= cloudclass.myVPCObj
+    @@myVPCObj_var ||= MU::Cloud.cloudClass(MU.myCloud).myVPCObj
     @@myVPCObj_var
   end
 
@@ -1015,15 +1062,15 @@ module MU
 
   # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
   # return [String]: A password string.
-  def self.generateWindowsPassword(safe_pattern: '~!@#%^&*_-+=`|(){}[]:;<>,.?', retries: 25)
+  def self.generateWindowsPassword(safe_pattern: '~!@#%^&*_-+=`|(){}[]:;<>,.?', retries: 50)
     # We have dopey complexity requirements, be stringent here.
     # I'll be nice and not condense this into one elegant-but-unreadable regular expression
     attempts = 0
     safe_metachars = Regexp.escape(safe_pattern)
     begin
       if attempts > retries
-        MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
-        raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
+        MU.log "Failed to generate an adequate Windows password after #{attempts} attempts", MU::ERR
+        raise MuError, "Failed to generate an adequate Windows password after #{attempts} attempts"
       end
       winpass = Password.random(14..16)
       attempts += 1
@@ -1042,10 +1089,9 @@ module MU
 
     clouds = platform.nil? ? MU::Cloud.supportedClouds : [platform]
     clouds.each { |cloud|
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      bucketname = cloudclass.adminBucketName(credentials)
+      bucketname = MU::Cloud.cloudClass(cloud).adminBucketName(credentials)
       begin
-        if platform or (cloudclass.hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
+        if platform or (MU::Cloud.cloudClass(cloud).hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
           return bucketname
         end
       end

@@ -19,6 +19,93 @@ module MU
   # the normal synchronous deploy sequence invoked by *mu-deploy*.
   class MommaCat
 
+    # Given a cloud provider's native descriptor for a resource, make some
+    # reasonable guesses about what the thing's name should be.
+    def self.guessName(desc, resourceclass, cloud_id: nil, tag_value: nil)
+      if desc.respond_to?(:tags) and
+         desc.tags.is_a?(Array) and
+         desc.tags.first.respond_to?(:key) and
+         desc.tags.map { |t| t.key }.include?("Name")
+        desc.tags.select { |t| t.key == "Name" }.first.value
+      else
+        try = nil
+        # Various GCP fields
+        [:display_name, :name, (resourceclass.cfg_name+"_name").to_sym].each { |field|
+          if desc.respond_to?(field) and desc.send(field).is_a?(String)
+            try = desc.send(field)
+            break
+          end
+
+        }
+        try ||= if !tag_value.nil?
+            tag_value
+          else
+            cloud_id
+          end
+        try
+      end
+
+    end
+
+    # Given a piece of a BoK resource descriptor Hash, come up with shorthand
+    # strings to give it a name for human readers. If nothing reasonable can be
+    # extracted, returns nil.
+    # @param obj [Hash]
+    # @param array_of [String]
+    # @return [Array<String,nil>]
+    def self.getChunkName(obj, array_of = nil)
+      return [nil, nil] if obj.nil?
+      if [String, Integer, Boolean].include?(obj.class)
+        return [obj, nil]
+      end
+      obj_type = array_of || obj['type']
+      obj_name = obj['name'] || obj['id'] || obj['mu_name'] || obj['cloud_id']
+
+      name_string = if obj_name
+        if obj_type
+          "#{obj_type}[#{obj_name}]"
+        else
+          obj_name.dup
+        end
+      else
+        found_it = nil
+        using = nil
+        ["entity", "role"].each { |subtype|
+          if obj[subtype] and obj[subtype].is_a?(Hash)
+            found_it = if obj[subtype]["id"]
+              obj[subtype]['id'].dup
+            elsif obj[subtype]["type"] and obj[subtype]["name"]
+              "#{obj[subtype]['type']}[#{obj[subtype]['name']}]"
+            end
+            break
+          end
+        }
+        found_it
+      end
+      name_string.gsub!(/\[.+?\](\[.+?\]$)/, '\1') if name_string # source is frozen so we can't just do gsub!
+
+      location = if obj['project']
+        obj['project']
+      elsif obj['habitat'] and (obj['habitat']['id'] or obj['habitat']['name'])
+        obj['habitat']['name'] || obj['habitat']['id']
+      else
+        hab_str = nil
+        ['projects', 'habitats'].each { |key|
+
+          if obj[key] and obj[key].is_a?(Array)
+            hab_str = obj[key].sort.map { |p|
+              (p["name"] || p["id"]).gsub(/^.*?[^\/]+\/([^\/]+)$/, '\1')
+            }.join(", ")
+            name_string.gsub!(/^.*?[^\/]+\/([^\/]+)$/, '\1') if name_string
+            break
+          end
+        }
+        hab_str
+      end
+
+      [name_string, location]
+    end
+
     # Generate a three-character string which can be used to unique-ify the
     # names of resources which might potentially collide, e.g. Windows local
     # hostnames, Amazon Elastic Load Balancers, or server pool instances.
@@ -190,17 +277,18 @@ module MU
     # SSH config entries, etc.
     # @param server [MU::Cloud::Server]: The {MU::Cloud::Server} we'll be setting up.
     # @param sync_wait [Boolean]: Whether to wait for DNS to fully synchronize before returning.
-    def self.nameKitten(server, sync_wait: false)
+    def self.nameKitten(server, sync_wait: false, no_dns: false)
       node, config, _deploydata = server.describe
 
       mu_zone = nil
       # XXX GCP!
-      if MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
+      if !no_dns and MU::Cloud::AWS.hosted? and !MU::Cloud::AWS.isGovCloud?
         zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
         mu_zone = zones.values.first if !zones.nil?
       end
+
       if !mu_zone.nil?
-        MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
+        MU::Cloud::DNSZone.genericMuDNSEntry(name: node.gsub(/[^a-z0-9!"\#$%&'\(\)\*\+,\-\/:;<=>\?@\[\]\^_`{\|}~\.]/, '-').gsub(/--|^-/, ''), target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
       else
         MU::Master.addInstanceToEtcHosts(server.canonicalIP, node)
       end

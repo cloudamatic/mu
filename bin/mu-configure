@@ -113,6 +113,44 @@ $CONFIGURABLES = {
     "desc" => "Disable the Momma Cat grooming daemon. Nodes which require asynchronous Ansible/Chef bootstraps will not function. This option is only honored in gem-based installations.",
     "boolean" => true
   },
+  "adopt_change_notify" => {
+    "title" => "Adoption Change Notifications",
+    "subtree" => {
+      "slack" => {
+        "title" => "Send to Slack",
+        "desc" => "Report modifications to adopted resources, detected by mu-adopt --diff, to the Slack webhook and channel configured under Slack Configuration.",
+        "boolean" => true
+      },
+      "slack_snippet_threshold" => {
+        "title" => "Attachment Threshold",
+        "desc" => "If a list of details about a modified resources is longer than this number of lines (in JSON), it will be sent as an \"attachment,\" which in Slack means a blockquote that displays a few lines with a \"Show more\" button. The internal default is 5 lines."
+      },
+#      "email" => {
+#        "title" => "Send Email",
+#        "desc" => "",
+#        "boolean" => true
+#      }
+    }
+  },
+  "adopt_scrub_mu_isms" => {
+    "title" => "Scrub Mu-isms from Baskets of Kittens",
+    "default" => false,
+    "desc" => "Ordinarily, Mu will automatically name, tag and generate auxiliary resources in a standard Mu-ish fashion that allows for deployment of multiple clones of a given stack. Toggling this flag will change the default behavior of mu-adopt, when it creates stack descriptors from found resources, to enable or disable this behavior (see also mu-adopt's --scrub option).",
+    "boolean" => true
+  },
+  "slack" => {
+    "title" => "Slack Configuration",
+    "subtree" => {
+      "webhook" => {
+        "title" => "Webhook",
+        "desc" => "The hooks.slack.com URL for the webook to which we'll send deploy notifications"
+      },
+      "channel" => {
+        "title" => "Channel",
+        "desc" => "The channel name (without leading #) to which alerts should be sent."
+      }
+    }
+  },
   "mommacat_port" => {
     "title" => "Momma Cat Listen Port",
     "pattern" => /^[0-9]+$/i,
@@ -241,10 +279,24 @@ $CONFIGURABLES = {
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. GCP service accounts cannot view or manage GSuite resources (groups, users, etc) directly, but must instead masquerade as a GSuite user which has delegated authority to the service account. See also: https://developers.google.com/identity/protocols/OAuth2ServiceAccount#delegatingauthority"
       },
+      "org" => {
+        "title" => "Default Org/Domain",
+        "desc" => "For credential sets which have access to multiple GSuite or Cloud Identity orgs, you must specify a default organization (e.g. my.domain.com)."
+      },
       "customer_id" => {
         "title" => "GSuite Customer ID",
         "required" => false,
         "desc" => "For Google Cloud projects which are attached to a GSuite domain. Some API calls (groups, users, etc) require this identifier. From admin.google.com, choose Security, the Single Sign On, and look for the Entity ID field. The value after idpid= in the URL there should be the customer ID."
+      },
+      "ignore_habitats" => {
+        "title" => "Ignore These Projects",
+        "desc" => "Optional list of projects to ignore, for credentials which have visibility into multiple projects",
+        "array" => true
+      },
+      "restrict_to_habitats" => {
+        "title" => "Operate On Only These Projects",
+        "desc" => "Optional list of projects to which we'll restrict all of our activities.",
+        "array" => true
       },
       "default" => {
         "title" => "Is Default Account",

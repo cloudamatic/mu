@@ -386,6 +386,7 @@ module MU
       best = nil
       best_version = nil
       paths.uniq.each { |path|
+        path.sub!(/^~/, MY_HOME)
         if File.exist?(path+"/kubectl")
           version = %x{#{path}/kubectl version --short --client}.chomp.sub(/.*Client version:\s+v/i, '')
           next if !$?.success?
@@ -546,7 +547,7 @@ module MU
         rescue Errno::ECONNRESET, Errno::ECONNREFUSED
         end
         if response != "ok"
-          MU.log "Error adding #{public_ip} to /etc/hosts via MommaCat request", MU::ERR
+          MU.log "Unable to add #{public_ip} to /etc/hosts via MommaCat request", MU::WARN
         end
         return
       end
@@ -601,7 +602,7 @@ module MU
         return
       end
       if ssh_key_name.nil? or ssh_key_name.empty?
-        MU.log "Failed to extract ssh_key_name for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
+        MU.log "Failed to extract ssh_key_name for #{server.mu_name} in addHostToSSHConfig", MU::ERR
         return
       end
 
@@ -709,6 +710,77 @@ module MU
       end
     end
 
+    # Evict ssh keys associated with a particular deploy from our ssh config
+    # and key directory.
+    # @param deploy_id [String]
+    # @param noop [Boolean]
+    def self.purgeDeployFromSSH(deploy_id, noop: false)
+      myhome = Etc.getpwuid(Process.uid).dir
+      sshdir = "#{myhome}/.ssh"
+      sshconf = "#{sshdir}/config"
+      ssharchive = "#{sshdir}/archive"
+
+      Dir.mkdir(sshdir, 0700) if !Dir.exist?(sshdir) and !noop
+      Dir.mkdir(ssharchive, 0700) if !Dir.exist?(ssharchive) and !noop
+
+      keyname = "deploy-#{deploy_id}"
+      if File.exist?("#{sshdir}/#{keyname}")
+        MU.log "Moving #{sshdir}/#{keyname} to #{ssharchive}/#{keyname}"
+        if !noop
+          File.rename("#{sshdir}/#{keyname}", "#{ssharchive}/#{keyname}")
+        end
+      end
+      if File.exist?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{deploy_id}$/)
+        MU.log "Expunging #{deploy_id} from #{sshconf}"
+        if !noop
+          FileUtils.copy(sshconf, "#{ssharchive}/config-#{deploy_id}")
+          File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
+            f.flock(File::LOCK_EX)
+            newlines = Array.new
+            delete_block = false
+            f.readlines.each { |line|
+              if line.match(/^Host #{deploy_id}\-/)
+                delete_block = true
+              elsif line.match(/^Host /)
+                delete_block = false
+              end
+              newlines << line if !delete_block
+            }
+            f.rewind
+            f.truncate(0)
+            f.puts(newlines)
+            f.flush
+            f.flock(File::LOCK_UN)
+          }
+        end
+      end
+      # XXX refactor with above? They're similar, ish.
+      hostsfile = "/etc/hosts"
+      if File.open(hostsfile).read.match(/ #{deploy_id}\-/)
+        if Process.uid == 0
+          MU.log "Expunging traces of #{deploy_id} from #{hostsfile}"
+          if !noop
+            FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{deploy_id}")
+            File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
+              f.flock(File::LOCK_EX)
+              newlines = Array.new
+              f.readlines.each { |line|
+                newlines << line if !line.match(/ #{deploy_id}\-/)
+              }
+              f.rewind
+              f.truncate(0)
+              f.puts(newlines)
+              f.flush
+              f.flock(File::LOCK_UN)
+            }
+          end
+        else
+          MU.log "Residual /etc/hosts entries for #{deploy_id} must be removed by root user", MU::WARN
+        end
+      end
+
+    end
+
     # Ensure that the Nagios configuration local to the MU master has been
     # updated, and make sure Nagios has all of the ssh keys it needs to tunnel
     # to client nodes.
@@ -738,7 +810,7 @@ module MU
         ssh_conf.puts "  IdentityFile #{NAGIOS_HOME}/.ssh/id_rsa"
         ssh_conf.puts "  StrictHostKeyChecking no"
         ssh_conf.close
-        FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{NAGIOS_HOME}/.ssh/id_rsa")
+        FileUtils.cp("#{Etc.getpwuid(Process.uid).dir}/.ssh/id_rsa", "#{NAGIOS_HOME}/.ssh/id_rsa")
         File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/id_rsa")
         threads = []
 
@@ -751,7 +823,7 @@ module MU
               MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
               next
             end
-            FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
+            FileUtils.cp("#{Etc.getpwuid(Process.uid).dir}/.ssh/#{deploy.ssh_key_name}", "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
             File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{NAGIOS_HOME}/.ssh/#{deploy.ssh_key_name}")
             if deploy.kittens.has_key?("servers")
               deploy.kittens["servers"].values.each { |nodeclasses|

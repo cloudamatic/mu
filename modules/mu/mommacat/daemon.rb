@@ -33,7 +33,7 @@ module MU
       my_key = OpenSSL::PKey::RSA.new(@private_key)
 
       begin
-        if my_key.private_decrypt(ciphertext).force_encoding("UTF-8") == @deploy_secret.force_encoding("UTF-8")
+        if my_key.private_decrypt(ciphertext).force_encoding("UTF-8").chomp == @deploy_secret.force_encoding("UTF-8").chomp
           MU.log "Matched ciphertext for #{MU.deploy_id}", MU::INFO
           return true
         else
@@ -165,11 +165,11 @@ module MU
         if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exist?(deploy_dir+"/.cleanup."+cloud_id) and !File.exist?(deploy_dir+"/.cleanup")
           MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
           sendAdminSlack("Grooming FAILED for `#{kitten.mu_name}` with `#{e.message}` :crying_cat_face:", msg: e.backtrace.join("\n"))
-         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-           msg: e.inspect,
-           data: e.backtrace,
-           debug: true
-         )
+          sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+            msg: e.inspect,
+            data: e.backtrace,
+            debug: true
+          )
           raise e if reraise_fail
         else
           MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
@@ -342,6 +342,8 @@ module MU
       return $?.exitstatus
     end
 
+    @@notified_on_pid = {}
+
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
     def self.status
@@ -352,7 +354,8 @@ module MU
         pid = File.read(daemonPidFile).chomp.to_i
         begin
           Process.getpgid(pid)
-          MU.log "Momma Cat running with pid #{pid.to_s}"
+          MU.log "Momma Cat running with pid #{pid.to_s}", (@@notified_on_pid[pid] ? MU::DEBUG : MU::INFO) # shush
+          @@notified_on_pid[pid] = true
           return true
         rescue Errno::ESRCH
         end

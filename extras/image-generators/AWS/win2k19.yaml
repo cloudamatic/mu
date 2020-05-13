@@ -1,0 +1,21 @@
+---
+  appname: mu
+  vpcs:
+  - name: windowsbuild
+  servers: 
+  - name: win2k19
+    platform: windows
+    vpc:
+      name: windowsbuild
+    size: m4.large
+    scrub_groomer: true
+    groomer: Ansible
+    run_list:
+    - mu-windows
+    ansible_vars:
+      mu_build_image: true
+    create_image:
+      image_then_destroy: true
+      public: true
+      copy_to_regions:
+      - "#ALL"

@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/role.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/role.rb
     class Role
 
       # Base configuration schema for a Group
