@@ -335,8 +335,10 @@ module MU
           return nil if cloud_desc.name == "default" # parent project builds these
           bok = {
             "cloud" => "Azure",
+            "name" => cloud_desc.name,
             "project" => @config['project'],
-            "credentials" => @config['credentials']
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id.to_s
           }
 
           bok

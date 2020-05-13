@@ -337,7 +337,14 @@ module MU
         # We assume that any values we have in +@config+ are placeholders, and
         # calculate our own accordingly based on what's live in the cloud.
         def toKitten(**args)
-          bok = {}
+
+          bok = {
+            "cloud" => "Azure",
+            "name" => cloud_desc.name,
+            "project" => @config['project'],
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id.to_s
+          }
 
           bok
         end
