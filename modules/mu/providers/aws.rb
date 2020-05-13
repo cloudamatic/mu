@@ -805,46 +805,41 @@ end
 
         @@instance_types ||= {}
         @@instance_types[region] ||= {}
-        next_token = nil
 
-        begin
-          # Pricing API isn't widely available, so ask a region we know supports
-          # it
-          resp = MU::Cloud::AWS.pricing(region: "us-east-1").get_products(
-            service_code: "AmazonEC2",
-            filters: [
-              {
-                field: "productFamily",
-                value: "Compute Instance",
-                type: "TERM_MATCH"
-              },
-              {
-                field: "tenancy",
-                value: "Shared",
-                type: "TERM_MATCH"
-              },
-              {
-                field: "location",
-                value: human_region,
-                type: "TERM_MATCH"
-              }
-            ],
-            next_token: next_token
-          )
-          resp.price_list.each { |pricing|
-            data = JSON.parse(pricing)
-            type = data["product"]["attributes"]["instanceType"]
-            next if @@instance_types[region].has_key?(type)
-            @@instance_types[region][type] = {}
-            ["ecu", "vcpu", "memory", "storage"].each { |a|
-              @@instance_types[region][type][a] = data["product"]["attributes"][a]
+        # Pricing API isn't widely available, so ask a region we know supports
+        # it
+        resp = MU::Cloud::AWS.pricing(region: "us-east-1").get_products(
+          service_code: "AmazonEC2",
+          filters: [
+            {
+              field: "productFamily",
+              value: "Compute Instance",
+              type: "TERM_MATCH"
+            },
+            {
+              field: "tenancy",
+              value: "Shared",
+              type: "TERM_MATCH"
+            },
+            {
+              field: "location",
+              value: human_region,
+              type: "TERM_MATCH"
             }
-            @@instance_types[region][type]["memory"].sub!(/ GiB/, "")
-            @@instance_types[region][type]["memory"] = @@instance_types[region][type]["memory"].to_f
-            @@instance_types[region][type]["vcpu"] = @@instance_types[region][type]["vcpu"].to_f
+          ]
+        )
+        resp.price_list.each { |pricing|
+          data = JSON.parse(pricing)
+          type = data["product"]["attributes"]["instanceType"]
+          next if @@instance_types[region].has_key?(type)
+          @@instance_types[region][type] = {}
+          ["ecu", "vcpu", "memory", "storage"].each { |a|
+            @@instance_types[region][type][a] = data["product"]["attributes"][a]
           }
-          next_token = resp.next_token
-        end while resp and next_token
+          @@instance_types[region][type]["memory"].sub!(/ GiB/, "")
+          @@instance_types[region][type]["memory"] = @@instance_types[region][type]["memory"].to_f
+          @@instance_types[region][type]["vcpu"] = @@instance_types[region][type]["vcpu"].to_f
+        }
 
         @@instance_types
       end
