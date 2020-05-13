@@ -415,10 +415,9 @@ module MU
 
           if cloud_desc.enabled_cloudwatch_logs_exports and
              cloud_desc.enabled_cloudwatch_logs_exports.size > 0
-MU.log bok['name'], MU::NOTICE, details: { "desc" => cloud_desc, "bok" => bok }
-#            bok['cloudwatch_logs'] = 
+            bok['cloudwatch_logs'] = cloud_desc.enabled_cloudwatch_logs_exports
           end
-MU.log bok['name'], MU::NOTICE, details: cloud_desc if bok['name'] == "pgcluster"
+
           bok
         end
 
