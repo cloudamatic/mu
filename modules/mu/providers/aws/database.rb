@@ -474,12 +474,16 @@ dependencies
 # XXX ensure subnet group matches our config?
             rescue ::Aws::RDS::Errors::DBSubnetGroupNotFoundFault
               # Create subnet group
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
+              resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
                 db_subnet_group_name: @config["subnet_group_name"],
                 db_subnet_group_description: @config["subnet_group_name"],
                 subnet_ids: subnet_ids,
                 tags: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
               )
+              # The API forces it to lowercase, for some reason? Maybe not
+              # always? Just rely on what it says.
+              @config["subnet_group_name"] = resp.db_subnet_group.db_subnet_group_name
+              resp
             end
 
             myFirewallRules.each { |sg|
@@ -1277,8 +1281,9 @@ dependencies
           end
 
           @config['cluster_identifier'] = cluster.cloud_id.downcase
+
           # We're overriding @config["subnet_group_name"] because we need each cluster member to use the cluster's subnet group instead of a unique subnet group
-          @config["subnet_group_name"] ||= cluster.cloud_id if @vpc
+          @config["subnet_group_name"] = cluster.cloud_desc.db_subnet_group if @vpc
           @config["creation_style"] = "new" if @config["creation_style"] != "new"
           if @config.has_key?("parameter_group_family")
             manageDbParameterGroup
@@ -1336,7 +1341,7 @@ dependencies
 
           noun = @config["create_cluster"] ? "cluster" : "instance"
 
-          MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 5, wait: 10) {
+          MU.retrier([Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotFoundFault], max: 10, wait: 15) {
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
               clean_parent_opts.call
               MU.log "Creating database #{noun} #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
