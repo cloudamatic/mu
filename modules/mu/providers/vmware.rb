@@ -29,8 +29,6 @@ module MU
       @@readonly_semaphore = Mutex.new
       @@readonly = {}
 
-      VMC_AUTH_URI = URI "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize"
-      VMC_API_URL = "https://vmc.vmware.com/vmc/api"
 
       # Module used by {MU::Cloud} to insert additional instance methods into
       # instantiated resources in this cloud layer.
@@ -56,81 +54,94 @@ module MU
       end
 
 
-      @@vmc_tokens = {}
+      class VMC
+        AUTH_URI = URI "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize"
+        API_URL = "https://vmc.vmware.com/vmc/api"
 
-      # Fetch a live authorization token from the VMC API, given a +vmc_token+ underneath our configured credentials
-      # @param credentials [String]
-      # @return [String]
-      def self.getVMCToken(credentials = nil)
-        @@vmc_tokens ||= {}
-        if @@vmc_tokens[credentials]
-          return @@vmc_tokens[credentials]['access_token']
-        end
-        cfg = credConfig(credentials)
-        if !cfg or !cfg['vmc_token']
-          raise MuError, "No VMWare credentials '#{credentials}' found or no VMC token configured"
-        end
+        @@vmc_tokens = {}
 
-        resp = nil
+        # Fetch a live authorization token from the VMC API, given a +vmc_token+ underneath our configured credentials
+        # @param credentials [String]
+        # @return [String]
+        def self.getToken(credentials = nil)
+          @@vmc_tokens ||= {}
+          if @@vmc_tokens[credentials]
+            return @@vmc_tokens[credentials]['access_token']
+          end
+          cfg = MU::Cloud::VMWare.credConfig(credentials)
+          if !cfg or !cfg['vmc'] or !cfg['vmc']['token']
+            raise MuError, "No VMWare credentials #{credentials ? credentials : "<default>"} found or no VMC token configured"
+          end
 
-        req = Net::HTTP::Post.new(VMC_AUTH_URI)
-        req['Content-type'] = "application/json"
-        req.set_form_data('refresh_token' => cfg['vmc_token'])
+          resp = nil
 
-        resp = Net::HTTP.start(VMC_AUTH_URI.hostname, VMC_AUTH_URI.port, :use_ssl => true) {|http|
-          http.request(req)
-        }
+          req = Net::HTTP::Post.new(AUTH_URI)
+          req['Content-type'] = "application/json"
+          req.set_form_data('refresh_token' => cfg['vmc']['token'])
 
-        unless resp.code == "200"
-          raise MuError.new "Failed to authenticate to VMC with auth token under '#{credentials}'", details: resp.body
-        end
-        @@vmc_tokens[credentials] = JSON.parse(resp.body)
-        @@vmc_tokens[credentials]['last_fetched'] = Time.now
-        @@vmc_tokens[credentials]['access_token']
-      end
-
-      # If the given set of credentials has VMC configured, return the default
-      # organization.
-      # @param credentials [String]
-      # @return [Hash]
-      def self.getVMCOrg(credentials = nil)
-        cfg = credConfig(credentials)
-        orgs = callVMC("orgs", credentials: credentials)
-        if orgs.size == 1
-          return orgs.first
-        elsif cfg and cfg['vmc_org']
-          orgs.each { |o|
-            if [org['user_id'], org['user_name'], org['name'], org['display_name']].include?(cfg['vmc_org'])
-              return o
-            end
+          resp = Net::HTTP.start(AUTH_URI.hostname, AUTH_URI.port, :use_ssl => true) {|http|
+            http.request(req)
           }
-        elsif orgs.size > 1
-          raise MuError.new, "I see multiple VMC orgs with my credentials, set vmc_org to specify one as default", details: orgs.map { |o| o['display_name'] }
+
+          unless resp.code == "200"
+            raise MuError.new "Failed to authenticate to VMC with auth token under credentials #{credentials ? credentials : "<default>"}", details: resp.body
+          end
+          @@vmc_tokens[credentials] = JSON.parse(resp.body)
+          @@vmc_tokens[credentials]['last_fetched'] = Time.now
+          @@vmc_tokens[credentials]['access_token']
         end
 
-        nil
-      end
+        # If the given set of credentials has VMC configured, return the default
+        # organization.
+        # @param credentials [String]
+        # @return [Hash]
+        def self.getOrg(credentials = nil)
+          cfg =  MU::Cloud::VMWare.credConfig(credentials)
+          orgs = callAPI("orgs", credentials: credentials)
+          if orgs.size == 1
+            return orgs.first
+          elsif cfg and cfg['vmc'] and cfg['vmc']['org']
+            orgs.each { |o|
+              if [org['user_id'], org['user_name'], org['name'], org['display_name']].include?(cfg['vmc']['org'])
+                return o
+              end
+            }
+          elsif orgs.size > 1
+            raise MuError.new, "I see multiple VMC orgs with credentials #{credentials ? credentials : "<default>"}, set vmc_org to specify one as default", details: orgs.map { |o| o['display_name'] }
+          end
 
-      # Make an API request to VMC
-      # @param path [String]
-      # @param credentials [String]
-      # @return [Array,Hash]
-      def self.callVMC(path, credentials: nil)
-        uri = URI VMC_API_URL+"/"+path
-        req = Net::HTTP::Get.new(uri)
-        req['Content-type'] = "application/json"
-        req['csp-auth-token'] = getVMCToken(credentials)
-
-        MU.log "Calling #{uri.to_s}", MU::NOTICE
-        resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
-          http.request(req)
+          nil
         end
 
-        unless resp.code == "200"
-          raise MuError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
-        end
+        # Make an API request to VMC
+        # @param path [String]
+        # @param credentials [String]
+        # @return [Array,Hash]
+        def self.callAPI(path, method: nil, credentials: nil)
+          uri = URI API_URL+"/"+path
 
-        JSON.parse(resp.body)
+          req = if method == "POST"
+            Net::HTTP::Post.new(uri)
+#        elsif method == "DELETE"
+#          XXX
+          else
+            Net::HTTP::Get.new(uri)
+          end
+
+          req['Content-type'] = "application/json"
+          req['csp-auth-token'] = getToken(credentials)
+
+          MU.log "Calling #{uri.to_s}", MU::NOTICE
+          resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
+            http.request(req)
+          end
+
+          unless resp.code == "200"
+            raise MuError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
+          end
+
+          JSON.parse(resp.body)
+        end
       end
 
       # A hook that is always called just before any of the instance method of
@@ -272,25 +283,6 @@ module MU
       # @param value [String]: The contents of the secret
       def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
         name ||= deploy_id+"-secret"
-        begin
-          MU.log "Writing #{name} to Cloud Storage bucket #{adminBucketName(credentials)}"
-
-          f = Tempfile.new(name) # XXX this is insecure and stupid
-          f.write value
-          f.close
-          objectobj = MU::Cloud::VMWare.storage(:Object).new(
-            bucket: adminBucketName(credentials),
-            name: name
-          )
-          MU::Cloud::VMWare.storage(credentials: credentials).insert_object(
-            adminBucketName(credentials),
-            objectobj,
-            upload_source: f.path
-          )
-          f.unlink
-        rescue ::Google::Apis::ClientError => e
-          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{adminBucketName(credentials)}"
-        end
       end
 
       # Remove the service account and various deploy secrets associated with a deployment. Intended for invocation from MU::Cleanup.
@@ -298,24 +290,6 @@ module MU
       # @param noop [Boolean]: If true, will only print what would be done
       def self.removeDeploySecretsAndRoles(deploy_id = MU.deploy_id, flags: {}, noop: false, credentials: nil)
         cfg = credConfig(credentials)
-        return if !cfg or !cfg['project']
-        flags["project"] ||= cfg['project']
-
-        resp = MU::Cloud::VMWare.storage(credentials: credentials).list_objects(
-          adminBucketName(credentials),
-          prefix: deploy_id
-        )
-        if resp and resp.items
-          resp.items.each { |obj|
-            MU.log "Deleting gs://#{adminBucketName(credentials)}/#{obj.name}"
-            if !noop
-              MU::Cloud::VMWare.storage(credentials: credentials).delete_object(
-                adminBucketName(credentials),
-                obj.name
-              )
-            end
-          }
-        end
       end
 
       # Grant access to appropriate Cloud Storage objects in our log/secret bucket for a deploy member.
@@ -324,55 +298,6 @@ module MU
       # XXX add equivalent for AWS and call agnostically
       def self.grantDeploySecretAccess(acct, deploy_id = MU.deploy_id, name = nil, credentials: nil)
         name ||= deploy_id+"-secret"
-        aclobj = nil
-
-        retries = 0
-        begin
-          MU.log "Granting #{acct} access to list Cloud Storage bucket #{adminBucketName(credentials)}"
-          MU::Cloud::VMWare.storage(credentials: credentials).insert_bucket_access_control(
-            adminBucketName(credentials),
-            MU::Cloud::VMWare.storage(:BucketAccessControl).new(
-              bucket: adminBucketName(credentials),
-              role: "READER",
-              entity: "user-"+acct
-            )
-          )
-
-          aclobj = MU::Cloud::VMWare.storage(:ObjectAccessControl).new(
-            bucket: adminBucketName(credentials),
-            role: "READER",
-            entity: "user-"+acct
-          )
-
-          [name].each { |obj|
-            MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{adminBucketName(credentials)}"
-
-            MU::Cloud::VMWare.storage(credentials: credentials).insert_object_access_control(
-              adminBucketName(credentials),
-              obj,
-              aclobj
-            )
-          }
-        rescue ::Google::Apis::ClientError => e
-MU.log e.message, MU::WARN, details: e.inspect
-          if e.inspect.match(/body: "Not Found"/)
-            raise MuError, "Google admin bucket #{adminBucketName(credentials)} or key #{name} does not appear to exist or is not visible with #{credentials ? credentials : "default"} credentials"
-          elsif e.message.match(/notFound: |Unknown user:|conflict: /)
-            if retries < 5
-              sleep 5
-              retries += 1
-              retry
-            else
-              raise e
-            end
-          elsif e.inspect.match(/The metadata for object "null" was edited during the operation/)
-            MU.log e.message+" - Google admin bucket #{adminBucketName(credentials)}/#{name} with #{credentials ? credentials : "default"} credentials", MU::DEBUG, details: aclobj
-            sleep 10
-            retry
-          else
-            raise MuError, "Got #{e.message} trying to set ACLs for #{deploy_id} in #{adminBucketName(credentials)}"
-          end
-        end
       end
 
       @@is_in_gcp = nil
@@ -412,9 +337,9 @@ MU.log e.message, MU::WARN, details: e.inspect
       # List all SDDCs available to our credentials
       def self.listHabitats(credentials = nil)
         habitats = []
-        org = getVMCOrg(credentials)
+        org = VMC.getOrg(credentials)
         if org and org['id']
-          sddcs = callVMC("orgs/"+org['id']+"/sddcs", credentials: credentials)
+          sddcs = VMC.call("orgs/"+org['id']+"/sddcs", credentials: credentials)
           habitats.concat(sddcs.map { |s| s['id'] })
           pp sddcs
         end
@@ -447,26 +372,6 @@ MU.log e.message, MU::WARN, details: e.inspect
       def self.listAZs(region = self.myRegion)
         []
       end
-
-      # Wrapper class for VMC APIs, so that we can catch some common
-      # transient endpoint errors without having to spray rescues all over the
-      # codebase.
-      class VMCEndpoint
-        @credentials = nil
-
-        # Create a VMC API client
-        # @param api [String]: Which API are we wrapping?
-        # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "", credentials: nil)
-          @credentials = credentials
-        end
-
-        # Catch-all for AWS client methods. Essentially a pass-through with some
-        # rescues for known silly endpoint behavior.
-        def method_missing(method_sym, *arguments)
-        end
-      end
-
 
       # Wrapper class for vSphere APIs, so that we can catch some common
       # transient endpoint errors without having to spray rescues all over the
