@@ -83,7 +83,7 @@ module MU
       next if @@loadfails.include?(cloud)
       begin
         regions = MU::Cloud.cloudClass(cloud).listRegions()
-        @@allregions.concat(regions) if regions
+        @@allregions.concat(regions) if regions and !regions.empty?
       rescue MU::MuError => e
         @@loadfails << cloud
         MU.log e.message, MU::WARN
