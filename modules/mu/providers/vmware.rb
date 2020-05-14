@@ -30,6 +30,7 @@ module MU
       @@readonly = {}
 
       VMC_AUTH_URI = URI "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize"
+      VMC_API_URL = "https://vmc.vmware.com/vmc/api"
 
       # Module used by {MU::Cloud} to insert additional instance methods into
       # instantiated resources in this cloud layer.
@@ -57,24 +58,14 @@ module MU
 
       @@vmc_tokens = {}
 
-#    key = 'youroauthkey'
-#    baseurl = 'https://console.cloud.vmware.com/csp/gateway'
-#    uri = '/am/api/auth/api-tokens/authorize'
-#    headers = {'Content-Type':'application/json'}
-#    payload = {'refresh_token': key}
-#    r = requests.post(f'{baseurl}{uri}', headers = headers, params = payload)
-#    if r.status_code != 200:
-#        print(f'Unsuccessful Login Attmept. Error code {r.status_code}')
-#    else:
-#        print('Login successful. ') 
-#        auth_header = r.json()['access_token']
-#        finalHeader = {'Content-Type':'application/json','csp-auth-token':auth_header}
-#        req = requests.get('https://vmc.vmware.com/vmc/api/orgs', headers = finalHeader)
-#        orgID = req.json()[0]['id']
-#        sddcReq = requests.get('https://vmc.vmware.com/vmc/api/orgs/'+orgID+'/sddcs', headers=finalHeader)
-#        sddcURL = sddcReq.json()[0]['resource_config']['vc_url']
-#        print(sddcURL)
+      # Fetch a live authorization token from the VMC API, given a +vmc_token+ underneath our configured credentials
+      # @param credentials [String]
+      # @return [String]
       def self.getVMCToken(credentials = nil)
+        @@vmc_tokens ||= {}
+        if @@vmc_tokens[credentials]
+          return @@vmc_tokens[credentials]['access_token']
+        end
         cfg = credConfig(credentials)
         if !cfg or !cfg['vmc_token']
           raise MuError, "No VMWare credentials '#{credentials}' found or no VMC token configured"
@@ -85,16 +76,61 @@ module MU
         req = Net::HTTP::Post.new(VMC_AUTH_URI)
         req['Content-type'] = "application/json"
         req.set_form_data('refresh_token' => cfg['vmc_token'])
-pp req.inspect
+
         resp = Net::HTTP.start(VMC_AUTH_URI.hostname, VMC_AUTH_URI.port, :use_ssl => true) {|http|
           http.request(req)
         }
 
         unless resp.code == "200"
-          puts resp.code, resp.body
-          exit
+          raise MuError.new "Failed to authenticate to VMC with auth token under '#{credentials}'", details: resp.body
         end
         @@vmc_tokens[credentials] = JSON.parse(resp.body)
+        @@vmc_tokens[credentials]['last_fetched'] = Time.now
+        @@vmc_tokens[credentials]['access_token']
+      end
+
+      # If the given set of credentials has VMC configured, return the default
+      # organization.
+      # @param credentials [String]
+      # @return [Hash]
+      def self.getVMCOrg(credentials = nil)
+        cfg = credConfig(credentials)
+        orgs = callVMC("orgs", credentials: credentials)
+        if orgs.size == 1
+          return orgs.first
+        elsif cfg and cfg['vmc_org']
+          orgs.each { |o|
+            if [org['user_id'], org['user_name'], org['name'], org['display_name']].include?(cfg['vmc_org'])
+              return o
+            end
+          }
+        elsif orgs.size > 1
+          raise MuError.new, "I see multiple VMC orgs with my credentials, set vmc_org to specify one as default", details: orgs.map { |o| o['display_name'] }
+        end
+
+        nil
+      end
+
+      # Make an API request to VMC
+      # @param path [String]
+      # @param credentials [String]
+      # @return [Array,Hash]
+      def self.callVMC(path, credentials: nil)
+        uri = URI VMC_API_URL+"/"+path
+        req = Net::HTTP::Get.new(uri)
+        req['Content-type'] = "application/json"
+        req['csp-auth-token'] = getVMCToken(credentials)
+
+        MU.log "Calling #{uri.to_s}", MU::NOTICE
+        resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
+          http.request(req)
+        end
+
+        unless resp.code == "200"
+          raise MuError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
+        end
+
+        JSON.parse(resp.body)
       end
 
       # A hook that is always called just before any of the instance method of
@@ -373,13 +409,20 @@ MU.log e.message, MU::WARN, details: e.inspect
         resp.body
       end
 
-      # List all vSphere projects available to our credentials
+      # List all SDDCs available to our credentials
       def self.listHabitats(credentials = nil)
-        []
+        habitats = []
+        org = getVMCOrg(credentials)
+        if org and org['id']
+          sddcs = callVMC("orgs/"+org['id']+"/sddcs", credentials: credentials)
+          habitats.concat(sddcs.map { |s| s['id'] })
+          pp sddcs
+        end
+        habitats
       end
 
       @@regions = {}
-      # List all known vSphere regions
+      # List all known regions
       # @param us_only [Boolean]: Restrict results to United States only
       def self.listRegions(us_only = false, credentials: nil)
         @@regions
