@@ -219,13 +219,13 @@ module MU
           end
 
           if method == "POST" and params and !params.empty?
-            req.set_form_data(params)
+            req.body = JSON.generate(params)
           end
 
           req['Content-type'] = "application/json"
           req['csp-auth-token'] = getToken(credentials)
 
-          MU.log "#{method} #{uri.to_s}", MU::NOTICE, details: params
+          MU.log "#{method} #{uri.to_s}", MU::NOTICE, details: req.body
           resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
             http.request(req)
           end
