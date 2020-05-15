@@ -58,9 +58,12 @@ module MU
         AUTH_URI = URI "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize"
         API_URL = "https://vmc.vmware.com/vmc/api"
 
+        class APIError < MU::MuError
+        end
+
         @@vmc_tokens = {}
 
-        # Fetch a live authorization token from the VMC API, given a +vmc_token+ underneath our configured credentials
+        # Fetch a live authorization token from the VMC API, if there's a +token+ underneath the +vmc+ subsection configured credentials
         # @param credentials [String]
         # @return [String]
         def self.getToken(credentials = nil)
@@ -96,7 +99,9 @@ module MU
         # @param credentials [String]
         # @return [Hash]
         def self.getOrg(credentials = nil)
-          cfg =  MU::Cloud::VMWare.credConfig(credentials)
+          cfg = MU::Cloud::VMWare.credConfig(credentials)
+          return if !cfg or !cfg['vmc']
+
           orgs = callAPI("orgs", credentials: credentials)
           if orgs.size == 1
             return orgs.first
@@ -113,31 +118,120 @@ module MU
           nil
         end
 
+        def self.setAWSIntegrations(credentials = nil)
+          cfg = MU::Cloud::VMWare.credConfig(credentials)
+          credname = credentials
+          credname ||= "<default>"
+          return if !cfg or !cfg['vmc'] or !cfg['vmc']['connections']
+          org = getOrg(credentials)['id']
+
+          aws = MU::Cloud.cloudClass("AWS")
+          cfg['vmc']['connections'].each_pair { |awscreds, awscfg|
+            credcfg= aws.credConfig(awscreds)
+            if !credcfg
+              MU.log "I have a VMWare VMC integration under #{credname} configured for an AWS account named '#{awscreds}', but no such AWS credential set exists", MU::ERR
+              next
+            end
+            acctnum = aws.credToAcct(awscreds)
+            region = awscfg['region'] || aws.myRegion(awscreds)
+
+            resp = begin
+              callAPI("orgs/"+org+"/account-link/connected-accounts")
+            rescue APIError => e
+              MU.log e.message, MU::WARN
+            end
+            aws_account = resp.select { |a| a["account_number"] == acctnum }.first if resp
+
+            if !aws_account
+              stackname = "vmware-vmc-#{credname.gsub(/[^a-z0-9\-]/i, '')}-to-aws-#{awscreds}"
+              stack_cfg = callAPI("orgs/"+org+"/account-link")
+              MU.log "Creating account link between VMWare VMC and AWS account #{awscreds}", details: stack_cfg
+              begin
+                aws.cloudformation(credentials: awscreds, region: region).create_stack(
+                  stack_name: stackname,
+                  capabilities: ["CAPABILITY_IAM"],
+                  template_url: stack_cfg["template_url"]
+                )
+              rescue Aws::CloudFormation::Errors::AlreadyExistsException
+                MU.log "Account link CloudFormation stack already exists", MU::NOTICE, details: stackname
+              end
+
+              desc = nil
+              loop_if = Proc.new {
+                desc = aws.cloudformation(credentials: awscreds, region: region).describe_stacks(
+                  stack_name: stackname,
+                ).stacks.first
+
+                (!desc or desc.stack_status == "CREATE_IN_PROGRESS")
+              }
+              MU.retrier(loop_if: loop_if, wait: 60) {
+                MU.log "Waiting for CloudFormation stack #{stackname} to complete" , MU::NOTICE, details: (desc.stack_status if desc)
+              }
+              if desc.stack_status != "CREATE_COMPLETE"
+                MU.log "Failed to create VMC <=> AWS connective CloudFormation stack", MU::ERR, details: desc
+
+              end
+            end
+
+            if !awscfg['vpc']
+# XXX create one!
+            end
+
+#            linkedAccountId = aws_account["id"]
+#            region = region
+#            pp callAPI("orgs/"+org+"/account-link/sddc-connections")
+            vpcs = callAPI("orgs/"+org+"/account-link/compatible-subnets", params: { "linkedAccountId" => aws_account["id"], "region" => region })["vpc_map"]
+            vpcs.each_pair { |vpc_id, vpc_desc|
+              if [vpc_id, vpc_desc['description'], vpc_desc['cidr_block']].include?(awscfg['vpc'])
+                subnet = vpc_desc["subnets"].select { |s| s["compatible"] }.sample(1).first
+
+                subnet.reject! { |k, v|
+                  v.nil? or !%w{connected_account_id region_name availability_zone subnet_id subnet_cidr_block is_compatible vpc_id vpc_cidr_block name}.include?(k)
+                }
+                callAPI(
+                  "orgs/"+org+"/account-link/compatible-subnets",
+                  method: "POST",
+                  params: subnet
+                )
+              end
+            }
+
+          }
+        end
+
         # Make an API request to VMC
         # @param path [String]
         # @param credentials [String]
         # @return [Array,Hash]
-        def self.callAPI(path, method: nil, credentials: nil)
+        def self.callAPI(path, method: "GET", credentials: nil, params: nil)
           uri = URI API_URL+"/"+path
+
 
           req = if method == "POST"
             Net::HTTP::Post.new(uri)
 #        elsif method == "DELETE"
 #          XXX
           else
+            if params and !params.empty?
+              uri.query = URI.encode_www_form(params)
+            end
             Net::HTTP::Get.new(uri)
+          end
+
+          if method == "POST" and params and !params.empty?
+            req.set_form_data(params)
           end
 
           req['Content-type'] = "application/json"
           req['csp-auth-token'] = getToken(credentials)
 
-          MU.log "Calling #{uri.to_s}", MU::NOTICE
+          MU.log "#{method} #{uri.to_s}", MU::NOTICE, details: params
           resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
             http.request(req)
           end
 
           unless resp.code == "200"
-            raise MuError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
+            raise APIError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
           end
 
           JSON.parse(resp.body)
