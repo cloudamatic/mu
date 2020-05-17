@@ -84,6 +84,8 @@ module MU
       end
       name_string.gsub!(/\[.+?\](\[.+?\]$)/, '\1') if name_string # source is frozen so we can't just do gsub!
 
+      location_list = []
+
       location = if obj['project']
         obj['project']
       elsif obj['habitat'] and (obj['habitat']['id'] or obj['habitat']['name'])
@@ -93,9 +95,10 @@ module MU
         ['projects', 'habitats'].each { |key|
 
           if obj[key] and obj[key].is_a?(Array)
-            hab_str = obj[key].sort.map { |p|
+            location_list = obj[key].sort.map { |p|
               (p["name"] || p["id"]).gsub(/^.*?[^\/]+\/([^\/]+)$/, '\1')
-            }.join(", ")
+            }
+            hab_str = location_list.join(", ")
             name_string.gsub!(/^.*?[^\/]+\/([^\/]+)$/, '\1') if name_string
             break
           end
@@ -103,7 +106,7 @@ module MU
         hab_str
       end
 
-      [name_string, location]
+      [name_string, location, location_list]
     end
 
     # Generate a three-character string which can be used to unique-ify the

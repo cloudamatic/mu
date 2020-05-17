@@ -706,21 +706,26 @@ MU.log e.message, MU::WARN, details: e.inspect
         nil
       end
 
+      @allprojects = []
+
       # List all Google Cloud Platform projects available to our credentials
-      def self.listHabitats(credentials = nil)
+      def self.listHabitats(credentials = nil, use_cache: true)
         cfg = credConfig(credentials)
         return [] if !cfg
         if cfg['restrict_to_habitats'] and cfg['restrict_to_habitats'].is_a?(Array)
           cfg['restrict_to_habitats'] << cfg['project'] if cfg['project']
           return cfg['restrict_to_habitats'].uniq
         end
+        if @allprojects and !@allprojects.empty? and use_cache
+          return @allprojects
+        end
         result = MU::Cloud::Google.resource_manager(credentials: credentials).list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
-        allprojects = result.projects.map { |p| p.project_id }
+        @allprojects = result.projects.map { |p| p.project_id }
         if cfg['ignore_habitats'] and cfg['ignore_habitats'].is_a?(Array)
-          allprojects.reject! { |p| cfg['ignore_habitats'].include?(p) }
+          @allprojects.reject! { |p| cfg['ignore_habitats'].include?(p) }
         end
-        allprojects
+        @allprojects
       end
 
       @@regions = {}
