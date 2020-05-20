@@ -30,6 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
+
     def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
       @scraped = {}
       @clouds = clouds
@@ -338,7 +339,8 @@ module MU
                 end
               }
             }
-            walltimers[type] = Time.now - typestart
+            walltimers[type] ||= 0
+            walltimers[type] += (Time.now - typestart)
           }
         }
 
@@ -433,13 +435,13 @@ module MU
           slack_path_str = ""
           if tier[:parents] and tier[:parents].size > 2
             path = tier[:parents].clone
+            slack_path_str += "#{preposition} \*"+path.join(" ⇨ ")+"\*" if path.size > 0
             path.shift
             path.shift
             path.pop if path.last == name
             for c in (0..(path.size-1)) do
               path_str << ("  " * (c+2)) + (path[c] || "<nil>")
             end
-            slack_path_str += "#{preposition} \*"+path.join(" ⇨ ")+"\*" if path.size > 0
           end
           path_str << "" if !path_str.empty?
 
@@ -489,7 +491,6 @@ module MU
             end
           else
             tier[:value] ||= "<nil>"
-            slack += " was #{tier[:action]}"
             if ![:added, :removed].include?(tier[:action])
               myreport["slack"] += " New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
             end
