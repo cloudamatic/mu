@@ -320,7 +320,7 @@ module MU
           habitats << nil
         end
         if resourceclass.canLiveIn.include?(:Habitat)
-          habitats.concat(cloudclass.listHabitats(credentials))
+          habitats.concat(cloudclass.listHabitats(credentials, use_cache: false))
         end
       end
       habitats << nil if habitats.empty?

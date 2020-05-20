@@ -39,7 +39,7 @@ module MU
       end
 
       # List all AWS projects available to our credentials
-      def self.listHabitats(credentials = nil)
+      def self.listHabitats(credentials = nil, use_cache: true)
         cfg = credConfig(credentials)
         return [] if !cfg or !cfg['account_number']
         [cfg['account_number']]

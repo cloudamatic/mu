@@ -101,6 +101,7 @@ module MU
               raise MuError, "Can't instantiate a MU::Cloud object without a valid cloud (saw '#{my_cloud}')"
             end
             @cloudclass = MU::Cloud.resourceClass(my_cloud, self.class.shortname)
+            @cloud_desc_cache ||= args[:from_cloud_desc] if args[:from_cloud_desc]
             @cloudparentclass = MU::Cloud.cloudClass(my_cloud)
             @cloudobj = @cloudclass.new(
               mommacat: args[:mommacat],
@@ -134,7 +135,6 @@ module MU
           # own initialize(), so initialize all the attributes and instance
           # variables we know to be universal.
           else
-
             class << self
               # Declare attributes that everyone should have
               PUBLIC_ATTRS.each { |a|
@@ -150,6 +150,7 @@ module MU
             end
 
             @deploy = args[:mommacat] || args[:deploy]
+            @cloud_desc_cache ||= args[:from_cloud_desc] if args[:from_cloud_desc]
 
             @credentials = args[:credentials]
             @credentials ||= @config['credentials']

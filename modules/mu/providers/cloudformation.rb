@@ -34,7 +34,7 @@ module MU
       end
 
       # List all AWS projects available to our credentials
-      def self.listHabitats(credentials = nil)
+      def self.listHabitats(credentials = nil, use_cache: true)
         MU::Cloud::AWS.listHabitats(credentials)
       end
 

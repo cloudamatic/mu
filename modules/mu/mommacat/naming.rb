@@ -19,6 +19,16 @@ module MU
   # the normal synchronous deploy sequence invoked by *mu-deploy*.
   class MommaCat
 
+    # Lookup table to translate the word "habitat" back to its
+    # provider-specific jargon
+    HABITAT_SYNONYMS = {
+      "AWS" => "account",
+      "CloudFormation" => "account",
+      "Google" => "project",
+      "Azure" => "subscription",
+      "VMWare" => "sddc"
+    }
+
     # Given a cloud provider's native descriptor for a resource, make some
     # reasonable guesses about what the thing's name should be.
     def self.guessName(desc, resourceclass, cloud_id: nil, tag_value: nil)
@@ -52,8 +62,9 @@ module MU
     # extracted, returns nil.
     # @param obj [Hash]
     # @param array_of [String]
+    # @param habitat_translate [String]
     # @return [Array<String,nil>]
-    def self.getChunkName(obj, array_of = nil)
+    def self.getChunkName(obj, array_of = nil, habitat_translate: nil)
       return [nil, nil] if obj.nil?
       if [String, Integer, Boolean].include?(obj.class)
         return [obj, nil]
@@ -82,7 +93,14 @@ module MU
         }
         found_it
       end
-      name_string.gsub!(/\[.+?\](\[.+?\]$)/, '\1') if name_string # source is frozen so we can't just do gsub!
+      if name_string
+        name_string.gsub!(/\[.+?\](\[.+?\]$)/, '\1')
+        if habitat_translate and HABITAT_SYNONYMS[habitat_translate]
+          name_string.sub!(/^habitats?\[(.+?)\]/i, HABITAT_SYNONYMS[habitat_translate]+'[\1]')
+        end
+      end
+
+      location_list = []
 
       location = if obj['project']
         obj['project']
@@ -93,9 +111,10 @@ module MU
         ['projects', 'habitats'].each { |key|
 
           if obj[key] and obj[key].is_a?(Array)
-            hab_str = obj[key].sort.map { |p|
+            location_list = obj[key].sort.map { |p|
               (p["name"] || p["id"]).gsub(/^.*?[^\/]+\/([^\/]+)$/, '\1')
-            }.join(", ")
+            }
+            hab_str = location_list.join(", ")
             name_string.gsub!(/^.*?[^\/]+\/([^\/]+)$/, '\1') if name_string
             break
           end
@@ -103,7 +122,7 @@ module MU
         hab_str
       end
 
-      [name_string, location]
+      [name_string, location, location_list]
     end
 
     # Generate a three-character string which can be used to unique-ify the

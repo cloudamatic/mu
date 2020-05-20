@@ -30,8 +30,8 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
 
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -117,7 +117,9 @@ module MU
 
             if found and found.size > 0
               if resclass.cfg_plural == "habitats"
-                found.reject! { |h| !cloudclass.listHabitats(credset).include?(h.cloud_id) }
+                found.reject! { |h|
+                  !cloudclass.listHabitats(credset).include?(h.cloud_id)
+                }
               end
               MU.log "Found #{found.size.to_s} raw #{resclass.cfg_plural} in #{cloud}"
               @scraped[type] ||= {}
@@ -256,8 +258,11 @@ module MU
         end
 
         threads = []
+        timers = {}
+        walltimers = {}
         @clouds.each { |cloud|
           @scraped.each_pair { |type, resources|
+            typestart = Time.now
             res_class = begin
               MU::Cloud.resourceClass(cloud, type)
             rescue MU::Cloud::MuCloudResourceNotImplemented
@@ -267,6 +272,7 @@ module MU
             next if !types.include?(res_class.cfg_plural)
 
             bok[res_class.cfg_plural] ||= []
+            timers[type] ||= {}
 
             class_semaphore = Mutex.new
 
@@ -283,6 +289,7 @@ module MU
                 end
               end
               threads << Thread.new(obj_thr) { |obj|
+                start = Time.now
 
                 kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats, types: @types)
                 if kitten_cfg
@@ -293,6 +300,7 @@ module MU
                     if !kitten_cfg['cloud_id']
                       MU.log "No cloud id in this #{res_class.cfg_name} kitten!", MU::ERR, details: kitten_cfg
                     end
+                    timers[type][kitten_cfg['cloud_id']] = (Time.now - start)
                   }
                   count += 1
                 end
@@ -303,6 +311,7 @@ module MU
             threads.each { |t|
               t.join
             }
+
             puts ""
             bok[res_class.cfg_plural].sort! { |a, b|
               strs = [a, b].map { |x|
@@ -330,7 +339,24 @@ module MU
                 end
               }
             }
+            walltimers[type] ||= 0
+            walltimers[type] += (Time.now - typestart)
           }
+        }
+
+        timers.each_pair { |type, resources|
+          next if resources.empty?
+          total = resources.values.sum
+          top_5 =  resources.keys.sort { |a, b|
+            resources[b] <=> resources[a]
+          }.slice(0, 5).map { |k|
+            k.to_s+": "+sprintf("%.2fs", resources[k])
+          }
+          if walltimers[type] < 45
+            MU.log "Kittened #{resources.size.to_s} eligible #{type}s in #{sprintf("%.2fs", walltimers[type])}"
+          else
+            MU.log "Kittened #{resources.size.to_s} eligible #{type}s in #{sprintf("%.2fs", walltimers[type])} (CPU time #{sprintf("%.2fs", total)}, avg #{sprintf("%.2fs", total/resources.size)}). Top 5:", MU::NOTICE, details: top_5
+          end
         }
 
         # No matching resources isn't necessarily an error
@@ -409,13 +435,13 @@ module MU
           slack_path_str = ""
           if tier[:parents] and tier[:parents].size > 2
             path = tier[:parents].clone
+            slack_path_str += "#{preposition} \*"+path.join(" ⇨ ")+"\*" if path.size > 0
             path.shift
             path.shift
             path.pop if path.last == name
             for c in (0..(path.size-1)) do
               path_str << ("  " * (c+2)) + (path[c] || "<nil>")
             end
-            slack_path_str += " under `"+path.join("/")+"`" if path.size > 0
           end
           path_str << "" if !path_str.empty?
 
@@ -429,9 +455,11 @@ module MU
           if tier[:action] == :added
             color = "+ ".green + plain
             plain = "+ " + plain
+            slack += " added"
           elsif tier[:action] == :removed
             color = "- ".red + plain
             plain = "- " + plain
+            slack += " removed"
           end
 
           slack += " #{tier[:action]} #{preposition} \*#{loc}\*" if loc and !loc.empty? and [Array, Hash].include?(tier[:value].class)
@@ -463,7 +491,6 @@ module MU
             end
           else
             tier[:value] ||= "<nil>"
-            slack += " was #{tier[:action]}"
             if ![:added, :removed].include?(tier[:action])
               myreport["slack"] += " New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
             end

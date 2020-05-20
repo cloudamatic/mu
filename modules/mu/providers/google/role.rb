@@ -591,8 +591,13 @@ module MU
                bindings['by_scope']['projects'][args[:project]]
               bindings['by_scope']['projects'][args[:project]].keys.each { |r|
                 if r.match(/^roles\//)
-                  role = MU::Cloud::Google.iam(credentials: args[:credentials]).get_role(r)
-                  found[role.name] = role
+                  begin
+                    role = MU::Cloud::Google.iam(credentials: args[:credentials]).get_role(r)
+                    found[role.name] = role
+                  rescue ::Google::Apis::ClientError => e
+                    raise e if !e.message.match(/(?:forbidden|notFound): /)
+                    MU.log "Failed  MU::Cloud::Google.iam(credentials: #{args[:credentials]}).get_role(#{r})", MU::WARN, details: e.message
+                  end
                 elsif !found[r]
 #                  MU.log "NEED TO GET #{r}", MU::WARN
                 end

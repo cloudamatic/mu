@@ -48,7 +48,7 @@ module MU
       end
 
       # List all Azure subscriptions available to our credentials
-      def self.listHabitats(credentials = nil)
+      def self.listHabitats(credentials = nil, use_cache: true)
         []
       end
 

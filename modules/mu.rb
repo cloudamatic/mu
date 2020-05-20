@@ -125,13 +125,18 @@ class Hash
       done = []
       on.sort.each { |elt|
         if elt.is_a?(Hash) and !MU::MommaCat.getChunkName(elt).first.nil?
-          elt_namestr, elt_location = MU::MommaCat.getChunkName(elt)
+          elt_namestr, elt_location, elt_location_list = MU::MommaCat.getChunkName(elt)
 
           with.sort.each { |other_elt|
-            other_elt_namestr, other_elt_location = MU::MommaCat.getChunkName(other_elt)
+            other_elt_namestr, other_elt_location, other_elt_location_list = MU::MommaCat.getChunkName(other_elt)
 
             # Case 1: The array element exists in both version of this array
-            if elt_namestr and other_elt_namestr and elt_namestr == other_elt_namestr and (elt_location.nil? or other_elt_location.nil? or elt_location == other_elt_location)
+            if elt_namestr and other_elt_namestr and
+               elt_namestr == other_elt_namestr and
+               (elt_location.nil? or other_elt_location.nil? or
+                elt_location == other_elt_location or
+                !(elt_location_list & other_elt_location_list).empty?
+               )
               done << elt
               done << other_elt
               break if elt == other_elt # if they're identical, we're done
