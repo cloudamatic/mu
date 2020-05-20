@@ -126,14 +126,13 @@ module MU
           org = getOrg(credentials)['id']
 
           aws = MU::Cloud.cloudClass("AWS")
-          cfg['vmc']['connections'].each_pair { |awscreds, awscfg|
+          cfg['vmc']['connections'].each_pair { |awscreds, vpcs|
             credcfg= aws.credConfig(awscreds)
             if !credcfg
               MU.log "I have a VMWare VMC integration under #{credname} configured for an AWS account named '#{awscreds}', but no such AWS credential set exists", MU::ERR
               next
             end
             acctnum = aws.credToAcct(awscreds)
-            region = awscfg['region'] || aws.myRegion(awscreds)
 
             resp = begin
               callAPI("orgs/"+org+"/account-link/connected-accounts")
@@ -173,28 +172,65 @@ module MU
               end
             end
 
-            if !awscfg['vpc']
-# XXX create one!
-            end
+            # XXX this is a dumb assumption
+            my_sddc = callAPI("orgs/"+org+"/sddcs").first
+            sddc_id = my_sddc["id"]
 
-#            linkedAccountId = aws_account["id"]
-#            region = region
-#            pp callAPI("orgs/"+org+"/account-link/sddc-connections")
-            vpcs = callAPI("orgs/"+org+"/account-link/compatible-subnets", params: { "linkedAccountId" => aws_account["id"], "region" => region })["vpc_map"]
-            vpcs.each_pair { |vpc_id, vpc_desc|
-              if [vpc_id, vpc_desc['description'], vpc_desc['cidr_block']].include?(awscfg['vpc'])
-                subnet = vpc_desc["subnets"].select { |s| s["compatible"] }.sample(1).first
+            connected = {}
+            callAPI("orgs/"+org+"/account-link/sddc-connections", params: { "sddc" => sddc_id} ).each { |cnxn|
 
-                subnet.reject! { |k, v|
-                  v.nil? or !%w{connected_account_id region_name availability_zone subnet_id subnet_cidr_block is_compatible vpc_id vpc_cidr_block name}.include?(k)
-                }
-                callAPI(
-                  "orgs/"+org+"/account-link/compatible-subnets",
-                  method: "POST",
-                  params: subnet
-                )
-              end
+              connected[cnxn['vpc_id']] ||= []
+              connected[cnxn['vpc_id']] << cnxn['subnet_id']
             }
+
+            vpcs.each { |vpc_cfg|
+              region = vpc_cfg['region'] || aws.myRegion(awscreds)
+
+              if !vpc_cfg['auto']
+# XXX create if does not exist
+              end
+
+              vpcs_confd = callAPI("orgs/"+org+"/account-link/compatible-subnets", params: { "linkedAccountId" => aws_account["id"], "region" => region, "forceRefresh" => true })["vpc_map"]
+              vpcs_confd.each_pair { |vpc_id, vpc_desc|
+                if [vpc_id, vpc_desc['description'], vpc_desc['cidr_block']].include?(vpc_cfg['vpc'])
+# XXX honor subnet_prefs, etc, like just like an ordinary resource
+                  vpc_desc["subnets"].reject { |s| !s["compatible"] }.each { |subnet|
+                    next if connected[vpc_id] and connected[vpc_id].include?(subnet['subnet_id'])
+                    subnet.reject! { |k, v|
+                      v.nil? or !%w{connected_account_id region_name availability_zone subnet_id subnet_cidr_block is_compatible vpc_id vpc_cidr_block name}.include?(k)
+                    }
+                    callAPI(
+                      "orgs/"+org+"/account-link/compatible-subnets",
+                      method: "POST",
+                      params: subnet
+                    )
+                    connected[vpc_id] ||= []
+                    connected[vpc_id] << subnet['subnet_id']
+                  }
+                end
+              }
+            }
+
+pp my_sddc
+exit
+            connected.each_pair { |vpc_id, subnet_ids|
+MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
+              entangle = {
+                "sddc_id" => sddc_id,
+                "name" => my_sddc["name"],
+                "account_link_sddc_config" => [{
+                  "connected_account_id" => aws_account["id"],
+                  "customer_subnet_ids" => subnet_ids
+                }],
+#                "account_link_config" => { "delay_account_link" => false }
+              }
+              pp callAPI("orgs/"+org+"/sddcs", method: "POST", params: entangle)
+            }
+
+#            callAPI("orgs/"+org+"/sddcs").each { |sddc|
+#              sddc["resource_config"]["sddc_id"]
+#MU.log "sddc", MU::NOTICE, details: sddc
+#            }
 
           }
         end
@@ -433,9 +469,8 @@ module MU
         habitats = []
         org = VMC.getOrg(credentials)
         if org and org['id']
-          sddcs = VMC.call("orgs/"+org['id']+"/sddcs", credentials: credentials)
+          sddcs = VMC.callAPI("orgs/"+org['id']+"/sddcs", credentials: credentials)
           habitats.concat(sddcs.map { |s| s['id'] })
-          pp sddcs
         end
         habitats
       end
