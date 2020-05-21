@@ -62,7 +62,6 @@ EOF
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
   s.add_runtime_dependency 'solve', '~> 4.0'
   s.add_runtime_dependency 'thin', "~> 1.7"
-  s.add_runtime_dependency 'vsphere-automation-sdk', "~> 0.4"
   s.add_runtime_dependency 'winrm', "~> 2.3", ">= 2.3.4"
   s.add_runtime_dependency 'yard', "~> 0.9"
 end
