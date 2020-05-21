@@ -102,6 +102,14 @@ module MU
           }
         end
 
+        # Return the date/time a machine image was created.
+        # @param image_id [String]: URL to a Google disk image
+        # @param credentials [String]
+        # @return [DateTime]
+        def self.imageTimeStamp(image_id, credentials: nil)
+          nil
+        end
+
         # Ask the VMWare API to stop this node
         def stop
         end
@@ -129,6 +137,13 @@ module MU
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           found = {}
+          vms = MU::Cloud::VMWare.vm(credentials: args[:credentials]).list().value
+
+          vms.reject! { |v| v.vm != args[:cloud_id] } if args[:cloud_id]
+
+          vms.each { |v|
+            found[v.vm] = MU::Cloud::VMWare.vm(credentials: args[:credentials]).get(v.vm).value
+          }
 
           return found
         end

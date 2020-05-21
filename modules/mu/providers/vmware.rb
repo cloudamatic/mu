@@ -589,7 +589,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
           if arguments and !arguments.empty?
-            @api_client.send(method_sym, arguments)
+            @api_client.send(method_sym, arguments.first)
           else
             @api_client.send(method_sym)
           end
