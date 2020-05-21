@@ -17,6 +17,7 @@ require 'net/https'
 require 'vsphere-automation-sdk'
 require 'vsphere-automation-content'
 require 'vsphere-automation-vcenter'
+require 'vsphere-automation-cis'
 
 module MU
   class Cloud
@@ -509,6 +510,34 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         VSphereEndpoint.new(api: "nsx", credentials: credentials, habitat: habitat)
       end
 
+      def self.datastore(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "DatastoreApi", credentials: credentials, habitat: habitat)
+      end
+
+      def self.datacenter(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "DatacenterApi", credentials: credentials, habitat: habitat)
+      end
+
+      def self.folder(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "FolderApi", credentials: credentials, habitat: habitat)
+      end
+
+      def self.vm(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "VMApi", credentials: credentials, habitat: habitat)
+      end
+
+      def self.host(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "HostApi", credentials: credentials, habitat: habitat)
+      end
+
+      def self.identity(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "IdentityProvidersApi", credentials: credentials, habitat: habitat)
+      end
+
+      def self.cluster(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "ClusterApi", credentials: credentials, habitat: habitat)
+      end
+
       def self.network(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "NetworkApi", credentials: credentials, habitat: habitat)
       end
@@ -543,14 +572,15 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
 # ["resource_config"]["cloud_password"]
           configuration = VSphereAutomation::Configuration.new.tap do |c|
             c.host = url
+            c.username = @sddc["resource_config"]["cloud_username"]
+            c.password = @sddc["resource_config"]["cloud_password"]
             c.debugging = true
-            c.cert_file = StringIO.new(cert["certificate"])
+#            c.cert_file = StringIO.new(cert["certificate"])
             c.scheme = 'https'
           end
 
-pp configuration
-
           @api_blob = VSphereAutomation::ApiClient.new(configuration)
+          VSphereAutomation::CIS::SessionApi.new(@api_blob).create('')
           @api_client = VSphereAutomation::VCenter.const_get(@api).new(@api_blob)
 
         end
@@ -558,7 +588,6 @@ pp configuration
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
-          MU.log "CALLING #{method_sym}", MU::WARN, details: arguments
           if arguments and !arguments.empty?
             @api_client.send(method_sym, arguments)
           else
