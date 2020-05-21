@@ -14,6 +14,9 @@
 
 require "net/http"
 require 'net/https'
+require 'vsphere-automation-sdk'
+require 'vsphere-automation-content'
+require 'vsphere-automation-vcenter'
 
 module MU
   class Cloud
@@ -342,10 +345,10 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         nil
       end
 
-      # Return the MU.muCfg data associated with a particular profile/name/set of
-      # credentials. If no account name is specified, will return one flagged as
-      # default. Returns nil if GCP is not configured. Throws an exception if 
-      # an account name is specified which does not exist.
+      # Return the MU.muCfg data associated with a particular profile/name/set
+      # of credentials. If no account name is specified, will return one
+      # flagged as default. Returns nil if VMWare is not configured. Throws an
+      # exception if an account name is specified which does not exist.
       # @param name [String]: The name of the key under 'vmware' in mu.yaml to return
       # @return [Hash,nil]
       def self.credConfig(name = nil, name_only: false)
@@ -502,22 +505,65 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         []
       end
 
+      def self.nsx(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "nsx", credentials: credentials, habitat: habitat)
+      end
+
+      def self.network(credentials: nil, habitat: nil)
+        VSphereEndpoint.new(api: "NetworkApi", credentials: credentials, habitat: habitat)
+      end
+
       # Wrapper class for vSphere APIs, so that we can catch some common
       # transient endpoint errors without having to spray rescues all over the
       # codebase.
       class VSphereEndpoint
+        attr_reader :org
+        attr_reader :api
+        attr_reader :credentials
+
         @credentials = nil
 
         # Create a vSphere API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "", credentials: nil)
+        def initialize(api: "esx", credentials: nil, habitat: nil)
           @credentials = credentials
+          @org = VMC.getOrg(@credentials)['id']
+          @api = api.to_sym
+
+          @sddc = MU::Cloud.resourceClass("VMWare", "Habitat").find(credentials: @credentials).values.first # XXX again, a terrible assumption; we need a default habitat
+          MU.log "public ips", MU::NOTICE, details: VMC.callAPI("orgs/#{@org}/sddcs/#{@sddc['id']}/publicips")
+
+          url, cert = if api == "nsx"
+            [@sddc["resource_config"]["nsx_mgr_url"], @sddc["resource_config"]["certificates"]["NSX_MANAGER"]]
+          else
+            [@sddc["resource_config"]["vc_url"], @sddc["resource_config"]["certificates"]["VCENTER"]]
+          end
+# ["resource_config"]["cloud_username"]
+# ["resource_config"]["cloud_password"]
+          configuration = VSphereAutomation::Configuration.new.tap do |c|
+            c.host = url
+            c.debugging = true
+            c.cert_file = StringIO.new(cert["certificate"])
+            c.scheme = 'https'
+          end
+
+pp configuration
+
+          @api_blob = VSphereAutomation::ApiClient.new(configuration)
+          @api_client = VSphereAutomation::VCenter.const_get(@api).new(@api_blob)
+
         end
 
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
+          MU.log "CALLING #{method_sym}", MU::WARN, details: arguments
+          if arguments and !arguments.empty?
+            @api_client.send(method_sym, arguments)
+          else
+            @api_client.send(method_sym)
+          end
         end
       end
 
