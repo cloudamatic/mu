@@ -390,11 +390,9 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         cfg = credConfig(credentials)
         if cfg and cfg['region']
           @@myRegion_var = cfg['region']
-        elsif MU::Cloud::VMWare.hosted?
-          zone = MU::Cloud::VMWare.getGoogleMetaData("instance/zone")
-          @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
+#        elsif MU::Cloud::VMWare.hosted?
         else
-          @@myRegion_var = "us-east4"
+          @@myRegion_var = ""
         end
         @@myRegion_var
       end
@@ -521,9 +519,13 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
       def self.folder(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "FolderApi", credentials: credentials, habitat: habitat)
       end
+      @@vm_endpoints = {}
 
       def self.vm(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "VMApi", credentials: credentials, habitat: habitat)
+        @@vm_endpoints[credentials] ||= {}
+#        habitat ||= some_default_magic
+        @@vm_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VMApi", credentials: credentials, habitat: habitat)
+        @@vm_endpoints[credentials][habitat]
       end
 
       def self.host(credentials: nil, habitat: nil)

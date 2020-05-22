@@ -77,6 +77,11 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+# https://vdc-repo.vmware.com/vmwb-repository/dcr-public/1cd28284-3b72-4885-9e31-d1c6d9e26686/71ef7304-a6c9-43b3-a3cd-868b2c236c81/doc/operations/com/vmware/vcenter/vm.create-operation.html
+          params = {
+            "guest_OS" => "CENTOS_7",
+            "name" => @mu_name
+          }
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
