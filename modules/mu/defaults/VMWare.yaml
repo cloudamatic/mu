@@ -1,0 +1,18 @@
+---
+centos6: &centos6 CENTOS_6_64
+centos7: &centos7 CENTOS_7_64
+rhel71: &rhel71 RHEL_7_64
+rhel6: &rhel6 RHEL6_64
+debian10: &debian10 DEBIAN_10_64
+debian9: &debian9 DEBIAN_9_64
+win2k12r2: &win2k12r2 WINDOWS_8_SERVER_64 # I think?
+win2k16: &win2k16 WINDOWS_9_SERVER_64 # I think?
+google: &google COREOS_64
+coreos: *google
+win2k12: *win2k12r2
+windows: *win2k16
+centos: *centos7
+rhel7: *rhel71
+rhel: *rhel71
+linux: *centos7
+debian: *debian10
