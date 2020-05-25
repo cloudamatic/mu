@@ -325,6 +325,37 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         nil
       end
 
+      @@default_sddc_cache = {}
+
+      # Our credentials can map to one or more Software-Defined Data Centers.
+      # It's usually exactly one, so many methods should be able to just assume
+      # we know what they mean when they don't specify.
+      # @param credentials [String]
+      # @return [String]
+      def self.defaultSDDC(credentials = nil)
+        if @@default_sddc_cache.has_key?(credentials)
+          return @@default_sddc_cache[credentials]
+        end
+        cfg = credConfig(credentials)
+        if !cfg or !cfg['sddc']
+#          if hosted?
+#            @@default_sddc_cache[credentials] = myProject
+#            return myProject 
+#          end
+          if cfg
+            sddcs = listHabitats(credentials)
+            if sddcs.size == 1
+              @@default_sddc_cache[credentials] = sddcs[0]
+              return sddcs[0]
+            end
+          end
+        end
+        return nil if !cfg or !cfg['sddc']
+
+        @@default_sddc_cache[credentials] = cfg['sddc']
+        cfg['sddc']
+      end
+
       # Resolve the administrative Cloud Storage bucket for a given credential
       # set, or return a default.
       # @param credentials [String]
@@ -354,7 +385,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
       # @return [Hash,nil]
       def self.credConfig(name = nil, name_only: false)
         # If there's nothing in mu.yaml (which is wrong), but we're running
-        # on a machine hosted in GCP, fake it with that machine's service
+        # on a machine hosted in VMWare, fake it with that machine's service
         # account and hope for the best.
         if !MU.muCfg['vmware'] or !MU.muCfg['vmware'].is_a?(Hash) or MU.muCfg['vmware'].size == 0
           return @@my_hosted_cfg if @@my_hosted_cfg
@@ -384,8 +415,10 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         end
       end
 
-      # If we've configured Google as a provider, or are simply hosted in GCP, 
+      # If we've configured VMC as a provider, or are simply hosted in VMWare, 
       # decide what our default region is.
+      # XXX is this even applicable? should we just inherit the AWS region of
+      # the VMC cluster? does it mean anything to us?
       def self.myRegion(credentials = nil)
         cfg = credConfig(credentials)
         if cfg and cfg['region']
@@ -466,15 +499,31 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         resp.body
       end
 
+      def self.folderToID(name, credentials = nil)
+        folders = folder(credentials: credentials).list().value
+        folders.each { |f|
+          if [f.folder, f.name].include?(name)
+            return f.folder
+          end
+        }
+        nil
+      end
+
+      @@all_sddcs = {}
+
       # List all SDDCs available to our credentials
-      def self.listHabitats(credentials = nil)
+      def self.listHabitats(credentials = nil, use_cache: true)
+        if use_cache and @@all_sddcs and @@all_sddcs[credentials]
+          return @@all_sddcs[credentials]
+        end
         habitats = []
         org = VMC.getOrg(credentials)
         if org and org['id']
           sddcs = VMC.callAPI("orgs/"+org['id']+"/sddcs", credentials: credentials)
           habitats.concat(sddcs.map { |s| s['id'] })
         end
-        habitats
+        @@all_sddcs[credentials] = habitats
+        @@all_sddcs[credentials]
       end
 
       @@regions = {}
@@ -508,40 +557,56 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         VSphereEndpoint.new(api: "nsx", credentials: credentials, habitat: habitat)
       end
 
-      def self.datastore(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "DatastoreApi", credentials: credentials, habitat: habitat)
-      end
-
       def self.datacenter(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "DatacenterApi", credentials: credentials, habitat: habitat)
-      end
-
-      def self.folder(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "FolderApi", credentials: credentials, habitat: habitat)
-      end
-      @@vm_endpoints = {}
-
-      def self.vm(credentials: nil, habitat: nil)
-        @@vm_endpoints[credentials] ||= {}
-#        habitat ||= some_default_magic
-        @@vm_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VMApi", credentials: credentials, habitat: habitat)
-        @@vm_endpoints[credentials][habitat]
-      end
-
-      def self.host(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "HostApi", credentials: credentials, habitat: habitat)
       end
 
       def self.identity(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "IdentityProvidersApi", credentials: credentials, habitat: habitat)
       end
 
-      def self.cluster(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "ClusterApi", credentials: credentials, habitat: habitat)
-      end
-
       def self.network(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "NetworkApi", credentials: credentials, habitat: habitat)
+      end
+
+      @@folder_endpoints = {}
+      def self.folder(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@folder_endpoints[credentials] ||= {}
+        @@folder_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "FolderApi", credentials: credentials, habitat: habitat)
+        @@folder_endpoints[credentials][habitat]
+      end
+
+      @@datastore_endpoints = {}
+      def self.datastore(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@datastore_endpoints[credentials] ||= {}
+        @@datastore_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "DatastoreApi", credentials: credentials, habitat: habitat)
+        @@datastore_endpoints[credentials][habitat]
+      end
+
+      @@vm_endpoints = {}
+      def self.vm(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@vm_endpoints[credentials] ||= {}
+        @@vm_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VMApi", credentials: credentials, habitat: habitat)
+        @@vm_endpoints[credentials][habitat]
+      end
+
+      @@host_endpoints = {}
+      def self.host(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@host_endpoints[credentials] ||= {}
+        @@host_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "HostApi", credentials: credentials, habitat: habitat)
+        @@host_endpoints[credentials][habitat]
+      end
+
+      @@cluster_endpoints = {}
+      def self.cluster(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@cluster_endpoints[credentials] ||= {}
+        @@cluster_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "ClusterApi", credentials: credentials, habitat: habitat)
+        @@cluster_endpoints[credentials][habitat]
       end
 
       # Wrapper class for vSphere APIs, so that we can catch some common
@@ -561,9 +626,13 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           @credentials = credentials
           @org = VMC.getOrg(@credentials)['id']
           @api = api.to_sym
+          @habitat = habitat
+          @habitat ||= MU::Cloud::VMWare.defaultSDDC(credentials)
 
-          @sddc = MU::Cloud.resourceClass("VMWare", "Habitat").find(credentials: @credentials).values.first # XXX again, a terrible assumption; we need a default habitat
-          MU.log "public ips", MU::NOTICE, details: VMC.callAPI("orgs/#{@org}/sddcs/#{@sddc['id']}/publicips")
+          @sddc = MU::Cloud.resourceClass("VMWare", "Habitat").find(credentials: @credentials, cloud_id: @habitat).values.first
+          if !@sddc
+            raise MuError.new, "Couldn't load details for my native SDDC", details: { "credentials" => @credentials, "org" => @org, "habitat" => @habitat }
+          end
 
           url, cert = if api == "nsx"
             [@sddc["resource_config"]["nsx_mgr_url"], @sddc["resource_config"]["certificates"]["NSX_MANAGER"]]

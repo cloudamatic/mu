@@ -1846,18 +1846,6 @@ module MU
             end
           end
 
-          server['image_id'] ||= server['ami_id']
-
-          if server['image_id'].nil?
-            img_id = MU::Cloud.getStockImage("AWS", platform: server['platform'], region: server['region'])
-            if img_id
-              server['image_id'] = configurator.getTail("server"+server['name']+"AMI", value: img_id, prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
-            else
-              MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
-              ok = false
-            end
-          end
-
           if !server["loadbalancers"].nil?
             server["loadbalancers"].each { |lb|
               lb["name"] ||= lb["concurrent_load_balancer"]

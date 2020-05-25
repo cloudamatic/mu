@@ -893,6 +893,12 @@ module MU
     rescue NameError
     end
 
+    vmware_struct = false
+    begin
+      vmware_struct = struct.class.ancestors.include?(::VSphereAutomation::VCenter::VcenterVMInfo)
+    rescue NameError
+    end
+
     aws_struct = false
     begin
       aws_struct = struct.class.ancestors.include?(::Seahorse::Client::Response)
@@ -906,10 +912,12 @@ module MU
     end
 
     if struct.is_a?(Struct) or struct.class.ancestors.include?(Struct) or
-       google_struct or aws_struct or azure_struct
+       google_struct or aws_struct or azure_struct or vmware_struct
 
-      hash = if azure_struct
+      hash = if azure_struct 
         MU::Cloud::Azure.respToHash(struct)
+      elsif vmware_struct
+        struct.to_hash
       else
         struct.to_h
       end

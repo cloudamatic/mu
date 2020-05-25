@@ -660,6 +660,20 @@ module MU
           end
         end
 
+        # Backwards-compat for crusty old config
+        server['ami_id'] ||= server['image_id'] if server['cloud'] == "AWS"
+
+        if server['image_id'].nil?
+          img_id = MU::Cloud.getStockImage(server['cloud'], platform: server['platform'])
+          if img_id
+            server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image")#, cloudtype: "Google::Apis::ComputeV1::Image")
+#AWS::EC2::Image::Id
+          else
+            MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
+            ok = false
+          end
+        end
+
         ok
       end
 

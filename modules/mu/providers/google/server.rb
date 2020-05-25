@@ -1573,16 +1573,6 @@ next if !create
             server['vpc']['project'] ||= server['project']
           end
 
-          if server['image_id'].nil?
-            img_id = MU::Cloud.getStockImage("Google", platform: server['platform'])
-            if img_id
-              server['image_id'] = configurator.getTail("server"+server['name']+"Image", value: img_id, prettyname: "server"+server['name']+"Image", cloudtype: "Google::Apis::ComputeV1::Image")
-            else
-              MU.log "No image specified for #{server['name']} and no default available for platform #{server['platform']}", MU::ERR, details: server
-              ok = false
-            end
-          end
-
           real_image = nil
           begin
             real_image = MU::Cloud::Google::Server.fetchImage(server['image_id'].to_s, credentials: server['credentials'])

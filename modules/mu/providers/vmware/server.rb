@@ -79,9 +79,25 @@ module MU
         def create
 # https://vdc-repo.vmware.com/vmwb-repository/dcr-public/1cd28284-3b72-4885-9e31-d1c6d9e26686/71ef7304-a6c9-43b3-a3cd-868b2c236c81/doc/operations/com/vmware/vcenter/vm.create-operation.html
           params = {
-            "guest_OS" => "CENTOS_7",
-            "name" => @mu_name
+            "spec" => {
+              "guest_OS" => @config["image_id"],
+              "name" => @mu_name,
+              "placement" => {
+                "folder" => MU::Cloud::VMWare.folderToID(@config['folder'], @credentials),
+                "host" => "host-16",
+                "cluster" => "domain-c8",
+#              "resource_pool" => "", # in lieu of host+cluster
+                "datastore" => "datastore-48"
+              }
+            }
           }
+# spec.memory.size_MiB
+          resp = MU::Cloud::VMWare.vm(credentials: @credentials).create(params)
+          if resp and resp.respond_to?(:value) and resp.value
+            @cloud_id = resp.value
+          else
+            raise MuError.new "Failed to create VMWare VM #{@config['name']}", details: resp
+          end
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
@@ -221,6 +237,17 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+# XXX habitat is a flag; region probably isn't
+          vms = find(credentials: credentials, region: region)
+
+          vms.each_pair { |cloud_id, desc|
+            if desc.name.match(/^#{Regexp.quote(MU.deploy_id)}/)
+              MU.log "Deleting VM #{desc.name} (#{cloud_id})"
+              if !noop
+                MU::Cloud::VMWare.vm(credentials: credentials).delete(cloud_id)
+              end
+            end
+          }
         end
 
         # Cloud-specific configuration properties.
@@ -229,6 +256,10 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "folder" => {
+              "type" => "string",
+              "default" => "Workloads"
+            }
           }
           [toplevel_required, schema]
         end
