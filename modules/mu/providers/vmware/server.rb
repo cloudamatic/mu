@@ -88,16 +88,22 @@ module MU
                 "cluster" => "domain-c8",
 #              "resource_pool" => "", # in lieu of host+cluster
                 "datastore" => "datastore-48"
-              }
+              },
+              "nics" => [
+                {
+                  "start_connected" => true
+                }
+              ]
             }
           }
 # spec.memory.size_MiB
           resp = MU::Cloud::VMWare.vm(credentials: @credentials).create(params)
-          if resp and resp.respond_to?(:value) and resp.value
+          if resp and resp.is_a?(::VSphereAutomation::VCenter::VcenterVMCreateResp) and resp.respond_to?(:value) and resp.value
             @cloud_id = resp.value
           else
             raise MuError.new "Failed to create VMWare VM #{@config['name']}", details: resp
           end
+
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
@@ -158,13 +164,24 @@ module MU
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           found = {}
-          vms = MU::Cloud::VMWare.vm(credentials: args[:credentials]).list().value
 
-          vms.reject! { |v| v.vm != args[:cloud_id] } if args[:cloud_id]
+          if args[:cloud_id]
+            resp = MU::Cloud::VMWare.vm(credentials: args[:credentials]).get(args[:cloud_id])
+            if resp and resp.respond_to?(:value) and resp.value and resp.value.is_a?(::VSphereAutomation::VCenter::VcenterVMInfo)
+              found[args[:cloud_id]] = resp.value
+            end
+          else
+            resp = MU::Cloud::VMWare.vm(credentials: args[:credentials]).list()
 
-          vms.each { |v|
-            found[v.vm] = MU::Cloud::VMWare.vm(credentials: args[:credentials]).get(v.vm).value
-          }
+            if !resp or !resp.is_a?(::VSphereAutomation::VCenter::VcenterVMListResp) or !resp.respond_to?(:value) or !resp.value
+              MU.log "vm.list() returned #{resp.class.name}", MU::WARN, details: resp
+              return found
+            end
+
+            resp.value.each { |v|
+              found[v.vm] = MU::Cloud::VMWare.vm(credentials: args[:credentials]).get(v.vm).value
+            }
+          end
 
           return found
         end

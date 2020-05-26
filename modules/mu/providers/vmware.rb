@@ -57,12 +57,14 @@ module MU
         false
       end
 
+      class VSphereError < MU::MuError
+      end
 
       class VMC
         AUTH_URI = URI "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize"
         API_URL = "https://vmc.vmware.com/vmc/api"
 
-        class APIError < MU::MuError
+        class VMCError < MU::MuError
         end
 
         @@vmc_tokens = {}
@@ -140,7 +142,7 @@ module MU
 
             resp = begin
               callAPI("orgs/"+org+"/account-link/connected-accounts")
-            rescue APIError => e
+            rescue VMCError => e
               MU.log e.message, MU::WARN
             end
             aws_account = resp.select { |a| a["account_number"] == acctnum }.first if resp
@@ -271,7 +273,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           end
 
           unless resp.code == "200"
-            raise APIError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
+            raise VMCError.new "Bad response from VMC API (#{resp.code.to_s})", details: resp.body
           end
 
           JSON.parse(resp.body)
@@ -659,12 +661,17 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
-          if arguments and !arguments.empty?
+          resp = if arguments and !arguments.empty?
             @api_client.send(method_sym, arguments.first)
           else
             @api_client.send(method_sym)
           end
+          if resp.is_a?(VSphereAutomation::VCenter::VapiStdErrorsServiceUnavailableError)
+            raise VSphereError.new "vSphere API error: #{resp.value.error_type}", details: resp.value.messages
+          end
+          resp
         end
+
       end
 
     end

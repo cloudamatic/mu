@@ -1,0 +1,275 @@
+<powershell>
+Set-ExecutionPolicy Unrestricted -Force -Scope CurrentUser
+
+$sshdUser = "sshd_service"
+$tmp = "$env:Temp\mu-userdata"
+mkdir $tmp
+$logfile = "c:/Mu-Bootstrap-$([Environment]::UserName).log"
+$basedir = 'c:/bin'
+$cygwin_dir = "$basedir/cygwin"
+$username = (whoami).Split('\')[1]
+$WebClient = New-Object System.Net.WebClient
+$awsmeta = "http://169.254.169.254/latest"
+$pydir = 'c:\bin\python\python27'
+$pyv = '2.7.14'
+$env:Path += ";$pydir\Scripts;$pydir"
+
+function log
+{
+  Write-Host $args
+  Add-Content "c:/Mu-Bootstrap-$([Environment]::UserName).log" "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) $args"
+  Add-Content "c:/Mu-Bootstrap-GLOBAL.log" "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) $args"
+}
+
+function fetchSecret([string]$file){
+  log "Fetching s3://<%= $mu.adminBucketName %>/$file to $tmp/$file"
+  aws.cmd s3 cp s3://<%= $mu.adminBucketName %>/$file $tmp/$file
+}
+
+function importCert([string]$cert, [string]$store){
+  fetchSecret($cert)
+  if(!(Test-Path "$tmp/$cert")){
+    return $null
+  }
+  # XXX guard better (check thumbprint & CN)
+  if($store -ne "Root"){
+    Remove-Item -Path Cert:/LocalMachine/$store/* -Force -Recurse
+  }
+  if($cert -Match ".pfx$"){
+    return Import-PfxCertificate -FilePath $tmp/$cert -CertStoreLocation Cert:\LocalMachine\$store
+  } else {
+    return Import-Certificate -FilePath $tmp/$cert -CertStoreLocation Cert:\LocalMachine\$store
+  }
+  Remove-Item -Force "$tmp/$cert"
+}
+
+log "- Invoked as $([Environment]::UserName) (system started at $(Get-CimInstance -ClassName win32_operatingsystem | select lastbootuptime)) -"
+<% if !$mu.skipApplyUpdates %>
+If (!(Test-Path "c:/mu-installer-ran-updates")){
+  Stop-Service -ErrorAction SilentlyContinue sshd
+}
+<% end %>
+<% if $mu.platform != "win2k16" %>
+If ([Environment]::OSVersion.Version.Major -lt 10) {
+  If ("$($myInvocation.MyCommand.Path)" -ne "$tmp/realuserdata_stripped.ps1"){
+    $Error.Clear()
+    Invoke-WebRequest -Uri "$awsmeta/user-data" -OutFile $tmp/realuserdata.ps1
+    while($Error.count -gt 0){
+      $Error.Clear()
+      log "Failed to retrieve current userdata from $awsmeta/user-data, waiting 15s and retrying"
+      sleep 15
+      Invoke-WebRequest -Uri "$awsmeta/user-data" -OutFile $tmp/realuserdata.ps1
+    }
+    Get-Content $tmp/realuserdata.ps1 | Select-String -pattern '^#','^<' -notmatch | Set-Content $tmp/realuserdata_stripped.ps1
+    If (Compare-Object (Get-Content $myInvocation.MyCommand.Path) (Get-Content $tmp/realuserdata_stripped.ps1)){
+      log "Invoking $tmp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
+      Invoke-Expression $tmp/realuserdata_stripped.ps1
+      exit
+    }
+  }
+}
+<% end %>
+$admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
+log "Local admin: $admin_username"
+
+Add-Type -Assembly System.Web
+$password = [Web.Security.Membership]::GeneratePassword(15,2)
+
+If (!(Test-Path $basedir)){
+  mkdir $basedir
+}
+
+<% if $mu.platform != "win2k16" %>
+If ([Environment]::OSVersion.Version.Major -lt 10) {
+  If (!(Get-ScheduledTask -TaskName 'run-userdata')){
+    log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
+    Invoke-WebRequest -Uri "https://s3.amazonaws.com/cloudamatic/run-userdata_scheduledtask.xml" -OutFile $tmp/run-userdata_scheduledtask.xml
+    Register-ScheduledTask -Xml (Get-Content "$tmp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User ".\$admin_username"
+  }
+}
+<% end %>
+
+If (!(Test-Path "$pydir\python.exe")){
+  If (!(Test-Path $tmp\python-$pyv.msi)){
+    log "Downloading Python installer"
+    $WebClient.DownloadFile("https://www.python.org/ftp/python/$pyv/python-$pyv.msi","$tmp/python-$pyv.msi")
+  }
+  log "Running Python installer"
+  (Start-Process -FilePath msiexec -ArgumentList "/i $tmp\python-$pyv.msi /qn ALLUSERS=1 TARGETDIR=$pydir" -Wait -Passthru).ExitCode
+}
+
+If (!(Test-Path "$pydir\Scripts\aws.cmd")){
+  If (!(Test-Path $tmp/get-pip.py)){
+    log "Downloading get-pip.py"
+    $WebClient.DownloadFile("https://bootstrap.pypa.io/get-pip.py","$tmp/get-pip.py")
+  }
+  python $tmp/get-pip.py
+  log "Running pip install awscli"
+  pip install awscli
+}
+
+function removeChef($location){
+  $install_chef = $false
+  $my_chef = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).DisplayName
+  if ($my_chef) {
+    if ($my_chef -match '<%= $mu.chefVersion %>'.split('-')[0]) {
+      $install_chef = $false
+    } else{
+      log "Uninstalling Chef"
+      $uninstall_string = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).UninstallString
+      $uninstall_string = ($uninstall_string -Replace "msiexec.exe","" -Replace "/I","" -Replace "/X","").Trim()
+      $($uninstall_string -Replace '[\s\t]+', ' ').Split() | ForEach {
+        log "msiexec.exe /X $_ /gn"
+        start-process "msiexec.exe" -arg "/X $_ /qn" -Wait
+      }
+      $install_chef = $true
+    }
+  }
+  
+  return $install_chef
+}
+
+If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
+  $install_chef = $true
+} else {
+  if (removeChef("HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")){
+    $install_chef = $true
+  } elseif (removeChef("HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*")) {
+    $install_chef = $true
+  } else {
+    $install_chef = $false
+  }
+}
+
+If ($install_chef){
+  log "Installing Chef <%= $mu.chefVersion %>"
+  If (!(Test-Path $env:Temp/chef-installer-<%= $mu.chefVersion %>.msi)){
+    log "Downloading Chef installer"
+    $WebClient.DownloadFile("https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= $mu.chefVersion %>","$env:Temp/chef-installer-<%= $mu.chefVersion %>.msi")
+  }
+  log "Running Chef installer"
+  (Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer-<%= $mu.chefVersion %>.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
+  Set-Content "c:/mu_installed_chef" "yup"
+}
+
+fetchSecret("<%= $mu.muID %>-secret")
+log "Encrypting Mu deploy secret"
+$deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$tmp\<%= $mu.muID %>-secret')))"
+
+function callMomma([string]$act)
+{
+  $params = @{mu_id='<%= $mu.muID %>';mu_resource_name='<%= $mu.resourceName %>';mu_resource_type='<%= $mu.resourceType %>';mu_instance_id="$awsid";mu_user='<%= $mu.muUser %>';mu_deploy_secret="$deploy_secret";$act="1"}
+  log "Calling Momma Cat at https://<%= $mu.publicIP %>:<%= $mu.mommaCatPort %> with $act"
+  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true} # XXX
+  $resp = Invoke-WebRequest -Uri https://<%= $mu.publicIP %>:<%= $mu.mommaCatPort %> -Method POST -Body $params
+  return $resp.Content
+}
+
+$awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
+
+$credstr = callMomma "mu_windows_admin_creds"
+$creds = $false
+$real_admin_user = $admin_username
+if($credstr){
+  $credparts = $credstr.Split(";", 2)
+  $creds = New-Object System.Management.Automation.PSCredential($credparts[0], (ConvertTo-SecureString $credparts[1] -AsPlainText -Force))
+  if($admin_username -ne $credparts[0]){
+    if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
+      (([adsi]("WinNT://./$admin_username, user")).psbase.invoke("SetPassword", $credparts[1]))
+      log "Changing local admin account from $admin_username to $($credparts[0])"
+      ([adsi]("WinNT://./$admin_username, user")).psbase.rename($credparts[0])
+      $need_reboot = $TRUE
+      $real_admin_user = $credparts[0]
+    } ElseIf(!$admin_username){
+      $admin_username = $credparts[0]
+    }
+  } ElseIf($creds){
+    log "Setting $admin_username password"
+    (([adsi]("WinNT://./$admin_username, user")).psbase.invoke("SetPassword", $credparts[1]))
+  }
+} else {
+  log "Failed to get credentials from Momma Cat for some reason $($credstr)"
+}
+
+If (!(Test-Path $tmp/PSWindowsUpdate.zip)){
+  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
+    mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
+  }
+
+  $WebClient.DownloadFile("https://s3.amazonaws.com/cloudamatic/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
+  Add-Type -A 'System.IO.Compression.FileSystem'
+
+  If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
+    log "Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
+  }
+  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
+    log "Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
+  }
+}
+
+<% if !$mu.skipApplyUpdates %>
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
+If (!(Test-Path "c:/mu-installer-ran-updates")){
+  log "Applying Windows updates"
+  Import-Module PSWindowsUpdate
+  Get-WUInstall -AcceptAll -IgnoreReboot
+  Start-Sleep -s 60
+  If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
+    $need_reboot = $TRUE
+  }
+}
+<% end %>
+
+if((Get-WURebootStatus -Silent) -eq $true){
+  log "Get-WURebootStatus says to reboot"
+  $need_reboot = $TRUE
+}
+
+$muca = importCert "Mu_CA.pem" "Root"
+
+$myname = "<%= $mu.muID %>-<%= $mu.resourceName.upcase %>"
+
+$nodecert = importCert "$myname.pfx" "My"
+$thumb = $nodecert.Thumbprint
+# XXX guard this properly
+winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
+winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$myname`";CertificateThumbprint=`"$thumb`"}"
+$ingroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq $admin_username}
+if($ingroup -ne $admin_username){
+  net localgroup WinRMRemoteWMIUsers__ /add $admin_username
+}
+
+$winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
+Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1
+if($creds){
+  log "Enabling WinRM cert auth for $real_admin_user"
+  New-Item -Path WSMan:\localhost\ClientCertificate -Subject "$real_admin_user@localhost" -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
+}
+winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="8192"}'
+winrm set winrm/config '@{MaxTimeoutms="1800000"}'
+Restart-Service WinRm
+
+if ($need_reboot){
+  log "- REBOOT -"
+  Restart-Computer -Force
+  exit
+}
+
+if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
+  log "Opening port 22 in Windows Firewall"
+  New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
+}
+if (!(Get-NetFirewallRule -DisplayName "Allow WinRM SSL" -ErrorAction SilentlyContinue)){
+  New-NetFirewallRule -DisplayName "Allow WinRM SSL" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
+}
+
+Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+callMomma "mu_bootstrap"
+Set-Content "c:/mu_userdata_complete" "yup"
+Remove-Item -Recurse $tmp
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
+</powershell>
+<persist>true</persist>
