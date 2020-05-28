@@ -60,6 +60,112 @@ module MU
       class VSphereError < MU::MuError
       end
 
+      class NSX
+
+        class NSXError < MU::MuError
+        end
+
+        def initialize(credentials = nil, habitat: nil)
+          @credentials = credentials
+          @sddc = habitat
+          @sddc ||= MU::Cloud::VMWare.defaultSDDC(credentials)
+          org_desc = MU::Cloud::VMWare::VMC.getOrg(credentials)
+          @org = org_desc['id']
+          sddc_desc = MU::Cloud::VMWare::VMC.callAPI("orgs/"+@org+"/sddcs/#{@sddc}", credentials: credentials)
+#          pp sddc_desc
+          @base_url = sddc_desc["resource_config"]["nsx_api_public_endpoint_url"]
+          @username = sddc_desc["resource_config"]["cloud_username"]
+          @password = sddc_desc["resource_config"]["cloud_password"]
+#pp callAPI("policy/api/v1/infra/tier-1s/cgw/segments")
+#pp callAPI("policy/api/v1/infra/sites")
+#callAPI("orgs/#{@org}/sddcs/#{@sddc}/networks/4.0/sddc/networks")
+        end
+
+        def listNetworks
+          resp = callAPI("policy/api/v1/infra/segments")
+          if resp and resp['results']
+            return resp['results']
+          end
+          nil
+        end
+
+# https://vdc-download.vmware.com/vmwb-repository/dcr-public/9e1c6bcc-85db-46b6-bc38-d6d2431e7c17/30af91b5-3a91-4d5d-8ed5-a7d806764a16/api_includes/policy_networking_connectivity_segment_segments.html
+        def createNetwork(params)
+          resp = callAPI("policy/api/v1/infra/segments/#{params['id']}", method: "PATCH", params: params)
+pp resp
+# XXX some validation is obviously warranted
+#PATCH https://<policy-mgr>/policy/api/v1/infra/segments/web-tier
+#  {
+#    "display_name":"web-tier",
+#    "subnets": [
+#      {
+#        "gateway_address": "40.1.1.1/16",
+#        "dhcp_ranges": [ "40.1.2.0/24" ]
+#      }
+#    ],
+#    "connectivity_path": "/infra/tier-1s/mgw"
+#  }
+        end
+
+        def deleteNetwork(id)
+          callAPI("policy/api/v1/infra/segments/#{id}", method: "DELETE")
+        end
+
+        # Make an API request to NSX
+        # @param path [String]
+        # @param credentials [String]
+        # @return [Array,Hash]
+        def callAPI(path, method: "GET", params: nil, full_url: nil, redirects: 0)
+          uri = URI(@base_url.sub(/\/$/, '')+"/"+path)
+
+          req = if method == "POST"
+            Net::HTTP::Post.new(uri)
+          elsif method == "PUT"
+            Net::HTTP::Put.new(uri)
+          elsif method == "DELETE"
+            Net::HTTP::Delete.new(uri)
+          elsif method == "PATCH"
+            Net::HTTP::Patch.new(uri)
+          else
+            if params and !params.empty?
+              uri.query = URI.encode_www_form(params)
+            end
+            Net::HTTP::Get.new(uri)
+          end
+
+          if ["POST", "PATCH", "PUT"].include?(method) and params and !params.empty?
+            req.body = JSON.generate(params)
+          end
+
+          req['Content-type'] = "application/json"
+          req['csp-auth-token'] = MU::Cloud::VMWare::VMC.getToken(@credentials)
+#          req.basic_auth @username, @password
+
+          MU.log "NSX #{method} #{uri.to_s}", MU::NOTICE, details: req.body
+          resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
+            http.request(req)
+          end
+
+          if ["301", "302"].include?(resp.code)
+            if full_url == resp['location'] or redirects > 5
+              raise NSXError.new "I seem to be in redirect loop. Latest redirect:", details: { full_url => resp['location'] }
+            end
+            MU.log "Redirecting to #{resp['location']}", MU::NOTICE, details: resp.inspect
+            return callAPI(path, method: method, params: params, full_url: resp['location'], redirects: redirects+1)
+          end
+
+          unless resp.code == "200"
+            raise NSXError.new "Bad response from NSX API (#{resp.code.to_s})", details: resp.body
+          end
+
+          if resp.body and !resp.body.empty?
+            JSON.parse(resp.body)
+          else
+            nil
+          end
+        end
+      end
+
       class VMC
         AUTH_URI = URI "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize"
         API_URL = "https://vmc.vmware.com/vmc/api"
@@ -245,9 +351,8 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # @param path [String]
         # @param credentials [String]
         # @return [Array,Hash]
-        def self.callAPI(path, method: "GET", credentials: nil, params: nil)
-          uri = URI API_URL+"/"+path
-
+        def self.callAPI(path, method: "GET", credentials: nil, params: nil, base_url: API_URL, full_url: nil, redirects: 0)
+          uri = full_url ? URI(full_url) : URI(base_url.sub(/\/$/, '')+"/"+path)
 
           req = if method == "POST"
             Net::HTTP::Post.new(uri)
@@ -267,9 +372,17 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           req['Content-type'] = "application/json"
           req['csp-auth-token'] = getToken(credentials)
 
-          MU.log "#{method} #{uri.to_s}", MU::NOTICE, details: req.body
+          MU.log "VMC #{method} #{uri.to_s}", MU::NOTICE, details: req.body
           resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
             http.request(req)
+          end
+
+          if ["301", "302"].include?(resp.code)
+            if full_url == resp['location'] or redirects > 5
+              raise VMCError.new "I seem to be in redirect loop. Latest redirect:", details: { full_url => resp['location'] }
+            end
+            MU.log "Redirecting to #{resp['location']}", MU::NOTICE, details: resp.inspect
+            return callAPI(path, method: method, credentials: credentials, params: params, full_url: resp['location'], redirects: redirects+1)
           end
 
           unless resp.code == "200"
@@ -555,8 +668,12 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         []
       end
 
+      @@nsx_endpoints = {}
       def self.nsx(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "nsx", credentials: credentials, habitat: habitat)
+        habitat ||= defaultSDDC(credentials)
+        @@nsx_endpoints[credentials] ||= {}
+        @@nsx_endpoints[credentials][habitat] ||= NSX.new(credentials, habitat: habitat)
+        @@nsx_endpoints[credentials][habitat]
       end
 
       def self.datacenter(credentials: nil, habitat: nil)
@@ -567,8 +684,12 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         VSphereEndpoint.new(api: "IdentityProvidersApi", credentials: credentials, habitat: habitat)
       end
 
+      @@network_endpoints = {}
       def self.network(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "NetworkApi", credentials: credentials, habitat: habitat)
+        habitat ||= defaultSDDC(credentials)
+        @@network_endpoints[credentials] ||= {}
+        @@network_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "NetworkApi", credentials: credentials, habitat: habitat)
+        @@network_endpoints[credentials][habitat]
       end
 
       @@folder_endpoints = {}
@@ -585,6 +706,14 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         @@datastore_endpoints[credentials] ||= {}
         @@datastore_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "DatastoreApi", credentials: credentials, habitat: habitat)
         @@datastore_endpoints[credentials][habitat]
+      end
+
+      @@power_endpoints = {}
+      def self.power(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@power_endpoints[credentials] ||= {}
+        @@power_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VmPowerApi", credentials: credentials, habitat: habitat)
+        @@power_endpoints[credentials][habitat]
       end
 
       @@vm_endpoints = {}
@@ -647,7 +776,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
             c.host = url
             c.username = @sddc["resource_config"]["cloud_username"]
             c.password = @sddc["resource_config"]["cloud_password"]
-            c.debugging = true
+#            c.debugging = true
 #            c.cert_file = StringIO.new(cert["certificate"])
             c.scheme = 'https'
           end
@@ -661,14 +790,17 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
-          resp = if arguments and !arguments.empty?
-            @api_client.send(method_sym, arguments.first)
-          else
-            @api_client.send(method_sym)
-          end
-          if resp.is_a?(VSphereAutomation::VCenter::VapiStdErrorsServiceUnavailableError)
-            raise VSphereError.new "vSphere API error: #{resp.value.error_type}", details: resp.value.messages
-          end
+          resp = nil
+          MU.retrier([VSphereError], max: 6, wait: 5) {
+            resp = if arguments and !arguments.empty?
+              @api_client.send(method_sym, arguments.first)
+            else
+              @api_client.send(method_sym)
+            end
+            if resp.is_a?(VSphereAutomation::VCenter::VapiStdErrorsServiceUnavailableError)
+              raise VSphereError.new "vSphere API error calling #{api}.#{method_sym}: #{resp.value.error_type}", details: resp.value.messages
+            end
+          }
           resp
         end
 

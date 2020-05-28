@@ -78,6 +78,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
 # https://vdc-repo.vmware.com/vmwb-repository/dcr-public/1cd28284-3b72-4885-9e31-d1c6d9e26686/71ef7304-a6c9-43b3-a3cd-868b2c236c81/doc/operations/com/vmware/vcenter/vm.create-operation.html
+
           params = {
             "spec" => {
               "guest_OS" => @config["image_id"],
@@ -91,7 +92,11 @@ module MU
               },
               "nics" => [
                 {
-                  "start_connected" => true
+                  "start_connected" => true,
+                  "backing" => {
+                    "type" => "OPAQUE_NETWORK",
+                    "network" => "network-o32"
+                  }
                 }
               ]
             }
@@ -101,9 +106,11 @@ module MU
           if resp and resp.is_a?(::VSphereAutomation::VCenter::VcenterVMCreateResp) and resp.respond_to?(:value) and resp.value
             @cloud_id = resp.value
           else
+            pp params
             raise MuError.new "Failed to create VMWare VM #{@config['name']}", details: resp
           end
 
+          start
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
@@ -139,15 +146,18 @@ module MU
 
         # Ask the VMWare API to stop this node
         def stop
+          MU::Cloud::VMWare.power(credentials: @credentials).stop(@cloud_id)
         end
 
         # Ask the VMWare API to start this node
         def start
+          MU::Cloud::VMWare.power(credentials: @credentials).start(@cloud_id)
         end
 
         # Ask the VMWare API to restart this node
         # @param _hard [Boolean]: [IGNORED] Force a stop/start. This is the only available way to restart an instance in VMWare, so this flag is ignored.
         def reboot(_hard = false)
+          MU::Cloud::VMWare.power(credentials: @credentials).reset(@cloud_id)
         end
 
         # Figure out what's needed to SSH into this server.
