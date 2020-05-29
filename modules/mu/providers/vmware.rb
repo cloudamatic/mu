@@ -90,7 +90,7 @@ module MU
         end
 
 # https://vdc-download.vmware.com/vmwb-repository/dcr-public/9e1c6bcc-85db-46b6-bc38-d6d2431e7c17/30af91b5-3a91-4d5d-8ed5-a7d806764a16/api_includes/policy_networking_connectivity_segment_segments.html
-        def createNetwork(params)
+        def createUpdateSegment(params)
           resp = callAPI("policy/api/v1/infra/segments/#{params['id']}", method: "PATCH", params: params)
 pp resp
 # XXX some validation is obviously warranted
@@ -107,7 +107,7 @@ pp resp
 #  }
         end
 
-        def deleteNetwork(id)
+        def deleteSegment(id)
           callAPI("policy/api/v1/infra/segments/#{id}", method: "DELETE")
         end
 
@@ -645,7 +645,8 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
       # List all known regions
       # @param us_only [Boolean]: Restrict results to United States only
       def self.listRegions(us_only = false, credentials: nil)
-        @@regions
+# XXX not sure we'll even have a concept of regions in this layer, so return a single empty string for now
+        [""]
       end
 
 

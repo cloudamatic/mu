@@ -90,17 +90,22 @@ module MU
 #              "resource_pool" => "", # in lieu of host+cluster
                 "datastore" => "datastore-48"
               },
-              "nics" => [
-                {
-                  "start_connected" => true,
-                  "backing" => {
-                    "type" => "OPAQUE_NETWORK",
-                    "network" => "network-o32"
-                  }
-                }
-              ]
             }
           }
+
+          if @vpc
+            params["spec"]["nics"] = [
+              {
+                "start_connected" => true,
+                "backing" => {
+                  "type" => "OPAQUE_NETWORK", # STANDARD_PORTGROUP ?
+                  "network" => @vpc.vSphereID
+                }
+              }
+            ]
+
+          end
+
 # spec.memory.size_MiB
           resp = MU::Cloud::VMWare.vm(credentials: @credentials).create(params)
           if resp and resp.is_a?(::VSphereAutomation::VCenter::VcenterVMCreateResp) and resp.respond_to?(:value) and resp.value
@@ -127,12 +132,7 @@ module MU
             "src_dst_check" => false,
             "ssh_user" => "centos",
             "associate_public_ip" => true,
-            "static_ip" => { "assign_ip" => true },
-            "routes" => [ {
-              "gateway" => "#INTERNET",
-              "priority" => 50,
-              "destination_network" => "0.0.0.0/0"
-            } ]
+            "static_ip" => { "assign_ip" => true }
           }
         end
 
@@ -271,7 +271,8 @@ module MU
             if desc.name.match(/^#{Regexp.quote(MU.deploy_id)}/)
               MU.log "Deleting VM #{desc.name} (#{cloud_id})"
               if !noop
-                MU::Cloud::VMWare.vm(credentials: credentials).delete(cloud_id)
+                MU::Cloud::VMWare.power(credentials: credentials).stop(cloud_id)
+                pp MU::Cloud::VMWare.vm(credentials: credentials).delete(cloud_id)
               end
             end
           }
@@ -309,6 +310,10 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
           ok = true
+
+          if !server['vpc']
+            MU.log "VMWare Server '#{server['name']}' did not declare a vpc block, and will be configured with no network interface", MU::WARN
+          end
 
           ok
         end
