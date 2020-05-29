@@ -21,6 +21,9 @@ module MU
         attr_reader :cloud_desc_cache
         attr_reader :routes
 
+        class VSphereIDUnresolved < MU::MuError
+        end
+
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like <tt>@vpc</tt>, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
@@ -53,13 +56,8 @@ module MU
           )
           @cloud_id = @mu_name
 
-          vsphere_visibility_check = Proc.new {
-            vsphere_descs = MU::Cloud::VMWare.network(credentials: @credentials, habitat: @habitat).list
-            found = vsphere_descs.value.select { |n| n.name == @mu_name }
-            (found.size > 0)
-          }
-
-          MU.retrier(loop_if: vsphere_visibility_check, max: 10, wait: 30)
+          # Don't declare us done until we've shown up on vSphere's side
+          MU.retrier([VSphereIDUnresolved], loop_if: Proc.new { vSphereID.nil? or vSphereID.empty? }, max: 10, wait: 30)
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -81,7 +79,7 @@ module MU
           vsphere_descs = MU::Cloud::VMWare.network().list
           found = vsphere_descs.value.select { |n| n.name == my_desc["display_name"] }
           if found.size != 1
-            raise MuError.new "Unable to narrow down the vSphere identity of my NSX network (id #{cloud_id}, display_name #{my_desc['display_name']}) to a single vSphere artifact", details: found
+            raise VSphereIDUnresolved.new "Unable to narrow down the vSphere identity of my NSX network (id #{cloud_id}, display_name #{my_desc['display_name']}) to a single vSphere artifact", details: found
           end
           found.first.network
         end

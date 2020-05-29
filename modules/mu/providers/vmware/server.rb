@@ -103,7 +103,6 @@ module MU
                 }
               }
             ]
-
           end
 
 # spec.memory.size_MiB
