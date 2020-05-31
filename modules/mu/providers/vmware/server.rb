@@ -97,6 +97,7 @@ module MU
             params["spec"]["nics"] = [
               {
                 "start_connected" => true,
+                "allow_guest_control" => true,
                 "backing" => {
                   "type" => "OPAQUE_NETWORK", # STANDARD_PORTGROUP ?
                   "network" => @vpc.vSphereID

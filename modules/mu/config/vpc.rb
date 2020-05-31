@@ -649,6 +649,66 @@ module MU
       end
 
 
+      # Some cloud providers have a 1:1 relationship between VPC artifacts and
+      # things like route tables and subnets. To get around this, we can
+      # virtualize a VPC declaration on our end to declare multiple VPCs and
+      # get the multiple subnets or route table behavior we want.
+      # @param vpc [Hash]
+      # @param configurator [MU::Config]
+      # @return [Boolean]
+      def self.splitVPC(vpc, configurator)
+        ok = true
+
+        blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2, 29)
+        peernames = []
+        vpc['route_tables'].each { |tbl|
+          peernames << vpc['name']+"-"+tbl['name']
+        }
+        vpc['route_tables'].each { |tbl|
+          newvpc = {
+            "name" => vpc['name']+"-"+tbl['name'],
+            "cloud" => "Google",
+            "credentials" => vpc['credentials'],
+            "virtual_name" => vpc['name'],
+            "ip_block" => blocks.shift,
+            "route_tables" => [tbl],
+            "parent_block" => vpc['ip_block'],
+            "subnets" => [],
+            "peers" => vpc['peers']
+          }
+          MU.log "Splitting VPC #{newvpc['name']} off from #{vpc['name']}", MU::NOTICE
+
+          vpc.each_pair { |key, val|
+            next if ["name", "route_tables", "subnets", "ip_block"].include?(key)
+            newvpc[key] = val
+          }
+          if vpc["bastion"] and
+             !tbl["routes"].map { |r| r["gateway"] }.include?("#INTERNET")
+            newvpc["bastion"] = vpc["bastion"]
+            vpc.delete("bastion")
+          end
+          newvpc['peers'] ||= []
+# Add the peer connections we're generating, in addition 
+          peernames.each { |peer|
+            if peer != newvpc['name']
+              newvpc['peers'] << { "vpc" => { "vpc_name" => peer } }
+            end
+          }
+          newvpc['peers'].reject! { |p|
+            p.values.first['vpc_name'] == newvpc['name'] or p.values.first['vpc_name'] == vpc['name']
+          }
+
+          vpc["subnets"].each { |subnet|
+            newvpc["subnets"] << subnet if subnet["route_table"] == tbl["name"]
+          }
+
+          ok = false if !configurator.insertKitten(newvpc, "vpcs", true)
+        }
+        configurator.removeKitten(vpc['name'], "vpcs")
+
+        ok
+      end
+
       @@reference_cache = {}
 
       # Pick apart an external VPC reference, validate it, and resolve it and its

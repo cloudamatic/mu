@@ -173,6 +173,17 @@ pp resp
         class VMCError < MU::MuError
         end
 
+        def initialize(credentials = nil, habitat: nil)
+          @credentials = credentials
+          @sddc = habitat
+          @sddc ||= MU::Cloud::VMWare.defaultSDDC(credentials)
+          org_desc = MU::Cloud::VMWare::VMC.getOrg(credentials)
+          @org = org_desc['id']
+#pp callAPI("policy/api/v1/infra/tier-1s/cgw/segments")
+#pp callAPI("policy/api/v1/infra/sites")
+#callAPI("orgs/#{@org}/sddcs/#{@sddc}/networks/4.0/sddc/networks")
+        end
+
         @@vmc_tokens = {}
 
         # Fetch a live authorization token from the VMC API, if there's a +token+ underneath the +vmc+ subsection configured credentials
@@ -206,28 +217,55 @@ pp resp
           @@vmc_tokens[credentials]['access_token']
         end
 
+        @@org_cache = {}
+
         # If the given set of credentials has VMC configured, return the default
         # organization.
         # @param credentials [String]
         # @return [Hash]
-        def self.getOrg(credentials = nil)
+        def self.getOrg(credentials = nil, use_cache: true)
+          if @@org_cache[credentials] and use_cache
+            return @@org_cache[credentials]
+          end
           cfg = MU::Cloud::VMWare.credConfig(credentials)
           return if !cfg or !cfg['vmc']
 
           orgs = callAPI("orgs", credentials: credentials)
           if orgs.size == 1
-            return orgs.first
+            @@org_cache[credentials] = orgs.first
           elsif cfg and cfg['vmc'] and cfg['vmc']['org']
             orgs.each { |o|
               if [org['user_id'], org['user_name'], org['name'], org['display_name']].include?(cfg['vmc']['org'])
-                return o
+                @@org_cache[credentials] = o
+                break
               end
             }
           elsif orgs.size > 1
             raise MuError.new, "I see multiple VMC orgs with credentials #{credentials ? credentials : "<default>"}, set vmc_org to specify one as default", details: orgs.map { |o| o['display_name'] }
           end
 
-          nil
+          @@org_cache[credentials]
+        end
+
+        def getOrg(use_cache: true)
+          MU::Cloud::VMWare::VPC.getOrg(@credentials, use_cache: use_cache)
+        end
+
+        def allocatePublicIP(name = "foo", private_ip = "192.168.1.2/32")
+          spec = {
+            "count": 1,
+            "private_ips": [
+              private_ip
+            ],
+            "names": [
+              name
+            ]
+          }
+          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips", method: "POST", params: spec)
+        end
+
+        def listPublicIPs
+          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips")
         end
 
         def self.setAWSIntegrations(credentials = nil)
@@ -383,6 +421,17 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
             end
             MU.log "Redirecting to #{resp['location']}", MU::NOTICE, details: resp.inspect
             return callAPI(path, method: method, credentials: credentials, params: params, full_url: resp['location'], redirects: redirects+1)
+          elsif ["202"].include?(resp.code)
+            org = getOrg(credentials)['id']
+            task = JSON.parse(resp.body)
+            MU.retrier(loop_if: Proc.new { task["status"] == "STARTED" }, wait: 15, max: 20) {
+              MU.log "blocking on task in progress orgs/#{org}/tasks/#{task['id']}", MU::WARN, details: task
+              task = callAPI("orgs/#{org}/tasks/#{task['id']}", method: "GET", credentials: credentials)
+              if task["status"] == "FAILED"
+                raise VMCError.new "#{method} #{uri.to_s} task failed", details: task
+              end
+            }
+            return task
           end
 
           unless resp.code == "200"
@@ -667,6 +716,14 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = self.myRegion)
         []
+      end
+
+      @@vmc_endpoints = {}
+      def self.vmc(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@vmc_endpoints[credentials] ||= {}
+        @@vmc_endpoints[credentials][habitat] ||= VMC.new(credentials, habitat: habitat)
+        @@vmc_endpoints[credentials][habitat]
       end
 
       @@nsx_endpoints = {}

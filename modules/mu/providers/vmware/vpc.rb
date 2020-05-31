@@ -45,12 +45,24 @@ module MU
               "id" => @mu_name,
               "description" => @deploy.deploy_id,
               "display_name" => @mu_name, # thing we'll use to find it in vSphere
-              "subnets" => [
+              "subnets" => @config['subnets'].map { |s|
+                cidr_obj = NetAddr::IPv4Net.parse(s['ip_block'])
+                prefix_len = cidr_obj.netmask.to_s.sub(/^\//, '').to_i
+                # this deranged nonsense puts as much of the rest of the block
+                # as possible into DHCP; we can't include the gateway address,
+                # which breaks everything.
+                dhcp_ranges = []
+                begin
+                  prefix_len += 1
+                  downsized = cidr_obj.resize(prefix_len)
+                  dhcp_ranges << downsized.next_sib.to_s
+                end while prefix_len < 29
+
                 {
-                  "gateway_address": "40.2.1.1/16", # is this our cidr block? where does this come from? standard private ranges don't seem to be legal
-                  "dhcp_ranges": [ "40.2.2.0/24" ]
+                  "gateway_address" => cidr_obj.nth(1).to_s+cidr_obj.netmask.to_s,
+                  "dhcp_ranges" => dhcp_ranges
                 }
-              ],
+              },
               "tags" => @tags.keys.map { |k| { "scope" => k, "tag" => @tags[k] } }
             }
           )
@@ -72,7 +84,7 @@ module MU
         # @param credentials [String]
         # @param habitat [String]
         # @return [String]
-        def self.vSphereID(cloud_id, credentials: nil, habitat: nil)
+        def self.vSphereID(cloud_id, credentials: nil, habitat: nil, quiet: false)
           my_desc = MU::Cloud::VMWare::VPC.find(credentials: credentials, habitat: habitat, cloud_id: cloud_id).values.first
 
           return nil if !my_desc or my_desc.empty?
@@ -86,8 +98,8 @@ module MU
 
         # Instance method shortcut to {MU::Cloud::VMWare::VPC.vSphereID}
         # @return [String]
-        def vSphereID
-          MU::Cloud::VMWare::VPC.vSphereID(@cloud_id, credentials: @credentials, habitat: @habitat)
+        def vSphereID(quiet = false)
+          MU::Cloud::VMWare::VPC.vSphereID(@cloud_id, credentials: @credentials, habitat: @habitat, quiet: quiet)
         end
 
         # Locate and return cloud provider descriptors of this resource type
@@ -207,7 +219,11 @@ module MU
           resp.each_pair { |cloud_id, segment|
             if segment["tags"] and segment["tags"].include?({ "scope" => "MU-ID", "tag" => MU.deploy_id})
               MU.log "Deleting NSX network segment #{segment["id"]}"
-              MU::Cloud::VMWare.nsx.deleteSegment(segment["id"]) if !noop
+              if !noop
+              MU.retrier([MU::Cloud::VMWare::NSX::NSXError], max: 10, wait: 30) {
+                MU::Cloud::VMWare.nsx.deleteSegment(segment["id"])
+              }
+              end
             end
           }
         end
@@ -260,6 +276,15 @@ module MU
 #                "create_nat_gateway" => (addnat and public_rtbs and public_rtbs.include?(rtb['name']))
               }
             }
+          end
+
+          if vpc['route_tables'].size > 1
+            if !MU::Config::VPC.splitVPC(vpc, configurator)
+              ok = false
+            end
+          elsif vpc['subnets'].size > 1
+            MU.log "VMWare VPCs cannot have more than one subnet", MU::ERR, details: vpc['subnets']
+            ok = false
           end
 
           ok
