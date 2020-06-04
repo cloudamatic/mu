@@ -60,7 +60,11 @@ module MU
 
                 {
                   "gateway_address" => cidr_obj.nth(1).to_s+cidr_obj.netmask.to_s,
-                  "dhcp_ranges" => dhcp_ranges
+                  "dhcp_ranges" => dhcp_ranges,
+#                  "dhcp_config" => {
+#                    "resource_type" => "SegmentDhcpV4Config",
+#                    "server_address" => "40.1.0.1/32" # does this create a DHCP server somewhere? What?
+#                  }
                 }
               },
               "tags" => @tags.keys.map { |k| { "scope" => k, "tag" => @tags[k] } }

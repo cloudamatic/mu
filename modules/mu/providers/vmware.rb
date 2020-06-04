@@ -107,6 +107,17 @@ pp resp
 #  }
         end
 
+        def createUpdateIPPool(name, description: nil, tags: nil)
+          params = {
+            "display_name" => name,
+          }
+          params["description"] = description if description
+          if tags
+            params["tags"] = tags.keys.map { |k| { "scope" => k, "tag" => @tags[k] } }
+          end
+          callAPI("policy/api/v1/infra/ip-pools/#{name}", method: "PATCH", params: params)
+        end
+
         def deleteSegment(id)
           callAPI("policy/api/v1/infra/segments/#{id}", method: "DELETE")
         end
@@ -141,7 +152,7 @@ pp resp
           req['csp-auth-token'] = MU::Cloud::VMWare::VMC.getToken(@credentials)
 #          req.basic_auth @username, @password
 
-          MU.log "NSX #{method} #{uri.to_s}", MU::NOTICE, details: req.body
+          MU.log "NSX #{method} #{uri.to_s}", MU::NOTICE, details: params
           resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
             http.request(req)
           end
@@ -410,7 +421,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           req['Content-type'] = "application/json"
           req['csp-auth-token'] = getToken(credentials)
 
-          MU.log "VMC #{method} #{uri.to_s}", MU::NOTICE, details: req.body
+          MU.log "VMC #{method} #{uri.to_s}", MU::NOTICE, details: params
           resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
             http.request(req)
           end
@@ -734,12 +745,32 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         @@nsx_endpoints[credentials][habitat]
       end
 
-      def self.datacenter(credentials: nil, habitat: nil)
-        VSphereEndpoint.new(api: "DatacenterApi", credentials: credentials, habitat: habitat)
-      end
-
       def self.identity(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "IdentityProvidersApi", credentials: credentials, habitat: habitat)
+      end
+
+      @@datacenter_endpoints = {}
+      def self.datacenter(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@datacenter_endpoints[credentials] ||= {}
+        @@datacenter_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "DatacenterApi", credentials: credentials, habitat: habitat)
+        @@datacenter_endpoints[credentials][habitat]
+      end
+
+      @@datastore_endpoints = {}
+      def self.datastore(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@datastore_endpoints[credentials] ||= {}
+        @@datastore_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "DatastoreApi", credentials: credentials, habitat: habitat)
+        @@datastore_endpoints[credentials][habitat]
+      end
+
+      @@resource_pool_endpoints = {}
+      def self.resource_pool(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@resource_pool_endpoints[credentials] ||= {}
+        @@resource_pool_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "ResourcePoolApi", credentials: credentials, habitat: habitat)
+        @@resource_pool_endpoints[credentials][habitat]
       end
 
       @@network_endpoints = {}
@@ -805,6 +836,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         attr_reader :org
         attr_reader :api
         attr_reader :credentials
+        attr_reader :session_key
 
         @credentials = nil
 
@@ -840,7 +872,8 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           end
 
           @api_blob = VSphereAutomation::ApiClient.new(configuration)
-          VSphereAutomation::CIS::SessionApi.new(@api_blob).create('')
+          @session = VSphereAutomation::CIS::SessionApi.new(@api_blob).create('')
+          @session_key = @session.value
           @api_client = VSphereAutomation::VCenter.const_get(@api).new(@api_blob)
 
         end
@@ -849,7 +882,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
           resp = nil
-          MU.retrier([VSphereError], max: 6, wait: 5) {
+          MU.retrier([VSphereError, Errno::EBADF, IOError], max: 6, wait: 5) {
             resp = if arguments and !arguments.empty?
               @api_client.send(method_sym, arguments.first)
             else

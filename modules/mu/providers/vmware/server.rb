@@ -87,11 +87,25 @@ module MU
                 "folder" => MU::Cloud::VMWare.folderToID(@config['folder'], @credentials),
                 "host" => "host-16",
                 "cluster" => "domain-c8",
-#              "resource_pool" => "", # in lieu of host+cluster
-                "datastore" => "datastore-48"
+                "resource_pool" => MU::Cloud::VMWare.resource_pool(credentials: @credentials, habitat: @habitat).list.value.select { |r| r.name == "Compute-ResourcePool" }.first.resource_pool, # XXX it sure would be nice to create one of these for our deploy
+                "datastore" => "datastore-48",
               },
+              "tags" => @tags.keys.map { |k| { "scope" => k, "tag" => @tags[k] } },
+              "cdroms" => [
+                {
+                  "allow_guest_control": true,
+                  "start_connected": true,
+                }
+              ],
             }
           }
+
+          if config['iso']
+            params["spec"]["cdroms"][0]["backing"] = {
+              "iso_file" => "[#{config['iso']['datastore']}] #{config['iso']['path']}",
+              "type" => "ISO_FILE"
+            }
+          end
 
           if @vpc
             params["spec"]["nics"] = [
@@ -287,7 +301,22 @@ module MU
             "folder" => {
               "type" => "string",
               "default" => "Workloads"
-            }
+            },
+            "iso" => {
+              "type" => "object",
+              "required" => ["path"],
+              "properties" => { 
+                "datastore" => {
+                  "type" => "string",
+                  "description" => "The datastore in which the +.iso+ file resides",
+                  "default" => "WorkloadDatastore"
+                },
+                "path" => {
+                  "type" => "string",
+                  "description" => "The path to the +.iso+ file"
+                }
+              }
+            },
           }
           [toplevel_required, schema]
         end
