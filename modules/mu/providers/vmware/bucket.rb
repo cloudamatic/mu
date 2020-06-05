@@ -70,7 +70,7 @@ module MU
 
           req = Net::HTTP::Put.new(uri)
           req['Content-Type'] = 'application/octet-stream'
-#          req['Transfer-Encoding'] = 'chunked'
+          req['Transfer-Encoding'] = 'chunked'
           req['Content-Length'] = File.size(file)
           req['Cookie'] = 'vmware_cgi_ticket='+MU::Cloud::VMWare.datastore(credentials: credentials, habitat: habitat).session_key
           req.body_stream = File.open(file)
@@ -79,9 +79,8 @@ module MU
           http = Net::HTTP.new(uri.host, uri.port)
           http.use_ssl = true
           http.set_debug_output($stdout)
-          http.request(req)
+          pp http.request(req)
 
-          pp resp
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or

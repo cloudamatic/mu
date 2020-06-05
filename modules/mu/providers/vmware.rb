@@ -279,6 +279,10 @@ pp resp
           self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips")
         end
 
+        def releasePublicIP(id)
+          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips/#{id}", method: "DELETE")
+        end
+
         def self.setAWSIntegrations(credentials = nil)
           cfg = MU::Cloud::VMWare.credConfig(credentials)
           credname = credentials
@@ -405,8 +409,10 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
 
           req = if method == "POST"
             Net::HTTP::Post.new(uri)
-#        elsif method == "DELETE"
-#          XXX
+          elsif method == "DELETE"
+            Net::HTTP::Delete.new(uri)
+          elsif method == "PUT"
+            Net::HTTP::Put.new(uri)
           else
             if params and !params.empty?
               uri.query = URI.encode_www_form(params)
@@ -747,6 +753,14 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
 
       def self.identity(credentials: nil, habitat: nil)
         VSphereEndpoint.new(api: "IdentityProvidersApi", credentials: credentials, habitat: habitat)
+      end
+
+      @@guest_endpoints = {}
+      def self.guest(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@guest_endpoints[credentials] ||= {}
+        @@guest_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VmGuestIdentityApi", credentials: credentials, habitat: habitat)
+        @@guest_endpoints[credentials][habitat]
       end
 
       @@datacenter_endpoints = {}

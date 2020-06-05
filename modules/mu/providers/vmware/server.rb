@@ -212,6 +212,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          if @config['associate_public_ip']
+            pp MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @habitat).get(@cloud_id)
+#            MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name, "192.168.2.2/25")
+          end
         end
 
         # Create an image out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.

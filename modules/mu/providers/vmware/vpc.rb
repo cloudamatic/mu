@@ -47,20 +47,10 @@ module MU
               "display_name" => @mu_name, # thing we'll use to find it in vSphere
               "subnets" => @config['subnets'].map { |s|
                 cidr_obj = NetAddr::IPv4Net.parse(s['ip_block'])
-                prefix_len = cidr_obj.netmask.to_s.sub(/^\//, '').to_i
-                # this deranged nonsense puts as much of the rest of the block
-                # as possible into DHCP; we can't include the gateway address,
-                # which breaks everything.
-                dhcp_ranges = []
-                begin
-                  prefix_len += 1
-                  downsized = cidr_obj.resize(prefix_len)
-                  dhcp_ranges << downsized.next_sib.to_s
-                end while prefix_len < 29
 
                 {
                   "gateway_address" => cidr_obj.nth(1).to_s+cidr_obj.netmask.to_s,
-                  "dhcp_ranges" => dhcp_ranges,
+                  "dhcp_ranges" => [cidr_obj.nth(2).to_s+"-"+cidr_obj.nth(cidr_obj.len-1).to_s],
 #                  "dhcp_config" => {
 #                    "resource_type" => "SegmentDhcpV4Config",
 #                    "server_address" => "40.1.0.1/32" # does this create a DHCP server somewhere? What?
