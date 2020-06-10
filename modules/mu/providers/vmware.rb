@@ -755,6 +755,63 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         VSphereEndpoint.new(api: "IdentityProvidersApi", credentials: credentials, habitat: habitat)
       end
 
+      @@ovf_endpoints = {}
+      def self.ovf(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+
+        @@ovf_endpoints[credentials] ||= {}
+        @@ovf_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "OvfLibraryItemApi", credentials: credentials, habitat: habitat)
+        @@ovf_endpoints[credentials][habitat]
+      end
+
+      @@library_endpoints = {}
+      def self.library(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_endpoints[credentials] ||= {}
+        @@library_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_endpoints[credentials][habitat]
+      end
+
+      @@library_file_endpoints = {}
+      def self.library_file(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_file_endpoints[credentials] ||= {}
+        @@library_file_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemUpdatesessionFileApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_file_endpoints[credentials][habitat]
+      end
+
+      @@library_update_endpoints = {}
+      def self.library_update(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_update_endpoints[credentials] ||= {}
+        @@library_update_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemUpdateSessionApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_update_endpoints[credentials][habitat]
+      end
+
+      @@library_item_endpoints = {}
+      def self.library_item(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_item_endpoints[credentials] ||= {}
+        @@library_item_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_item_endpoints[credentials][habitat]
+      end
+
+      @@subscribed_library_endpoints = {}
+      def self.subscribed_library(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@subscribed_library_endpoints[credentials] ||= {}
+        @@subscribed_library_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "SubscribedLibraryApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@subscribed_library_endpoints[credentials][habitat]
+      end
+
+      @@local_library_endpoints = {}
+      def self.local_library(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@local_library_endpoints[credentials] ||= {}
+        @@local_library_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LocalLibraryApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@local_library_endpoints[credentials][habitat]
+      end
+
       @@guest_endpoints = {}
       def self.guest(credentials: nil, habitat: nil)
         habitat ||= defaultSDDC(credentials)
@@ -857,7 +914,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # Create a vSphere API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "esx", credentials: nil, habitat: nil)
+        def initialize(api: "esx", section: :VCenter, credentials: nil, habitat: nil)
           @credentials = credentials
           @org = VMC.getOrg(@credentials)['id']
           @api = api.to_sym
@@ -888,7 +945,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           @api_blob = VSphereAutomation::ApiClient.new(configuration)
           @session = VSphereAutomation::CIS::SessionApi.new(@api_blob).create('')
           @session_key = @session.value
-          @api_client = VSphereAutomation::VCenter.const_get(@api).new(@api_blob)
+          @api_client = VSphereAutomation.const_get(section).const_get(@api).new(@api_blob)
 
         end
 
@@ -898,7 +955,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
           resp = nil
           MU.retrier([VSphereError, Errno::EBADF, IOError], max: 6, wait: 5) {
             resp = if arguments and !arguments.empty?
-              @api_client.send(method_sym, arguments.first)
+              @api_client.send(method_sym, *arguments)
             else
               @api_client.send(method_sym)
             end

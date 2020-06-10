@@ -34,23 +34,111 @@ module MU
         end
 
         # Upload a file to a bucket.
-        # @param url [String]: Target URL, of the form gs://bucket/folder/file
+        # @param url [String]: Target URL, of the form library://item/file
         # @param acl [String]: Canned ACL permission to assign to the object we upload
         # @param file [String]: Path to a local file to write to our target location. One of +file+ or +data+ must be specified.
         # @param data [String]: Data to write to our target location. One of +file+ or +data+ must be specified.
-        def self.upload(url, acl: "private", file: nil, data: nil, credentials: nil, habitat: nil)
+        def self.upload(url, acl: "private", file: nil, data: nil, credentials: nil, habitat: nil, description: nil, source_url: nil)
           habitat ||= MU::Cloud::VMWare.defaultSDDC(credentials)
           if file and !File.readable?(file)
             raise MuError, "File #{file} must exist and be readable"
           end
-          datastore, path = url.split(/:/, 2)
+          library, path = url.split(/:/, 2)
+          item, filename = path.sub(/^\/*/, '').split(/\//, 2)
+          filename ||= item
+
+          library_desc = find(cloud_id: library, credentials: credentials, habitat: habitat).values.first
+
+          if !library_desc
+            raise MuError, "Failed to find a datastore matching #{url}"
+          end
+
+          item_id = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).find(::VSphereAutomation::Content::ContentLibraryItemFind.new(
+            spec: ::VSphereAutomation::Content::ContentLibraryItemFindSpec.new(
+              name: item,
+              library_id: library_desc.id
+          ))).value.first
+
+          if !item_id
+            create_spec = {
+              library_id: library_desc.id,
+              name: item
+            }
+            create_spec[:description] = description if description
+
+            params = ::VSphereAutomation::Content::ContentLibraryItemCreate.new(create_spec: create_spec)
+
+            resp = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).create(params)
+            item_id = resp.value
+          end
+
+          session_id = nil
+          loop_if = Proc.new { session_id.is_a?(::VSphereAutomation::Content::VapiStdErrorsResourceBusy) }
+
+          MU.retrier([], loop_if: loop_if, max: 10, wait: 30) {
+            session_id = MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).create(
+              ::VSphereAutomation::Content::ContentLibraryItemUpdateSessionCreate.new(
+                create_spec: {
+                  library_item_id: item_id
+                }
+              )
+            ).value
+          }
+          if !session_id or !session_id.is_a?(String)
+            raise MuError, "Failed to create a session to modify #{library}://#{item}"
+          end
+
+          MU::Cloud::VMWare.library_file(credentials: credentials, habitat: habitat).list(session_id)
+
+          file_spec = {
+            name: filename,
+          }
+          if file
+            file_spec[:source_type] = "PUSH"
+          elsif source_url
+            file_spec[:source_type] = "PULL"
+            file_spec[:source_endpoint] = {
+              uri: source_url
+            }
+          end
+          add_arg = ::VSphereAutomation::Content::ContentLibraryItemUpdatesessionFileAdd.new(
+              file_spec: file_spec
+            )
+MU.log "add this", MU::WARN, details: add_arg
+MU.log session_id, MU::WARN, details: MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).get(session_id)
+          file_upload = MU::Cloud::VMWare.library_file(credentials: credentials, habitat: habitat).add(
+            session_id,
+            add_arg
+          ).value
+MU.log session_id, MU::WARN, details: file_upload
+
+          begin
+            if file
+              MU.log "Uploading #{file} to #{library}://#{item}#{filename}", MU::NOTICE, details: "PUT to #{file_upload.upload_endpoint.uri}"
+              uri = URI file_upload.upload_endpoint.uri
+              req = Net::HTTP::Put.new(uri)
+              req['Content-Type'] = 'application/octet-stream'
+              req['Accept'] = 'application/json'
+#              req['Transfer-Encoding'] = 'chunked'
+              req['vmware-api-session-id'] = session_id
+              req['Content-Length'] = File.size(file)
+              req.body_stream = File.open(file)
+
+              MU.log "Attempting to PUT #{file} to #{uri.to_s}", MU::NOTICE
+              http = Net::HTTP.new(uri.host, uri.port)
+              http.use_ssl = true
+              http.set_debug_output($stdout)
+              pp http.request(req)
+            end
+          ensure
+            MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).delete(session_id)
+          end
+
+          exit
+
           datastore_desc = MU::Cloud::VMWare.datastore(credentials: credentials, habitat: habitat).list.value.select { |d|
             [d.name, d.datastore].include?(datastore)
           }.first
-
-          if !datastore_desc
-            raise MuError, "Failed to find a datastore matching #{url}"
-          end
 
           datacenters = MU::Cloud::VMWare.datacenter(credentials: credentials, habitat: habitat).list.value
 
@@ -70,7 +158,7 @@ module MU
 
           req = Net::HTTP::Put.new(uri)
           req['Content-Type'] = 'application/octet-stream'
-          req['Transfer-Encoding'] = 'chunked'
+#          req['Transfer-Encoding'] = 'chunked'
           req['Content-Length'] = File.size(file)
           req['Cookie'] = 'vmware_cgi_ticket='+MU::Cloud::VMWare.datastore(credentials: credentials, habitat: habitat).session_key
           req.body_stream = File.open(file)
@@ -78,7 +166,7 @@ module MU
           MU.log "Attempting to PUT #{file} to #{uri.to_s}", MU::NOTICE
           http = Net::HTTP.new(uri.host, uri.port)
           http.use_ssl = true
-          http.set_debug_output($stdout)
+#          http.set_debug_output($stdout)
           pp http.request(req)
 
         end
@@ -114,6 +202,12 @@ module MU
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching bucket.
         def self.find(**args)
           found = {}
+
+          MU::Cloud::VMWare.library(credentials: args[:credentials], habitat: args[:habitat]).list.value.each { |l|
+            desc = MU::Cloud::VMWare.library(credentials: args[:credentials], habitat: args[:habitat]).get(l).value
+            next if args[:cloud_id] and ![l, desc.name].include?(args[:cloud_id])
+            found[l] = desc
+          }
 
           found
         end
