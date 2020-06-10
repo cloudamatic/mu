@@ -776,8 +776,16 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
       def self.library_file(credentials: nil, habitat: nil)
         habitat ||= defaultSDDC(credentials)
         @@library_file_endpoints[credentials] ||= {}
-        @@library_file_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemUpdatesessionFileApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_file_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemFileApi", credentials: credentials, habitat: habitat, section: :Content)
         @@library_file_endpoints[credentials][habitat]
+      end
+
+      @@library_file_session_endpoints = {}
+      def self.library_file_session(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_file_session_endpoints[credentials] ||= {}
+        @@library_file_session_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemUpdatesessionFileApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_file_session_endpoints[credentials][habitat]
       end
 
       @@library_update_endpoints = {}
@@ -914,7 +922,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # Create a vSphere API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "esx", section: :VCenter, credentials: nil, habitat: nil)
+        def initialize(api: "esx", section: :VCenter, credentials: nil, habitat: nil, debug: false)
           @credentials = credentials
           @org = VMC.getOrg(@credentials)['id']
           @api = api.to_sym
@@ -937,7 +945,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
             c.host = url
             c.username = @sddc["resource_config"]["cloud_username"]
             c.password = @sddc["resource_config"]["cloud_password"]
-#            c.debugging = true
+            c.debugging = debug
 #            c.cert_file = StringIO.new(cert["certificate"])
             c.scheme = 'https'
           end

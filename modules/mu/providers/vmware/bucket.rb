@@ -68,6 +68,7 @@ module MU
 
             params = ::VSphereAutomation::Content::ContentLibraryItemCreate.new(create_spec: create_spec)
 
+            MU.log "Creating item #{item} in library #{library}"
             resp = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).create(params)
             item_id = resp.value
           end
@@ -88,8 +89,20 @@ module MU
             raise MuError, "Failed to create a session to modify #{library}://#{item}"
           end
 
-          MU::Cloud::VMWare.library_file(credentials: credentials, habitat: habitat).list(session_id)
+          file_desc = MU::Cloud::VMWare.library_file(credentials: credentials, habitat: habitat).get(
+            item_id,
+            ::VSphereAutomation::Content::ContentLibraryItemFileGet.new(
+             name: filename
+            )
+          ).value
 
+          if file and file_desc and file_desc.respond_to?(:checksum_info) and
+             file_desc.checksum_info.checksum and
+             Digest::SHA1.file(file) == file_desc.checksum_info.checksum
+            MU.log "#{file} already exists at #{library}://#{item}/#{filename} and has matching checksum", MU::NOTICE, details: file_desc.checksum_info.checksum
+            return
+          end
+exit
           file_spec = {
             name: filename,
           }
@@ -104,22 +117,19 @@ module MU
           add_arg = ::VSphereAutomation::Content::ContentLibraryItemUpdatesessionFileAdd.new(
               file_spec: file_spec
             )
-MU.log "add this", MU::WARN, details: add_arg
-MU.log session_id, MU::WARN, details: MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).get(session_id)
-          file_upload = MU::Cloud::VMWare.library_file(credentials: credentials, habitat: habitat).add(
+
+          file_upload = MU::Cloud::VMWare.library_file_session(credentials: credentials, habitat: habitat).add(
             session_id,
             add_arg
           ).value
-MU.log session_id, MU::WARN, details: file_upload
 
           begin
             if file
-              MU.log "Uploading #{file} to #{library}://#{item}#{filename}", MU::NOTICE, details: "PUT to #{file_upload.upload_endpoint.uri}"
+              MU.log "Uploading #{file} to #{library}://#{item}/#{filename}", MU::NOTICE, details: "PUT to #{file_upload.upload_endpoint.uri}"
               uri = URI file_upload.upload_endpoint.uri
               req = Net::HTTP::Put.new(uri)
               req['Content-Type'] = 'application/octet-stream'
               req['Accept'] = 'application/json'
-#              req['Transfer-Encoding'] = 'chunked'
               req['vmware-api-session-id'] = session_id
               req['Content-Length'] = File.size(file)
               req.body_stream = File.open(file)
@@ -128,46 +138,11 @@ MU.log session_id, MU::WARN, details: file_upload
               http = Net::HTTP.new(uri.host, uri.port)
               http.use_ssl = true
               http.set_debug_output($stdout)
-              pp http.request(req)
             end
           ensure
+            MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).complete(session_id)
             MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).delete(session_id)
           end
-
-          exit
-
-          datastore_desc = MU::Cloud::VMWare.datastore(credentials: credentials, habitat: habitat).list.value.select { |d|
-            [d.name, d.datastore].include?(datastore)
-          }.first
-
-          datacenters = MU::Cloud::VMWare.datacenter(credentials: credentials, habitat: habitat).list.value
-
-          if datacenters and datacenters.size > 1
-            raise MuError, "I see multiple datacenters and don't know how to identify the one I should use when uploading to #{url}", details: datacenters
-          end
-          params = {
-            "dsName" => datastore_desc.name,
-            "dcPath" => datacenters.first.name
-          }
-          pp params
-          pp MU::Cloud::VMWare.datacenter(credentials: credentials, habitat: habitat).get(datacenters.first.datacenter)
-          sddc_desc = MU::Cloud.resourceClass("VMWare", "Habitat").find(cloud_id: habitat).values.first
-          uri = URI(sddc_desc["resource_config"]["vc_url"]+path.sub(/^\//, ''))
-          uri.query = URI.encode_www_form(params)
-          puts uri.to_s
-
-          req = Net::HTTP::Put.new(uri)
-          req['Content-Type'] = 'application/octet-stream'
-#          req['Transfer-Encoding'] = 'chunked'
-          req['Content-Length'] = File.size(file)
-          req['Cookie'] = 'vmware_cgi_ticket='+MU::Cloud::VMWare.datastore(credentials: credentials, habitat: habitat).session_key
-          req.body_stream = File.open(file)
-
-          MU.log "Attempting to PUT #{file} to #{uri.to_s}", MU::NOTICE
-          http = Net::HTTP.new(uri.host, uri.port)
-          http.use_ssl = true
-#          http.set_debug_output($stdout)
-          pp http.request(req)
 
         end
 
