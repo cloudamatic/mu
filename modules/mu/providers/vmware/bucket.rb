@@ -43,25 +43,12 @@ module MU
           if file and !File.readable?(file)
             raise MuError, "File #{file} must exist and be readable"
           end
-          library, path = url.split(/:/, 2)
-          item, filename = path.sub(/^\/*/, '').split(/\//, 2)
-          filename ||= item
 
-          library_desc = find(cloud_id: library, credentials: credentials, habitat: habitat).values.first
-
-          if !library_desc
-            raise MuError, "Failed to find a datastore matching #{url}"
-          end
-
-          item_id = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).find(::VSphereAutomation::Content::ContentLibraryItemFind.new(
-            spec: ::VSphereAutomation::Content::ContentLibraryItemFindSpec.new(
-              name: item,
-              library_id: library_desc.id
-          ))).value.first
+          library, library_id, item, item_id = MU::Cloud::VMware.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
 
           if !item_id
             create_spec = {
-              library_id: library_desc.id,
+              library_id: library_id,
               name: item
             }
             create_spec[:description] = description if description

@@ -79,57 +79,112 @@ module MU
         def create
 # https://vdc-repo.vmware.com/vmwb-repository/dcr-public/1cd28284-3b72-4885-9e31-d1c6d9e26686/71ef7304-a6c9-43b3-a3cd-868b2c236c81/doc/operations/com/vmware/vcenter/vm.create-operation.html
 
-          params = {
-            "spec" => {
-              "guest_OS" => @config["image_id"],
-              "name" => @mu_name,
-              "placement" => {
-                "folder" => MU::Cloud::VMWare.folderToID(@config['folder'], @credentials),
-                "host" => "host-16",
-                "cluster" => "domain-c8",
-                "resource_pool" => MU::Cloud::VMWare.resource_pool(credentials: @credentials, habitat: @habitat).list.value.select { |r| r.name == "Compute-ResourcePool" }.first.resource_pool, # XXX it sure would be nice to create one of these for our deploy
-                "datastore" => "datastore-48",
-              },
-              "tags" => @tags.keys.map { |k| { "scope" => k, "tag" => @tags[k] } },
-              "cdroms" => [
-                {
-                  "allow_guest_control": true,
-                  "start_connected": true,
-                }
-              ],
-            }
-          }
+          folder = MU::Cloud::VMWare.folderToID(@config['folder'], @credentials)
+          resource_pool = MU::Cloud::VMWare.resource_pool(credentials: @credentials, habitat: @sddc).list.value.select { |r| r.name == "Compute-ResourcePool" }.first.resource_pool # XXX it sure would be nice to create one of these for our deploy
 
-          if config['iso']
-            params["spec"]["cdroms"][0]["backing"] = {
-              "iso_file" => "[#{config['iso']['datastore']}] #{config['iso']['path']}",
-              "type" => "ISO_FILE"
+          if @config['template']
+            item_id, ovf_desc = MU::Cloud.resourceClass("VMWare", "Server").getImageFromLibrary(@config['template'])
+            deployment_spec = {
+              accept_all_EULA: true,
+              annotation: @deploy.deploy_id,
+              name: @mu_name
             }
-          end
+            target = {
+              resource_pool_id: resource_pool
+            }
 
-          if @vpc
-            params["spec"]["nics"] = [
-              {
-                "start_connected" => true,
-                "allow_guest_control" => true,
-                "backing" => {
-                  "type" => "OPAQUE_NETWORK", # STANDARD_PORTGROUP ?
-                  "network" => @vpc.vSphereID
-                }
+            resp = MU::Cloud::VMWare.ovf(credentials: credentials, habitat: habitat).deploy(
+              item_id,
+              ::VSphereAutomation::VCenter::VcenterOvfLibraryItemDeploy.new(
+                deployment_spec: deployment_spec,
+                target: target
+              )
+            ).value
+
+            if !resp.respond_to?(:succeeded) or !resp.succeeded
+              raise MuError.new "Failed to create VM #{@mu_name} from template #{@config['template']}", details: resp
+            end
+            @cloud_id = resp.resource_id.id
+          else
+            params = {
+              "spec" => {
+                "guest_OS" => @config["image_id"],
+                "name" => @mu_name,
+                "placement" => {
+                  "folder" => folder,
+                  "resource_pool" => resource_pool,
+                  "host" => "host-16", # XXX expose/discover
+                  "cluster" => "domain-c8", # XXX expose/discover
+                  "datastore" => "datastore-48", # XXX expose/discover
+                },
+                "tags" => @tags.keys.map { |k| { "scope" => k, "tag" => @tags[k] } },
+                "cdroms" => [
+                  {
+                    "allow_guest_control": true,
+                    "start_connected": true,
+                  }
+                ],
               }
-            ]
-          end
+            }
+
+            if config['iso']
+              params["spec"]["cdroms"][0]["backing"] = {
+                "iso_file" => "[#{config['iso']['datastore']}] #{config['iso']['path']}",
+                "type" => "ISO_FILE"
+              }
+            end
+
+            if @vpc
+              params["spec"]["nics"] = [
+                {
+                  "start_connected" => true,
+                  "allow_guest_control" => true,
+                  "backing" => {
+                    "type" => "OPAQUE_NETWORK", # STANDARD_PORTGROUP ?
+                    "network" => @vpc.vSphereID
+                  }
+                }
+              ]
+            end
 
 # spec.memory.size_MiB
-          resp = MU::Cloud::VMWare.vm(credentials: @credentials).create(params)
-          if resp and resp.is_a?(::VSphereAutomation::VCenter::VcenterVMCreateResp) and resp.respond_to?(:value) and resp.value
-            @cloud_id = resp.value
-          else
-            pp params
-            raise MuError.new "Failed to create VMWare VM #{@config['name']}", details: resp
+            resp = MU::Cloud::VMWare.vm(credentials: @credentials).create(params)
+            if resp and resp.is_a?(::VSphereAutomation::VCenter::VcenterVMCreateResp) and resp.respond_to?(:value) and resp.value
+              @cloud_id = resp.value
+            else
+              pp params
+              raise MuError.new "Failed to create VMWare VM #{@config['name']}", details: resp
+            end
           end
 
           start
+        end
+
+        def self.getImageFromLibrary(url, credentials: nil, habitat: nil)
+          habitat ||= MU::Cloud::VMWare.defaultSDDC(credentials)
+
+          library, library_id, item, item_id = MU::Cloud::VMWare.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
+
+          if !library_id or !item_id
+            MU.log "Could not find a library and item matching #{url}", MU::WARN
+            return nil
+          end
+
+          resp = MU::Cloud::VMWare.ovf(credentials: credentials, habitat: habitat).filter(
+            item_id,
+            ::VSphereAutomation::VCenter::VcenterOvfLibraryItemFilter.new(
+              target: {
+                resource_pool_id: MU::Cloud::VMWare.resource_pool(credentials: credentials, habitat: habitat).list.value.select { |r| r.name == "Compute-ResourcePool" }.first.resource_pool,
+              }
+            )
+          )
+
+          if !resp.is_a?(::VSphereAutomation::VCenter::VcenterOvfLibraryItemFilterResp) or !resp.value.is_a?(::VSphereAutomation::VCenter::VcenterOvfLibraryItemOvfSummary)
+            MU.log "Image at #{url} does not exist or is not a valid OVF library item"
+            return nil
+          end
+
+          [item_id, resp.value]
         end
 
         # Return a BoK-style config hash describing a NAT instance. We use this
@@ -213,7 +268,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['associate_public_ip']
-            pp MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @habitat).get(@cloud_id)
+            pp MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id)
 #            MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name, "192.168.2.2/25")
           end
         end
@@ -226,7 +281,10 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: nil, zone: MU::Cloud::VMWare.listAZs.sample, credentials: nil)
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: nil, zone: nil, credentials: nil)
+#           MU::Cloud::VMWare.ovf(credentials: credentials, habitat: habitat).create(
+#           )
+
         end
 
         # Return the IP address that we, the Mu server, should be using to access
@@ -306,8 +364,13 @@ module MU
               "type" => "string",
               "default" => "Workloads"
             },
+            "template" => {
+              "type" => "string",
+              "description" => "URL for OVF template or OVA archive which will serve as a base image for this virtual machine, typically a reference to an OVF library entry of the form +library-name:/item-name/foo+. If a remote (http/https) URL is specified, we will attempt to download the image and inject it into the VMWare environment's local OVF library.",
+            },
             "iso" => {
               "type" => "object",
+              "description" => "A +.iso+ file, which already exists in an accessible datastore, which we will mount on this virtual machine's CDROM device.",
               "required" => ["path"],
               "properties" => { 
                 "datastore" => {
@@ -343,6 +406,16 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
           ok = true
+          server['habitat'] ||= MU::Config::Ref.get(
+            id: MU::Cloud::VMWare.defaultSDDC(server['credentials']),
+            cloud: "VMWare"
+          )
+
+          if server['template']
+            if !getImageFromLibrary(server['template'], credentials: server['credentials'], habitat: server['habitat'].id)
+              ok = false
+            end
+          end
 
           if !server['vpc']
             MU.log "VMWare Server '#{server['name']}' did not declare a vpc block, and will be configured with no network interface", MU::WARN

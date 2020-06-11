@@ -467,8 +467,18 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
       # @param deploy [MU::MommaCat]
       def self.resourceInitHook(cloudobj, deploy)
         class << self
+          attr_reader :sddc
         end
         return if !cloudobj
+
+        if deploy        
+          if cloudobj.config['habitat']
+            habref = MU::Config::Ref.get(cloudobj.config['habitat'])
+            cloudobj.instance_variable_set(:@sddc, habref.id)
+          else
+            cloudobj.instance_variable_set(:@sddc, MU::Cloud::VMWare.defaultSDDC(cloudobj.credentials))
+          end
+        end
       end
 
       # If we're running this cloud, return the MU.muCfg blob we'd use to
@@ -715,6 +725,27 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         [""]
       end
 
+      def self.parseLibraryUrl(url, credentials: nil, habitat: nil)
+        habitat ||= MU::Cloud::VMWare.defaultSDDC(credentials)
+
+        library, path = url.split(/:/, 2)
+        item, filename = path.sub(/^\/*/, '').split(/\//, 2)
+        filename ||= item
+
+        library_desc = MU::Cloud.resourceClass("VMWare", "Bucket").find(cloud_id: library, credentials: credentials, habitat: habitat).values.first
+
+        if !library_desc
+          raise MuError, "Failed to find a datastore matching #{url}"
+        end
+
+        item_id = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).find(::VSphereAutomation::Content::ContentLibraryItemFind.new(
+          spec: ::VSphereAutomation::Content::ContentLibraryItemFindSpec.new(
+            name: item,
+            library_id: library_desc.id
+        ))).value.first
+
+        [library, library_desc.id, item, item_id]
+      end
 
       @@instance_types = nil
       # Query the GCP API for the list of valid Compute instance types and some of
@@ -931,7 +962,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
 
           @sddc = MU::Cloud.resourceClass("VMWare", "Habitat").find(credentials: @credentials, cloud_id: @habitat).values.first
           if !@sddc
-            raise MuError.new, "Couldn't load details for my native SDDC", details: { "credentials" => @credentials, "org" => @org, "habitat" => @habitat }
+            raise MuError.new "Couldn't load details for my native SDDC", details: { "credentials" => @credentials, "org" => @org, "habitat" => @habitat }
           end
 
           url, cert = if api == "nsx"
