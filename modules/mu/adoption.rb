@@ -467,7 +467,7 @@ module MU
           plain = path_str.join(" => \n") + indent + plain
           color = path_str.join(" => \n") + indent + color
 
-          slack += " "+slack_path_str+"."
+          slack += " "+slack_path_str if !slack_path_str.empty?
           myreport = {
             "slack" => slack,
             "plain" => plain,
@@ -491,13 +491,13 @@ module MU
             end
           else
             tier[:value] ||= "<nil>"
-            if ![:added, :removed].include?(tier[:action])
-              myreport["slack"] += " New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
+            if ![:removed].include?(tier[:action])
+              myreport["slack"] += ". New #{tier[:field] ? "`"+tier[:field]+"`" : :value}: \*#{tier[:value]}\*"
+            else
+              myreport["slack"] += " (was \*#{tier[:value]}\*)"
             end
             append = tier[:value].to_s.bold
           end
-
-          myreport["slack"] = slack
 
           if append and !append.empty?
             myreport["plain"] += " =>\n  "+indent+append
