@@ -64,6 +64,9 @@ module MU
 
         class NSXError < MU::MuError
         end
+        attr_reader :base_url
+        attr_reader :mgr_url
+        attr_reader :reverse_proxy_url
 
         def initialize(credentials = nil, habitat: nil)
           @credentials = credentials
@@ -72,10 +75,14 @@ module MU
           org_desc = MU::Cloud::VMWare::VMC.getOrg(credentials)
           @org = org_desc['id']
           sddc_desc = MU::Cloud::VMWare::VMC.callAPI("orgs/"+@org+"/sddcs/#{@sddc}", credentials: credentials)
-#          pp sddc_desc
           @base_url = sddc_desc["resource_config"]["nsx_api_public_endpoint_url"]
+          @mgr_url = sddc_desc["resource_config"]["nsx_mgr_url"]
+          @reverse_proxy_url = sddc_desc["resource_config"]["nsx_reverse_proxy_url"]
           @username = sddc_desc["resource_config"]["cloud_username"]
           @password = sddc_desc["resource_config"]["cloud_password"]
+          resp = callAPI("policy/api/v1/infra/domains")["results"]
+          @domains = resp.map { |d| d["id"] }
+          @default_domain = @domains.include?("cgw") ? "cgw" : @domains.first
 #pp callAPI("policy/api/v1/infra/tier-1s/cgw/segments")
 #pp callAPI("policy/api/v1/infra/sites")
 #callAPI("orgs/#{@org}/sddcs/#{@sddc}/networks/4.0/sddc/networks")
@@ -107,6 +114,16 @@ pp resp
 #  }
         end
 
+        def listPolicies(domain = nil)
+          domain ||= @default_domain
+          callAPI("policy/api/v1/infra/domains/#{domain}/gateway-policies")["results"]
+        end
+
+        def listRules(policy_id, domain = nil)
+          domain ||= @default_domain
+          callAPI("policy/api/v1/infra/domains/#{domain}/gateway-policies/#{policy_id}/rules")["results"]
+        end
+
         def createUpdateIPPool(name, description: nil, tags: nil)
           params = {
             "display_name" => name,
@@ -126,8 +143,8 @@ pp resp
         # @param path [String]
         # @param credentials [String]
         # @return [Array,Hash]
-        def callAPI(path, method: "GET", params: nil, full_url: nil, redirects: 0)
-          uri = URI(@base_url.sub(/\/$/, '')+"/"+path)
+        def callAPI(path, method: "GET", params: nil, full_url: nil, redirects: 0, base_url: @base_url)
+          uri = full_url ? URI(full_url) : URI(base_url.gsub(/\/$/, '')+"/"+path)
 
           req = if method == "POST"
             Net::HTTP::Post.new(uri)
@@ -149,8 +166,11 @@ pp resp
           end
 
           req['Content-type'] = "application/json"
-          req['csp-auth-token'] = MU::Cloud::VMWare::VMC.getToken(@credentials)
-#          req.basic_auth @username, @password
+#          if path.match(/\/login$/)
+#            req.basic_auth @username, @password
+#          else
+            req['csp-auth-token'] = MU::Cloud::VMWare::VMC.getToken(@credentials)
+#          end
 
           MU.log "NSX #{method} #{uri.to_s}", MU::NOTICE, details: params
           resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
@@ -158,10 +178,11 @@ pp resp
           end
 
           if ["301", "302"].include?(resp.code)
-            if full_url == resp['location'] or redirects > 5
+#            if full_url == resp['location'] or redirects > 5
+            if redirects > 5
               raise NSXError.new "I seem to be in redirect loop. Latest redirect:", details: { full_url => resp['location'] }
             end
-            MU.log "Redirecting to #{resp['location']}", MU::NOTICE, details: resp.inspect
+            MU.log "Redirecting to #{resp['location']}", MU::NOTICE, details: resp.body
             return callAPI(path, method: method, params: params, full_url: resp['location'], redirects: redirects+1)
           end
 
@@ -262,17 +283,40 @@ pp resp
           MU::Cloud::VMWare::VPC.getOrg(@credentials, use_cache: use_cache)
         end
 
-        def allocatePublicIP(name = "foo", private_ip = "192.168.1.2/32")
-          spec = {
-            "count": 1,
-            "private_ips": [
-              private_ip
-            ],
-            "names": [
-              name
-            ]
+        def allocatePublicIP(name, private_ip)
+          assign_me = nil
+
+          listPublicIPs.each { |ip|
+            if ip["associated_private_ip"].nil?
+              assign_me = ip
+              break
+            end
           }
-          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips", method: "POST", params: spec)
+
+#          spec = {
+#            "count": 1,
+#            "private_ips": [
+#              private_ip
+#            ],
+#            "names": [
+#              name
+#            ]
+#          }
+#          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips", method: "POST", params: spec)
+          if assign_me
+            params = assign_me.clone
+            params["name"] = name
+            params["associated_private_ip"] = private_ip
+            params.reject! { |_k, v| v.nil? }
+
+#            params = {
+#              "sddc_public_ip_object" => assign_me.clone
+#            }
+#            params["sddc_public_ip_object"]["name"] = name
+#            params["sddc_public_ip_object"]["action"] = "attach"
+#            params["sddc_public_ip_object"]["associated_private_ip"] = private_ip
+            pp self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips/#{assign_me["allocation_id"]}?action=attach", method: "PATCH", params: params, debug: true)
+          end
         end
 
         def listPublicIPs
@@ -404,13 +448,15 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         # @param path [String]
         # @param credentials [String]
         # @return [Array,Hash]
-        def self.callAPI(path, method: "GET", credentials: nil, params: nil, base_url: API_URL, full_url: nil, redirects: 0)
+        def self.callAPI(path, method: "GET", credentials: nil, params: nil, base_url: API_URL, full_url: nil, redirects: 0, debug: false)
           uri = full_url ? URI(full_url) : URI(base_url.sub(/\/$/, '')+"/"+path)
 
           req = if method == "POST"
             Net::HTTP::Post.new(uri)
           elsif method == "DELETE"
             Net::HTTP::Delete.new(uri)
+          elsif method == "PATCH"
+            Net::HTTP::Patch.new(uri)
           elsif method == "PUT"
             Net::HTTP::Put.new(uri)
           else
@@ -420,17 +466,20 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
             Net::HTTP::Get.new(uri)
           end
 
-          if method == "POST" and params and !params.empty?
+          if method != "GET" and params and !params.empty?
             req.body = JSON.generate(params)
           end
 
           req['Content-type'] = "application/json"
           req['csp-auth-token'] = getToken(credentials)
 
-          MU.log "VMC #{method} #{uri.to_s}", MU::NOTICE, details: params
-          resp = Net::HTTP.start(uri.host, uri.port, :use_ssl => true) do |http|
-            http.request(req)
-          end
+          MU.log "VMC #{method} #{uri.to_s}", MU::NOTICE, details: req.body
+          http = Net::HTTP.new(uri.host, uri.port)
+          http.use_ssl = true
+          http.set_debug_output($stdout) if debug
+          http.start
+          resp = http.request(req)
+          http.finish
 
           if ["301", "302"].include?(resp.code)
             if full_url == resp['location'] or redirects > 5

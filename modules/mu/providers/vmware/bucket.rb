@@ -125,6 +125,8 @@ exit
               http = Net::HTTP.new(uri.host, uri.port)
               http.use_ssl = true
               http.set_debug_output($stdout)
+              http.start
+              http.finish
             end
           ensure
             MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).complete(session_id)

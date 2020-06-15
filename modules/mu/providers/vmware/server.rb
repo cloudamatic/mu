@@ -215,12 +215,26 @@ module MU
 
         # Ask the VMWare API to stop this node
         def stop
-          MU::Cloud::VMWare.power(credentials: @credentials).stop(@cloud_id)
+          state = MU::Cloud::VMWare.power(credentials: @credentials, habitat: @sddc).get(@cloud_id).value.state
+          if state != "POWERED_OFF"
+            MU::Cloud::VMWare.power(credentials: @credentials).stop(@cloud_id)
+          end
+
+          MU.retrier([], loop_if: Proc.new { state != "POWERED_OFF" }) {
+            state = MU::Cloud::VMWare.power(credentials: @credentials, habitat: @sddc).get(@cloud_id).value.state
+          }
         end
 
         # Ask the VMWare API to start this node
         def start
-          MU::Cloud::VMWare.power(credentials: @credentials).start(@cloud_id)
+          state = MU::Cloud::VMWare.power(credentials: @credentials, habitat: @sddc).get(@cloud_id).value.state
+          if state != "POWERED_ON"
+            MU::Cloud::VMWare.power(credentials: @credentials).start(@cloud_id)
+          end
+
+          MU.retrier([], loop_if: Proc.new { state != "POWERED_ON" }) {
+            state = MU::Cloud::VMWare.power(credentials: @credentials, habitat: @sddc).get(@cloud_id).value.state
+          }
         end
 
         # Ask the VMWare API to restart this node
@@ -267,9 +281,13 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          start
+
           if @config['associate_public_ip']
-            pp MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id)
-#            MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name, "192.168.2.2/25")
+            guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
+            if guest_info and guest_info.respond_to?(:ip_address)
+              MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name, guest_info.ip_address)
+            end
           end
         end
 

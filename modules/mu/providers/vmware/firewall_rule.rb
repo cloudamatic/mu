@@ -76,8 +76,19 @@ module MU
         def self.find(**args)
           found = {}
 
+          pols = MU::Cloud::VMWare.nsx(credentials: args[:credentials], habitat: args[:habitat]).listPolicies(args[:domain])
+          pols.each { |p|
+            next if args[:cloud_id] and ![p['path'], p['id']].include?(args[:cloud_id])
+            found[p['path']] = p
+
+            if !args[:skip_rules]
+              found[p['path']]['rules'] = MU::Cloud::VMWare.nsx(credentials: args[:credentials], habitat: args[:habitat]).listRules(p['id'], p['parent_path'].sub(/.*?\/([^\/]+)$/, '\1'))
+            end
+          }
+
           found
         end
+
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
         # is it localized to a region/zone?
