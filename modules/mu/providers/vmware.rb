@@ -114,6 +114,64 @@ pp resp
 #  }
         end
 
+        def listPublicIPs
+          callAPI("cloud-service/api/v1/public-ips")["results"]
+        end
+
+        def listNATRules(section: "USER")
+          callAPI("policy/api/v1/infra/tier-0s/vmc/nat/#{section}/nat-rules")["results"]
+        end
+
+        def createUpdateNATRule(name, outside, inside, port_range: "0-65536", section: "DEFAULT", description: nil)
+          params = {
+            display_name: name,
+            description: description,
+            action: "DNAT",
+            destination_network: outside,
+            translated_network: inside,
+            translated_ports: port_range.to_s,
+            service: "ANY",
+#            resource_type: "PolicyNatRule",
+            sequence_number: 10,
+            enabled: true,
+            logging: false,
+#            scope: ["infra/tier-0s/provider1/local-services/localService1/interfaces/internet"],
+            scope: ["infra/tier-0s/vmc/local-services/localService1/interfaces/internet"],
+            firewall_match: "MATCH_EXTERNAL_ADDRESS"
+          }
+          callAPI("policy/api/v1/infra/tier-0s/vmc/nat/#{section}/nat-rules/#{name}", method: "PATCH", params: params)["results"]
+        end
+
+        def listServices
+          callAPI("policy/api/v1/ns-service-groups")
+        end
+
+        def createIPSet(name, cidrs)
+          params = {
+            display_name: name,
+            ip_addresses: cidrs
+          }
+          callAPI("api/v1/ip-sets", method: "POST", params: params)
+        end
+
+        # We can't actually do this, because the API gives us a 403. Because
+        # reasons.
+        def listIPSets
+          callAPI("api/v1/ip-sets")["results"]
+#          listGroups.each { |g|
+#            next if !g['members']
+#            g['members'].each { |m|
+#              if m["target_type"] == "IPSet" and m["target_property"] == "id"
+#                pp callAPI("api/v1/ip-sets/#{m["value"]}")
+#              end
+#            }
+#          }
+        end
+
+        def listGroups
+          callAPI("api/v1/ns-groups")["results"]
+        end
+
         def listPolicies(domain = nil)
           domain ||= @default_domain
           callAPI("policy/api/v1/infra/domains/#{domain}/gateway-policies")["results"]
@@ -283,7 +341,7 @@ pp resp
           MU::Cloud::VMWare::VPC.getOrg(@credentials, use_cache: use_cache)
         end
 
-        def allocatePublicIP(name, private_ip)
+        def allocatePublicIP(name)
           assign_me = nil
 
           listPublicIPs.each { |ip|
@@ -304,18 +362,13 @@ pp resp
 #          }
 #          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips", method: "POST", params: spec)
           if assign_me
-            params = assign_me.clone
-            params["name"] = name
-            params["associated_private_ip"] = private_ip
-            params.reject! { |_k, v| v.nil? }
+            return assign_me
+#            params = assign_me.clone
+#            params["name"] = name
+#            params["associated_private_ip"] = private_ip
+#            params.reject! { |_k, v| v.nil? }
 
-#            params = {
-#              "sddc_public_ip_object" => assign_me.clone
-#            }
-#            params["sddc_public_ip_object"]["name"] = name
-#            params["sddc_public_ip_object"]["action"] = "attach"
-#            params["sddc_public_ip_object"]["associated_private_ip"] = private_ip
-            pp self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips/#{assign_me["allocation_id"]}?action=attach", method: "PATCH", params: params, debug: true)
+#            pp self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips/#{assign_me["allocation_id"]}?action=attach", method: "PATCH", params: params, debug: true)
           end
         end
 

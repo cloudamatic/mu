@@ -286,7 +286,8 @@ module MU
           if @config['associate_public_ip']
             guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
             if guest_info and guest_info.respond_to?(:ip_address)
-              MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name, guest_info.ip_address)
+              ip_desc = MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name)
+              pp MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).createUpdateNATRule(@mu_name, "35.172.43.237", guest_info.ip_address, description: @deploy.deploy_id, port_range: "22")
             end
           end
         end
