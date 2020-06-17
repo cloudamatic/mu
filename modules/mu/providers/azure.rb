@@ -284,6 +284,9 @@ module MU
           end
           raise e
         end
+        if !sdk_response
+          raise MuError, "Nil response from Azure API attempting list_locations(#{subscription})"
+        end
 
         sdk_response.value.each do | region |
           @@regions.push(region.name)
