@@ -602,7 +602,7 @@ module MU
         return
       end
       if ssh_key_name.nil? or ssh_key_name.empty?
-        MU.log "Failed to extract ssh_key_name for #{ssh_key_name.mu_name} in addHostToSSHConfig", MU::ERR
+        MU.log "Failed to extract ssh_key_name for #{server.mu_name} in addHostToSSHConfig", MU::ERR
         return
       end
 

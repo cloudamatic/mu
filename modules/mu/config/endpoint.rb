@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/api.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/api.rb
     class Endpoint
 
       # Base configuration schema for an Endpoint (e.g. AWS API Gateway)

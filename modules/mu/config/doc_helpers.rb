@@ -25,14 +25,13 @@ module MU
       MU::Cloud.resource_types.each_pair { |classname, attrs|
         MU::Cloud.supportedClouds.each { |cloud|
           begin
-            require "mu/clouds/#{cloud.downcase}/#{attrs[:cfg_name]}"
+            require "mu/providers/#{cloud.downcase}/#{attrs[:cfg_name]}"
           rescue LoadError
             next
           end
-          res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
-          _required, res_schema = res_class.schema(self)
+          _required, res_schema = MU::Cloud.resourceClass(cloud, classname).schema(self)
           docschema["properties"][attrs[:cfg_plural]]["items"]["description"] ||= ""
-          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+res_class.quality
+          docschema["properties"][attrs[:cfg_plural]]["items"]["description"] += "\n#\n# `#{cloud}`: "+MU::Cloud.resourceClass(cloud, classname).quality
           res_schema.each { |key, cfg|
             if !docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
               only_children[attrs[:cfg_plural]] ||= {}
@@ -61,7 +60,7 @@ module MU
         MU::Cloud.supportedClouds.each { |cloud|
           res_class = nil
           begin
-            res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
+            res_class = MU::Cloud.resourceClass(cloud, classname)
           rescue MU::Cloud::MuCloudResourceNotImplemented
             next
           end

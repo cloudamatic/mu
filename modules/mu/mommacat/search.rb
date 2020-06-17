@@ -60,7 +60,7 @@ module MU
       ) 
       _shortclass, _cfg_name, type, _classname, _attrs = MU::Cloud.getResourceNames(type, true)
 
-      cloudclass = MU::Cloud.assertSupportedCloud(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       return nil if cloudclass.virtual?
 
       if (tag_key and !tag_value) or (!tag_key and tag_value)
@@ -107,6 +107,7 @@ module MU
       matches = []
 
       credlist.each { |creds|
+#            next if region and region.is_a?(Array) and !region.empty? and !region.include?(r)
         cloud_descs = search_cloud_provider(type, cloud, habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds, flags: flags)
 
         cloud_descs.each_pair.each { |p, regions|
@@ -127,6 +128,8 @@ module MU
       matches
     end
 
+    @object_load_fails = false
+
     # Return the resource object of another member of this deployment
     # @param type [String,Symbol]: The type of resource
     # @param name [String]: The name of the resource as defined in its 'name' Basket of Kittens field
@@ -135,7 +138,7 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, **flags)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false, **flags)
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
 
       # If we specified a habitat, which we may also have done by its shorthand
@@ -159,17 +162,33 @@ module MU
       }
 
       @kitten_semaphore.synchronize {
-        return nil if !@kittens.has_key?(type)
-        matches = []
 
+        if !@kittens.has_key?(type)
+          return nil if !@original_config or @original_config[type].nil? or @original_config[type].empty?
+          begin
+            loadObjects(false)
+          rescue ThreadError => e
+            if e.message !~ /deadlock/
+              raise e
+            end
+          end
+          if @object_load_fails or !@kittens[type]
+            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size == 1 ? "a" : @original_config[type].size.to_s} #{type}, but loadObjects could not populate anything from deployment metadata", MU::ERR if !@object_load_fails
+            @object_load_fails = true
+            return nil
+          end
+        end
+        matches = {}
         @kittens[type].each { |habitat_group, sib_classes|
           next if habitat and habitat_group and habitat_group != habitat
           sib_classes.each_pair { |sib_class, cloud_objs|
+
             if attrs[:has_multiples]
               next if !name.nil? and name != sib_class or cloud_objs.empty?
               if !name.nil?
                 if return_all
-                  return cloud_objs.dup
+                  matches.merge!(cloud_objs.clone)
+                  next
                 elsif cloud_objs.size == 1 and does_match.call(cloud_objs.values.first)
                   return cloud_objs.values.first
                 end
@@ -177,19 +196,24 @@ module MU
               
               cloud_objs.each_value { |obj|
                 if does_match.call(obj)
-                  return (return_all ? cloud_objs.clone : obj.clone)
+                  if return_all
+                    matches.merge!(cloud_objs.clone)
+                  else
+                    return obj.clone
+                  end
                 end
               }
-            # has_multiples is false
+            # has_multiples is false, "cloud_objs" is actually a singular object
             elsif (name.nil? and does_match.call(cloud_objs)) or [sib_class, cloud_objs.virtual_name(name)].include?(name.to_s)
-              matches << cloud_objs.clone
+              matches[cloud_objs.config['name']] = cloud_objs.clone
             end
           }
         }
 
-        return matches.first if matches.size == 1
+        return matches if return_all and matches.size >= 1
 
-        return matches if return_all and matches.size > 1
+        return matches.values.first if matches.size == 1
+
       }
 
       return nil
@@ -213,7 +237,7 @@ module MU
     end
 
     def self.generate_dummy_object(type, cloud, name, mu_name, cloud_id, desc, region, habitat, tag_value, calling_deploy, credentials)
-      resourceclass = MU::Cloud.loadCloudType(cloud, type)
+      resourceclass = MU::Cloud.resourceClass(cloud, type)
 
       use_name = if (name.nil? or name.empty?)
         if !mu_name.nil?
@@ -269,15 +293,23 @@ module MU
     private_class_method :generate_dummy_object
 
     def self.search_cloud_provider(type, cloud, habitats, region, cloud_id: nil, tag_key: nil, tag_value: nil, credentials: nil, flags: nil)
-      cloudclass = MU::Cloud.assertSupportedCloud(cloud)
-      resourceclass = MU::Cloud.loadCloudType(cloud, type)
+      cloudclass = MU::Cloud.cloudClass(cloud)
+      resourceclass = MU::Cloud.resourceClass(cloud, type)
 
       # Decide what regions we'll search, if applicable for this resource
       # type.
       regions = if resourceclass.isGlobal?
         [nil]
       else
-        region ? [region] : cloudclass.listRegions(credentials: credentials)
+        if region
+          if region.is_a?(Array) and !region.empty?
+            region
+          else
+            [region]
+          end
+        else
+          cloudclass.listRegions(credentials: credentials)
+        end
       end
 
       # Decide what habitats (accounts/projects/subscriptions) we'll
@@ -288,7 +320,7 @@ module MU
           habitats << nil
         end
         if resourceclass.canLiveIn.include?(:Habitat)
-          habitats.concat(cloudclass.listHabitats(credentials))
+          habitats.concat(cloudclass.listHabitats(credentials, use_cache: false))
         end
       end
       habitats << nil if habitats.empty?

@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/loadbalancer.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/loadbalancer.rb
     class LoadBalancer
 
       # Generate schema for a LoadBalancer health check
@@ -60,6 +60,45 @@ module MU
               "default" => "200,301,302",
               "description" => "The HTTP codes to use when checking for a successful response from a target."
             }
+          }
+        }
+      end
+
+      # Generate schema for a LoadBalancer redirect
+      # @return [Hash]
+      def self.redirect
+        {
+          "type" => "object",
+          "title" => "redirect",
+          "additionalProperties" => false,
+          "description" => "Instruct our LoadBalancer to redirect traffic to another host, port, and/or path.",
+          "properties" => {
+            "protocol" => {
+              "type" => "string",
+              "default" => "HTTPS"
+            },
+            "port" => {
+              "type" => "integer",
+              "default" => 443
+            },
+            "host" => {
+              "type" => "string",
+              "default" => "\#{host}"
+            },
+            "path" => {
+              "type" => "string",
+              "default" => "/\#{path}"
+            },
+            "query" => {
+              "type" => "string",
+              "default" => "\#{query}"
+            },
+            "status_code" => {
+              "type" => "integer",
+              "description" => "The HTTP status code when issuing a redirect",
+              "default" => 301,
+              "enum" => [301, 302]
+            },
           }
         }
       end
@@ -261,7 +300,7 @@ module MU
               "type" => "array",
               "items" => {
                 "type" => "object",
-                "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
+                "required" => ["lb_protocol", "lb_port"],
                 "additionalProperties" => false,
                 "description" => "A list of port/protocols which this Load Balancer should answer.",
                 "properties" => {
@@ -279,6 +318,7 @@ module MU
                     "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
                     "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP, SSL, or UDP. SSL and UDP are only valid in Google Cloud."
                   },
+                  "redirect" => MU::Config::LoadBalancer.redirect,
                   "targetgroup" => {
                     "type" => "string",
                     "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
@@ -309,14 +349,14 @@ module MU
                     "items" => {
                       "type" => "object",
                       "description" => "Rules to route requests to different target groups based on the request path",
-                      "required" => ["conditions", "order"],
+                      "required" => ["order", "conditions"],
                       "additionalProperties" => false,
                       "properties" => {
                         "conditions" => {
                           "type" => "array",
                           "items" => {
                             "type" => "object",
-                            "description" => "Rule condition",
+                            "description" => "Rule conditionl; if none are specified (or if none match) the default action will be set.",
                             "required" => ["field", "values"],
                             "additionalProperties" => false,
                             "properties" => {
@@ -339,16 +379,17 @@ module MU
                           "type" => "array",
                           "items" => {
                             "type" => "object",
-                            "description" => "Rule action",
-                            "required" => ["action", "targetgroup"],
+                            "description" => "Rule action, which must specify one of +targetgroup+ or +redirect+",
+                            "required" => ["action"],
                             "additionalProperties" => false,
                             "properties" => {
                               "action" => {
                                 "type" => "string",
                                 "default" => "forward",
                                 "description" => "An action to take when a match occurs. Currently, only forwarding to a targetgroup is supported.",
-                                "enum" => ["forward"]
+                                "enum" => ["forward", "redirect"]
                               },
+                              "redirect" => MU::Config::LoadBalancer.redirect,
                               "targetgroup" => {
                                 "type" => "string",
                                 "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
@@ -405,13 +446,18 @@ module MU
               "proto" => l["instance_protocol"],
               "port" => l["instance_port"]
             }
-            if lb["healthcheck"]
-              hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
-              tg["healthcheck"] = lb['healthcheck'].dup
+            if l["redirect"]
+              tg["proto"] ||= l["redirect"]["protocol"]
+              tg["port"] ||= l["redirect"]["port"]
+            end
+            l['healthcheck'] ||= lb['healthcheck'] if lb['healthcheck']
+            if l["healthcheck"]
+              hc_target = l['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+              tg["healthcheck"] = l['healthcheck'].dup
               proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
               tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
               tg['healthcheck']["httpcode"] = "200,301,302"
-              MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
+              MU.log "Converting classic-style ELB health check target #{l['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
             end
             lb["targetgroups"] << tg
           }

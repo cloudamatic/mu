@@ -1,0 +1,12 @@
+# groomers: Chef
+# clouds: Azure, Google
+---
+appname: smoketest
+servers: 
+- name: centos8
+  platform: centos8
+  size: m3.medium
+  run_list:
+  - recipe[mu-tools::apply_security]
+  - recipe[mu-tools::updates]
+  - recipe[mu-tools::split_var_partitions]

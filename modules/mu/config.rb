@@ -430,6 +430,39 @@ module MU
       @config.freeze
     end
 
+    # Insert a dependency into the config hash of a resource, with sensible
+    # error checking and de-duplication.
+    # @param resource [Hash]
+    # @param name [String]
+    # @param type [String]
+    # @param phase [String]
+    # @param no_create_wait [Boolean]
+    def self.addDependency(resource, name, type, phase: nil, no_create_wait: false)
+      if ![nil, "create", "groom"].include?(phase)
+        raise MuError, "Invalid phase '#{phase}' while adding dependency #{type} #{name} to #{resource['name']}"
+      end
+      resource['dependencies'] ||= []
+      _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type)
+
+      resource['dependencies'].each { |dep|
+        if dep['type'] == cfg_name and dep['name'].to_s == name.to_s
+          dep["no_create_wait"] = no_create_wait
+          dep["phase"] = phase if phase
+          return
+        end
+      }
+
+      newdep = {
+        "type" => cfg_name,
+        "name"  => name.to_s,
+        "no_create_wait" => no_create_wait
+      }
+      newdep["phase"] = phase if phase
+
+      resource['dependencies'] << newdep
+
+    end
+
     # See if a given resource is configured in the current stack
     # @param name [String]: The name of the resource being checked
     # @param type [String]: The type of resource being checked
@@ -485,7 +518,8 @@ module MU
     # @param ignore_duplicates [Boolean]: Do not raise an exception if we attempt to insert a resource with a +name+ field that's already in use
     def insertKitten(descriptor, type, delay_validation = false, ignore_duplicates: false, overwrite: false)
       append = false
-#      start = Time.now
+      start = Time.now
+
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       MU.log "insertKitten on #{cfg_name} #{descriptor['name']} (delay_validation: #{delay_validation.to_s})", MU::DEBUG, details: caller[0]
 
@@ -525,7 +559,7 @@ module MU
       # cloud-specific schema.
       schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
       myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
-      more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
+      more_required, more_schema = MU::Cloud.resourceClass(descriptor["cloud"], type).schema(self)
       if more_schema
         MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
       end
@@ -544,7 +578,7 @@ module MU
       end
 
       # Make sure a sensible region has been targeted, if applicable
-      classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
+      classobj = MU::Cloud.cloudClass(descriptor["cloud"])
       if descriptor["region"]
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
@@ -557,11 +591,7 @@ module MU
         if descriptor['project'].nil?
           descriptor.delete('project')
         elsif haveLitterMate?(descriptor['project'], "habitats")
-          descriptor['dependencies'] ||= []
-          descriptor['dependencies'] << {
-            "type" => "habitat",
-            "name" => descriptor['project']
-          }
+          MU::Config.addDependency(descriptor, descriptor['project'], "habitat")
         end
       end
 
@@ -589,21 +619,16 @@ module MU
         if !descriptor["vpc"]["name"].nil? and
            haveLitterMate?(descriptor["vpc"]["name"], "vpcs") and
            descriptor["vpc"]['deploy_id'].nil? and
-           descriptor["vpc"]['id'].nil?
-          descriptor["dependencies"] << {
-            "type" => "vpc",
-            "name" => descriptor["vpc"]["name"],
-          }
+           descriptor["vpc"]['id'].nil? and
+           !(cfg_name == "vpc" and descriptor['name'] == descriptor['vpc']['name'])
+          MU::Config.addDependency(descriptor, descriptor['vpc']['name'], "vpc")
           siblingvpc = haveLitterMate?(descriptor["vpc"]["name"], "vpcs")
 
           if siblingvpc and siblingvpc['bastion'] and
              ["server", "server_pool", "container_cluster"].include?(cfg_name) and
              !descriptor['bastion']
-            if descriptor['name'] != siblingvpc['bastion'].to_h['name']
-              descriptor["dependencies"] << {
-                "type" => "server",
-                "name" => siblingvpc['bastion'].to_h['name']
-              }
+            if descriptor['name'] != siblingvpc['bastion']['name']
+              MU::Config.addDependency(descriptor, siblingvpc['bastion']['name'], "server")
             end
           end
 
@@ -665,7 +690,6 @@ module MU
       if (descriptor['ingress_rules'] or
          ["server", "server_pool", "database", "cache_cluster"].include?(cfg_name))
         descriptor['ingress_rules'] ||= []
-        fw_classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get("FirewallRule")
 
         acl = haveLitterMate?(fwname, "firewall_rules")
         already_exists = !acl.nil?
@@ -676,7 +700,7 @@ module MU
           "region" => descriptor['region'],
           "credentials" => descriptor["credentials"]
         }
-        if !fw_classobj.isGlobal?
+        if !MU::Cloud.resourceClass(descriptor["cloud"], "FirewallRule").isGlobal?
           acl['region'] = descriptor['region']
           acl['region'] ||= classobj.myRegion(acl['credentials'])
         else
@@ -702,10 +726,7 @@ module MU
       if !descriptor["loadbalancers"].nil?
         descriptor["loadbalancers"].each { |lb|
           if !lb["concurrent_load_balancer"].nil?
-            descriptor["dependencies"] << {
-              "type" => "loadbalancer",
-              "name" => lb["concurrent_load_balancer"]
-            }
+            MU::Config.addDependency(descriptor, lb["concurrent_load_balancer"], "loadbalancer")
           end
         }
       end
@@ -714,10 +735,7 @@ module MU
       if !descriptor["storage_pools"].nil?
         descriptor["storage_pools"].each { |sp|
           if sp["name"]
-            descriptor["dependencies"] << {
-              "type" => "storage_pool",
-              "name" => sp["name"]
-            }
+            MU::Config.addDependency(descriptor, sp["name"], "storage_pool")
           end
         }
       end
@@ -728,10 +746,7 @@ module MU
           next if !acl_include["name"] and !acl_include["rule_name"]
           acl_include["name"] ||= acl_include["rule_name"]
           if haveLitterMate?(acl_include["name"], "firewall_rules")
-            descriptor["dependencies"] << {
-              "type" => "firewall_rule",
-              "name" => acl_include["name"]
-            }
+            MU::Config.addDependency(descriptor, acl_include["name"], "firewall_rule", no_create_wait: (cfg_name == "vpc"))
           elsif acl_include["name"]
             MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -831,7 +846,7 @@ module MU
         # Run the cloud class's deeper validation, unless we've already failed
         # on stuff that will cause spurious alarms further in
         if ok
-          parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
+          parser = MU::Cloud.resourceClass(descriptor['cloud'], type)
           original_descriptor = MU::Config.stripConfig(descriptor)
           passed = parser.validateConfig(descriptor, self)
 
@@ -841,7 +856,7 @@ module MU
           end
 
           # Make sure we've been configured with the right credentials
-          cloudbase = Object.const_get("MU").const_get("Cloud").const_get(descriptor['cloud'])
+          cloudbase = MU::Cloud.cloudClass(descriptor['cloud'])
           credcfg = cloudbase.credConfig(descriptor['credentials'])
           if !credcfg or credcfg.empty?
             raise ValidationError, "#{descriptor['cloud']} #{cfg_name} #{descriptor['name']} declares credential set #{descriptor['credentials']}, but no such credentials exist for that cloud provider"
@@ -857,60 +872,92 @@ module MU
         @kittens[cfg_plural] << descriptor if append
       }
 
+      MU.log "insertKitten completed #{cfg_name} #{descriptor['name']} in #{sprintf("%.2fs", Time.now-start)}", MU::DEBUG
+
       ok
     end
 
     # For our resources which specify intra-stack dependencies, make sure those
     # dependencies are actually declared.
-    # TODO check for loops
-    def self.check_dependencies(config)
+    def check_dependencies
       ok = true
 
-      config.each_pair { |type, values|
-        if values.instance_of?(Array)
-          values.each { |resource|
-            if resource.kind_of?(Hash) and !resource["dependencies"].nil?
-              append = []
-              delete = []
-              resource["dependencies"].each { |dependency|
-                _shortclass, cfg_name, cfg_plural, _classname = MU::Cloud.getResourceNames(dependency["type"])
-                found = false
-                names_seen = []
-                if !config[cfg_plural].nil?
-                  config[cfg_plural].each { |service|
-                    names_seen << service["name"].to_s
-                    found = true if service["name"].to_s == dependency["name"].to_s
-                    if service["virtual_name"] 
-                      names_seen << service["virtual_name"].to_s
-                      if service["virtual_name"].to_s == dependency["name"].to_s
-                        found = true
-                        append_me = dependency.dup
-                        append_me['name'] = service['name']
-                        append << append_me
-                        delete << dependency
-                      end
-                    end
-                  }
+      @config.each_pair { |type, values|
+        next if !values.instance_of?(Array)
+        _shortclass, cfg_name, _cfg_plural, _classname = MU::Cloud.getResourceNames(type, false)
+        next if !cfg_name
+        values.each { |resource|
+          next if !resource.kind_of?(Hash) or resource["dependencies"].nil?
+          addme = []
+          deleteme = []
+
+          resource["dependencies"].each { |dependency|
+            # make sure the thing we depend on really exists
+            sibling = haveLitterMate?(dependency['name'], dependency['type'])
+            if !sibling
+              MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR
+              ok = false
+              next
+            end
+
+            # Fudge dependency declarations to quash virtual_names that we know
+            # are extraneous. Note that wee can't do all virtual names here; we
+            # have no way to guess which of a collection of resources is the
+            # real correct one.
+            if sibling['virtual_name'] == dependency['name']
+              real_resources = []
+              found_exact = false
+              resource["dependencies"].each { |dep_again|
+                if dep_again['type'] == dependency['type'] and sibling['name'] == dep_again['name']
+                  dependency['name'] = sibling['name']
+                  found_exact = true
+                  break
                 end
-                if !found
-                  MU.log "Missing dependency: #{type}{#{resource['name']}} needs #{cfg_name}{#{dependency['name']}}", MU::ERR, details: names_seen
+              }
+              if !found_exact
+                all_siblings = haveLitterMate?(dependency['name'], dependency['type'], has_multiple: true)
+                if all_siblings.size > 0
+                  all_siblings.each { |s|
+                    newguy = dependency.clone
+                    newguy['name'] = s['name']
+                    addme << newguy
+                  }
+                  deleteme << dependency
+                  MU.log "Expanding dependency which maps to virtual resources to all matching real resources", MU::NOTICE, details: { sibling['virtual_name'] => addme }
+                  next
+                end
+              end
+            end
+
+            # Check for a circular relationship that will lead to a deadlock
+            # when creating resource. This only goes one layer deep, and does
+            # not consider groom-phase deadlocks.
+            if dependency['phase'] == "groom" or dependency['no_create_wait'] or (
+                 !MU::Cloud.resourceClass(sibling['cloud'], type).deps_wait_on_my_creation and
+                 !MU::Cloud.resourceClass(resource['cloud'], type).waits_on_parent_completion
+               )
+              next
+            end
+
+            if sibling['dependencies']
+              sibling['dependencies'].each { |sib_dep|
+                next if sib_dep['type'] != cfg_name or sib_dep['no_create_wait']
+                cousin = haveLitterMate?(sib_dep['name'], sib_dep['type'])
+                if cousin and cousin['name'] == resource['name']
+                  MU.log "Circular dependency between #{type} #{resource['name']} <=> #{dependency['type']} #{dependency['name']}", MU::ERR, details: [ resource['name'] => dependency, sibling['name'] => sib_dep ]
                   ok = false
                 end
               }
-              if append.size > 0
-                append.uniq!
-                resource["dependencies"].concat(append)
-              end
-              if delete.size > 0
-                delete.each { |delete_me|
-                  resource["dependencies"].delete(delete_me)
-                }
-              end
             end
           }
-        end
+          resource["dependencies"].reject! { |dep| deleteme.include?(dep) }
+          resource["dependencies"].concat(addme)
+          resource["dependencies"].uniq!
+
+        }
       }
-      return ok
+
+      ok
     end
 
     # Ugly text-manipulation to recursively resolve some placeholder strings
@@ -1191,12 +1238,7 @@ module MU
                     "port" => db["port"],
                     "sgs" => [cfg_name+server['name']]
                   }
-
-                  ruleset["dependencies"] << {
-                    "name" => cfg_name+server['name'],
-                    "type" => "firewall_rule",
-                    "no_create_wait" => true
-                  }
+                  MU::Config.addDependency(ruleset, cfg_name+server['name'], "firewall_rule", no_create_wait: true)
                 end
               }
             }
@@ -1214,7 +1256,7 @@ module MU
       types.each { |type|
         config[type] = @kittens[type] if @kittens[type].size > 0
       }
-      ok = false if !MU::Config.check_dependencies(config)
+      ok = false if !check_dependencies
 
       # TODO enforce uniqueness of resource names
       raise ValidationError if !ok

@@ -88,14 +88,26 @@ module MU
       }
     end
 
+
     # Overwrite this deployment's configuration with a new version. Save the
     # previous version as well.
     # @param new_conf [Hash]: A new configuration, fully resolved by {MU::Config}
-    def updateBasketofKittens(new_conf)
+    def updateBasketofKittens(new_conf, skip_validation: false, new_metadata: nil, save_now: false)
       loadDeploy
       if new_conf == @original_config
-        MU.log "#{@deploy_id}", MU::WARN
         return
+      end
+
+      scrub_with = nil
+
+      # Make sure the new config that we were just handed resolves and makes
+      # sense
+      if !skip_validation
+        f = Tempfile.new(@deploy_id)
+        f.write JSON.parse(JSON.generate(new_conf)).to_yaml
+        conf_engine = MU::Config.new(f.path) # will throw an exception if it's bad, adoption should catch this and cope reasonably
+        scrub_with = conf_engine.config
+        f.close
       end
 
       backup = "#{deploy_dir}/basket_of_kittens.json.#{Time.now.to_i.to_s}"
@@ -106,9 +118,26 @@ module MU
       config.flock(File::LOCK_UN)
       config.close
 
-      @original_config = new_conf
-#      save! # XXX this will happen later, more sensibly
-      MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
+      @original_config = new_conf.clone
+
+      MU::Cloud.resource_types.each_pair { |res_type, attrs|
+        next if !@deployment.has_key?(attrs[:cfg_plural])
+        deletia = []
+        @deployment[attrs[:cfg_plural]].each_pair { |res_name, data|
+          orig_cfg = findResourceConfig(attrs[:cfg_plural], res_name, (scrub_with || @original_config))
+
+          if orig_cfg.nil?
+            MU.log "#{res_type} #{res_name} no longer configured, will remove deployment metadata", MU::NOTICE
+            deletia << res_name
+          end
+        }
+        @deployment[attrs[:cfg_plural]].reject! { |k, v| deletia.include?(k) }
+      }
+
+      if save_now
+        save!
+        MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
+      end
     end
 
     @lock_semaphore = Mutex.new
@@ -147,11 +176,11 @@ module MU
     # @param id [String]: The lock identifier to release.
     # @param nonblock [Boolean]: Whether to block while waiting for the lock. In non-blocking mode, we simply return false if the lock is not available.
     # return [false, nil]
-    def self.lock(id, nonblock = false, global = false)
+    def self.lock(id, nonblock = false, global = false, deploy_id: MU.deploy_id)
       raise MuError, "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
 
       if !global
-        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+        lockdir = "#{deploy_dir(deploy_id)}/locks"
       else
         lockdir = File.expand_path(MU.dataDir+"/locks")
       end
@@ -186,11 +215,11 @@ module MU
 
     # Release a flock() lock.
     # @param id [String]: The lock identifier to release.
-    def self.unlock(id, global = false)
+    def self.unlock(id, global = false, deploy_id: MU.deploy_id)
       raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
       lockdir = nil
       if !global
-        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+        lockdir = "#{deploy_dir(deploy_id)}/locks"
       else
         lockdir = File.expand_path(MU.dataDir+"/locks")
       end
@@ -512,48 +541,30 @@ module MU
       if !@original_config['scrub_mu_isms'] and !@no_artifacts
         credsets.each_pair { |cloud, creds|
           creds.uniq!
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
           creds.each { |credentials|
-            cloudclass.writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
+            MU::Cloud.cloudClass(cloud).writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
           }
         }
       end
     end
 
     def loadObjects(delay_descriptor_load)
+      # Load up MU::Cloud objects for all our kittens in this deploy
+
       MU::Cloud.resource_types.each_pair { |res_type, attrs|
         type = attrs[:cfg_plural]
         next if !@deployment.has_key?(type)
 
+        deletia = {}
         @deployment[type].each_pair { |res_name, data|
-          orig_cfg = nil
-          if @original_config.has_key?(type)
-            @original_config[type].each { |resource|
-              if resource["name"] == res_name
-                orig_cfg = resource
-                break
-              end
-            }
-          end
-
-          # Some Server objects originated from ServerPools, get their
-          # configs from there
-          if type == "servers" and orig_cfg.nil? and
-              @original_config.has_key?("server_pools")
-            @original_config["server_pools"].each { |resource|
-              if resource["name"] == res_name
-                orig_cfg = resource
-                break
-              end
-            }
-          end
+          orig_cfg = findResourceConfig(type, res_name)
 
           if orig_cfg.nil?
             MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
             next
           end
 
-          if orig_cfg['vpc'] and orig_cfg['vpc'].is_a?(Hash)
+          if orig_cfg['vpc']
             ref = if orig_cfg['vpc']['id'] and orig_cfg['vpc']['id'].is_a?(Hash)
               orig_cfg['vpc']['id']['mommacat'] = self
               MU::Config::Ref.get(orig_cfg['vpc']['id'])
@@ -566,18 +577,12 @@ module MU
           end
 
           begin
-            # Load up MU::Cloud objects for all our kittens in this deploy
-            orig_cfg['environment'] = @environment # not always set in old deploys
             if attrs[:has_multiples]
               data.keys.each { |mu_name|
-                attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load)
+                addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name, delay_descriptor_load: delay_descriptor_load))
               }
             else
-              # XXX hack for old deployments, this can go away some day
-              if data['mu_name'].nil?
-                raise MuError, "Unable to find or guess a Mu name for #{res_type}: #{res_name} in #{@deploy_id}"
-              end
-              attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
+              addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id']))
             end
           rescue StandardError => e
             if e.class != MU::Cloud::MuCloudResourceNotImplemented
@@ -585,6 +590,7 @@ module MU
             end
           end
         }
+
       }
     end
 
@@ -685,6 +691,31 @@ module MU
           }
         end
       }
+    end
+
+    def findResourceConfig(type, name, config = @original_config)
+      orig_cfg = nil
+      if config.has_key?(type)
+        config[type].each { |resource|
+          if resource["name"] == name
+            orig_cfg = resource
+            break
+          end
+        }
+      end
+  
+      # Some Server objects originated from ServerPools, get their
+      # configs from there
+      if type == "servers" and orig_cfg.nil? and config.has_key?("server_pools")
+        config["server_pools"].each { |resource|
+          if resource["name"] == name
+            orig_cfg = resource
+            break
+          end
+        }
+      end
+
+      orig_cfg
     end
 
   end #class

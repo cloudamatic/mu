@@ -167,6 +167,7 @@ module MU
       @need_deploy_flush = false
       @node_cert_semaphore = Mutex.new
       @deployment = deployment_data
+
       @deployment['mu_public_ip'] = MU.mu_public_ip
       @private_key = nil
       @public_key = nil
@@ -182,6 +183,7 @@ module MU
       @appname ||= @original_config['name'] if @original_config
       @timestamp = timestamp
       @environment = environment
+      @original_config['environment'] ||= @environment if @original_config
 
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
@@ -253,8 +255,7 @@ module MU
               seen << resource['credentials']
             else
               cloudconst = @original_config['cloud'] ? @original_config['cloud'] : MU::Config.defaultCloud
-              Object.const_get("MU").const_get("Cloud").const_get(cloudconst)
-              seen << cloudclass.credConfig(name_only: true)
+              seen << MU::Cloud.cloudClass(cloudconst).credConfig(name_only: true)
             end
           }
         end
@@ -289,11 +290,10 @@ module MU
                 habitats << hab_ref.id
               end
             elsif resource['cloud']
-              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
               # XXX this should be a general method implemented by each cloud
               # provider
               if resource['cloud'] == "Google"
-                habitats << cloudclass.defaultProject(resource['credentials'])
+                habitats << MU::Cloud.cloudClass(resource['cloud']).defaultProject(resource['credentials'])
               end
             end
           }
@@ -317,13 +317,11 @@ module MU
         if @original_config[type]
           @original_config[type].each { |resource|
             if resource['cloud']
-              cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud'])
-              resclass = Object.const_get("MU").const_get("Cloud").const_get(resource['cloud']).const_get(res_type.to_s)
-              if resclass.isGlobal?
+              if MU::Cloud.resourceClass(resource['cloud'], res_type).isGlobal?
 # XXX why was I doing this, urgh
                 next
               elsif !resource['region']
-                regions << cloudclass.myRegion
+                regions << MU::Cloud.cloudClass(resource['cloud']).myRegion(resource['credentials'])
               end
             end
             if resource['region']
@@ -401,7 +399,7 @@ module MU
     # @param type [String]:
     # @param name [String]:
     # @param object [MU::Cloud]:
-    def addKitten(type, name, object)
+    def addKitten(type, name, object, do_notify: false)
       if !type or !name or !object or !object.mu_name
         raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
       end
@@ -409,7 +407,7 @@ module MU
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
       object.intoDeploy(self)
 
-      @kitten_semaphore.synchronize {
+      add_block = Proc.new {
         @kittens[type] ||= {}
         @kittens[type][object.habitat] ||= {}
         if attrs[:has_multiples]
@@ -418,7 +416,20 @@ module MU
         else
           @kittens[type][object.habitat][name] = object
         end
+        if do_notify
+          notify(type, name, object.notify, triggering_node: object, delayed_save: true)
+        end
       }
+
+      begin
+        @kitten_semaphore.synchronize {
+          add_block.call()
+        }
+      rescue ThreadError => e
+        # already locked by a parent call to this method, so this should be safe
+        raise e if !e.message.match(/recursive locking/)
+        add_block.call()
+      end
     end
 
     # Encrypt a string with the deployment's public key.
@@ -536,10 +547,9 @@ module MU
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
-      return if @no_artifacts
 
       begin
-        MU::MommaCat.lock("deployment-notification")
+        MU::MommaCat.lock("deployment-notification", deploy_id: @deploy_id) if !@no_artifacts
 
         if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
           loadDeploy(true) # make sure we're saving the latest and greatest
@@ -578,7 +588,7 @@ module MU
             @deployment[type][key] = data
             MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
           end
-          save!(key) if !delayed_save
+          save!(key) if !delayed_save and !@no_artifacts
         else
           have_deploy = true
           if @deployment[type].nil? or @deployment[type][key].nil?
@@ -603,10 +613,10 @@ module MU
               end
             }
           end
-          save! if !delayed_save
+          save! if !delayed_save and !@no_artifacts
         end
       ensure
-        MU::MommaCat.unlock("deployment-notification")
+        MU::MommaCat.unlock("deployment-notification", deploy_id: @deploy_id) if !@no_artifacts
       end
     end
 
@@ -614,18 +624,37 @@ module MU
     # @param subject [String]: The subject line of the message.
     # @param msg [String]: The message body.
     # @return [void]
-    def sendAdminSlack(subject, msg: "")
-      if $MU_CFG['slack'] and $MU_CFG['slack']['webhook'] and
-         (!$MU_CFG['slack']['skip_environments'] or !$MU_CFG['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
+    def sendAdminSlack(subject, msg: "", scrub_mu_isms: true, snippets: [], noop: false)
+      if MU.muCfg['slack'] and MU.muCfg['slack']['webhook'] and
+         (!MU.muCfg['slack']['skip_environments'] or !MU.muCfg['slack']['skip_environments'].any?{ |s| s.casecmp(MU.environment)==0 })
         require 'slack-notifier'
-        slack =  Slack::Notifier.new $MU_CFG['slack']['webhook']
+        slackargs = nil
+        keyword_args = { channel: MU.muCfg['slack']['channel'] }
+        begin
+          slack = Slack::Notifier.new MU.muCfg['slack']['webhook']
+          prefix = scrub_mu_isms ? subject : "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}"
 
-        if msg and !msg.empty?
-          slack.ping "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}:\n\n```#{msg}\n```", channel: $MU_CFG['slack']['channel']
-        else
-          slack.ping "#{MU.appname} \*\"#{MU.handle}\"\* (`#{MU.deploy_id}`) - #{subject}", channel: $MU_CFG['slack']['channel']
+          text = if msg and !msg.empty?
+            "#{prefix}:\n\n```#{msg}```"
+          else
+            prefix
+          end
+
+          if snippets and snippets.size > 0
+            keyword_args[:attachments] = snippets
+          end
+
+          if !noop
+            slack.ping(text, **keyword_args)
+          else
+            MU.log "Would send to #{MU.muCfg['slack']['channel']}", MU::NOTICE, details: [ text, keyword_args ]
+          end
+        rescue Slack::Notifier::APIError => e
+          MU.log "Failed to send message to slack: #{e.message}", MU::ERR, details: keyword_args
+          return false
         end
       end
+      true
     end
 
     # Send an email notification to a deployment's administrators.
@@ -754,7 +783,7 @@ MAIL_HEAD_END
       end
 
       siblings = findLitterMate(type: "server", return_all: true)
-      return if siblings.nil? or siblings.empty?
+      return if siblings.nil? or (siblings.respond_to?(:empty?) and siblings.empty?)
 
       update_servers = []
       siblings.each_pair { |mu_name, node|
@@ -838,7 +867,7 @@ MAIL_HEAD_END
         end
 
         if resource and resource.config and resource.config['cloud']
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(resource.config['cloud'])
+          cloudclass = MU::Cloud.cloudClass(resource.config['cloud'])
 
           cloudclass.writeDeploySecret(@deploy_id, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
           cloudclass.writeDeploySecret(@deploy_id, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])

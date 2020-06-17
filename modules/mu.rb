@@ -79,38 +79,40 @@ class Hash
     }
     return 0 if self == other # that was easy!
     # compare elements and decide who's "bigger" based on their totals?
-    0
+
+    # fine, try some brute force and just hope everything implements to_s
+    self.flatten.map { |e| e.to_s }.join() <=> other.flatten.map { |e| e.to_s }.join()
   end
 
-  # Recursively compare two hashes
-  def diff(with, on = self, level: 0, parents: [])
+  # Recursively compare two Mu Basket of Kittens hashes and report the differences
+  def diff(with, on = self, level: 0, parents: [], report: {}, habitat: nil)
     return if with.nil? and on.nil?
     if with.nil? or on.nil? or with.class != on.class
       return # XXX ...however we're flagging differences
     end
     return if on == with
 
-    tree = ""
-    indentsize = 0
-    parents.each { |p|
-      tree += (" " * indentsize) + p + " => \n"
-      indentsize += 2
-    }
-    indent = (" " * indentsize)
-
     changes = []
+    report ||= {}
     if on.is_a?(Hash)
       on_unique = (on.keys - with.keys)
       with_unique = (with.keys - on.keys)
       shared = (with.keys & on.keys)
       shared.each { |k|
-        diff(with[k], on[k], level: level+1, parents: parents + [k])
+
+        report_data = diff(with[k], on[k], level: level+1, parents: parents + [k], report: report[k], habitat: habitat)
+        if report_data and !report_data.empty?
+          report ||= {}
+          report[k] = report_data
+        end
       }
       on_unique.each { |k|
-        changes << "- ".red+PP.pp({k => on[k] }, '')
+        report[k] = { :action => :removed, :parents => parents, :value => on[k].clone }
+        report[k][:habitat] = habitat if habitat
       }
       with_unique.each { |k|
-        changes << "+ ".green+PP.pp({k => with[k]}, '')
+        report[k] = { :action => :added, :parents => parents, :value => with[k].clone }
+        report[k][:habitat] = habitat if habitat
       }
     elsif on.is_a?(Array)
       return if with == on
@@ -122,29 +124,27 @@ class Hash
       # sorting arrays full of weird, non-primitive types.
       done = []
       on.sort.each { |elt|
-        if elt.is_a?(Hash) and elt['name'] or elt['entity']# or elt['cloud_id']
-          with.sort.each { |other_elt|
-            # Figure out what convention this thing is using for resource identification
-            compare_a, compare_b = if elt['name'].nil? and elt["id"].nil? and !elt["entity"].nil? and !other_elt["entity"].nil?
-              [elt["entity"], other_elt["entity"]]
-            else
-              [elt, other_elt]
-            end
+        if elt.is_a?(Hash) and !MU::MommaCat.getChunkName(elt).first.nil?
+          elt_namestr, elt_location, elt_location_list = MU::MommaCat.getChunkName(elt)
 
-            if (compare_a['name'] and compare_b['name'] == compare_a['name']) or
-               (compare_a['name'].nil? and !compare_a["id"].nil? and compare_a["id"] == compare_b["id"])
-              break if elt == other_elt
+          with.sort.each { |other_elt|
+            other_elt_namestr, other_elt_location, other_elt_location_list = MU::MommaCat.getChunkName(other_elt)
+
+            # Case 1: The array element exists in both version of this array
+            if elt_namestr and other_elt_namestr and
+               elt_namestr == other_elt_namestr and
+               (elt_location.nil? or other_elt_location.nil? or
+                elt_location == other_elt_location or
+                !(elt_location_list & other_elt_location_list).empty?
+               )
               done << elt
               done << other_elt
-              namestr = if elt['type']
-                "#{elt['type']}[#{elt['name']}]"
-              elsif elt['name']
-                elt['name']
-              elsif elt['entity'] and elt["entity"]["id"]
-                elt['entity']['id']
+              break if elt == other_elt # if they're identical, we're done
+              report_data = diff(other_elt, elt, level: level+1, parents: parents + [elt_namestr], habitat: (elt_location || habitat))
+              if report_data and !report_data.empty?
+                report ||= {}
+                report[elt_namestr] = report_data
               end
-
-              diff(other_elt, elt, level: level+1, parents: parents + [namestr])
               break
             end
           }
@@ -152,43 +152,34 @@ class Hash
       }
       on_unique = (on - with) - done
       with_unique = (with - on) - done
-#    if on_unique.size > 0 or with_unique.size > 0
-#      if before_a != after_a
-#        MU.log "A BEFORE", MU::NOTICE, details: before_a
-#        MU.log "A AFTER", MU::NOTICE, details: after_a
-#      end
-#      if before_b != after_b
-#        MU.log "B BEFORE", MU::NOTICE, details: before_b
-#        MU.log "B AFTER", MU::NOTICE, details: after_b
-#      end
-#    end
+
+      # Case 2: This array entry exists in the old version, but not the new one
       on_unique.each { |e|
-        changes << if e.is_a?(Hash)
-          "- ".red+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
-        else
-          "- ".red+e.to_s
-        end
+        namestr, loc = MU::MommaCat.getChunkName(e)
+
+        report ||= {}
+        report[namestr] = { :action => :removed, :parents => parents, :value => e.clone }
+        report[namestr][:habitat] = loc if loc
       }
+
+      # Case 3: This array entry exists in the new version, but not the old one
       with_unique.each { |e|
-        changes << if e.is_a?(Hash)
-          "+ ".green+PP.pp(Hash.bok_minimize(e), '').gsub(/\n/, "\n  "+(indent))
-        else
-          "+ ".green+e.to_s
-        end
+        namestr, loc = MU::MommaCat.getChunkName(e)
+
+        report ||= {}
+        report[namestr] = { :action => :added, :parents => parents, :value => e.clone }
+        report[namestr][:habitat] = loc if loc
       }
+
+    # A plain old leaf node of data
     else
       if on != with
-        changes << "-".red+" #{on.to_s}"
-        changes << "+".green+" #{with.to_s}"
+        report = { :action => :changed, :parents => parents, :oldvalue => on, :value => with.clone }
+        report[:habitat] = habitat if habitat
       end
     end
 
-    if changes.size > 0
-      puts tree
-      changes.each { |c|
-        puts indent+c
-      }
-    end
+    report.freeze
   end
 
   # Implement a merge! that just updates each hash leaf as needed, not 
@@ -212,8 +203,29 @@ class Hash
 end
 
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
+module MU
+
+  # For log entries that should only be logged when we're in verbose mode
+  DEBUG = 0.freeze
+  # For ordinary log entries
+  INFO = 1.freeze
+  # For more interesting log entries which are not errors
+  NOTICE = 2.freeze
+  # Log entries for non-fatal errors
+  WARN = 3.freeze
+  # Log entries for non-fatal errors
+  WARNING = 3.freeze
+  # Log entries for fatal errors
+  ERR = 4.freeze
+  # Log entries for fatal errors
+  ERROR = 4.freeze
+  # Log entries that will be held and displayed/emailed at the end of deploy,
+  # cleanup, etc.
+  SUMMARY = 5.freeze
+end
 
 require 'mu/logger'
+
 module MU
 
   # Subclass core thread so we can gracefully handle it when we hit system
@@ -273,8 +285,9 @@ module MU
   # Wrapper class for fatal Exceptions. Gives our internals something to
   # inherit that will log an error message appropriately before bubbling up.
   class MuError < StandardError
-    def initialize(message = nil, silent: false)
-      MU.log message, MU::ERR, details: caller[2] if !message.nil? and !silent
+    def initialize(message = nil, silent: false, details: nil)
+      details ||= caller[2]
+      MU.log message, MU::ERR, details: details if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else
@@ -620,25 +633,6 @@ module MU
     @@logger.log(msg, level, details: details, html: html, verbosity: verbosity, color: color)
   end
 
-  # For log entries that should only be logged when we're in verbose mode
-  DEBUG = 0.freeze
-  # For ordinary log entries
-  INFO = 1.freeze
-  # For more interesting log entries which are not errors
-  NOTICE = 2.freeze
-  # Log entries for non-fatal errors
-  WARN = 3.freeze
-  # Log entries for non-fatal errors
-  WARNING = 3.freeze
-  # Log entries for fatal errors
-  ERR = 4.freeze
-  # Log entries for fatal errors
-  ERROR = 4.freeze
-  # Log entries that will be held and displayed/emailed at the end of deploy,
-  # cleanup, etc.
-  SUMMARY = 5.freeze
-
-
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
   autoload :MommaCat, 'mu/mommacat'
@@ -652,7 +646,7 @@ module MU
     new_cfg = $MU_CFG.dup
     examples = {}
     MU::Cloud.supportedClouds.each { |cloud|
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+      cloudclass = MU::Cloud.cloudClass(cloud)
       begin
         if cloudclass.hosted? and !$MU_CFG[cloud.downcase]
           cfg_blob = cloudclass.hosted_config
@@ -808,11 +802,7 @@ module MU
   # @param groomer [String]: The grooming agent to load.
   # @return [Class]: The class object implementing this groomer agent
   def self.loadGroomer(groomer)
-    if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
-      raise MuError, "Requested to use unsupported grooming agent #{groomer}"
-    end
-    require "mu/groomers/#{groomer.downcase}"
-    return Object.const_get("MU").const_get("Groomer").const_get(groomer)
+    MU::Groomer.loadGroomer(groomer)
   end
 
   @@myRegion_var = nil
@@ -966,8 +956,7 @@ module MU
 
   @@myCloudDescriptor = nil
   if MU.myCloud
-    svrclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud).const_get("Server")
-    found = svrclass.find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
+    found = MU::Cloud.resourceClass(MU.myCloud, "Server").find(cloud_id: @@myInstanceId, region: MU.myRegion) # XXX need habitat arg for google et al
 #    found = MU::MommaCat.findStray(MU.myCloud, "server", cloud_id: @@myInstanceId, dummy_ok: true, region: MU.myRegion)
     if !found.nil? and found.size == 1
       @@myCloudDescriptor = found.values.first
@@ -980,8 +969,7 @@ module MU
   def self.myVPCObj
     return nil if MU.myCloud.nil?
     return @@myVPCObj_var if @@myVPCObj_var
-    cloudclass = const_get("MU").const_get("Cloud").const_get(MU.myCloud)
-    @@myVPCObj_var ||= cloudclass.myVPCObj
+    @@myVPCObj_var ||= MU::Cloud.cloudClass(MU.myCloud).myVPCObj
     @@myVPCObj_var
   end
 
@@ -1106,10 +1094,9 @@ module MU
 
     clouds = platform.nil? ? MU::Cloud.supportedClouds : [platform]
     clouds.each { |cloud|
-      cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
-      bucketname = cloudclass.adminBucketName(credentials)
+      bucketname = MU::Cloud.cloudClass(cloud).adminBucketName(credentials)
       begin
-        if platform or (cloudclass.hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
+        if platform or (MU::Cloud.cloudClass(cloud).hosted? and platform.nil?) or cloud == MU::Config.defaultCloud
           return bucketname
         end
       end

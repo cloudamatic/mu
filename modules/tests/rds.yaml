@@ -1,0 +1,108 @@
+# clouds: AWS
+---
+appname: smoketest
+vpcs:
+- name: rdstests
+databases:
+- name: pgcluster
+  size: db.t3.medium
+  engine: postgres
+  engine_version: "10"  
+  auto_minor_version_upgrade: true
+  backup_retention_period: 10
+  cluster_node_count: 2
+  create_cluster: true
+  cluster_parameter_group_parameters:
+  - name: log_disconnections
+    value: "0"
+  vpc:
+    name: rdstests
+  master_user: Bob
+
+#- name: mysqlcluster
+#  size: db.t3.medium
+#  engine: aurora
+#  cluster_mode: serverless
+#  create_cluster: true
+#  vpc:
+#    name: rdstests
+
+- name: maria-base
+  size: db.t2.small
+  engine: mariadb
+  db_parameter_group_parameters:
+  - name: autocommit
+    value: "0"
+  vpc:
+    name: rdstests
+  region: us-east-1
+  create_read_replica: true
+  allow_major_version_upgrade: true
+  read_replica_region: us-east-2
+  cloudwatch_logs:
+  - slowquery
+  multi_az_on_create: true
+  master_user: Bob
+- name: maria-from-snap
+  size: db.t2.small
+  engine: mariadb
+  vpc:
+    name: rdstests
+  creation_style: new_snapshot
+  source:
+    name: maria-base
+- name: maria-point-in-time
+  creation_style: point_in_time
+  size: db.t2.micro
+  engine: mariadb
+  cloudwatch_logs:
+  - error
+  - general
+  source:
+    name: maria-base
+  vpc:
+    name: rdstests
+
+- name: oracle-base
+  size: db.m5.large
+  engine: oracle
+  vpc:
+    name: rdstests
+- name: oracle-from-snap
+  size: db.m5.large
+  engine: oracle
+  vpc:
+    name: rdstests
+  creation_style: new_snapshot
+  source:
+    name: oracle-base
+- name: oracle-point-in-time
+  size: db.m5.large
+  engine: oracle
+  vpc:
+    name: rdstests
+  creation_style: point_in_time
+  source:
+    name: oracle-base
+
+- name: sqlserver-base
+  size: db.t2.small
+  engine: sqlserver-ex
+  vpc:
+    name: rdstests
+- name: sqlserver-from-snap
+  size: db.t2.small
+  engine: sqlserver-ex
+  vpc:
+    name: rdstests
+  creation_style: new_snapshot
+  source:
+    name: sqlserver-base
+- name: sqlserver-point-in-time
+  size: db.t2.small
+  engine: sqlserver-ex
+  vpc:
+    name: rdstests
+  creation_style: point_in_time
+  source:
+    name: sqlserver-base

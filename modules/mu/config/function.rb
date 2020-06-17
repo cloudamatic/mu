@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/function.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/function.rb
     class Function
 
       # Base configuration schema for a Function

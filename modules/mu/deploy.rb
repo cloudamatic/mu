@@ -157,6 +157,7 @@ module MU
           _shortclass, _cfg_name, _cfg_plural, classname = MU::Cloud.getResourceNames(data[:cfg_plural])
           @main_config[data[:cfg_plural]].each { |resource|
             resource["#MU_CLOUDCLASS"] = classname
+#            resource["#MU_CLOUDCLASS"] = MU::Cloud.resourceClass(resource['cloud'], data[:cfg_plural])
           }
           setThreadDependencies(@main_config[data[:cfg_plural]])
         end
@@ -265,7 +266,7 @@ module MU
         # Run cloud provider-specific deploy meta-artifact creation (ssh keys,
         # resource groups, etc)
         @mommacat.cloudsUsed.each { |cloud|
-          cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+          cloudclass = MU::Cloud.cloudClass(cloud)
           cloudclass.initDeploy(@mommacat)
         }
 
@@ -554,16 +555,9 @@ MESSAGE_END
         @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
 
         MU.log "Setting dependencies for #{name}", MU::DEBUG, details: resource["dependencies"]
-        if resource["dependencies"] != nil then
+        if !resource["dependencies"].nil? then
           resource["dependencies"].each { |dependency|
-            parent_class = nil
-            MU::Cloud.resource_types.each_pair { |res_class, attrs|
-              if attrs[:cfg_name] == dependency['type'] or
-                 attrs[:cfg_plural] == dependency['type']
-                parent_class = Object.const_get("MU").const_get("Cloud").const_get(res_class)
-                break
-              end
-            }
+            parent_class = MU::Cloud.loadBaseType(dependency['type'])
 
             parent_type = parent_class.cfg_name
 
@@ -572,10 +566,10 @@ MESSAGE_END
             addDependentThread(parent, "#{name}_groom")
 
             # should our creation thread also wait on our parent's create?
-            if !resource["no_create_wait"] and
+            if !dependency["no_create_wait"] and
                (resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
                dependency['phase'] == "create" or
-               (parent_class.deps_wait_on_my_creation and parent_type != res_type))
+               parent_class.deps_wait_on_my_creation)
               addDependentThread(parent, "#{name}_create")
             end
 
@@ -584,12 +578,18 @@ MESSAGE_END
             if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
               parent = parent_type+"_"+dependency["name"]+"_groom"
               addDependentThread(parent, "#{name}_groom")
-              if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "groom"
+              if !dependency["no_create_wait"] and (
+                   parent_class.deps_wait_on_my_creation or
+                   resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
+                   dependency['phase'] == "groom"
+                 )
                 addDependentThread(parent, "#{name}_create")
               end
             end
           }
         end
+        MU.log "Thread dependencies #{res_type}[#{name}]", MU::DEBUG, details: { "create" => @dependency_threads["#{name}_create"], "groom" => @dependency_threads["#{name}_groom"] }
+        @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
       }
     end
 
@@ -651,8 +651,9 @@ MESSAGE_END
               run_this_method = myservice['#MUOBJECT'].method(mode)
             rescue StandardError => e
               MU::MommaCat.unlockAll
-              @main_thread.raise MuError, "Error invoking #{myservice["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
-              raise e
+              @main_thread.raise MuError, "Error invoking #{myservice["#MUOBJECT"].class.name}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+              return
+#              raise e
             end
             begin
               MU.log "Checking whether to run #{myservice['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG

@@ -14,7 +14,7 @@
 
 module MU
   class Config
-    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/vpc.rb
+    # Basket of Kittens config schema and parser logic. See modules/mu/providers/*/vpc.rb
     class VPC
 
       # Base configuration schema for a VPC
@@ -419,7 +419,7 @@ module MU
           if configurator.updating and configurator.existing_deploy and
              configurator.existing_deploy.original_config['vpcs']
             configurator.existing_deploy.original_config['vpcs'].each { |v|
-              if v['name'] == vpc['name']
+              if v['name'].to_s == vpc['name'].to_s
                 vpc['ip_block'] = v['ip_block']
                 vpc['peers'] ||= []
                 vpc['peers'].concat(v['peers'])
@@ -431,6 +431,10 @@ module MU
                 break
               end
             }
+            if !vpc['ip_block']
+              MU.log "Loading existing deploy but can't find IP block of VPC #{vpc['name']}", MU::ERR
+              ok = false
+            end
           else
             using_default_cidr = true
             vpc['ip_block'] = "10.0.0.0/16"
@@ -539,7 +543,7 @@ module MU
           # Clouds that don't have some kind of native NAT gateway can also
           # leverage this host to honor "gateway" => "#NAT" situations.
           if !can_peer and !already_peered and have_public and vpc["create_bastion"]
-            serverclass = Object.const_get("MU").const_get("Cloud").const_get(vpc["cloud"]).const_get("Server")
+            serverclass = MU::Cloud.resourceClass(vpc["cloud"], "Server")
             bastion = serverclass.genericNAT.dup
             bastion["groomer_variables"] = {
               "nat_ip_block" => vpc["ip_block"].to_s
@@ -558,10 +562,7 @@ module MU
               "name" => vpc["name"],
               "subnet_pref" => "public"
             }
-            vpc["dependencies"] << {
-              "type" => "server",
-              "name" => bastion['name'],
-            }
+            MU::Config.addDependency(vpc, bastion['name'], "server", no_create_wait: true)
             vpc["bastion"] = MU::Config::Ref.get(
               name: bastion['name'],
               cloud: vpc['cloud'],
@@ -596,7 +597,7 @@ module MU
               MU.log "Skipping malformed VPC peer in #{vpc['name']}", MU::ERR, details: peer
               next
             end
-            peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+            peer["#MU_CLOUDCLASS"] = MU::Cloud.loadBaseType("VPC")
             # We check for multiple siblings because some implementations
             # (Google) can split declared VPCs into parts to get the mimic the
             # routing behaviors we expect.
@@ -613,17 +614,11 @@ module MU
                     append_me = { "vpc" => peer["vpc"].dup }
                     append_me['vpc']['name'] = sib['name']
                     append << append_me
-                    vpc["dependencies"] << {
-                      "type" => "vpc",
-                      "name" => sib['name']
-                    }
+                    MU::Config.addDependency(vpc, sib['name'], "vpc", phase: "groom", no_create_wait: true)
                   end
                   delete << peer
                 else
-                  vpc["dependencies"] << {
-                    "type" => "vpc",
-                    "name" => peer['vpc']["name"]
-                  }
+                  MU::Config.addDependency(vpc, peer['vpc']['name'], "vpc", phase: "groom", no_create_wait: true)
                 end
                 delete << peer if sib['name'] == vpc['name']
               }
@@ -800,7 +795,7 @@ MU.log "VPC lookup cache hit", MU::WARN, details: vpc_block
               @@reference_cache[vpc_block] ||= ext_vpc if ok
             end
           rescue StandardError => e
-            raise MuError, e.inspect, [caller, e.backtrace]
+            raise MuError.new e.inspect, details: { "my call stack" => caller, "exception call stack" => e.backtrace }
           ensure
             if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
               MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_type} #{parent['name']} (called by #{caller[0]})", MU::ERR, details: vpc_block

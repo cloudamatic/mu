@@ -117,6 +117,16 @@ module MU
       def gsub(*args)
         to_s.gsub(*args)
       end
+
+      # Lets callers access us like a {Hash}
+      # @param attribute [String,Symbol]
+      def [](attribute)
+        if respond_to?(attribute.to_sym)
+          send(attribute.to_sym)
+        else
+          nil
+        end
+      end
     end
 
     # Wrapper method for creating a {MU::Config::Tail} object as a reference to
