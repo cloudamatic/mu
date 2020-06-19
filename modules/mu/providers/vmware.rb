@@ -118,28 +118,60 @@ pp resp
           callAPI("cloud-service/api/v1/public-ips")["results"]
         end
 
-        def listNATRules(section: "USER")
-          callAPI("policy/api/v1/infra/tier-0s/vmc/nat/#{section}/nat-rules")["results"]
+        def releasePublicIP(id)
+          callAPI("cloud-service/api/v1/public-ips/#{id}", method: "DELETE")
         end
 
-        def createUpdateNATRule(name, outside, inside, port_range: "0-65536", section: "DEFAULT", description: nil)
+        def allocatePublicIP(name)
+
+          listPublicIPs.each { |ip|
+            return ip if ip["display_name"] == name
+          }
+
+          callAPI("cloud-service/api/v1/public-ips/#{name}", method: "PUT", params: { display_name: name })
+        end
+
+        def listNATRules(section: "USER", tier: 1)
+          if tier == 0
+            callAPI("policy/api/v1/infra/tier-0s/vmc/nat/#{section}/nat-rules")["results"]
+          else
+            callAPI("policy/api/v1/infra/tier-1s/cgw/nat/#{section}/nat-rules")["results"]
+          end
+        end
+
+        def deleteNATRule(id, section: "USER", tier: 1)
+          if tier == 0
+            callAPI("policy/api/v1/infra/tier-0s/vmc/nat/#{section}/nat-rules/#{id}", method: "DELETE")
+          else
+            callAPI("policy/api/v1/infra/tier-1s/cgw/nat/#{section}/nat-rules/#{id}", method: "DELETE")
+          end
+        end
+
+        def createUpdateNATRule(name, outside, inside = nil, port_range: "0-65535", section: "USER", description: nil, inbound: false, sequence: 10)
           params = {
             display_name: name,
             description: description,
-            action: "DNAT",
-            destination_network: outside,
-            translated_network: inside,
-            translated_ports: port_range.to_s,
-            service: "ANY",
-#            resource_type: "PolicyNatRule",
-            sequence_number: 10,
+            service: "",
+            sequence_number: sequence,
             enabled: true,
-            logging: false,
+            logging: true,
+#            resource_type: "PolicyNatRule",
 #            scope: ["infra/tier-0s/provider1/local-services/localService1/interfaces/internet"],
-            scope: ["infra/tier-0s/vmc/local-services/localService1/interfaces/internet"],
-            firewall_match: "MATCH_EXTERNAL_ADDRESS"
+#            scope: ["infra/tier-0s/vmc/local-services/localService1/interfaces/internet"],
           }
-          callAPI("policy/api/v1/infra/tier-0s/vmc/nat/#{section}/nat-rules/#{name}", method: "PATCH", params: params)["results"]
+          if inbound
+            params[:action] = "DNAT"
+            params[:translated_network] = inside
+            params[:translated_ports] = port_range.to_s
+            params[:destination_network] = outside
+            params[:firewall_match] = "MATCH_INTERNAL_ADDRESS"
+          else
+            params[:action] = "REFLEXIVE"
+            params[:translated_network] = outside
+            params[:source_network] = inside
+            params[:firewall_match] = "MATCH_EXTERNAL_ADDRESS"
+          end
+          callAPI("policy/api/v1/infra/tier-1s/cgw/nat/#{section}/nat-rules/#{name}", method: "PATCH", params: params)
         end
 
         def listServices
@@ -339,45 +371,6 @@ pp resp
 
         def getOrg(use_cache: true)
           MU::Cloud::VMWare::VPC.getOrg(@credentials, use_cache: use_cache)
-        end
-
-        def allocatePublicIP(name)
-          assign_me = nil
-
-          listPublicIPs.each { |ip|
-            if ip["associated_private_ip"].nil?
-              assign_me = ip
-              break
-            end
-          }
-
-#          spec = {
-#            "count": 1,
-#            "private_ips": [
-#              private_ip
-#            ],
-#            "names": [
-#              name
-#            ]
-#          }
-#          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips", method: "POST", params: spec)
-          if assign_me
-            return assign_me
-#            params = assign_me.clone
-#            params["name"] = name
-#            params["associated_private_ip"] = private_ip
-#            params.reject! { |_k, v| v.nil? }
-
-#            pp self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips/#{assign_me["allocation_id"]}?action=attach", method: "PATCH", params: params, debug: true)
-          end
-        end
-
-        def listPublicIPs
-          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips")
-        end
-
-        def releasePublicIP(id)
-          self.class.callAPI("orgs/#{@org}/sddcs/#{@sddc}/publicips/#{id}", method: "DELETE")
         end
 
         def self.setAWSIntegrations(credentials = nil)
@@ -959,6 +952,14 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         @@guest_endpoints[credentials] ||= {}
         @@guest_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VmGuestIdentityApi", credentials: credentials, habitat: habitat)
         @@guest_endpoints[credentials][habitat]
+      end
+
+      @@guest_processes_endpoints = {}
+      def self.guest_processes(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@guest_processes_endpoints[credentials] ||= {}
+        @@guest_processes_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VmGuestProcessesApi", credentials: credentials, habitat: habitat, debug: true)
+        @@guest_processes_endpoints[credentials][habitat]
       end
 
       @@datacenter_endpoints = {}

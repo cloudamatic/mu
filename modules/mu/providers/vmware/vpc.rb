@@ -64,6 +64,24 @@ module MU
 
           # Don't declare us done until we've shown up on vSphere's side
           MU.retrier([VSphereIDUnresolved], loop_if: Proc.new { vSphereID.nil? or vSphereID.empty? }, max: 10, wait: 30)
+
+          route_me = @config['subnets'].map { |s| s['ip_block'] }
+
+#  route_tables:
+#  - name: private
+#    routes:
+#    - destination_network: 0.0.0.0/0
+#      gateway: "#NAT"
+#  parent_block: 192.168.2.0/24
+#  subnets:
+#  - name: SubnetPrivate
+#    ip_block: 192.168.2.128/25
+#    route_table: private
+#    is_public: false
+#    map_public_ips: false
+
+
+
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -214,9 +232,29 @@ module MU
             if segment["tags"] and segment["tags"].include?({ "scope" => "MU-ID", "tag" => MU.deploy_id})
               MU.log "Deleting NSX network segment #{segment["id"]}"
               if !noop
-              MU.retrier([MU::Cloud::VMWare::NSX::NSXError], max: 10, wait: 30) {
-                MU::Cloud::VMWare.nsx.deleteSegment(segment["id"])
-              }
+                MU.retrier([MU::Cloud::VMWare::NSX::NSXError], max: 10, wait: 30) {
+                  MU::Cloud::VMWare.nsx(credentials: credentials).deleteSegment(segment["id"])
+                }
+              end
+            end
+          }
+
+          MU::Cloud::VMWare.nsx(credentials: credentials).listNATRules.each { |rule|
+            next if !rule["description"] or rule["description"].empty?
+            
+            if rule["description"] == MU.deploy_id and !rule["marked_for_delete"]
+              MU.log "Deleting NAT route #{rule['id']}", details: rule
+              if !noop
+                MU::Cloud::VMWare.nsx(credentials: credentials).deleteNATRule(rule['id'])
+              end
+            end
+          }
+
+          MU::Cloud::VMWare.nsx(credentials: credentials).listPublicIPs.each { |ip|
+            if ip["display_name"] =~ /^#{Regexp.quote(MU.deploy_id)}-/
+              MU.log "Releasing public IP #{ip['ip']} (#{ip['id']})", details: ip
+              if !noop
+                MU::Cloud::VMWare.nsx(credentials: credentials).releasePublicIP(ip['id'])
               end
             end
           }
@@ -284,10 +322,29 @@ module MU
           ok
         end
 
-        # @param route [Hash]: A route description, per the Basket of Kittens schema
-        # @param server [MU::Cloud::VMWare::Server]: Instance to which this route will apply
-        def createRouteForInstance(route, server)
-          createRoute(route, network: @url, tags: [MU::Cloud::VMWare.nameStr(server.mu_name)])
+        def createRouteForIP(ip, public_face = false)
+          # Technically there will only ever be one route table, and it will
+          # only ever have one route. Whatevs.
+          if @config['route_tables']
+            @config['route_tables'].each { |rtb|
+              next if !rtb['routes']
+              rtb['routes'].each { |route|
+                next if !["#NAT", "#INTERNET"].include?(route['gateway'])
+                ip_desc = MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name)
+                ext_rules = MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).listNATRules
+                ext_rules.each { |rule|
+                  if (rule["source_network"] == ip and
+                     rule["translated_network"] == ip_desc["ip"]) or
+                     (rule["translated_network"] == ip and
+                     rule["destination_network"] == ip_desc["ip"])
+                    return
+                  end
+                }
+                MU.log "Creating NAT route mapping #{ip_desc["ip"]} <=> #{ip} in segment #{@mu_name}"
+                MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).createUpdateNATRule(@mu_name+"-"+route['gateway'], ip_desc["ip"], ip, description: @deploy.deploy_id, inbound: public_face)
+              }
+            }
+          end
         end
 
         private

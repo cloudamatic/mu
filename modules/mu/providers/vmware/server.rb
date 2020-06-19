@@ -282,15 +282,57 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           start
+          guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
 
-          if @config['associate_public_ip']
-            guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
-            if guest_info and guest_info.respond_to?(:ip_address)
-              ip_desc = MU::Cloud::VMWare.vmc(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name)
-              pp MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).createUpdateNATRule(@mu_name, "35.172.43.237", guest_info.ip_address, description: @deploy.deploy_id, port_range: "22")
+          if guest_info and guest_info.respond_to?(:ip_address)
+            ip_desc = MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name)
+
+            @vpc.createRouteForIP(guest_info.ip_address, @config['associate_public_ip'])
+          else
+            MU.log "No guest OS info available for #{@mu_name}, will be unable to establish connectivity", MU::ERR
+            return
+          end
+
+          MU::MommaCat.lock(@cloud_id.to_s+"-groom")
+          
+          node, _config, deploydata = describe(cloud_id: @cloud_id)
+
+          if node.nil? or node.empty?
+            raise MuError, "MU::Cloud::Azure::Server.groom was called without a mu_name"
+          end
+
+          # Make double sure we don't lose a cached mu_windows_name value.
+          if windows? or !@config['active_directory'].nil?
+            if @mu_windows_name.nil?
+              @mu_windows_name = deploydata['mu_windows_name']
             end
           end
+
+          @groomer.saveDeployData
+
+          begin
+            @groomer.run(purpose: "Full Initial Run", max_retries: 15)
+          rescue MU::Groomer::RunError
+            MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
+          end
+
         end
+
+        # This functionality appears alluded to in the Ruby SDK, but does not
+        # actually exist in the REST API. Cheers.
+#        def runCmd(path, cwd: "/", arguments: "", env: {})
+#          MU::Cloud::VMWare.guest_processes(credentials: @credentials, habitat: @sddc).create(
+#            @cloud_id,
+#            ::VSphereAutomation::VCenter::VcenterVmGuestProcessesCreate.new(
+#              spec: ::VSphereAutomation::VCenter::VcenterVmGuestProcessesCreateSpec.new(
+#                arguments: arguments,
+#                environment_variables: env,
+#                path: path,
+#                working_directory: cwd
+#              )
+#            )
+#          )
+#        end
 
         # Create an image out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
         # @param name [String]: The MU resource name of the server to use as the basis for this image.
