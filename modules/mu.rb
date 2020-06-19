@@ -916,7 +916,7 @@ module MU
 
       hash = if azure_struct 
         MU::Cloud::Azure.respToHash(struct)
-      elsif vmware_struct
+      elsif vmware_struct or struct.respond_to?(:to_hash)
         struct.to_hash
       else
         struct.to_h

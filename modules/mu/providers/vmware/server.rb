@@ -246,6 +246,35 @@ module MU
         # Figure out what's needed to SSH into this server.
         # @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
         def getSSHConfig
+          return nil if @config.nil? or @deploy.nil?
+
+          nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
+          if !@config["vpc"].nil? and !MU::Cloud.resourceClass("Google", "VPC").haveRouteToInstance?(cloud_desc, credentials: @config['credentials'])
+
+            if !@nat.nil?
+              if @nat.cloud_desc.nil?
+                MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
+                return nil
+              end
+              _foo, _bar, _baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
+              if nat_ssh_user.nil? and !nat_ssh_host.nil?
+                MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
+                nat_ssh_user = "root"
+              end
+            end
+          end
+
+          if @config['ssh_user'].nil?
+            if windows?
+              @config['ssh_user'] = @config['windows_admin_user']
+              @config['ssh_user'] ||= "Administrator"
+            else
+              @config['ssh_user'] = "root"
+            end
+          end
+
+@config['ssh_user'] = "root"
+          return [nat_ssh_key, nat_ssh_user, nat_ssh_host, canonicalIP, @config['ssh_user'], @deploy.ssh_key_name]
         end
 
         # Apply tags, bootstrap our configuration management, and other
@@ -279,6 +308,17 @@ module MU
           return found
         end
 
+        def notify
+          deploydata = MU.structToHash(cloud_desc, stringify_keys: true)
+
+          guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
+          if guest_info
+            deploydata['guest_info'] = guest_info.to_hash
+          end
+
+          deploydata
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def groom
           start
@@ -286,8 +326,9 @@ module MU
 
           if guest_info and guest_info.respond_to?(:ip_address)
             ip_desc = MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).allocatePublicIP(@mu_name)
+            @private_ip = guest_info.ip_address
 
-            @vpc.createRouteForIP(guest_info.ip_address, @config['associate_public_ip'])
+            @public_ip = @vpc.createRouteForIP(guest_info.ip_address, @config['associate_public_ip'])
           else
             MU.log "No guest OS info available for #{@mu_name}, will be unable to establish connectivity", MU::ERR
             return
@@ -308,6 +349,8 @@ module MU
             end
           end
 
+          MU::MommaCat.nameKitten(self)
+
           @groomer.saveDeployData
 
           begin
@@ -315,6 +358,8 @@ module MU
           rescue MU::Groomer::RunError
             MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
           end
+
+          MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
 
         end
 
@@ -353,6 +398,7 @@ module MU
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
+          @public_ip || @private_ip # XXX store these in a sensible place
         end
 
         # Return all of the IP addresses, public and private, from all of our

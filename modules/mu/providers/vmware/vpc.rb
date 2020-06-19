@@ -337,11 +337,12 @@ module MU
                      rule["translated_network"] == ip_desc["ip"]) or
                      (rule["translated_network"] == ip and
                      rule["destination_network"] == ip_desc["ip"])
-                    return
+                    return ip_desc["ip"]
                   end
                 }
                 MU.log "Creating NAT route mapping #{ip_desc["ip"]} <=> #{ip} in segment #{@mu_name}"
                 MU::Cloud::VMWare.nsx(credentials: @credentials, habitat: @habitat).createUpdateNATRule(@mu_name+"-"+route['gateway'], ip_desc["ip"], ip, description: @deploy.deploy_id, inbound: public_face)
+                return ip_desc["ip"]
               }
             }
           end
