@@ -830,7 +830,7 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         library_desc = MU::Cloud.resourceClass("VMWare", "Bucket").find(cloud_id: library, credentials: credentials, habitat: habitat).values.first
 
         if !library_desc
-          raise MuError, "Failed to find a datastore matching #{url}"
+          raise MuError, "Failed to find a library matching #{url}"
         end
 
         item_id = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).find(::VSphereAutomation::Content::ContentLibraryItemFind.new(
@@ -888,6 +888,24 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         @@ovf_endpoints[credentials] ||= {}
         @@ovf_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "OvfLibraryItemApi", credentials: credentials, habitat: habitat)
         @@ovf_endpoints[credentials][habitat]
+      end
+
+      @@ovf_export_flags_endpoints = {}
+      def self.ovf_export_flags(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+
+        @@ovf_export_flags_endpoints[credentials] ||= {}
+        @@ovf_export_flags_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "OvfExportFlagApi", credentials: credentials, habitat: habitat)
+        @@ovf_export_flags_endpoints[credentials][habitat]
+      end
+
+      @@ovf_import_flags_endpoints = {}
+      def self.ovf_import_flags(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+
+        @@ovf_import_flags_endpoints[credentials] ||= {}
+        @@ovf_import_flags_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "OvfImportFlagApi", credentials: credentials, habitat: habitat)
+        @@ovf_import_flags_endpoints[credentials][habitat]
       end
 
       @@library_endpoints = {}

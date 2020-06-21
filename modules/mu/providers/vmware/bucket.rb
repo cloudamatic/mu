@@ -33,6 +33,20 @@ module MU
         def groom
         end
 
+        def self.createLibraryItem(library_id, name, description = nil, credentials: nil, habitat: nil, library_name: nil)
+          create_spec = {
+            library_id: library_id,
+            name: name
+          }
+          create_spec[:description] = description if description
+          library_name ||= library_id
+
+          params = ::VSphereAutomation::Content::ContentLibraryItemCreate.new(create_spec: create_spec)
+
+          MU.log "Creating item #{name} in library #{library_name}"
+          MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).create(params).value
+        end
+
         # Upload a file to a bucket.
         # @param url [String]: Target URL, of the form library://item/file
         # @param acl [String]: Canned ACL permission to assign to the object we upload
@@ -47,17 +61,7 @@ module MU
           library, library_id, item, item_id = MU::Cloud::VMware.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
 
           if !item_id
-            create_spec = {
-              library_id: library_id,
-              name: item
-            }
-            create_spec[:description] = description if description
-
-            params = ::VSphereAutomation::Content::ContentLibraryItemCreate.new(create_spec: create_spec)
-
-            MU.log "Creating item #{item} in library #{library}"
-            resp = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).create(params)
-            item_id = resp.value
+            item_id = createLibraryItem(library_id, item, description, credentials: credentials, habitat: habitat, library_name: library)
           end
 
           session_id = nil

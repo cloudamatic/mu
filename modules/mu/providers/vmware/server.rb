@@ -359,6 +359,10 @@ module MU
             MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
           end
 
+          if !@config['create_image'].nil? and !@config['image_created']
+            MU::Cloud.resourceClass("VMWare", "Server").createImage(name: @mu_name, instance_id: @cloud_id, credentials: @credentials, habitat: @sddc)
+          end
+
           MU::MommaCat.unlock(@cloud_id.to_s+"-groom")
 
         end
@@ -384,13 +388,47 @@ module MU
         # @param instance_id [String]: The cloud provider resource identifier of the server to use as the basis for this image.
         # @param storage [Hash]: The storage devices to include in this image.
         # @param exclude_storage [Boolean]: Do not include the storage device profile of the running instance when creating this image.
-        # @param region [String]: The cloud provider region
-        # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: nil, make_public: false, tags: [], region: nil, family: nil, zone: nil, credentials: nil)
-#           MU::Cloud::VMWare.ovf(credentials: credentials, habitat: habitat).create(
-#           )
+        def self.createImage(name: nil, instance_id: nil, library: "mu-images", credentials: nil, habitat: nil)
+          library_desc = MU::Cloud.resourceClass("VMWare", "Bucket").find(cloud_id: library, credentials: credentials, habitat: habitat).values.first
+          if !library_desc
+            raise MuError, "Failed to find a library named #{library}"
+          end
 
+          # See if the item we're saving to already exists
+          item_id = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).find(::VSphereAutomation::Content::ContentLibraryItemFind.new(
+            spec: ::VSphereAutomation::Content::ContentLibraryItemFindSpec.new(
+              name: name,
+              library_id: library_desc.id
+          ))).value.first
+
+          # create it, if not
+          verb = if !item_id
+            item_id = MU::Cloud.resourceClass("VMWare", "Bucket").createLibraryItem(library_desc.id, name, credentials: credentials, habitat: habitat, library_name: library)
+            "Initializing"
+          else
+            "Updating"
+          end
+
+          MU.log "#{verb} OVF image #{item_id} in #{library} from VM #{instance_id}"
+          resp = MU::Cloud::VMWare.ovf(credentials: credentials, habitat: habitat).create(
+            ::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreate.new(
+              create_spec: ::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreateSpec.new(
+                name: name,
+                description: "",
+              ),
+              source: {
+                id: instance_id,
+                type: "VirtualMachine"
+              },
+              target: {
+                library_id: library_desc.id,
+                library_item_id: item_id
+              }
+            )
+          )
+
+          resp.value.ovf_library_item_id
         end
 
         # Return the IP address that we, the Mu server, should be using to access
