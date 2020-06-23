@@ -513,6 +513,7 @@ module MU
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.environment;
     @@globals[Thread.current.object_id] ||= {}
+    @@globals[Thread.current.object_id]['environment'] ||= "DEV"
     @@globals[Thread.current.object_id]['environment']
   end
 

@@ -280,6 +280,7 @@ module MU
         # Apply tags, bootstrap our configuration management, and other
         # administravia for a new instance.
         def postBoot(instance_id = nil)
+          true
         end #postBoot
 
         # Locate an existing instance or instances and return an array containing matching VMWare resource descriptors for those that match.

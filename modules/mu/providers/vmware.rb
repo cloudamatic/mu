@@ -308,6 +308,13 @@ pp resp
 
         @@vmc_tokens = {}
 
+        @sddc_desc_cache = nil
+        def sddc_desc(sddc = @sddc, use_cache: true)
+          return @sddc_desc_cache if @sddc_desc_cache and use_cache
+          @sddc_desc_cache = MU::Cloud::VMWare::VMC.callAPI("orgs/"+@org+"/sddcs/#{sddc}", credentials: @credentials)
+          @sddc_desc_cache
+        end
+
         # Fetch a live authorization token from the VMC API, if there's a +token+ underneath the +vmc+ subsection configured credentials
         # @param credentials [String]
         # @return [String]
@@ -978,6 +985,14 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         @@guest_processes_endpoints[credentials] ||= {}
         @@guest_processes_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VmGuestProcessesApi", credentials: credentials, habitat: habitat, debug: true)
         @@guest_processes_endpoints[credentials][habitat]
+      end
+
+      @@guest_env_endpoints = {}
+      def self.guest_env(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@guest_env_endpoints[credentials] ||= {}
+        @@guest_env_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "VmGuestEnvironmentApi", credentials: credentials, habitat: habitat, debug: true)
+        @@guest_env_endpoints[credentials][habitat]
       end
 
       @@datacenter_endpoints = {}

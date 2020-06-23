@@ -375,35 +375,72 @@ module MU
       all_user_data
     end
 
-
-    @@kubectl_path = nil
-    # Locate a working +kubectl+ executable and return its fully-qualified
+    # Locate a working +voc+ executable and return its fully-qualified
     # path.
-    def self.kubectl
-      return @@kubectl_path if @@kubectl_path
-
+    def self.find_executable(name, version_args, version_cleanup, prettyname = nil)
       paths = ["/opt/mu/bin"]+ENV['PATH'].split(/:/)
       best = nil
       best_version = nil
       paths.uniq.each { |path|
         path.sub!(/^~/, MY_HOME)
-        if File.exist?(path+"/kubectl")
-          version = %x{#{path}/kubectl version --short --client}.chomp.sub(/.*Client version:\s+v/i, '')
+        if File.exist?(path+"/"+name)
+          version = %x{#{path}/#{name} #{version_args}}.chomp.sub(version_cleanup, '')
           next if !$?.success?
           if !best_version or MU.version_sort(best_version, version) > 0
             best_version = version
-            best = path+"/kubectl"
+            best = path+"/"+name
           end
         end
       }
+
       if !best
-        MU.log "Failed to find a working kubectl executable in any path", MU::WARN, details: paths.uniq.sort
+        MU.log "Failed to find a working #{name} executable in any path", MU::WARN, details: paths.uniq.sort
         return nil
       else
-        MU.log "Kubernetes commands will use #{best} (#{best_version})"
+        prettyname ||= name
+        MU.log "#{prettyname} commands will use #{best} (#{best_version})"
       end
 
-      @@kubectl_path = best
+      best
+    end
+
+    @@govc_path = nil
+    # Locate a working +govc+ executable and return its fully-qualified path.
+    def self.govc
+      @@govc_path ||= find_executable("govc", "version", /^govc\s*/, "VMWare govc")
+      @@govc_path
+    end
+
+    # Execute a +govc+ command, automatically injecting credential and
+    # connectivity environment variables from our configuration metadata.
+    def self.govc_run(cmd, credentials = nil)
+      cfg = MU::Cloud::VMWare.credConfig(credentials)
+      sddc_desc = MU::Cloud::VMWare.vmc.sddc_desc
+
+      ENV['GOVC_URL'] = sddc_desc["resource_config"]["vc_url"]+"sdk"
+      ENV['GOVC_USERNAME'] = sddc_desc["resource_config"]["cloud_username"]
+      ENV['GOVC_PASSWORD'] = sddc_desc["resource_config"]["cloud_password"]
+      fullcmd = %Q{#{govc} #{cmd} -json=true}
+
+      MU.log fullcmd
+      resp = %x{#{fullcmd}}
+
+      ENV.delete("GOVC_URL")
+      ENV.delete("GOVC_USERNAME")
+      ENV.delete("GOVC_PASSWORD")
+
+      begin
+        JSON.parse(resp)
+      rescue JSON::ParserError
+        resp
+      end
+    end
+
+    @@kubectl_path = nil
+    # Locate a working +kubectl+ executable and return its fully-qualified
+    # path.
+    def self.kubectl
+      @@kubectl_path ||= find_executable("kubectl", "version --short --client", /.*Client version:\s+v/i, "Kubernetes")
       @@kubectl_path
     end
 
