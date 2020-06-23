@@ -413,14 +413,18 @@ module MU
 
     # Execute a +govc+ command, automatically injecting credential and
     # connectivity environment variables from our configuration metadata.
-    def self.govc_run(cmd, credentials = nil)
+    def self.govc_run(cmd, args = [], credentials = nil, json: true, debug: false)
       cfg = MU::Cloud::VMWare.credConfig(credentials)
       sddc_desc = MU::Cloud::VMWare.vmc.sddc_desc
 
       ENV['GOVC_URL'] = sddc_desc["resource_config"]["vc_url"]+"sdk"
       ENV['GOVC_USERNAME'] = sddc_desc["resource_config"]["cloud_username"]
       ENV['GOVC_PASSWORD'] = sddc_desc["resource_config"]["cloud_password"]
-      fullcmd = %Q{#{govc} #{cmd} -json=true}
+      ENV['GOVC_DATACENTER'] = "SDDC-Datacenter"
+      fullcmd = govc
+      args.unshift("-debug") if debug #~/.govmomi/debug
+      args.unshift("-json") if json
+      fullcmd = %Q{#{govc} #{cmd} #{args.join(" ")}}
 
       MU.log fullcmd
       resp = %x{#{fullcmd}}

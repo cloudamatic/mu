@@ -232,9 +232,11 @@ module MU
             MU::Cloud::VMWare.power(credentials: @credentials).start(@cloud_id)
           end
 
+#          guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
           MU.retrier([], loop_if: Proc.new { state != "POWERED_ON" }) {
             state = MU::Cloud::VMWare.power(credentials: @credentials, habitat: @sddc).get(@cloud_id).value.state
           }
+          sleep 30 # XXX hackaround for guest tools not being responsive immediately, detect this better
         end
 
         # Ask the VMWare API to restart this node
@@ -322,6 +324,48 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          metadata = Base64.strict_encode64(<<EOH
+instance-id: #{@cloud_id}
+local-hostname: #{@mu_name}
+network:
+  version: 2
+  ethernets:
+    nics:
+      match:
+        name: ens*
+      dhcp4: yes
+EOH
+).chomp
+
+          userdata = Base64.strict_encode64({
+            "users" => [
+              {
+                "name" => @config['ssh_user'],
+                "primary_group" => @config['ssh_user'],
+                "sudo" => "ALL=(ALL) NOPASSWD:ALL",
+                "groups" => "wheel",
+                "ssh_import_id" => "None",
+                "lock_passwd" => false,
+                "ssh_authorized_keys" => @deploy.ssh_public_key.gsub(/\n/, ' ')
+              }
+            ]
+          }.to_yaml).chomp
+
+          resp = MU::Master.govc_run("vm.info", ["-e", "-g=false", @mu_name])
+          if resp and resp["VirtualMachines"].size == 1
+            extras = Hash[resp["VirtualMachines"].first["Config"]["ExtraConfig"].map { |v|
+              [v["Key"], v["Value"]]
+            }]
+            if extras["guestinfo.metdata"] != metadata or
+               extras["guestinfo.userdata"] != userdata
+              stop
+              puts MU::Master.govc_run(%Q{vm.change -vm=#{@mu_name} -e guestinfo.metdata="#{Base64.strict_encode64(metadata).chomp}" -e guestinfo.metadata.encoding="base64" -e guestinfo.userdata="#{Base64.strict_encode64(userdata_yml.to_yaml).chomp}" -e guestinfo.userdata.encoding="base64"})
+              start
+            end
+          else
+            MU.log "govc vm.info on #{@mu_name} failed to return data I could use", MU::ERR, details: resp
+          end
+
           start
           guest_info = MU::Cloud::VMWare.guest(credentials: @credentials, habitat: @sddc).get(@cloud_id).value
 
