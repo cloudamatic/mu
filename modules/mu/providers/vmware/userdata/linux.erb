@@ -1,5 +1,6 @@
+## template: jinja
 #!/bin/sh
-# Copyright:: Copyright (c) 2019 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2020 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +16,14 @@
 
 updates_run=0
 need_reboot=0
-instance_id="`curl -H Metadata:tttp://169.254.169.254/metadata/instance/compute/name?api-version=2017-08-01&format=text'`"
 
 for f in /etc/rc.local /etc/rc.d/rc.local;do
   if [ -f $f ];then
     chmod 755 $f
   fi
 done
+
+instance_id="{{ ds.instance_id }}"
 
 if [ -f /etc/debian_version ];then
   if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
@@ -31,7 +33,7 @@ if [ -f /etc/debian_version ];then
   if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
 <% if !$mu.skipApplyUpdates %>
   if [ ! -f /.mu-installer-ran-updates ];then
-    service ssh stop
+#    service ssh stop
     apt-get --fix-missing -y upgrade 
     if [ $? -eq 0 ]
     then
@@ -80,7 +82,7 @@ elif [ -x /usr/bin/yum ];then
   fi
 <% if !$mu.skipApplyUpdates %>
   if [ ! -f /.mu-installer-ran-updates ];then
-    service sshd stop
+#    service sshd stop
     kernel_update=`yum list updates | grep kernel`
     yum -y update
     if [ $? -eq 0 ]
@@ -121,7 +123,7 @@ if [ "$need_reboot" == "1" ];then
   shutdown -r now "Applying new kernel"
 fi
 <% end %>
-
+exit
 gsutil cp gs://<%= $mu.adminBucketName %>/<%= $mu.muID %>-secret .
 
 echo '

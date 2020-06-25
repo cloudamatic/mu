@@ -165,8 +165,18 @@ module MU
 
           library, library_id, item, item_id = MU::Cloud::VMWare.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
 
+          list_available = Proc.new {
+            if library_id
+              MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).list(library_id).value.map { |i|
+                { MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).get(i).value.name => MU::Cloud::VMWare.library_file(credentials: credentials, habitat: habitat).list(i).value.map { |f| f.name } }
+              }
+            end
+          }
+
           if !library_id or !item_id
-            MU.log "Could not find a library and item matching #{url}", MU::WARN
+            have_items = list_available.call
+
+            MU.log "Could not find a library and item matching #{url}", MU::ERR, details: {library => have_items}
             return nil
           end
 
@@ -180,7 +190,9 @@ module MU
           )
 
           if !resp.is_a?(::VSphereAutomation::VCenter::VcenterOvfLibraryItemFilterResp) or !resp.value.is_a?(::VSphereAutomation::VCenter::VcenterOvfLibraryItemOvfSummary)
-            MU.log "Image at #{url} does not exist or is not a valid OVF library item"
+            have_items = list_available.call
+            MU.log "Image at #{url} does not exist or is not a valid OVF library item", MU::ERR, details: resp
+            pp have_items 
             return nil
           end
 
@@ -275,7 +287,6 @@ module MU
             end
           end
 
-@config['ssh_user'] = "root"
           return [nat_ssh_key, nat_ssh_user, nat_ssh_host, canonicalIP, @config['ssh_user'], @deploy.ssh_key_name]
         end
 
@@ -324,42 +335,26 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          puts @userdata
           metadata = Base64.strict_encode64(<<EOH
 instance-id: #{@cloud_id}
 local-hostname: #{@mu_name}
-network:
-  version: 2
-  ethernets:
-    nics:
-      match:
-        name: ens*
-      dhcp4: yes
+public-keys-data: #{@deploy.ssh_public_key.gsub(/\n/, ' ')}
 EOH
 ).chomp
 
-          userdata = Base64.strict_encode64({
-            "users" => [
-              {
-                "name" => @config['ssh_user'],
-                "primary_group" => @config['ssh_user'],
-                "sudo" => "ALL=(ALL) NOPASSWD:ALL",
-                "groups" => "wheel",
-                "ssh_import_id" => "None",
-                "lock_passwd" => false,
-                "ssh_authorized_keys" => @deploy.ssh_public_key.gsub(/\n/, ' ')
-              }
-            ]
-          }.to_yaml).chomp
+          userdata = Base64.strict_encode64(@userdata)
 
           resp = MU::Master.govc_run("vm.info", ["-e", "-g=false", @mu_name])
+
           if resp and resp["VirtualMachines"].size == 1
             extras = Hash[resp["VirtualMachines"].first["Config"]["ExtraConfig"].map { |v|
               [v["Key"], v["Value"]]
             }]
-            if extras["guestinfo.metdata"] != metadata or
+            if extras["guestinfo.metadata"] != metadata or
                extras["guestinfo.userdata"] != userdata
               stop
-              puts MU::Master.govc_run(%Q{vm.change -vm=#{@mu_name} -e guestinfo.metdata="#{Base64.strict_encode64(metadata).chomp}" -e guestinfo.metadata.encoding="base64" -e guestinfo.userdata="#{Base64.strict_encode64(userdata_yml.to_yaml).chomp}" -e guestinfo.userdata.encoding="base64"})
+              puts MU::Master.govc_run(%Q{vm.change -vm=#{@mu_name} -e guestinfo.metadata="#{metadata}" -e guestinfo.metadata.encoding="base64" -e guestinfo.userdata="#{userdata}" -e guestinfo.userdata.encoding="base64"})
               start
             end
           else
@@ -550,6 +545,7 @@ EOH
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "habitat" => MU::Config::Habitat.reference,
             "folder" => {
               "type" => "string",
               "default" => "Workloads"
@@ -598,7 +594,8 @@ EOH
           ok = true
           server['habitat'] ||= MU::Config::Ref.get(
             id: MU::Cloud::VMWare.defaultSDDC(server['credentials']),
-            cloud: "VMWare"
+            cloud: "VMWare",
+            type: "habitats"
           )
 
           if server['template']
