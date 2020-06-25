@@ -160,7 +160,7 @@ module MU
           start
         end
 
-        def self.getImageFromLibrary(url, credentials: nil, habitat: nil)
+        def self.getImageFromLibrary(url, credentials: nil, habitat: nil, ignore_missing: false)
           habitat ||= MU::Cloud::VMWare.defaultSDDC(credentials)
 
           library, library_id, item, item_id = MU::Cloud::VMWare.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
@@ -176,7 +176,7 @@ module MU
           if !library_id or !item_id
             have_items = list_available.call
 
-            MU.log "Could not find a library and item matching #{url}", MU::ERR, details: {library => have_items}
+            MU.log "Could not find a library and item matching #{url}", MU::ERR, details: {library => have_items} if !ignore_missing
             return nil
           end
 
@@ -436,21 +436,21 @@ EOH
           end
 
           # See if the item we're saving to already exists
-          item_id = MU::Cloud::VMWare.library_item(credentials: credentials, habitat: habitat).find(::VSphereAutomation::Content::ContentLibraryItemFind.new(
-            spec: ::VSphereAutomation::Content::ContentLibraryItemFindSpec.new(
-              name: name,
-              library_id: library_desc.id
-          ))).value.first
+          item_id, image_desc = getImageFromLibrary(library+":/"+name, credentials: credentials, habitat: habitat, ignore_missing: true)
 
           # create it, if not
-          verb = if !item_id
-            item_id = MU::Cloud.resourceClass("VMWare", "Bucket").createLibraryItem(library_desc.id, name, credentials: credentials, habitat: habitat, library_name: library)
-            "Initializing"
+          target = if !item_id
+            ::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreateTarget.new(
+              library_id: library_desc.id
+            )
           else
-            "Updating"
+            ::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreateTarget.new(
+              library_id: library_desc.id,
+              library_item_id: item_id
+            )
           end
 
-          MU.log "#{verb} OVF image #{item_id} in #{library} from VM #{instance_id}"
+          MU.log "#{item_id ? "Updating" : "Initializing"} OVF image #{item_id} in #{library} from VM #{instance_id}"
           resp = MU::Cloud::VMWare.ovf(credentials: credentials, habitat: habitat).create(
             ::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreate.new(
               create_spec: ::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreateSpec.new(
@@ -461,12 +461,14 @@ EOH
                 id: instance_id,
                 type: "VirtualMachine"
               },
-              target: {
-                library_id: library_desc.id,
-                library_item_id: item_id
-              }
+              target: target
             )
           )
+
+          if !resp.is_a?(::VSphereAutomation::VCenter::VcenterOvfLibraryItemCreateResp) or !resp.value.succeeded
+            MU.log "Error #{item_id ? "updating" : "initializing"} OVF image #{item_id} in #{library} from VM #{instance_id}", MU::ERR, details: resp
+            return nil
+          end
 
           resp.value.ovf_library_item_id
         end
