@@ -947,6 +947,22 @@ MU.log "attempting to glue #{vpc_id}", MU::NOTICE, details: subnet_ids
         @@library_update_endpoints[credentials][habitat]
       end
 
+      @@library_download_endpoints = {}
+      def self.library_download(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_download_endpoints[credentials] ||= {}
+        @@library_download_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemDownloadSessionApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_download_endpoints[credentials][habitat]
+      end
+
+      @@library_file_download_endpoints = {}
+      def self.library_file_download(credentials: nil, habitat: nil)
+        habitat ||= defaultSDDC(credentials)
+        @@library_file_download_endpoints[credentials] ||= {}
+        @@library_file_download_endpoints[credentials][habitat] ||= VSphereEndpoint.new(api: "LibraryItemDownloadsessionFileApi", credentials: credentials, habitat: habitat, section: :Content)
+        @@library_file_download_endpoints[credentials][habitat]
+      end
+
       @@library_item_endpoints = {}
       def self.library_item(credentials: nil, habitat: nil)
         habitat ||= defaultSDDC(credentials)

@@ -58,7 +58,7 @@ module MU
             raise MuError, "File #{file} must exist and be readable"
           end
 
-          library, library_id, item, item_id = MU::Cloud::VMware.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
+          library, library_id, item, item_id = MU::Cloud::VMWare.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
 
           if !item_id
             item_id = createLibraryItem(library_id, item, description, credentials: credentials, habitat: habitat, library_name: library)
@@ -93,7 +93,7 @@ module MU
             MU.log "#{file} already exists at #{library}://#{item}/#{filename} and has matching checksum", MU::NOTICE, details: file_desc.checksum_info.checksum
             return
           end
-exit
+
           file_spec = {
             name: filename,
           }
@@ -137,6 +137,51 @@ exit
             MU::Cloud::VMWare.library_update(credentials: credentials, habitat: habitat).delete(session_id)
           end
 
+        end
+
+        def self.download(url, path: nil, credentials: nil, habitat: nil)
+          library, library_id, item, item_id = MU::Cloud::VMWare.parseLibraryUrl(url, credentials: credentials, habitat: habitat)
+          path ||= Dir.cwd
+
+          session = MU::Cloud::VMWare.library_download.create(
+            ::VSphereAutomation::Content::ContentLibraryItemDownloadSessionCreate.new(
+              create_spec: {
+                library_item_id: item_id
+              }
+            )
+          ).value
+          files = MU::Cloud::VMWare.library_file.list(item_id).value.map { |f| f.name }
+          files.each { |file|
+            prep = MU::Cloud::VMWare.library_file_download.prepare(
+              session,
+              ::VSphereAutomation::Content::ContentLibraryItemDownloadsessionFilePrepare.new(
+                file_name: file
+              )
+            ).value
+            MU.retrier([], loop_if: Proc.new {prep.status != "PREPARED"}) {
+              prep = MU::Cloud::VMWare.library_file_download.get(
+                session,
+                ::VSphereAutomation::Content::ContentLibraryItemDownloadsessionFileGet.new(
+                  file_name: file
+                )
+              ).value
+            }
+            uri = URI prep.download_endpoint.uri
+            MU.log "Downloading #{library}://#{item}/#{file} to #{path}/#{file}"
+        
+            req = Net::HTTP::Get.new(uri)
+            req['Accept'] = 'application/octet-stream'
+            req['vmware-api-session-id'] = session
+            f = File.open(path+"/"+file, "wb")
+            Net::HTTP.start(uri.host,uri.port, :use_ssl => true){ |http|
+              http.request(req) do |response|
+                response.read_body do |segment|
+                  f.write segment
+                end
+              end
+            }
+          }
+          MU::Cloud::VMWare.library_download.delete(session)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
