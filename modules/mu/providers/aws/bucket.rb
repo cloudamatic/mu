@@ -146,6 +146,27 @@ module MU
               }
             )
           end
+
+          if @config['upload']
+            @config['upload'].each { |batch|
+              urlbase = "s3://"+@cloud_id+batch['destination']
+              urlbase += "/" if urlbase !~ /\/$/
+              upload_me = if File.directory?(batch['source'])
+                Dir[batch['source']+'/**/*'].reject {|d|
+                  File.directory?(d)
+                }.map { |f|
+                  [ f, urlbase+f.sub(/^#{Regexp.quote(batch['source'])}\/?/, '') ]
+                }
+              else
+                batch['source'].match(/([^\/]+)$/)
+                [ [batch['source'], urlbase+Regexp.last_match[1]] ]
+              end
+
+              Hash[upload_me].each_pair { |file, url|
+                self.class.upload(url, file: file, credentials: @credentials, region: @config['region'])
+              }
+            }
+          end
         end
 
         # Upload a file to a bucket.
@@ -339,6 +360,7 @@ module MU
               end
             }
           end
+
 
           ok
         end

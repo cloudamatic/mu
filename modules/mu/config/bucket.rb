@@ -50,6 +50,23 @@ module MU
               "default" => "index.html",
               "description" => "If +web_enabled+, return this object when \"diretory\" (a path not ending in a key/object) is invoked."
             },
+            "upload" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["source", "destination"],
+                "properties" => {
+                  "source" => {
+                    "type" => "string",
+                    "description" => "A file or directory to upload. If a directory is specified, it will be recursively mirrored to the bucket +destination+."
+                  },
+                  "destination" => {
+                    "type" => "string",
+                    "description" => "Path to which +source+ file(s) will be uploaded in the bucket, relative to +/+"
+                  }
+                }
+              }
+            },
             "policies" => {
               "type" => "array",
               "items" => MU::Config::Role.policy_primitive(subobjects: true, grant_to: true, permissions_optional: true, targets_optional: true)
