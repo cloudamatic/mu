@@ -8,7 +8,7 @@ RUN df -h
 
 RUN apt-get update
 
-RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential python-pip curl
+RUN apt-get install -y ruby2.5-dev dnsutils ansible build-essential python-pip curl openssh-client
 
 RUN apt-get upgrade -y
 
