@@ -275,6 +275,21 @@ module MU
                     MU::Cloud::AWS.s3(credentials: credentials, region: region).delete_bucket(bucket: bucket.name)
                   end
                 end
+              rescue Aws::S3::Errors::BucketNotEmpty => e
+                if flags["skipsnapshots"]
+                  del = MU::Cloud::AWS.s3(credentials: credentials, region: region).list_objects(bucket: bucket.name).contents.map { |o| { key: o.key } }
+                  del.concat(MU::Cloud::AWS.s3(credentials: credentials, region: region).list_object_versions(bucket: bucket.name).versions.map { |o| { key: o.key, version_id: o.version_id } })
+
+                  MU.log "Purging #{del.size.to_s} objects and versions from #{bucket.name}"
+                  begin
+                    batch = del.slice!(0, (del.length >= 1000 ? 1000 : del.length))
+                    MU::Cloud::AWS.s3(credentials: credentials, region: region).delete_objects(bucket: bucket.name, delete: { objects: batch } ) if !noop
+                  end while del.size > 0
+
+                  retry if !noop
+                else
+                  MU.log "Bucket #{bucket.name} is non-empty, will preserve it and its contents. Use --skipsnapshots to forcibly remove.", MU::WARN
+                end
               rescue Aws::S3::Errors::NoSuchTagSet, Aws::S3::Errors::PermanentRedirect
                 next
               end
