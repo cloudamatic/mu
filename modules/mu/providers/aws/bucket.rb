@@ -181,7 +181,7 @@ module MU
 
           if file and !file.empty?
             if !File.exist?(file) or !File.readable?(file)
-              raise MuError, "Unable to read #{file} for upload to #{url}"
+              raise MuError, "Unable to read #{file} for upload to #{url} (I'm at #{Dir.pwd}"
             else
               data = File.read(file)
             end
@@ -376,6 +376,16 @@ module MU
             }
           end
 
+          if bucket['upload']
+            bucket['upload'].each { |batch|
+              if !File.exists?(batch['source'])
+                MU.log "Bucket '#{bucket['name']}' specifies upload for file/directory that does not exist", MU::ERR, details: batch
+                ok = false
+                next
+              end
+              batch['source'] = File.realpath(File.expand_path(batch['source']))
+            }
+          end
 
           ok
         end
