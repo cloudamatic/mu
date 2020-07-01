@@ -352,27 +352,43 @@ return nil if @cloud_id != "odl63ekwda"
 
                 }
               end
-
+pp m_desc
               if m_desc.method_integration
                 if m_desc.method_integration.type == "AWS"
-                  if m_desc.method_integration.uri.match(/:lambda:path:\d{4}-\d{2}-\d{2}\/functions\/(arn:.*?)\/invocations$/)
+                  if m_desc.method_integration.uri.match(/:lambda:path\/\d{4}-\d{2}-\d{2}\/functions\/arn:.*?:function:(.*?)\/invocations$/)
                     method['integrate_with'] = MU::Config::Ref.get(
                       id: Regexp.last_match[1],
-                      type: "function",
+                      type: "functions",
+                      cloud: "AWS",
                       integration_http_method: m_desc.method_integration.http_method
                     )
-                  else
-                    m_desc.method_integration.uri.match(/#{@config['region']}:([^:]+):action\/(.*)/)
+                  elsif m_desc.method_integration.uri.match(/#{@config['region']}:([^:]+):action\/(.*)/)
                     method['integrate_with'] = {
                       "type" => "aws_generic",
                       "integration_http_method" => m_desc.method_integration.http_method,
                       "aws_generic_action" => Regexp.last_match[1]+":"+Regexp.last_match[2]
                     }
+                  else
+                    MU.log "I don't know what to do with #{m_desc.method_integration.uri}", MU::ERR
+                  end
+                  if m_desc.method_integration.http_method
+                    method['integrate_with']['backend_http_method'] = m_desc.method_integration.http_method
                   end
                 elsif m_desc.method_integration.type == "MOCK"
                   method['integrate_with'] = {
                     "type" => "mock"
                   }
+                end
+
+                if m_desc.method_integration.passthrough_behavior
+                  method['integrate_with']['passthrough_behavior'] = m_desc.method_integration.passthrough_behavior
+                end
+
+                if m_desc.method_integration.request_templates and
+                   !m_desc.method_integration.request_templates.empty?
+                   method['integrate_with'] = m_desc.method_integration.request_templates.keys.map { |rt_content_type, template|
+                    { "content_type" => rt_content_type, "template" => template }
+                   }
                 end
               end
 

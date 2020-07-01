@@ -140,6 +140,13 @@ module MU
         end
       end
 
+      # Lets callers set attributes like a {Hash}
+      # @param attribute [String,Symbol]
+      def []=(attribute, value)
+        instance_variable_set("@#{attribute.to_s}".to_sym, value)
+        self.class.define_reader(attribute)
+      end
+
       # Unset an attribute. Sort of. We can't actually do that, so nil it out
       # and we get the behavior we want.
       def delete(attribute)
@@ -269,6 +276,10 @@ module MU
       def kitten(mommacat = @mommacat, shallow: false, debug: false)
         return nil if !@cloud or !@type
         loglevel = debug ? MU::NOTICE : MU::DEBUG
+
+        if debug
+          MU.log "this mf spittin", MU::WARN, details: caller
+        end
 
         if @obj
           @deploy_id ||= @obj.deploy_id

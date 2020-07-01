@@ -216,7 +216,22 @@ module MU
         # populated with one or both depending on what this resource has
         # defined.
         def cloud_desc(use_cache: true)
-          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+
+          # we might inherit a naive cached description from the base cloud
+          # layer; rearrange it to our tastes
+          if @cloud_desc_cache.is_a?(::Aws::IAM::Types::Role)
+            new_desc = {
+              "role" => @cloud_desc_cache
+            }
+            @cloud_desc_cache = new_desc
+          elsif @cloud_desc_cache.is_a?(::Aws::IAM::Types::Policy)
+            new_desc = {
+              "policies" => [@cloud_desc_cache]
+            }
+            @cloud_desc_cache = new_desc
+          end
+
+          return @cloud_desc_cache if @cloud_desc_cache and !@cloud_desc_cache.empty? and use_cache
 
           @cloud_desc_cache = {}
           if @config['bare_policies']
@@ -535,29 +550,15 @@ end
             end
 
           else
-            marker = nil
-            begin
-              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_roles(
-                marker: marker
-              )
-              break if !resp or !resp.roles
-              resp.roles.each { |role|
-                found[role.role_name] = role
-              }
-              marker = resp.marker
-            end while marker
+            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_roles
+            resp.roles.each { |role|
+              found[role.role_name] = role
+            }
 
-            begin
-              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_policies(
-                scope: "Local",
-                marker: marker
-              )
-              break if !resp or !resp.policies
-              resp.policies.each { |pol|
-                found[pol.arn] = pol
-              }
-              marker = resp.marker
-            end while marker
+            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_policies(scope: "Local")
+            resp.policies.each { |pol|
+              found[pol.arn] = pol
+            }
           end
 
           found
