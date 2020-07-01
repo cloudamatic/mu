@@ -352,8 +352,31 @@ return nil if @cloud_id != "odl63ekwda"
 
                 }
               end
+
+              if m_desc.method_integration
+                if m_desc.method_integration.type == "AWS"
+                  if m_desc.method_integration.uri.match(/:lambda:path:\d{4}-\d{2}-\d{2}\/functions\/(arn:.*?)\/invocations$/)
+                    method['integrate_with'] = MU::Config::Ref.get(
+                      id: Regexp.last_match[1],
+                      type: "function",
+                      integration_http_method: m_desc.method_integration.http_method
+                    )
+                  else
+                    m_desc.method_integration.uri.match(/#{@config['region']}:([^:]+):action\/(.*)/)
+                    method['integrate_with'] = {
+                      "type" => "aws_generic",
+                      "integration_http_method" => m_desc.method_integration.http_method,
+                      "aws_generic_action" => Regexp.last_match[1]+":"+Regexp.last_match[2]
+                    }
+                  end
+                elsif m_desc.method_integration.type == "MOCK"
+                  method['integrate_with'] = {
+                    "type" => "mock"
+                  }
+                end
+              end
+
               bok['methods'] << method
-              MU.log "method #{http_type}", MU::NOTICE, details: m_desc
             }
           }
           puts ""
