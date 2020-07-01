@@ -38,13 +38,14 @@ module MU
             m["auth"] ||= m["iam_role"] ? "AWS_IAM" : "NONE"
 
             method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
+            path_part = ["", "/"].include?(m['path']) ? nil : m['path']
 
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
               rest_api_id: @cloud_id
             )
             ext_resource = nil
             resp.items.each { |resource|
-              if resource.path_part == m['path']
+              if resource.path_part == path_part
                 ext_resource = resource.id
               end
             }
@@ -69,7 +70,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_resource(
                 rest_api_id: @cloud_id,
                 parent_id: root_resource,
-                path_part: m['path']
+                path_part: path_part
               )
             end
             parent_id = resp.id
@@ -100,6 +101,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 }
                 if r['headers']
                   params[:response_parameters] = r['headers'].map { |h|
+                    h['required'] ||= false
                     ["method.response.header."+h['header'], h['required']]
                   }.to_h
                 end
@@ -281,6 +283,82 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           end
 
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.name
+return nil if @cloud_id != "odl63ekwda"
+
+          MU.log "REST API", MU::NOTICE, details: cloud_desc
+          resources = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
+            rest_api_id: @cloud_id,
+          ).items
+          MU.log "resources", MU::NOTICE, details: resources
+          resources.each { |r|
+            r.resource_methods.each_pair { |http_type, m|
+              bok['methods'] ||= []
+              method = {}
+              m_desc = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_method(
+                rest_api_id: @cloud_id,
+                resource_id: r.id,
+                http_method: http_type 
+              )
+              method['type'] = http_type
+              method['path'] = r.path_part || r.path
+              if m_desc.method_responses
+                m_desc.method_responses.each_pair { |code, resp_desc|
+                  method['responses'] ||= []
+                  resp = { "code" => code.to_i }
+                  if resp_desc.response_parameters
+                    resp_desc.response_parameters.each_pair { |hdr, reqd|
+                      resp['headers'] ||= []
+                      if hdr.match(/^method\.response\.header\.(.*)/)
+                        resp['headers'] << {
+                          "header" => Regexp.last_match[1],
+                          "required" => reqd
+                        }
+                      else
+                        MU.log "I don't know what to do with APIG response parameter #{hdr}", MU::ERR, details: resp_desc
+                      end
+
+                    }
+                  end
+                  if resp_desc.response_models
+                    resp_desc.response_models.each_pair { |content_type, body|
+                      resp['body'] ||= []
+                      resp['body'] << {
+                        "content_type" => content_type,
+                        "is_error" => (body == "Error")
+                      }
+                    }
+
+                  end
+                  method['responses'] << resp
+
+                }
+              end
+              bok['methods'] << method
+              MU.log "method #{http_type}", MU::NOTICE, details: m_desc
+            }
+          }
+          puts ""
+pp bok
+          bok
         end
 
         # Cloud-specific configuration properties.
