@@ -30,8 +30,7 @@ module MU
       :omnibus => "Jam everything into one monolothic configuration"
     }
 
-
-    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false)
+    def initialize(clouds: MU::Cloud.supportedClouds, types: MU::Cloud.resource_types.keys, parent: nil, billing: nil, sources: nil, credentials: nil, group_by: :logical, savedeploys: false, diff: false, habitats: [], scrub_mu_isms: false, regions: [], merge: false, pattern: nil)
       @scraped = {}
       @clouds = clouds
       @types = types
@@ -49,6 +48,7 @@ module MU
       @habitats ||= []
       @scrub_mu_isms = scrub_mu_isms
       @merge = merge
+      @pattern = pattern
     end
 
     # Walk cloud providers with available credentials to discover resources
@@ -127,6 +127,7 @@ module MU
                 if obj.habitat and !cloudclass.listHabitats(credset).include?(obj.habitat)
                   next
                 end
+
                 # XXX apply any filters (e.g. MU-ID tags)
                 if obj.cloud_id.nil?
                   MU.log "This damn thing gave me no cloud id, what do I even do with that", MU::ERR, details: obj
@@ -292,7 +293,7 @@ module MU
                 start = Time.now
 
                 kitten_cfg = obj.toKitten(rootparent: @default_parent, billing: @billing, habitats: @habitats, types: @types)
-                if kitten_cfg
+                if kitten_cfg and (!@pattern or @pattern.match(kitten_cfg['name']))
                   print "."
                   kitten_cfg.delete("credentials") if @target_creds
                   class_semaphore.synchronize {
