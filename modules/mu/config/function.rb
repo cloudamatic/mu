@@ -71,6 +71,10 @@ module MU
               "zip_file" => {
                 "type" => "string",
                 "description" => "Path to a zipped deployment package to upload."
+              }, 
+              "path" => {
+                "type" => "string",
+                "description" => "Path to a directory that can be zipped into deployment package to upload."
               } 
             }
           },

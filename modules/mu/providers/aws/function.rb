@@ -53,10 +53,21 @@ module MU
             runtime: @config['runtime'],
           }
 
-          if @config['code']['zip_file']
+          if @config['code']['zip_file'] or @config['code']['path']
+            tempfile = nil
+            if @config['code']['path']
+              tempfile = Tempfile.new
+              MU.log "Creating deployment package from #{@config['code']['path']}"
+              MU::Master.zipDir(@config['code']['path'], tempfile.path)
+              @config['code']['zip_file'] = tempfile.path
+            end
             zip = File.read(@config['code']['zip_file'])
             MU.log "Uploading deployment package from #{@config['code']['zip_file']}"
             lambda_properties[:code][:zip_file] = zip
+            if tempfile
+              tempfile.close
+              tempfile.unlink
+            end
           else
             lambda_properties[:code][:s3_bucket] = @config['code']['s3_bucket']
             lambda_properties[:code][:s3_key] = @config['code']['s3_key']
@@ -321,7 +332,7 @@ module MU
             "cloud_id" => @cloud_id,
             "region" => @config['region']
           }
-
+return if @cloud_id =~ /^(serverlessrepo-)/
           if !cloud_desc
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
@@ -336,6 +347,7 @@ module MU
           function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
 
           if function.code.repository_type == "S3"
+            pp function.code if @cloud_id.match(/pff/)
             bok['code'] = {}
             function.code.location.match(/^https:\/\/([^\.]+)\..*?\/([^?]+).*?(?:versionId=([^&]+))?/)
             bok['code']['s3_bucket'] = Regexp.last_match[1]
@@ -393,7 +405,6 @@ module MU
 
           if function.configuration.role
             shortname = function.configuration.role.sub(/.*?role\/([^\/]+)$/, '\1')
-MU.log shortname, MU::NOTICE, details: function.configuration.role
             bok['role'] = MU::Config::Ref.get(
               id: shortname,
               name: shortname,

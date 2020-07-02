@@ -30,7 +30,7 @@ module MU
             end
           end
 
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+          @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 64)
         end
 
         # Called automatically by {MU::Deploy#createResources}

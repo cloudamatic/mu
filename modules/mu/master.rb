@@ -880,5 +880,23 @@ module MU
       end
     end
 
+    def self.zipDir(srcdir, outfile)
+      require 'zip'
+      ::Zip::File.open(outfile, ::Zip::File::CREATE) { |zipfile|
+        addpath = Proc.new { |zip_path, parent_path|
+          Dir.entries(parent_path).reject{ |d| [".", ".."].include?(d) }.each { |entry|
+            src = File.join(parent_path, entry)
+            dst = File.join(zip_path, entry).sub(/^\//, '')
+            if File.directory?(src)
+              addpath.call(dst, src)
+            else
+              zipfile.add(dst, src)
+            end
+          }
+        }
+        addpath.call("", srcdir)
+      }
+    end
+
   end
 end
