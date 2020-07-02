@@ -76,11 +76,22 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::buckets}, bare and unvalidated.
-      # @param _bucket [Hash]: The resource to process and validate
+      # @param bucket [Hash]: The resource to process and validate
       # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(_bucket, _configurator)
+      def self.validate(bucket, _configurator)
         ok = true
+
+        if bucket['upload']
+          bucket['upload'].each { |batch|
+            if !File.exists?(batch['source'])
+              MU.log "Bucket '#{bucket['name']}' specifies upload for file/directory that does not exist", MU::ERR, details: batch
+              ok = false
+              next
+            end
+            batch['source'] = File.realpath(File.expand_path(batch['source']))
+          }
+        end
 
         ok
       end
