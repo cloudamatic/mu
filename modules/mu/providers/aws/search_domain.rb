@@ -35,7 +35,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
-          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).create_elasticsearch_domain(params).domain_status
+          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).create_elasticsearch_domain(params).domain_status
 
           tagDomain
 
@@ -51,7 +51,7 @@ module MU
             waitWhileProcessing # wait until the create finishes, if still going
 
             MU.log "Updating ElasticSearch domain #{@config['domain_name']}", MU::NOTICE, details: params
-            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).update_elasticsearch_domain_config(params)
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).update_elasticsearch_domain_config(params)
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
@@ -64,11 +64,11 @@ module MU
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
           @cloud_desc_cache = if @config['domain_name']
-            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
               domain_name: @config['domain_name']
             ).domain_status
           elsif @deploydata and @deploydata['domain_name']
-            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).describe_elasticsearch_domain(
+            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
               domain_name: @deploydata['domain_name']
             ).domain_status
           else
@@ -87,7 +87,7 @@ module MU
         # @return [Hash]
         def notify
           deploy_struct = MU.structToHash(cloud_desc)
-          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).list_tags(arn: deploy_struct[:arn]).tag_list
+          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: deploy_struct[:arn]).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
@@ -191,6 +191,69 @@ module MU
           found
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @credentials,
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+pp cloud_desc
+          bok['name'] = cloud_desc.domain_name
+          bok['elasticsearch_version'] = cloud_desc.elasticsearch_version
+          bok['instance_count'] = cloud_desc.elasticsearch_cluster_config.instance_count
+          bok['instance_type'] = cloud_desc.elasticsearch_cluster_config.instance_type
+          bok['zone_aware'] = cloud_desc.elasticsearch_cluster_config.zone_awareness_enabled
+
+          if cloud_desc.elasticsearch_cluster_config.dedicated_master_enabled
+            bok['dedicated_masters'] = cloud_desc.elasticsearch_cluster_config.dedicated_master_count
+            bok['master_instance_type'] = cloud_desc.elasticsearch_cluster_config.dedicated_master_type
+          end
+
+          if cloud_desc.access_policies
+            bok['access_policies'] = JSON.parse(cloud_desc.access_policies)
+          end
+
+          if cloud_desc.advanced_options and !cloud_desc.advanced_options.empty?
+            bok['advanced_options'] = cloud_desc.advanced_options
+          end
+
+          bok['ebs_size'] = cloud_desc.ebs_options.volume_size
+          bok['ebs_type'] = cloud_desc.ebs_options.volume_type
+          bok['ebs_iops'] = cloud_desc.ebs_options.iops if cloud_desc.ebs_options.iops
+
+          if cloud_desc.snapshot_options and cloud_desc.snapshot_options.automated_snapshot_start_hour
+            bok['snapshot_hour'] = cloud_desc.snapshot_options.automated_snapshot_start_hour
+          end
+
+          if cloud_desc.cognito_options.user_pool_id and
+             cloud_desc.cognito_options.identity_pool_id
+            bok['user_pool_id'] = cloud_desc.cognito_options.user_pool_id
+            bok['identity_pool_id'] = cloud_desc.cognito_options.identity_pool_id
+          end
+
+          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: cloud_desc.arn).tag_list
+          if tags and !tags.empty?
+            bok['tags'] = MU.structToHash(tags)
+          end
+
+          # vpc (vpc_options)
+          # security groups
+          # slow_logs (log_publishing_options)
+
+MU.log "desc", MU::NOTICE, details: cloud_desc
+MU.log "bok", MU::NOTICE, details: bok
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -200,7 +263,7 @@ module MU
           versions = begin
             MU::Cloud::AWS.elasticsearch.list_elasticsearch_versions.elasticsearch_versions
           rescue MuError
-            ["7.1", "6.8", "6.7", "6.5", "6.4", "6.3", "6.2", "6.0", "5.6"]
+            ["7.4", "7.1", "6.8", "6.7", "6.5", "6.4", "6.3", "6.2", "6.0", "5.6"]
           end
           instance_types = begin
             MU::Cloud::AWS.elasticsearch.list_elasticsearch_instance_types(
@@ -246,7 +309,7 @@ module MU
             },
             "ebs_type" => {
               "type" => "string",
-              "default" => "standard",
+              "default" => "gp2",
               "description" => "Type of EBS storage to use for cluster nodes. If 'none' is specified, EBS storage will not be used, but this is only valid for certain instance types.",
               "enum" => ["standard", "gp2", "io1", "none"]
             },
@@ -677,7 +740,7 @@ module MU
             raise MU::MuError, "Can't tag ElasticSearch domain, cloud descriptor came back without an ARN"
           end
 
-          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @config['credentials']).add_tags(
+          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).add_tags(
             arn: domain.arn,
             tag_list: tags
           )

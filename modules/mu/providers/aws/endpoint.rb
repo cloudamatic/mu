@@ -302,7 +302,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           end
 
           bok['name'] = cloud_desc.name
-return nil if @cloud_id != "odl63ekwda"
 
           MU.log "REST API", MU::NOTICE, details: cloud_desc
           resources = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
@@ -395,8 +394,7 @@ pp m_desc
               bok['methods'] << method
             }
           }
-          puts ""
-pp bok
+
           bok
         end
 

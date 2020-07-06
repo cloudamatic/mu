@@ -57,7 +57,7 @@ EOF
   s.add_runtime_dependency 'rack', "~> 2.0"
   s.add_runtime_dependency 'ruby-graphviz', "~> 1.2"
   s.add_runtime_dependency 'rubocop', '~> 0.58'
-  s.add_runtime_dependency 'rubyzip', "~> 2.0"
+  s.add_runtime_dependency 'rubyzip', "~> 2.3"
   s.add_runtime_dependency 'simple-password-gen', "~> 0.1"
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
   s.add_runtime_dependency 'solve', '~> 4.0'
