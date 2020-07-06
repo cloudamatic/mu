@@ -248,6 +248,51 @@ module MU
           found
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+          bok['name'] = cloud_desc.table_name
+          bok['read_capacity'] = cloud_desc.provisioned_throughput.read_capacity_units
+          bok['write_capacity'] = cloud_desc.provisioned_throughput.write_capacity_units
+
+          cloud_desc.attribute_definitions.each { |attr|
+            bok['attributes'] ||= []
+            newattr = {
+              "name" => attr.attribute_name,
+              "type" => attr.attribute_type
+            }
+            if cloud_desc.key_schema
+              cloud_desc.key_schema.each { |key|
+                next if key.attribute_name == attr.attribute_name
+                if key.key_type == "RANGE"
+                  newattr["primary_partition"] = true
+                elsif key.key_type == "HASH"
+                  newattr["primary_sort"] = true
+                end
+              }
+            end
+            bok['attributes'] << newattr
+          }
+
+          if cloud_desc.stream_specification and cloud_desc.stream_specification.stream_enabled
+            bok['stream'] = cloud_desc.stream_specification.stream_view_type
+          end
+
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
