@@ -332,7 +332,7 @@ module MU
             "cloud_id" => @cloud_id,
             "region" => @config['region']
           }
-return if @cloud_id =~ /^(serverlessrepo-)/
+
           if !cloud_desc
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
@@ -347,7 +347,6 @@ return if @cloud_id =~ /^(serverlessrepo-)/
           function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
 
           if function.code.repository_type == "S3"
-            pp function.code if @cloud_id.match(/pff/)
             bok['code'] = {}
             function.code.location.match(/^https:\/\/([^\.]+)\..*?\/([^?]+).*?(?:versionId=([^&]+))?/)
             bok['code']['s3_bucket'] = Regexp.last_match[1]
@@ -407,7 +406,6 @@ return if @cloud_id =~ /^(serverlessrepo-)/
             shortname = function.configuration.role.sub(/.*?role\/([^\/]+)$/, '\1')
             bok['role'] = MU::Config::Ref.get(
               id: shortname,
-              name: shortname,
               cloud: "AWS",
               type: "roles"
             )

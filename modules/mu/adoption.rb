@@ -792,8 +792,7 @@ module MU
         elsif hashcfg["id"] and !hashcfg["name"]
           hashcfg.delete("deploy_id")
         else
-          pp parent.cloud_desc
-          raise Incomplete, "Failed to resolve reference on behalf of #{parent}"
+          raise Incomplete.new "Failed to resolve reference on behalf of #{parent}", details: hashcfg
         end
         hashcfg.delete("deploy_id") if hashcfg['deploy_id'] == deploy.deploy_id
 

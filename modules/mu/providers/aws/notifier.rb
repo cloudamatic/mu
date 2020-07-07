@@ -36,6 +36,9 @@ module MU
         def groom
           if @config['subscriptions']
             @config['subscriptions'].each { |sub|
+              if sub['resource'] and !sub['endpoint']
+                sub['endpoint'] = MU::Config::Ref.get(sub['resource']).kitten.arn
+              end
               MU::Cloud::AWS::Notifier.subscribe(
                 arn: arn,
                 endpoint: sub['endpoint'],
@@ -137,12 +140,35 @@ module MU
           end
 
           bok['name'] = cloud_desc["DisplayName"].empty? ? @cloud_id : cloud_desc["DisplayName"]
+          svcmap = {
+            "lambda" => "functions",
+            "sqs" => "msg_queues"
+          }
           MU::Cloud::AWS.sns(region: @config['region'], credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
             bok['subcriptions'] ||= []
-            bok['subcriptions'] << {
-              "type" => sub.protocol,
-              "endpoint" => sub.endpoint
-            }
+            bok['subcriptions'] << if sub.endpoint.match(/^arn:[^:]+:(sqs|lambda):([^:]+):(\d+):.*?([^:\/]+)$/)
+              _wholestring, service, region, account, id = Regexp.last_match.to_a
+              {
+                "type" => sub.protocol,
+                "resource" => MU::Config::Ref.get(
+                  type: svcmap[service],
+                  region: region,
+                  credentials: @credentials,
+                  id: id,
+                  cloud: "AWS",
+                  habitat: MU::Config::Ref.get(
+                    id: account,
+                    cloud: "AWS",
+                    credentials: @credentials
+                  )
+                )
+              }
+            else
+              {
+                "type" => sub.protocol,
+                "endpoint" => sub.endpoint
+              }
+            end
           }
 
           bok
@@ -183,19 +209,25 @@ module MU
           if notifier['subscriptions']
             notifier['subscriptions'].each { |sub|
               if !sub["type"]
-                if sub['resource']
-                  MU::Config::Ref.get(sub['resource'])
+                sub['type'] = if sub['resource']
+                  if sub['resource']['type'] == "functions"
+                    "lambda"
+                  elsif sub['resource']['type'] == "msg_queues"
+                    "sqs"
+                  end
                 elsif sub['endpoint']
                   if sub["endpoint"].match(/^http:/i)
-                    sub["type"] = "http"
+                    "http"
                   elsif sub["endpoint"].match(/^https:/i)
-                    sub["type"] = "https"
-                  elsif sub["endpoint"].match(/^sqs:/i)
-                    sub["type"] = "sqs"
+                    "https"
+                  elsif sub["endpoint"].match(/:sqs:/i)
+                    "sqs"
+                  elsif sub["endpoint"].match(/:lambda:/i)
+                    "lambda"
                   elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
-                    sub["type"] = "sms"
+                    "sms"
                   elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
-                    sub["type"] = "email"
+                    "email"
                   end
                 end
 

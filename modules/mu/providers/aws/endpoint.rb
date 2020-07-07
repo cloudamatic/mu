@@ -351,7 +351,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
 
                 }
               end
-pp m_desc
+
               if m_desc.method_integration
                 if m_desc.method_integration.type == "AWS"
                   if m_desc.method_integration.uri.match(/:lambda:path\/\d{4}-\d{2}-\d{2}\/functions\/arn:.*?:function:(.*?)\/invocations$/)

@@ -531,7 +531,7 @@ end
 
             begin
               # managed policies get fetched by ARN, roles by plain name. Ok!
-              if args[:cloud_id].match(/^arn:/)
+              if args[:cloud_id].match(/^arn:.*?:policy\//)
                 resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_policy(
                   policy_arn: args[:cloud_id]
                 )
@@ -540,10 +540,11 @@ end
                 end
               else
                 resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_role(
-                  role_name: args[:cloud_id]
+                  role_name: args[:cloud_id].sub(/^arn:.*?\/([^:\/]+)$/, '\1') # XXX if it's an ARN, actually parse it and look in the correct account when applicable
                 )
+
                 if resp and resp.role
-                  found[args[:cloud_id]] = resp.role
+                  found[resp.role.role_name] = resp.role
                 end
               end
             rescue ::Aws::IAM::Errors::NoSuchEntity

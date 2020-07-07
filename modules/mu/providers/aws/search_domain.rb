@@ -206,7 +206,7 @@ module MU
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
-pp cloud_desc
+
           bok['name'] = cloud_desc.domain_name
           bok['elasticsearch_version'] = cloud_desc.elasticsearch_version
           bok['instance_count'] = cloud_desc.elasticsearch_cluster_config.instance_count

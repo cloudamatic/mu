@@ -278,7 +278,7 @@ module MU
         loglevel = debug ? MU::NOTICE : MU::DEBUG
 
         if debug
-          MU.log "this mf spittin", MU::WARN, details: caller
+          MU.log "this mf kitten", MU::WARN, details: caller
         end
 
         if @obj
@@ -334,6 +334,18 @@ end
               [@habitat.to_s]
             end
 
+            MU.log "Ref#kitten calling findStray", loglevel, details: {
+              cloud: @cloud,
+              type: @type,
+              name: @name,
+              cloud_id: @id,
+              deploy_id: try_deploy_id,
+              region: @region,
+              habitats: hab_arg,
+              credentials: @credentials,
+              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
+            }
+
             found = MU::MommaCat.findStray(
               @cloud,
               @type,
@@ -345,6 +357,7 @@ end
               credentials: @credentials,
               dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
             )
+            MU.log "Ref#kitten results from findStray", loglevel, details: found
             @obj ||= found.first if found
           rescue MU::MommaCat::MultipleMatches => e
             if try_deploy_id.nil? and MU.deploy_id
