@@ -245,12 +245,39 @@ pp cloud_desc
             bok['tags'] = MU.structToHash(tags)
           end
 
-          # vpc (vpc_options)
-          # security groups
-          # slow_logs (log_publishing_options)
+          if cloud_desc.vpc_options
+            bok['vpc'] = MU::Config::Ref.get(
+              id: cloud_desc.vpc_options.vpc_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              type: "vpcs",
+              region: @config['region'],
+              subnets: cloud_desc.vpc_options.subnet_ids.map { |s| { "subnet_id" => s } }
+            )
+            if cloud_desc.vpc_options.security_group_ids and
+               !cloud_desc.vpc_options.security_group_ids.empty?
+              bok['add_firewall_rules'] = cloud_desc.vpc_options.security_group_ids.map { |sg|
+                MU::Config::Ref.get(
+                  id: sg,
+                  cloud: "AWS",
+                  credentials: @credentials,
+                  region: @config['region'],
+                  type: "firewall_rules",
+                )
+              }
+            end
+          end
 
-MU.log "desc", MU::NOTICE, details: cloud_desc
-MU.log "bok", MU::NOTICE, details: bok
+          if cloud_desc.log_publishing_options
+            # XXX this is primitive... there are multiple other log types now,
+            # and this should be a Ref blob, not a flat string
+            cloud_desc.log_publishing_options.each_pair { |type, whither|
+              if type == "SEARCH_SLOW_LOGS"
+                bok['slow_logs'] = whither.cloud_watch_logs_log_group_arn
+              end
+            }
+          end
+
           bok
         end
 
