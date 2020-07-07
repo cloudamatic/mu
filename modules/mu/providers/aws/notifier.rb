@@ -120,6 +120,34 @@ module MU
           found
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc["DisplayName"].empty? ? @cloud_id : cloud_desc["DisplayName"]
+          MU::Cloud::AWS.sns(region: @config['region'], credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
+            bok['subcriptions'] ||= []
+            bok['subcriptions'] << {
+              "type" => sub.protocol,
+              "endpoint" => sub.endpoint
+            }
+          }
+
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -130,11 +158,10 @@ module MU
               "type" => "array",
               "items" => {
                 "type" => "object",
-                "required" => ["endpoint"],
                 "properties" => {
                   "type" => {
                     "type" => "string",
-                    "description" => "",
+                    "description" => "Type of endpoint or resource which should receive notifications. If not specified, will attempt to auto-detect.",
                     "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application", "lambda"]
                   }
                 }
@@ -156,18 +183,24 @@ module MU
           if notifier['subscriptions']
             notifier['subscriptions'].each { |sub|
               if !sub["type"]
-                if sub["endpoint"].match(/^http:/i)
-                  sub["type"] = "http"
-                elsif sub["endpoint"].match(/^https:/i)
-                  sub["type"] = "https"
-                elsif sub["endpoint"].match(/^sqs:/i)
-                  sub["type"] = "sqs"
-                elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
-                  sub["type"] = "sms"
-                elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
-                  sub["type"] = "email"
-                else
-                  MU.log "Notifier #{notifier['name']} subscription #{sub['endpoint']} did not specify a type, and I'm unable to guess one", MU::ERR
+                if sub['resource']
+                  MU::Config::Ref.get(sub['resource'])
+                elsif sub['endpoint']
+                  if sub["endpoint"].match(/^http:/i)
+                    sub["type"] = "http"
+                  elsif sub["endpoint"].match(/^https:/i)
+                    sub["type"] = "https"
+                  elsif sub["endpoint"].match(/^sqs:/i)
+                    sub["type"] = "sqs"
+                  elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
+                    sub["type"] = "sms"
+                  elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
+                    sub["type"] = "email"
+                  end
+                end
+
+                if !sub['type']
+                  MU.log "Notifier #{notifier['name']} subscription did not specify a type, and I'm unable to guess one", MU::ERR, details: sub
                   ok = false
                 end
               end

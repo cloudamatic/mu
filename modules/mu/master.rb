@@ -880,6 +880,9 @@ module MU
       end
     end
 
+    # Recursively zip a directory
+    # @param srcdir [String]
+    # @param outfile [String]
     def self.zipDir(srcdir, outfile)
       require 'zip'
       ::Zip::File.open(outfile, ::Zip::File::CREATE) { |zipfile|

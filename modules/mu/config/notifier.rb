@@ -36,12 +36,12 @@ module MU
               "items" => {
                 "type" => "object",
                 "description" => "A list of people or resources which should receive notifications",
-                "required" => ["endpoint"],
                 "properties" => {
                   "endpoint" => {
                     "type" => "string",
-                    "description" => "The endpoint which should be subscribed to this notifier, typically an email address or SMS-enabled phone number."
-                  }
+                    "description" => "Shorthand for an endpoint which should be subscribed to this notifier, typically an email address or SMS-enabled phone number. For complex cases, such as referencing an AWS Lambda function defined elsewhere in your Mu stack, use +resource+ instead."
+                  },
+                  "resource" => MU::Config::Ref.schema(desc: "A cloud resource that is a valid notification target for this notifier. For simple use cases, such as external email addresses or SMS, use +endpoint+ instead.")
                 }
               }
             }
@@ -55,6 +55,11 @@ module MU
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(notifier, _configurator)
         ok = true
+
+        if !notifier['endpoint'] and !notifier['resource']
+          MU.log "Notifier '#{notifier['name']}' must specify either resource or endpoint", MU::ERR
+          ok = false
+        end
 
         if notifier['subscriptions']
           notifier['subscriptions'].each { |sub|
