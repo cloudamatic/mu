@@ -103,7 +103,7 @@ module MU
             params[:tags] = @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
           end
 
-          MU.log "Creating DynamoDB table #{@mu_name}", details: params
+          MU.log "Creating DynamoDB table #{@mu_name}", MU::NOTICE, details: params
 
           resp = MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).create_table(params)
           @cloud_id = @mu_name

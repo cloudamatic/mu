@@ -56,28 +56,12 @@ module MU
       def self.validate(notifier, _configurator)
         ok = true
 
-        if !notifier['endpoint'] and !notifier['resource']
-          MU.log "Notifier '#{notifier['name']}' must specify either resource or endpoint", MU::ERR
-          ok = false
-        end
 
         if notifier['subscriptions']
           notifier['subscriptions'].each { |sub|
-            if !sub["type"]
-              if sub["endpoint"].match(/^http:/i)
-                sub["type"] = "http"
-              elsif sub["endpoint"].match(/^https:/i)
-                sub["type"] = "https"
-              elsif sub["endpoint"].match(/^sqs:/i)
-                sub["type"] = "sqs"
-              elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
-                sub["type"] = "sms"
-              elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
-                sub["type"] = "email"
-              else
-                MU.log "Notifier #{notifier['name']} subscription #{sub['endpoint']} did not specify a type, and I'm unable to guess one", MU::ERR
-                ok = false
-              end
+            if !sub['endpoint'] and !sub['resource']
+              MU.log "Notifier '#{notifier['name']}' must specify either resource or endpoint in subscription", MU::ERR, details: sub
+              ok = false
             end
           }
         end

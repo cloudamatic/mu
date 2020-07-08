@@ -145,8 +145,8 @@ module MU
             "sqs" => "msg_queues"
           }
           MU::Cloud::AWS.sns(region: @config['region'], credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
-            bok['subcriptions'] ||= []
-            bok['subcriptions'] << if sub.endpoint.match(/^arn:[^:]+:(sqs|lambda):([^:]+):(\d+):.*?([^:\/]+)$/)
+            bok['subscriptions'] ||= []
+            bok['subscriptions'] << if sub.endpoint.match(/^arn:[^:]+:(sqs|lambda):([^:]+):(\d+):.*?([^:\/]+)$/)
               _wholestring, service, region, account, id = Regexp.last_match.to_a
               {
                 "type" => sub.protocol,
@@ -201,13 +201,16 @@ module MU
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::notifier}, bare and unvalidated.
 
         # @param notifier [Hash]: The resource to process and validate
-        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(notifier, _configurator)
+        def self.validateConfig(notifier, configurator)
           ok = true
 
           if notifier['subscriptions']
             notifier['subscriptions'].each { |sub|
+              if sub['resource'] and configurator.haveLitterMate?(sub['resource']['name'], sub['resource']['type'])
+                MU::Config.addDependency(notifier, sub['resource']['name'], sub['resource']['type'])
+              end
               if !sub["type"]
                 sub['type'] = if sub['resource']
                   if sub['resource']['type'] == "functions"
@@ -215,6 +218,7 @@ module MU
                   elsif sub['resource']['type'] == "msg_queues"
                     "sqs"
                   end
+                  exit
                 elsif sub['endpoint']
                   if sub["endpoint"].match(/^http:/i)
                     "http"

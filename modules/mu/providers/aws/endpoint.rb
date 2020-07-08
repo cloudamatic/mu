@@ -307,8 +307,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           resources = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
             rest_api_id: @cloud_id,
           ).items
-          MU.log "resources", MU::NOTICE, details: resources
+
           resources.each { |r|
+            next if !r.respond_to?(:resource_methods) or r.resource_methods.nil?
             r.resource_methods.each_pair { |http_type, m|
               bok['methods'] ||= []
               method = {}
@@ -353,7 +354,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               end
 
               if m_desc.method_integration
-                if m_desc.method_integration.type == "AWS"
+                if ["AWS", "AWS_PROXY"].include?(m_desc.method_integration.type)
                   if m_desc.method_integration.uri.match(/:lambda:path\/\d{4}-\d{2}-\d{2}\/functions\/arn:.*?:function:(.*?)\/invocations$/)
                     method['integrate_with'] = MU::Config::Ref.get(
                       id: Regexp.last_match[1],
@@ -377,6 +378,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                   method['integrate_with'] = {
                     "type" => "mock"
                   }
+                else
+                  MU.log "I don't know what to do with this integration", MU::ERR, details: m_desc.method_integration
+                  next
                 end
 
                 if m_desc.method_integration.passthrough_behavior
@@ -502,7 +506,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                       "type" => {
                         "type" => "string",
                         "description" => "A Mu resource type, for integrations with a sibling resource (e.g. a function), or the string +aws_generic+, which we can use in combination with +aws_generic_action+ to integrate with arbitrary AWS services.",
-                        "enum" => ["aws_generic"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort)
+                        "enum" => ["aws_generic"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }.sort)
                       },
                       "aws_generic_action" => {
                         "type" => "string",
