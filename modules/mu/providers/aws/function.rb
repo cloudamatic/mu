@@ -26,6 +26,7 @@ module MU
           "search_domains" => ["endpoint"],
           "databases" => ["endpoint"],
           "endpoints" => ["url"],
+          "notifiers" => ["TopicArn"],
           "nosqldbs" => ["table_arn"]
         }
 
@@ -68,7 +69,9 @@ module MU
 
           MU.log @cloud_id, MU::NOTICE, details: cloud_desc
           old_props = MU.structToHash(cloud_desc)
+
           new_props = get_properties
+          code_block = new_props[:code]
           new_props.reject! { |k, _v| [:code, :publish, :tags].include?(k) }
           changes = {}
           new_props.each_pair { |k, v|
@@ -77,6 +80,13 @@ module MU
           if !changes.empty?
             MU.log "Updating Lambda #{@mu_name}", MU::NOTICE, details: changes
             MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).update_function_configuration(new_props)
+          end
+
+          if @code_sha256 and @code_sha256 != cloud_desc.code_sha_256.chomp
+            MU.log "Updating code in Lambda #{@mu_name}", MU::NOTICE, details: { "old" => @code_sha256, "new" => cloud_desc.code_sha_256 }
+            code_block[:publish] = true
+            code_block[:function_name] = @cloud_id
+            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).update_function_code(code_block)
           end
 
 #          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
@@ -519,6 +529,7 @@ module MU
               MU.log "#{@mu_name} using code packaged at #{@config['code']['zip_file']}"
             end
             zip = File.read(@config['code']['zip_file'])
+            @code_sha256 = Base64.encode64(Digest::SHA256.digest(zip)).chomp
             lambda_properties[:code][:zip_file] = zip
             if tempfile
               tempfile.close
@@ -530,6 +541,7 @@ module MU
             if @config['code']['s3_object_version']
               lambda_properties[:code][:s3_object_version] = @config['code']['s3_object_version']
             end
+# XXX need to download to a temporarily file, read it in, and calculate the digest in order to trigger updates in groom
           end
            
           if @config.has_key?('timeout')
