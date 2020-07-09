@@ -37,7 +37,7 @@ module MU
           if @config['subscriptions']
             @config['subscriptions'].each { |sub|
               if sub['resource'] and !sub['endpoint']
-                sub['endpoint'] = MU::Config::Ref.get(sub['resource']).kitten.arn
+                sub['endpoint'] = MU::Config::Ref.get(sub['resource']).kitten(@deploy).arn
               end
               MU::Cloud::AWS::Notifier.subscribe(
                 arn: arn,
@@ -209,6 +209,7 @@ module MU
           if notifier['subscriptions']
             notifier['subscriptions'].each { |sub|
               if sub['resource'] and configurator.haveLitterMate?(sub['resource']['name'], sub['resource']['type'])
+                sub['resource']['cloud'] = "AWS"
                 MU::Config.addDependency(notifier, sub['resource']['name'], sub['resource']['type'])
               end
               if !sub["type"]

@@ -67,6 +67,11 @@ module MU
               }
             end
           }
+          # apparently the HASH key always has to be before RANGE, so sort it
+          # lexically by that field and call it a day
+          params[:key_schema].sort! { |a, b|
+            a[:key_type] <=> b[:key_type]
+          }
 
           if @config['secondary_indexes']
             @config['secondary_indexes'].each { |idx|
@@ -218,7 +223,7 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          MU.structToHash(cloud_desc)
+          MU.structToHash(cloud_desc, stringify_keys: true)
         end
 
         # Locate an existing DynamoDB table

@@ -133,7 +133,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               uri, type = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
                 ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", "AWS"]
-              elsif m['integrate_with']['type'] == "function"
+              elsif m['integrate_with']['type'] == "functions"
                 function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions").cloudobj
                 ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.arn+"/invocations", "AWS"]
               elsif m['integrate_with']['type'] == "mock"
@@ -166,6 +166,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 }
               end
 
+MU.log "integration", MU::NOTICE, details: params
               resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(params)
 
               if m['integrate_with']['type'] == "function"
@@ -234,7 +235,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         # Return the metadata for this API
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(cloud_desc)
+          deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
+          deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com/"+@config['deploy_to']
 # XXX stages and whatnot
           return deploy_struct
         end

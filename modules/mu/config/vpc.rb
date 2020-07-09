@@ -417,6 +417,7 @@ module MU
         using_default_cidr = false
         if !vpc['ip_block']
           if configurator.updating and configurator.existing_deploy and
+             configurator.existing_deploy.original_config and
              configurator.existing_deploy.original_config['vpcs']
             configurator.existing_deploy.original_config['vpcs'].each { |v|
               if v['name'].to_s == vpc['name'].to_s

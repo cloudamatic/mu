@@ -680,7 +680,7 @@ dependencies
         # Return the metadata for this ContainerCluster
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(cloud_desc)
+          deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
           deploy_struct['cloud_id'] = @cloud_id
           deploy_struct["region"] ||= @config['region']
           deploy_struct["db_name"] ||= @config['db_name']
@@ -1274,7 +1274,7 @@ dependencies
 
 
         def add_cluster_node
-          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten(@deploy, debug: true)
+          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten(@deploy)
           if cluster.nil? or cluster.cloud_id.nil?
             raise MuError.new "Failed to resolve parent cluster of #{@mu_name}", details: @config["member_of_cluster"].to_h
           end
@@ -1355,7 +1355,7 @@ dependencies
 
         # creation_style = point_in_time
         def create_point_in_time
-          @config["source"].kitten(@deploy, debug: true)
+          @config["source"].kitten(@deploy)
           if !@config["source"].id
             raise MuError.new "Database '#{@config['name']}' couldn't resolve cloud id for source database", details: @config["source"].to_h
           end
@@ -1381,7 +1381,7 @@ dependencies
 
         # creation_style = new, existing and read_replica_of is not nil
         def create_read_replica
-          @config["source"].kitten(@deploy, debug: true)
+          @config["source"].kitten(@deploy)
           if !@config["source"].id
             raise MuError.new "Database '#{@config['name']}' couldn't resolve cloud id for source database", details: @config["source"].to_h
           end

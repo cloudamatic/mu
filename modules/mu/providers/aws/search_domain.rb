@@ -22,9 +22,9 @@ module MU
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
           super
-          if @cloud_id and !@config['domain_name']
-            @config['domain_name'] = @cloud_id
-          end
+          describe if @mu_name and !@deploydata
+          @cloud_id ||= @deploydata['domain_name'] if @deploydata
+
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
@@ -44,7 +44,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           tagDomain
-          @config['domain_name'] ||= @deploydata['domain_name']
+          @config['domain_name'] ||= @cloud_id
           params = genParams(cloud_desc) # get parameters that would change only
 
           if params.size > 1
@@ -63,17 +63,20 @@ module MU
         # our druthers.
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
-          @cloud_desc_cache = if @config['domain_name']
-            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
-              domain_name: @config['domain_name']
+          @cloud_desc_cache = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
+              domain_name: @cloud_id
             ).domain_status
-          elsif @deploydata and @deploydata['domain_name']
-            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
-              domain_name: @deploydata['domain_name']
-            ).domain_status
-          else
-            raise MuError, "#{@mu_name} can't find its official Elasticsearch domain name!"
-          end
+#          if @config['domain_name']
+#            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
+#              domain_name: @config['domain_name']
+#            ).domain_status
+#          elsif @deploydata and @deploydata['domain_name']
+#            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
+#              domain_name: @deploydata['domain_name']
+#            ).domain_status
+#          else
+#            raise MuError, "#{@mu_name} can't find its official Elasticsearch domain name!"
+#          end
           @cloud_desc_cache
         end
 
@@ -86,8 +89,8 @@ module MU
         # Return the metadata for this SearchDomain rule
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(cloud_desc)
-          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: deploy_struct[:arn]).tag_list
+          deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
+          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: arn).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"

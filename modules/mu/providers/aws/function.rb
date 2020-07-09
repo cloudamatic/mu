@@ -18,6 +18,17 @@ module MU
       # A function as configured in {MU::Config::BasketofKittens::functions}
       class Function < MU::Cloud::Function
 
+        # If we have sibling resources in our deployment, automatically inject
+        # interesting things about them into our function's environment
+        # variables.
+        SIBLING_VARS = {
+          "servers" => ["private_ip_address", "public_ip_address"],
+          "search_domains" => ["endpoint"],
+          "databases" => ["endpoint"],
+          "endpoints" => ["url"],
+          "nosqldbs" => ["table_arn"]
+        }
+
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
@@ -42,103 +53,31 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          role_arn = get_role_arn(@config['iam_role'])
           
-          lambda_properties = {
-            code: {},
-            function_name: @mu_name,
-            handler: @config['handler'],
-            publish: true,
-            role: role_arn,
-            runtime: @config['runtime'],
+          lambda_properties = get_properties
+
+          MU.retrier([Aws::Lambda::Errors::InvalidParameterValueException], max: 5, wait: 10) {
+            resp = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
+            @cloud_id = resp.function_name
           }
 
-          if @config['code']['zip_file'] or @config['code']['path']
-            tempfile = nil
-            if @config['code']['path']
-              tempfile = Tempfile.new
-              MU.log "Creating deployment package from #{@config['code']['path']}"
-              MU::Master.zipDir(@config['code']['path'], tempfile.path)
-              @config['code']['zip_file'] = tempfile.path
-            end
-            zip = File.read(@config['code']['zip_file'])
-            MU.log "Uploading deployment package from #{@config['code']['zip_file']}"
-            lambda_properties[:code][:zip_file] = zip
-            if tempfile
-              tempfile.close
-              tempfile.unlink
-            end
-          else
-            lambda_properties[:code][:s3_bucket] = @config['code']['s3_bucket']
-            lambda_properties[:code][:s3_key] = @config['code']['s3_key']
-            if @config['code']['s3_object_version']
-              lambda_properties[:code][:s3_object_version] = @config['code']['s3_object_version']
-            end
-          end
-           
-          if @config.has_key?('timeout')
-            lambda_properties[:timeout] = @config['timeout'].to_i ## secs
-          end           
-          
-          if @config.has_key?('memory')
-            lambda_properties[:memory_size] = @config['memory'].to_i
-          end
-          
-          if @config.has_key?('environment_variables') 
-              lambda_properties[:environment] = { 
-                variables: {@config['environment_variables'][0]['key'] => @config['environment_variables'][0]['value']}
-              }
-          end
-
-          lambda_properties[:tags] = {}
-          MU::MommaCat.listStandardTags.each_pair { |k, v|
-            lambda_properties[:tags][k] = v
-          }
-          if @config['tags']
-            @config['tags'].each { |tag|
-              lambda_properties[:tags][tag.key.first] = tag.values.first
-            }
-          end
-
-          if @config.has_key?('vpc')
-            sgs = []
-            if @config['add_firewall_rules']
-              @config['add_firewall_rules'].each { |sg|
-                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['name'])
-                sgs << sg.cloud_id if sg and sg.cloud_id
-              }
-            end
-            if !@vpc
-              raise MuError, "Function #{@config['name']} had a VPC configured, but none was loaded"
-            end
-            lambda_properties[:vpc_config] = {
-              :subnet_ids => @vpc.subnets.map { |s| s.cloud_id },
-              :security_group_ids => sgs
-            }
-          end
-
-          retries = 0
-          resp = begin
-            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
-          rescue Aws::Lambda::Errors::InvalidParameterValueException => e
-            # Freshly-made IAM roles sometimes aren't really ready
-            if retries < 5
-              sleep 10
-              retries += 1
-              retry
-            end
-            raise e
-          end
-
-          @cloud_id = resp.function_name
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          desc = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).get_function(
-            function_name: @mu_name
-          )
-          func_arn = desc.configuration.function_arn if !desc.empty?
+
+          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+          old_props = MU.structToHash(cloud_desc)
+          new_props = get_properties
+          new_props.reject! { |k, _v| [:code, :publish, :tags].include?(k) }
+          changes = {}
+          new_props.each_pair { |k, v|
+            changes[k] = v if v != old_props[k]
+          }
+          if !changes.empty?
+            MU.log "Updating Lambda #{@mu_name}", MU::NOTICE, details: changes
+            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).update_function_configuration(new_props)
+          end
 
 #          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
           
@@ -167,7 +106,7 @@ module MU
                 MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
               end
-              adjust_trigger(tr['service'], trigger_arn, func_arn, @mu_name) 
+              adjust_trigger(tr['service'], trigger_arn, arn, @mu_name) 
             }
           
           end 
@@ -258,7 +197,8 @@ module MU
         # Return the metadata for this Function rule
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(MU::Cloud::AWS::Function.find(cloud_id: @cloud_id, credentials: @config['credentials'], region: @config['region']).values.first)
+          deploy_struct = MU.structToHash(MU::Cloud::AWS::Function.find(cloud_id: @cloud_id, credentials: @credentials, region: @config['region']).values.first, stringify_keys: true)
+
           deploy_struct['mu_name'] = @mu_name
           return deploy_struct
         end
@@ -555,6 +495,105 @@ module MU
         end
 
         private
+
+        def get_properties
+          role_arn = get_role_arn(@config['iam_role'])
+
+          lambda_properties = {
+            code: {},
+            function_name: @mu_name,
+            handler: @config['handler'],
+            publish: true,
+            role: role_arn,
+            runtime: @config['runtime'],
+          }
+
+          if @config['code']['zip_file'] or @config['code']['path']
+            tempfile = nil
+            if @config['code']['path']
+              tempfile = Tempfile.new
+              MU.log "#{@mu_name} using code at #{@config['code']['path']}"
+              MU::Master.zipDir(@config['code']['path'], tempfile.path)
+              @config['code']['zip_file'] = tempfile.path
+            else
+              MU.log "#{@mu_name} using code packaged at #{@config['code']['zip_file']}"
+            end
+            zip = File.read(@config['code']['zip_file'])
+            lambda_properties[:code][:zip_file] = zip
+            if tempfile
+              tempfile.close
+              tempfile.unlink
+            end
+          else
+            lambda_properties[:code][:s3_bucket] = @config['code']['s3_bucket']
+            lambda_properties[:code][:s3_key] = @config['code']['s3_key']
+            if @config['code']['s3_object_version']
+              lambda_properties[:code][:s3_object_version] = @config['code']['s3_object_version']
+            end
+          end
+           
+          if @config.has_key?('timeout')
+            lambda_properties[:timeout] = @config['timeout'].to_i ## secs
+          end           
+          
+          if @config.has_key?('memory')
+            lambda_properties[:memory_size] = @config['memory'].to_i
+          end
+
+          SIBLING_VARS.each_key { |sib_type|
+            siblings = @deploy.findLitterMate(return_all: true, type: sib_type, cloud: "AWS")
+            if siblings
+              siblings.each_value { |sibling|
+                metadata = sibling.notify
+                next if !metadata
+                SIBLING_VARS[sib_type].each { |var|
+                  if metadata[var]
+                    @config['environment_variables'] ||= []
+                    @config['environment_variables'] << {
+                      "key" => (sibling.config['name']+"_"+var).gsub(/[^a-z0-9_]/i, '_'),
+                      "value" => metadata[var]
+                    }
+                  end
+                }
+              }
+            end
+          }
+
+          if @config.has_key?('environment_variables') 
+            lambda_properties[:environment] = { 
+              variables: Hash[@config['environment_variables'].map { |v| [v['key'], v['value']] }]
+            }
+          end
+
+          lambda_properties[:tags] = {}
+          MU::MommaCat.listStandardTags.each_pair { |k, v|
+            lambda_properties[:tags][k] = v
+          }
+          if @config['tags']
+            @config['tags'].each { |tag|
+              lambda_properties[:tags][tag.key.first] = tag.values.first
+            }
+          end
+
+          if @config.has_key?('vpc')
+            sgs = []
+            if @config['add_firewall_rules']
+              @config['add_firewall_rules'].each { |sg|
+                sg = @deploy.findLitterMate(type: "firewall_rule", name: sg['name'])
+                sgs << sg.cloud_id if sg and sg.cloud_id
+              }
+            end
+            if !@vpc
+              raise MuError, "Function #{@config['name']} had a VPC configured, but none was loaded"
+            end
+            lambda_properties[:vpc_config] = {
+              :subnet_ids => @vpc.subnets.map { |s| s.cloud_id },
+              :security_group_ids => sgs
+            }
+          end
+
+          lambda_properties
+        end
 
         # Given an IAM role name, resolve to ARN. Will attempt to identify any
         # sibling Mu role resources by this name first, and failing that, will
