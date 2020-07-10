@@ -226,6 +226,7 @@ MU.log "integration", MU::NOTICE, details: params
         # @return [Struct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           @cloud_desc_cache = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_rest_api(
             rest_api_id: @cloud_id
           )

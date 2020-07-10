@@ -891,6 +891,7 @@ module MU
         # @return [Openstruct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           max_retries = 5
           retries = 0
           if !@cloud_id.nil?

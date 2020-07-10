@@ -287,6 +287,7 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [OpenStruct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           @cloud_desc_cache = if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(

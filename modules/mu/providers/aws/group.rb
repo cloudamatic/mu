@@ -155,6 +155,7 @@ module MU
         # return [Struct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@mu_name
           @cloud_desc_cache = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
             group_name: @mu_name
           )

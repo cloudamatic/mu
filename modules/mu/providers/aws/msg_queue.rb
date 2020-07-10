@@ -80,6 +80,7 @@ module MU
         # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
 
           if !@cloud_id
             resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).list_queues(
