@@ -122,7 +122,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::SearchDomain.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           list = MU::Cloud::AWS.elasticsearch(region: region, credentials: credentials).list_domain_names
@@ -138,7 +138,7 @@ module MU
                 deploy_match = false
                 master_match = false
                 tags.tag_list.each { |tag|
-                  if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                  if tag.key == "MU-ID" and tag.value == deploy_id
                     deploy_match = true
                   elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
                     master_match = true
@@ -160,7 +160,7 @@ module MU
               resp = MU::Cloud::AWS.iam(credentials: credentials).list_roles(marker: marker)
               resp.roles.each{ |role|
                 # XXX Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud.resourceClass("AWS", "Server").
-#                MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(MU.deploy_id)}/)
+#                MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(role.role_name) if role.role_name.match(/^#{Regexp.quote(deploy_id)}/)
               }
               marker = resp.marker
             end while resp.is_truncated

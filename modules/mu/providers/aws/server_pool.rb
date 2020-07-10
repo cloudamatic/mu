@@ -1050,7 +1050,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::ServerPool.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           filters = [{name: "key", values: ["MU-ID"]}]
@@ -1073,7 +1073,7 @@ module MU
             if asg.key == "MU-MASTER-IP" and asg.value != MU.mu_public_ip and !ignoremaster
               no_purge << asg.resource_id
             end
-            if asg.key == "MU-ID" and asg.value == MU.deploy_id
+            if asg.key == "MU-ID" and asg.value == deploy_id
               maybe_purge << asg.resource_id
             end
           }

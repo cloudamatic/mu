@@ -434,14 +434,14 @@ end
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
 
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_policies(
-            path_prefix: "/"+MU.deploy_id+"/"
+            path_prefix: "/"+deploy_id+"/"
           )
           if resp and resp.policies
             resp.policies.each { |policy|
-              MU.log "Deleting IAM policy /#{MU.deploy_id}/#{policy.policy_name}"
+              MU.log "Deleting IAM policy /#{deploy_id}/#{policy.policy_name}"
               if !noop
                 purgePolicy(policy.arn, credentials)
               end
@@ -452,7 +452,7 @@ end
           roles = MU::Cloud::AWS::Role.find(credentials: credentials).values
           roles.each { |r|
             next if !r.respond_to?(:role_name)
-            if r.path.match(/^\/#{Regexp.quote(MU.deploy_id)}/)
+            if r.path.match(/^\/#{Regexp.quote(deploy_id)}/)
               deleteme << r
               next
             end
@@ -464,7 +464,7 @@ end
               master_match = false
               deploy_match = false
               desc.role.tags.each { |t|
-                if t.key == "MU-ID" and t.value == MU.deploy_id
+                if t.key == "MU-ID" and t.value == deploy_id
                   deploy_match = true
                 elsif t.key == "MU-MASTER-IP" and t.value == MU.mu_public_ip
                   master_match = true

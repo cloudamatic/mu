@@ -68,12 +68,12 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Notifier.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Notifier artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           MU::Cloud::AWS.sns(region: region, credentials: credentials).list_topics.topics.each { |topic|
-            if topic.topic_arn.match(MU.deploy_id)
+            if topic.topic_arn.match(deploy_id)
               # We don't have a way to tag our SNS topics, so we will delete any topic that has the MU-ID in its ARN. 
               # This may fail to find notifier groups in some cases (eg. cache_cluster) so we might want to delete from each API as well.
               MU.log "Deleting SNS topic: #{topic.topic_arn}"

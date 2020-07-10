@@ -190,16 +190,16 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
           MU.log "AWS::User.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           # XXX this doesn't belong here; maybe under roles, maybe as its own stupid first-class resource
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_policies(
-            path_prefix: "/"+MU.deploy_id+"/"
+            path_prefix: "/"+deploy_id+"/"
           )
           if resp and resp.policies
             resp.policies.each { |policy|
-              MU.log "Deleting policy /#{MU.deploy_id}/#{policy.policy_name}"
+              MU.log "Deleting policy /#{deploy_id}/#{policy.policy_name}"
               if !noop
                 attachments = begin
                   MU::Cloud::AWS.iam(credentials: credentials).list_entities_for_policy(
@@ -277,7 +277,7 @@ MU.log e.inspect, MU::ERR, details: policy
             has_ourdeploy = false
             has_ourmaster = false
             tags.each { |tag|
-              if tag.key == "MU-ID" and tag.value == MU.deploy_id
+              if tag.key == "MU-ID" and tag.value == deploy_id
                 has_ourdeploy = true
               elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
                 has_ourmaster = true

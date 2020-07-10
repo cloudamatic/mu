@@ -89,7 +89,7 @@ module MU
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                 "deploySSHKey" => @deploy.ssh_public_key,
-                "muID" => MU.deploy_id,
+                "muID" => @deploy.deploy_id,
                 "muUser" => MU.mu_user,
                 "publicIP" => MU.mu_public_ip,
                 "mommaCatPort" => MU.mommaCatPort,
@@ -1454,11 +1454,11 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           onlycloud = flags["onlycloud"]
           skipsnapshots = flags["skipsnapshots"]
           tagfilters = [
-            {name: "tag:MU-ID", values: [MU.deploy_id]}
+            {name: "tag:MU-ID", values: [deploy_id]}
           ]
           if !ignoremaster
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
@@ -1492,7 +1492,7 @@ module MU
             threads << Thread.new(instance) { |myinstance|
               MU.dupGlobals(parent_thread_id)
               Thread.abort_on_exception = true
-              MU::Cloud::AWS::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region, deploy_id: MU.deploy_id, credentials: credentials)
+              MU::Cloud::AWS::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region, deploy_id: deploy_id, credentials: credentials)
             }
           }
 
@@ -1503,7 +1503,7 @@ module MU
             threads << Thread.new(volume) { |myvolume|
               MU.dupGlobals(parent_thread_id)
               Thread.abort_on_exception = true
-              delete_volume(myvolume, noop, skipsnapshots, credentials: credentials)
+              delete_volume(myvolume, noop, skipsnapshots, credentials: credentials, deploy_id: deploy_id)
             }
           }
 
@@ -1889,7 +1889,7 @@ module MU
         # @param volume [OpenStruct]: The cloud provider's description of the volume.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.delete_volume(volume, noop, skipsnapshots, region: MU.curRegion, credentials: nil)
+        def self.delete_volume(volume, noop, skipsnapshots, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
           if !volume.nil?
             resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_volumes(volume_ids: [volume.volume_id])
             volume = resp.data.volumes.first
@@ -1904,9 +1904,9 @@ module MU
           if !noop
             if !skipsnapshots
               if !name.nil? and !name.empty?
-                desc = "#{MU.deploy_id}-MUfinal (#{name})"
+                desc = "#{deploy_id}-MUfinal (#{name})"
               else
-                desc = "#{MU.deploy_id}-MUfinal"
+                desc = "#{deploy_id}-MUfinal"
               end
 
               begin

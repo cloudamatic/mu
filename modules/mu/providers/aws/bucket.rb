@@ -228,7 +228,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Bucket.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           resp = MU::Cloud::AWS.s3(credentials: credentials, region: region).list_buckets
@@ -263,7 +263,7 @@ module MU
                 deploy_match = false
                 master_match = false
                 tags.each { |tag|
-                  if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                  if tag.key == "MU-ID" and tag.value == deploy_id
                     deploy_match = true
                   elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
                     master_match = true

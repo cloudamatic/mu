@@ -822,11 +822,11 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::VPC.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           tagfilters = [
-            {name: "tag:MU-ID", values: [MU.deploy_id]}
+            {name: "tag:MU-ID", values: [deploy_id]}
           ]
           if !ignoremaster
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
@@ -876,7 +876,7 @@ module MU
 
 #          unless noop
 #            MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
-#              match_string = "#{MU.deploy_id}.*TRAFFIC-LOG"
+#              match_string = "#{deploy_id}.*TRAFFIC-LOG"
 #            }
 #          end
         end

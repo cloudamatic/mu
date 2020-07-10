@@ -381,14 +381,14 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           filters = if flags and flags["vpc_id"]
             [
               {name: "vpc-id", values: [flags["vpc_id"]]}
             ]
           else
             filters = [
-              {name: "tag:MU-ID", values: [MU.deploy_id]}
+              {name: "tag:MU-ID", values: [deploy_id]}
             ]
             if !ignoremaster
               filters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}

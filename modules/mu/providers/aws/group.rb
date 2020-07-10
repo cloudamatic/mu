@@ -186,12 +186,12 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
           MU.log "AWS::Group.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Group artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_groups(
-            path_prefix: "/"+MU.deploy_id+"/"
+            path_prefix: "/"+deploy_id+"/"
           )
           if resp and resp.groups
             resp.groups.each { |g|

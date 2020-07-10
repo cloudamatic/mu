@@ -42,7 +42,7 @@ module MU
             params = {
               :name => @config['name'],
               :hosted_zone_config => {
-                :comment => MU.deploy_id
+                :comment => @deploy.deploy_id
               },
               :caller_reference => @deploy.getResourceName(@config['name'])
             }
@@ -666,7 +666,7 @@ module MU
 
         # Called by {MU::Cleanup}. Locates resources that were created by the
         # currently-loaded deployment, and purges them.
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::DNSZone.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           threads = []
@@ -679,7 +679,7 @@ module MU
               muid_match = false
               mumaster_match = false
               tags.each { |tag|
-                muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                muid_match = true if tag.key == "MU-ID" and tag.value == deploy_id
                 mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
               }
 
@@ -723,7 +723,7 @@ module MU
             t.join
           }
 
-          zones = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, region: region)
+          zones = MU::Cloud::DNSZone.find(deploy_id: deploy_id, region: region)
           zones.values.each { |zone|
             MU.log "Purging DNS Zone '#{zone.name}' (#{zone.id})"
             if !noop
@@ -779,7 +779,7 @@ module MU
 
               # TO DO: if we have more than one record it will retry the deletion multiple times and will throw Aws::Route53::Errors::InvalidChangeBatch / record not found even though the record was deleted
               zone_rrsets.each { |record|
-                if record.name.match(MU.deploy_id.downcase)
+                if record.name.match(deploy_id.downcase)
                   resource_records = []
                   record.resource_records.each { |rrecord|
                     resource_records << rrecord.value

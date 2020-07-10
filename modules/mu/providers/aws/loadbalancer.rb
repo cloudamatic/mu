@@ -671,8 +671,8 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          if (MU.deploy_id.nil? or MU.deploy_id.empty?) and (!flags or !flags["vpc_id"])
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          if (deploy_id.nil? or deploy_id.empty?) and (!flags or !flags["vpc_id"])
             raise MuError, "Can't touch ELBs without MU-ID or vpc_id flag"
           end
 
@@ -682,7 +682,7 @@ module MU
           # @param region [String]: The cloud provider region
           # @param ignoremaster [Boolean]: Whether to ignore the MU-MASTER-IP tag
           # @param classic [Boolean]: Whether to look for a classic ELB instead of an ALB (ELB2)
-          def self.checkForTagMatch(arn, region, ignoremaster, credentials, classic = false)
+          def self.checkForTagMatch(arn, region, ignoremaster, credentials, classic = false, deploy_id: MU.deploy_id)
             tags = []
             if classic
               tags = MU::Cloud::AWS.elb(credentials: credentials, region: region).describe_tags(
@@ -699,7 +699,7 @@ module MU
             if !tags.nil?
               tags.each { |tag|
                 saw_tags << tag.key
-                muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                muid_match = true if tag.key == "MU-ID" and tag.value == deploy_id
                 mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
               }
             end
@@ -725,9 +725,9 @@ module MU
                 matched = true if lb.vpc_id == flags['vpc_id']
               else
                 if classic
-                  matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic)
+                  matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic, deploy_id: deploy_id)
                 else
-                  matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic)
+                  matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic, deploy_id: deploy_id)
                 end
               end
               if matched
@@ -773,7 +773,7 @@ module MU
 
 
                   tgs.each { |tg|
-                    if self.checkForTagMatch(tg.target_group_arn, region, ignoremaster, credentials)
+                    if self.checkForTagMatch(tg.target_group_arn, region, ignoremaster, credentials, deploy_id: deploy_id)
                       MU.log "Removing Load Balancer Target Group #{tg.target_group_name}"
                       retries = 0
                       begin

@@ -52,6 +52,7 @@ module MU
       @onlycloud = onlycloud
       @skipcloud = skipcloud
       @ignoremaster = ignoremaster
+      @deploy_id = deploy_id
 
       if @skipcloud and @onlycloud # you actually mean noop
         @onlycloud = @skipcloud = false
@@ -344,7 +345,8 @@ module MU
           region: region,
           cloud: provider,
           flags: flags,
-          credentials: credset
+          credentials: credset,
+          deploy_id: @deploy_id
         )
       else
         true

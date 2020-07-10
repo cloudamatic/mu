@@ -133,12 +133,12 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::MsgQueue.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS MsgQueue artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           resp = MU::Cloud::AWS.sqs(credentials: credentials, region: region).list_queues(
-            queue_name_prefix: MU.deploy_id
+            queue_name_prefix: deploy_id
           )
           if resp and resp.queue_urls
             threads = []

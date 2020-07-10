@@ -246,7 +246,7 @@ MU.log "integration", MU::NOTICE, details: params
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Endpoint.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Endpoint artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
@@ -254,7 +254,7 @@ MU.log "integration", MU::NOTICE, details: params
           if resp and resp.items
             resp.items.each { |api|
               # The stupid things don't have tags
-              if api.description == MU.deploy_id
+              if api.description == deploy_id
                 MU.log "Deleting API Gateway #{api.name} (#{api.id})"
                 if !noop
                   MU::Cloud::AWS.apig(region: region, credentials: credentials).delete_rest_api(
