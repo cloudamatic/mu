@@ -90,6 +90,7 @@ module MU
         # Return the metadata for this SearchDomain rule
         # @return [Hash]
         def notify
+          return nil if !cloud_desc
           deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
           tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: arn).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
