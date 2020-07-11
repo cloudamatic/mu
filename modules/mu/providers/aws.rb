@@ -1481,13 +1481,17 @@ end
 
             if !retval.nil?
               begin
-              page_markers = [:marker, :next_token]
+              page_markers = {
+                :marker => :marker,
+                :next_token => :next_token,
+                :next_marker => :marker
+              }
               paginator = nil
               new_page = nil
-              [:next_token, :marker].each { |m|
+              page_markers.each_key { |m|
                 if !retval.nil? and retval.respond_to?(m)
                   paginator = m
-                  new_page = retval.send(paginator)
+                  new_page = retval.send(m)
                   break
                 end
               }
@@ -1506,12 +1510,12 @@ end
                     if new_args.is_a?(Array)
                       new_args << {} if new_args.empty?
                       if new_args.size == 1 and new_args.first.is_a?(Hash)
-                        new_args[0][paginator] = new_page
+                        new_args[0][page_markers[paginator]] = new_page
                       else
                         MU.log "I don't know how to insert a #{paginator} into these arguments for #{method_sym}", MU::WARN, details: new_args
                       end
                     elsif new_args.is_a?(Hash)
-                      new_args[paginator] = new_page
+                      new_args[page_markers[paginator]] = new_page
                     end
 
                     MU.log "Attempting magic pagination for #{method_sym}", MU::DEBUG, details: new_args
