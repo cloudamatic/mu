@@ -207,10 +207,8 @@ module MU
         # Return the metadata for this Function rule
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(MU::Cloud::AWS::Function.find(cloud_id: @cloud_id, credentials: @credentials, region: @config['region']).values.first, stringify_keys: true)
-
-          deploy_struct['mu_name'] = @mu_name
-          return deploy_struct
+          return nil if !cloud_desc
+          MU.structToHash(cloud_desc, stringify_keys: true)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
