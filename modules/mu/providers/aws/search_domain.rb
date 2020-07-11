@@ -35,6 +35,7 @@ module MU
           params = genParams
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
+          @cloud_id = @config['domain_name']
           MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).create_elasticsearch_domain(params).domain_status
 
           tagDomain
