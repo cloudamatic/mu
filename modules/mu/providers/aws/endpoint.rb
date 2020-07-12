@@ -236,6 +236,7 @@ MU.log "integration", MU::NOTICE, details: params
         # Return the metadata for this API
         # @return [Hash]
         def notify
+          return nil if !@cloud_id or !cloud_desc
           deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
           deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com/"+@config['deploy_to']
 # XXX stages and whatnot
