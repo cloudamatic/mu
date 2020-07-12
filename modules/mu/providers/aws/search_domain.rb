@@ -56,6 +56,7 @@ module MU
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
+          MU.log "Search Domain #{@config['name']}: #{cloud_desc.endpoint}", MU::SUMMARY
         end
 
         @cloud_desc_cache = nil
@@ -64,21 +65,14 @@ module MU
         # our druthers.
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          @cloud_id ||= @config['domain_name']
           return nil if !@cloud_id
-          @cloud_desc_cache = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
+          MU.retrier([::Aws::ElasticsearchService::Errors::ResourceNotFoundException], wait: 10, max: 12) {
+            @cloud_desc_cache = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
               domain_name: @cloud_id
             ).domain_status
-#          if @config['domain_name']
-#            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
-#              domain_name: @config['domain_name']
-#            ).domain_status
-#          elsif @deploydata and @deploydata['domain_name']
-#            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
-#              domain_name: @deploydata['domain_name']
-#            ).domain_status
-#          else
-#            raise MuError, "#{@mu_name} can't find its official Elasticsearch domain name!"
-#          end
+          }
+
           @cloud_desc_cache
         end
 
