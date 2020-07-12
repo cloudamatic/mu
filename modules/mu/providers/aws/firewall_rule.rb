@@ -860,8 +860,11 @@ module MU
                 p_start = rule['port'].to_i
                 p_end = rule['port'].to_i
               elsif rule['proto'] != "icmp"
-                raise MuError, "Can't create a TCP or UDP security group rule without specifying ports: #{rule}"
+                MU.log "Can't create a TCP or UDP security group rule without specifying ports, assuming 'all'", MU::WARN, details: rule
+                p_start = "0"
+                p_end = "65535"
               end
+
               if rule['proto'] != "icmp"
                 if p_start.nil? or p_end.nil?
                   raise MuError, "Got nil ports out of rule #{rule}"
