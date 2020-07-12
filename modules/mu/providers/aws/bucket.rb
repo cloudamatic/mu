@@ -167,6 +167,8 @@ module MU
               }
             }
           end
+
+          MU.log "Bucket #{@config['name']}: s3://#{@cloud_id}", MU::SUMMARY
         end
 
         # Upload a file to a bucket.
