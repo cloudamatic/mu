@@ -169,6 +169,9 @@ module MU
           end
 
           MU.log "Bucket #{@config['name']}: s3://#{@cloud_id}", MU::SUMMARY
+          if @config['web']
+            MU.log "Bucket #{@config['name']} web access: http://#{@cloud_id}.s3-website-#{@config['region']}.amazonaws.com/", MU::SUMMARY
+          end
         end
 
         # Upload a file to a bucket.
