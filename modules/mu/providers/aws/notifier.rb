@@ -94,8 +94,13 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          desc = MU::Cloud::AWS.sns(region: @config["region"], credentials: @config["credentials"]).get_topic_attributes(topic_arn: arn).attributes
-          MU.structToHash(desc)
+          return nil if !@cloud_id
+          begin
+            desc = MU::Cloud::AWS.sns(region: @config["region"], credentials: @config["credentials"]).get_topic_attributes(topic_arn: arn).attributes
+            MU.structToHash(desc)
+          rescue ::Aws::SNS::Errors::NotFound
+            nil
+          end
         end
 
         # Locate an existing notifier.
