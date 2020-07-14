@@ -505,7 +505,7 @@ module MU
         private
 
         def get_properties
-          role_arn = get_role_arn(@config['iam_role'])
+          role_arn = MU::Config::Ref.get(@config['iam_role']).arn
 
           lambda_properties = {
             code: {},
