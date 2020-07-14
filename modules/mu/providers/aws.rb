@@ -1029,6 +1029,14 @@ end
         @@cloudwatchlogs_api[credentials][region]
       end
 
+      # Amazon's CloudWatchEvents API
+      def self.cloudwatchevents(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@cloudwatchevents_api[credentials] ||= {}
+        @@cloudwatchevents_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "CloudWatchEvents", region: region, credentials: credentials)
+        @@cloudwatchevents_api[credentials][region]
+      end
+
       # Amazon's CloudFront API
       def self.cloudfront(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1461,6 +1469,7 @@ end
           require "aws-sdk-core/ecs"
           require "aws-sdk-core/eks"
           require "aws-sdk-core/cloudwatchlogs"
+          require "aws-sdk-core/cloudwatchevents"
           require "aws-sdk-core/elasticloadbalancing"
           require "aws-sdk-core/elasticloadbalancingv2"
           require "aws-sdk-core/autoscaling"
@@ -1581,6 +1590,7 @@ end
       @@wafglobal = {}
       @@waf = {}
       @@cloudwatchlogs_api = {}
+      @@cloudwatchevents_api = {}
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
