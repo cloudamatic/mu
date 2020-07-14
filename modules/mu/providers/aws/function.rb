@@ -465,7 +465,10 @@ module MU
             MU::Config.addDependency(function, fwname, "firewall_rule")
           end
 
-          if !function['iam_role']
+          function['role'] ||= function['iam_role']
+          function.delete("iam_role")
+
+          if !function['role']
             policy_map = {
               "basic" => "AWSLambdaBasicExecutionRole",
               "kinesis" => "AWSLambdaKinesisExecutionRole",
@@ -494,9 +497,21 @@ module MU
             }
             configurator.insertKitten(roledesc, "roles")
 
-            function['iam_role'] = function['name']+"execrole"
+            function['role'] = function['name']+"execrole"
 
-            MU::Config.addDependency(function, function['name']+"execrole", "role")
+          end
+
+          if function['role'].is_a?(String)
+            function['role'] = MU::Config::Ref.get(
+              name: function['role'],
+              type: "roles",
+              cloud: "AWS",
+              credentials: function['credentials']
+            )
+          end
+
+          if function['role']['name']
+            MU::Config.addDependency(function, function['role']['name'], "role")
           end
 
           ok
@@ -505,14 +520,15 @@ module MU
         private
 
         def get_properties
-          role_arn = MU::Config::Ref.get(@config['iam_role']).arn
+          role_obj = MU::Config::Ref.get(@config['role']).kitten(@deploy, cloud: "AWS")
+          raise MuError.new "Failed to fetch object from role reference", details: @config['role'].to_h if !role_obj
 
           lambda_properties = {
             code: {},
             function_name: @mu_name,
             handler: @config['handler'],
             publish: true,
-            role: role_arn,
+            role: role_obj.arn,
             runtime: @config['runtime'],
           }
 
@@ -603,25 +619,6 @@ module MU
           end
 
           lambda_properties
-        end
-
-        # Given an IAM role name, resolve to ARN. Will attempt to identify any
-        # sibling Mu role resources by this name first, and failing that, will
-        # do a plain get_role() to the IAM API for the provided name.
-        # @param name [String]
-        def get_role_arn(name)
-          sib_role = @deploy.findLitterMate(name: name, type: "roles")
-          return sib_role.cloudobj.arn if sib_role
-
-          begin
-            role = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role({
-              role_name: name.to_s
-            })
-            return role['role']['arn']
-          rescue StandardError => e
-            MU.log "#{e}", MU::ERR
-          end
-          nil
         end
 
       end

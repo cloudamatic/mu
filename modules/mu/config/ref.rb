@@ -273,8 +273,9 @@ module MU
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
-      def kitten(mommacat = @mommacat, shallow: false, debug: false)
-        return nil if !@cloud or !@type
+      def kitten(mommacat = @mommacat, shallow: false, debug: false, cloud: nil)
+        cloud ||= @cloud
+        return nil if !cloud or !@type
         loglevel = debug ? MU::NOTICE : MU::DEBUG
 
         if debug
@@ -320,7 +321,7 @@ end
           end
         end
 
-        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(@id)) and !shallow
+        if !@obj and !(cloud == "Google" and @id and @type == "users" and MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(@id)) and !shallow
           try_deploy_id = @deploy_id
 
           begin
@@ -335,7 +336,7 @@ end
             end
 
             MU.log "Ref#kitten calling findStray", loglevel, details: {
-              cloud: @cloud,
+              cloud: cloud,
               type: @type,
               name: @name,
               cloud_id: @id,
@@ -347,7 +348,7 @@ end
             }
 
             found = MU::MommaCat.findStray(
-              @cloud,
+              cloud,
               @type,
               name: @name,
               cloud_id: @id,
@@ -361,7 +362,7 @@ end
             @obj ||= found.first if found
           rescue MU::MommaCat::MultipleMatches => e
             if try_deploy_id.nil? and MU.deploy_id
-              MU.log "Attempting to narrow down #{@cloud} #{@type} to #{MU.deploy_id}", MU::NOTICE
+              MU.log "Attempting to narrow down #{cloud} #{@type} to #{MU.deploy_id}", MU::NOTICE
               try_deploy_id = MU.deploy_id
               retry
             else
