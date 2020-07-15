@@ -32,7 +32,7 @@ module MU
 
     # Resource types, in the order in which we generally have to clean them up
     # to disentangle them from one another.
-    TYPES_IN_ORDER = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
+    TYPES_IN_ORDER = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "Job", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
 
     # Purge all resources associated with a deployment.
     # @param deploy_id [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).

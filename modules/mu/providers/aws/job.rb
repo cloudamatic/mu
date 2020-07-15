@@ -27,6 +27,31 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          @cloud_id = @mu_name
+
+          params = get_properties
+
+          MU.log "Creating CloudWatch Event #{@mu_name}", MU::NOTICE, details: params
+
+          MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(params)
+        end
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          new_props = get_properties
+          current = MU.structToHash(cloud_desc(use_cache: false))
+          params = {}
+          new_props.each_pair { |k, v|
+            next if k == :tags # doesn't seem to do anything
+            if v != current[k]
+              params[k] = v
+            end
+          }
+
+          if params.size > 0
+            MU.log "Updating CloudWatch Event #{@cloud_id}", MU::NOTICE, details: params
+            MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(params)
+          end
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -38,8 +63,7 @@ module MU
         # Return the metadata for this job
         # @return [Hash]
         def notify
-          {
-          }
+          MU.structToHash(cloud_desc, stringify_keys: true)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -61,6 +85,21 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          found = find(region: region, credentials: credentials)
+
+          found.each_pair { |id, desc|
+            if (desc.description and desc.description == deploy_id) or
+               (flags and flags['known'] and flags['known'].include?(id))
+              MU.log "Deleting CloudWatch Event #{id}"
+              if !noop
+                # XXX purge all targets first
+                MU::Cloud::AWS.cloudwatchevents(region: region, credentials: credentials).delete_rule(
+                  name: id,
+                  event_bus_name: desc.event_bus_name
+                )
+              end
+            end
+          }
         end
 
         # Locate an existing event.
@@ -153,6 +192,38 @@ module MU
           ok = true
 
           ok
+        end
+
+        private
+
+        def get_properties
+          params = {
+            name: @cloud_id,
+            state: @config['disabled'] ? "DISABLED" : "ENABLED",
+            event_bus_name: "default" # XXX expose, or create a deploy-specific one?
+          }
+
+          params[:description] = if @config['description'] and @config['scrub_mu_isms']
+            @config['description']
+          else
+            @deploy.deploy_id
+          end
+
+          if @tags
+            params[:tags] = @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+          end
+
+          if @config['role']
+            role_obj = MU::Config::Ref.get(@config['role']).kitten(@deploy, cloud: "AWS")
+            raise MuError.new "Failed to fetch object from role reference", details: @config['role'].to_h if !role_obj
+            params[:role_arn] = role_obj.arn
+          end
+
+          if @config['schedule']
+            params[:schedule_expression] = "cron(" + ["minute", "hour", "day_of_month", "month", "day_of_week", "year"].map { |i| @config['schedule'][i] }.join(" ") +")"
+          end
+
+          params
         end
 
       end
