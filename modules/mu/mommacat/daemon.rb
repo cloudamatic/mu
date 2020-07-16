@@ -308,6 +308,7 @@ module MU
       }
       return 0 if status
     
+      File.unlink(daemonPidFile) if File.exists?(daemonPidFile)
       MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}, PID file #{daemonPidFile}"
       origdir = Dir.getwd
       Dir.chdir(MU.myRoot+"/modules")
