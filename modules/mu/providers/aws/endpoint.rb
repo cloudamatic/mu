@@ -166,7 +166,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 }
               end
 
-MU.log "integration", MU::NOTICE, details: params
               resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(params)
 
               if m['integrate_with']['type'] == "function"

@@ -67,7 +67,6 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
-          MU.log @cloud_id, MU::NOTICE, details: cloud_desc
           old_props = MU.structToHash(cloud_desc)
 
           new_props = get_properties

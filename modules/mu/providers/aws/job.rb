@@ -52,6 +52,43 @@ module MU
             MU.log "Updating CloudWatch Event #{@cloud_id}", MU::NOTICE, details: params
             MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(params)
           end
+
+          if @config['targets']
+            target_params = []
+            @config['targets'].each { |t|
+              target_ref = MU::Config::Ref.get(t)
+              target_obj = target_ref.kitten(cloud: "AWS")
+              this_target = if target_ref.is_mu_type? and target_obj and
+                               !target_obj.arn.nil?
+                {
+                  id: target_obj.cloud_id,
+                  arn: target_obj.arn
+                }
+              else
+                {
+                  id: target_ref.id || target_ref.name,
+                  arn: target_ref.id
+                }
+              end
+              if t['role']
+                role_obj = MU::Config::Ref.get(t['role']).kitten(@deploy, cloud: "AWS")
+                  raise MuError.new "Failed to fetch object from role reference", details: t['role'].to_h if !role_obj
+                  params[:role_arn] = role_obj.arn
+              end
+              [:input, :input_path, :input_transformer, :kinesis_parameters, :run_command_parameters, :batch_parameters, :sqs_parameters, :ecs_parameters].each { |attr|
+                if t[attr.to_s]
+                  this_target[attr] = MU.structToHash(t[attr.to_s])
+                end
+              }
+              target_params << this_target
+            }
+            MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_targets(
+              rule: @cloud_id,
+              event_bus_name: cloud_desc.event_bus_name,
+              targets: target_params
+            )
+          end
+
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -162,6 +199,47 @@ module MU
             )
           end
 
+          targets = MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).list_targets_by_rule(
+            rule: @cloud_id,
+            event_bus_name: cloud_desc.event_bus_name
+          ).targets
+          targets.each { |t|
+            bok['targets'] ||= []
+            _arn, _plat, service, region, account, resource = t.arn.split(/:/, 6)
+            MU.log service+" in "+region+" under "+account, MU::WARN, details: resource
+            target_type = if service == "lambda"
+              resource.sub!(/^function:/, '')
+              "functions"
+            elsif service == "sns"
+              "notifiers"
+            elsif service == "sqs"
+              "msg_queues"
+            else
+              service
+            end
+            ref_params = {
+              id: resource,
+              region: region,
+              type: target_type,
+              cloud: "AWS",
+              credentials: @credentials,
+              habitat: MU::Config::Ref.get(
+                id: account,
+                cloud: "AWS",
+                credentials: @credentials
+              )
+            }
+            [:input, :input_path, :input_transformer, :kinesis_parameters, :run_command_parameters, :batch_parameters, :sqs_parameters].each { |attr|
+              if t.respond_to?(attr) and !t.send(attr).nil?
+                ref_params[attr] = MU.structToHash(t.send(attr), stringify_keys: true)
+              end
+            }
+
+            bok['targets'] << MU::Config::Ref.get(ref_params)
+          }
+
+          MU.log @cloud_id, MU::NOTICE, details: bok
+
 # XXX cloud_desc.event_pattern - what do we want to do with this?
 
           bok
@@ -173,6 +251,120 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(_config)
           toplevel_required = []
+
+          target_schema = MU::Config::Ref.schema(any_type: true, desc: "A resource which will be invoked by this event. Can be a reference to a sibling Mu resource, typically a +Function+ or +MsgQueue+, or to an unadorned external cloud resource.")
+          target_params = {
+            "role" => MU::Config::Ref.schema(type: "roles", desc: "A sibling {MU::Config::BasketofKittens::roles} entry or the id of an existing IAM role to assign to use when interacting with this target.", omit_fields: ["region", "tag"]),
+            "input" => {
+              "type" => "string"
+            },
+            "input_path" => {
+              "type" => "string"
+            },
+            "run_command_parameters" => {
+              "type" => "object",
+              "required" => ["run_command_targets"],
+              "properties" => {
+                "run_command_targets" => {
+                  "type" => "array",
+                  "items" => {
+                    "type" => "object",
+                    "required" => ["key", "values"],
+                    "properties" => {
+                      "key" => {
+                        "type" => "string"
+                      },
+                      "values" => {
+                        "type" => "array",
+                        "items" => {
+                          "type" => "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "input_transformer" => {
+              "type" => "object",
+              "required" => ["input_template"],
+              "properties" => {
+                "input_template" => {
+                  "type" => "string"
+                },
+                "input_paths_map" => {
+                  "type" => "object",
+                }
+              }
+            },
+            "batch_parameters" => {
+              "type" => "object",
+              "required" => ["job_definition", "job_name"],
+              "properties" => {
+                "job_definition" => {
+                  "type" => "string"
+                },
+                "job_name" => {
+                  "type" => "string"
+                },
+                "array_properties" => {
+                  "type" => "object",
+                  "properties" => {
+                    "size" => {
+                      "type" => "integer"
+                    }
+                  }
+                },
+                "retry_strategy" => {
+                  "type" => "object",
+                  "properties" => {
+                    "attempts" => {
+                      "type" => "integer"
+                    }
+                  }
+                }
+              }
+            },
+            "sqs_parameters" => {
+              "type" => "object",
+              "required" => ["message_group_id"],
+              "properties" => {
+                "message_group_id" => {
+                  "type" => "string"
+                }
+              }
+            },
+            "kinesis_parameters" => {
+              "type" => "object",
+              "required" => ["partition_key_path"],
+              "properties" => {
+                "partition_key_path" => {
+                  "type" => "string"
+                }
+              }
+            },
+            "http_parameters" => {
+              "type" => "object",
+              "properties" => {
+                "path_parameter_values" => {
+                  "type" => "array",
+                  "items" => {
+                    "type" => "string"
+                  }
+                },
+                "header_parameters" => {
+                  "description" => "Key => value pairs to pass as headers",
+                  "type" => "object"
+                },
+                "query_string_parameters" => {
+                  "description" => "Key => value pairs to pass as query strings",
+                  "type" => "object"
+                }
+              }
+            }
+          }
+          target_schema["properties"].merge!(target_params)
+
           schema = {
             "disabled" => {
               "type" => "boolean",
@@ -180,6 +372,10 @@ module MU
               "default" => false
             },
             "role" => MU::Config::Ref.schema(type: "roles", desc: "A sibling {MU::Config::BasketofKittens::roles} entry or the id of an existing IAM role to assign to this CloudWatch Event.", omit_fields: ["region", "tag"]),
+            "targets" => {
+              "type" => "array",
+              "items" => target_schema
+            }
           }
           [toplevel_required, schema]
         end
@@ -222,6 +418,7 @@ module MU
           if @config['schedule']
             params[:schedule_expression] = "cron(" + ["minute", "hour", "day_of_month", "month", "day_of_week", "year"].map { |i| @config['schedule'][i] }.join(" ") +")"
           end
+
 
           params
         end

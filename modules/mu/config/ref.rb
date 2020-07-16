@@ -121,6 +121,10 @@ module MU
           @deploy_id = @mommacat.deploy_id
         end
 
+        # canonicalize the 'type' argument
+        _shortclass, _cfg_name, cfg_plural, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+        @type = cfg_plural if cfg_plural
+
         kitten(shallow: true) if @mommacat # try to populate the actual cloud object for this
       end
 
@@ -157,7 +161,7 @@ module MU
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
-      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil, omit_fields: [])
+      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil, omit_fields: [], any_type: false)
         parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
         desc ||= "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource"
         schema = {
@@ -212,7 +216,9 @@ module MU
           }
         end
 
-        if !type.nil?
+        if any_type
+          schema["properties"]["type"].delete("enum")
+        elsif !type.nil?
           schema["required"] = ["type"]
           schema["properties"]["type"]["default"] = type
           schema["properties"]["type"]["enum"] = [type]
@@ -230,6 +236,13 @@ module MU
         }
 
         schema
+      end
+
+      # Is our +@type+ attribute a Mu-supported type, or some rando string?
+      # @return [Boolean]
+      def is_mu_type?
+        _shortclass, _cfg_name, type, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+        !type.nil?
       end
 
       # Decompose into a plain-jane {MU::Config::BasketOfKittens} hash fragment,
@@ -276,6 +289,14 @@ module MU
       def kitten(mommacat = @mommacat, shallow: false, debug: false, cloud: nil)
         cloud ||= @cloud
         return nil if !cloud or !@type
+
+        _shortclass, _cfg_name, cfg_plural, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+        if cfg_plural
+          @type = cfg_plural # make sure this is the thing we expect
+        else
+          return nil # we don't do non-muish resources
+        end
+
         loglevel = debug ? MU::NOTICE : MU::DEBUG
 
         if debug
