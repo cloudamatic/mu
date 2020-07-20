@@ -56,6 +56,7 @@ module MU
           if @config['targets']
             target_params = []
             @config['targets'].each { |t|
+              MU.retrier([MuNonFatal], max:5, wait: 9) {
               target_ref = MU::Config::Ref.get(t)
               target_obj = target_ref.kitten(cloud: "AWS")
               this_target = if target_ref.is_mu_type? and target_obj and
@@ -64,11 +65,13 @@ module MU
                   id: target_obj.cloud_id,
                   arn: target_obj.arn
                 }
-              else
+              elsif target_ref.id and target_ref.id.match(/^arn:/)
                 {
                   id: target_ref.id || target_ref.name,
                   arn: target_ref.id
                 }
+              else
+                raise MuNonFatal.new "Failed to retrieve ARN from CLoudWatch Event target descriptor", details: target_ref.to_h
               end
               if t['role']
                 role_obj = MU::Config::Ref.get(t['role']).kitten(@deploy, cloud: "AWS")
@@ -81,6 +84,7 @@ module MU
                 end
               }
               target_params << this_target
+              }
             }
             MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_targets(
               rule: @cloud_id,
