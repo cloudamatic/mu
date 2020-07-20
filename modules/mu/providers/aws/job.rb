@@ -391,6 +391,13 @@ module MU
         def self.validateConfig(job, _configurator)
           ok = true
 
+          job['targets'].each { |t|
+            target_ref = MU::Config::Ref.get(t)
+            if target_ref.is_mu_type? and target_ref.name
+              MU::Config.addDependency(job, target_ref.name, target_ref.type)
+            end
+          }
+
           ok
         end
 

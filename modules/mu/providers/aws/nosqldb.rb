@@ -47,7 +47,11 @@ module MU
             }
           end
 
+          type_map = {}
+
           @config['attributes'].each { |attr|
+            type_map[attr['name']] = attr['type']
+
             params[:attribute_definitions] << {
               :attribute_name => attr['name'],
               :attribute_type => attr['type']
@@ -123,17 +127,11 @@ module MU
           if @config['populate'] and !@config['populate'].empty?
             MU.log "Preloading #{@mu_name} with #{@config['populate'].size.to_s} items"
             @config['populate'].each { |item|
-              item_param = {}
-              item.each_pair { |k, v|
-                if v.is_a?(Integer)
-                  item_param[k] = { n: v }
-                elsif v.is_a?(Boolean)
-                  item_param[k] = { b: v }
-                else
-                  item_param[k] = { s: v.to_s }
-                end
-              }
-              MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).put_item(table_name: @cloud_id, item: item_param)
+              begin
+                MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).put_item(table_name: @cloud_id, item: item)
+              rescue ::Aws::DynamoDB::Errors::ValidationException => e
+                MU.log e.message, MU::ERR, details: item
+              end
             }
           end
         end
