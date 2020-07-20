@@ -21,6 +21,10 @@ module MU
         @@region_cache = {}
         @@region_cache_semaphore = Mutex.new
 
+        MIME_MAP = {
+          ".svg" => "image/svg+xml"
+        }
+
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
@@ -203,12 +207,19 @@ module MU
 
           begin
             MU.log "Writing #{path} to S3 bucket #{bucket}"
-            MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
+            params = {
               acl: acl,
               bucket: bucket,
               key: path,
               body: data
-            )
+            }
+
+            MIME_MAP.each_pair { |extension, content_type|
+              if path =~ /#{Regexp.quote(extension)}$/i
+                params[:content_type] = content_type
+              end
+            }
+            MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(params)
           rescue Aws::S3::Errors => e
             raise MuError, "Got #{e.inspect} trying to write #{path} to #{bucket} (region: #{region}, credentials: #{credentials})"
           end

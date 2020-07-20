@@ -250,7 +250,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          cloud_desc.function_arn
+          cloud_desc ? cloud_desc.function_arn : nil
         end
 
         # Locate an existing function.
