@@ -1125,6 +1125,14 @@ end
         @@dynamo_api[credentials][region]
       end
 
+      # Amazon's DynamoStream API
+      def self.dynamostream(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@dynamostream_api[credentials] ||= {}
+        @@dynamostream_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "DynamoDBStreams", region: region, credentials: credentials)
+        @@dynamostream_api[credentials][region]
+      end
+
       # Amazon's Pricing API
       def self.pricing(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1609,6 +1617,7 @@ end
       @@kms_api ={}
       @@organization_api ={}
       @@dynamo_api ={}
+      @@dynamostream_api ={}
     end
   end
 end

@@ -118,8 +118,24 @@ module MU
             sleep 5 if resp.table.table_status == "CREATING"
           end while resp.table.table_status == "CREATING"
 
-
           tagTable if !@config['scrub_mu_isms']
+
+          if @config['populate'] and !@config['populate'].empty?
+            MU.log "Preloading #{@mu_name} with #{@config['populate'].size.to_s} items"
+            @config['populate'].each { |item|
+              item_param = {}
+              item.each_pair { |k, v|
+                if v.is_a?(Integer)
+                  item_param[k] = { n: v }
+                elsif v.is_a?(Boolean)
+                  item_param[k] = { b: v }
+                else
+                  item_param[k] = { s: v.to_s }
+                end
+              }
+              MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).put_item(table_name: @cloud_id, item: item_param)
+            }
+          end
         end
 
         # Apply tags to this DynamoDB table
@@ -272,6 +288,7 @@ module MU
           bok['read_capacity'] = cloud_desc.provisioned_throughput.read_capacity_units
           bok['write_capacity'] = cloud_desc.provisioned_throughput.write_capacity_units
 
+
           cloud_desc.attribute_definitions.each { |attr|
             bok['attributes'] ||= []
             newattr = {
@@ -292,8 +309,15 @@ module MU
           }
 
           if cloud_desc.stream_specification and cloud_desc.stream_specification.stream_enabled
+MU.log @cloud_id, MU::NOTICE, details: cloud_desc
             bok['stream'] = cloud_desc.stream_specification.stream_view_type
+            cloud_desc.latest_stream_arn
+            pp MU::Cloud::AWS.dynamostream(credentials: @credentials, region: @config['region']).list_streams
           end
+
+          bok["populate"] = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @config['region']).scan(
+            table_name: @cloud_id
+          ).items
 
           bok
         end
@@ -306,6 +330,13 @@ module MU
 
 
           schema = {
+            "populate" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Key-value pairs, compatible with the +attributes+ schema, with which to populate this +table+ during its initial creation."
+              }
+            },
             "attributes" => {
               "type" => "array",
               "minItems" => 1,
