@@ -126,13 +126,19 @@ module MU
 
           if @config['populate'] and !@config['populate'].empty?
             MU.log "Preloading #{@mu_name} with #{@config['populate'].size.to_s} items"
-            @config['populate'].each { |item|
+            items_to_write = @config['populate'].dup
+            begin
+              batch = items_to_write.slice!(0, (items_to_write.length >= 25 ? 25 : items_to_write.length))
               begin
-                MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).put_item(table_name: @cloud_id, item: item)
+                MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).batch_write_item(
+                  request_items: {
+                    @cloud_id => batch.map { |i| { put_request: { item: i } } }
+                  }
+                )
               rescue ::Aws::DynamoDB::Errors::ValidationException => e
                 MU.log e.message, MU::ERR, details: item
               end
-            }
+            end while !items_to_write.empty?
           end
         end
 
