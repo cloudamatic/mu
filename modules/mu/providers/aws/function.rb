@@ -638,8 +638,12 @@ module MU
             siblings = @deploy.findLitterMate(return_all: true, type: sib_type, cloud: "AWS")
             if siblings
               siblings.each_value { |sibling|
+                pp sibling.cloud_desc(use_cache: false)
                 metadata = sibling.notify
-                next if !metadata
+                if !metadata
+                  MU.log "Failed to extract metadata from sibling #{sibling}", MU::WARN
+                  next
+                end
                 SIBLING_VARS[sib_type].each { |var|
                   if metadata[var]
                     @config['environment_variables'] ||= []

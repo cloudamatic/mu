@@ -122,7 +122,7 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          return nil if !@cloud_id
+          return nil if !@cloud_id or !cloud_desc(use_cache: false)
           desc = MU::Cloud::AWS.sns(region: @config["region"], credentials: @config["credentials"]).get_topic_attributes(topic_arn: arn).attributes
           MU.structToHash(desc)
         end

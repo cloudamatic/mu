@@ -243,6 +243,7 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
+          return nil if !@cloud_id or !cloud_desc(use_cache: false)
           MU.structToHash(cloud_desc, stringify_keys: true)
         end
 
