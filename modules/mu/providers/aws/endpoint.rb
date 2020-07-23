@@ -21,13 +21,11 @@ module MU
             }
           )
           @cloud_id = resp.id
-          generate_methods
-
-
+          generate_methods(false)
         end
 
         # Create/update all of the methods declared for this endpoint
-        def generate_methods
+        def generate_methods(integrations = true)
           resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
             rest_api_id: @cloud_id,
           )
@@ -117,7 +115,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               # fine to ignore
             end
 
-            if m['integrate_with']
+            if integrations and m['integrate_with']
 #              role_arn = if m['iam_role']
 #                if m['iam_role'].match(/^arn:/)
 #                  m['iam_role']
@@ -134,8 +132,11 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
                 ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", "AWS"]
               elsif m['integrate_with']['type'] == "functions"
-                function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions").cloudobj
-                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.arn+"/invocations", "AWS"]
+                function_obj = nil
+                MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { function_obj.nil? }) {
+                  function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
+                }
+                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.cloudobj.arn+"/invocations", "AWS"]
               elsif m['integrate_with']['type'] == "mock"
                 [nil, "MOCK"]
               end
@@ -306,12 +307,12 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
 
           bok['name'] = cloud_desc.name
 
-          MU.log "REST API", MU::NOTICE, details: cloud_desc
           resources = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
             rest_api_id: @cloud_id,
           ).items
 
           resources.each { |r|
+            bok['deploy_to'] ||= r.path if r.path != "/" # XXX this is wrong/inadequate
             next if !r.respond_to?(:resource_methods) or r.resource_methods.nil?
             r.resource_methods.each_pair { |http_type, m|
               bok['methods'] ||= []

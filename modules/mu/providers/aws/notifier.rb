@@ -27,8 +27,8 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials']).create_topic(name: @mu_name)
           @cloud_id = @mu_name
+          MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials']).create_topic(name: @cloud_id)
           MU.log "Created SNS topic #{@mu_name}"
         end
 
@@ -37,8 +37,14 @@ module MU
           if @config['subscriptions']
             @config['subscriptions'].each { |sub|
               if sub['resource'] and !sub['endpoint']
-                sub['endpoint'] = MU::Config::Ref.get(sub['resource']).kitten(@deploy).arn
+                endpoint_obj = nil
+                MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { endpoint_obj.nil? }) {
+                  endpoint_obj = MU::Config::Ref.get(sub['resource']).kitten(@deploy)
+                }
+                sub['endpoint'] = endpoint_obj.arn
               end
+# XXX guard this
+              MU.log "Subscribing #{sub['endpoint']} to SNS topic #{arn}", MU::NOTICE
               MU::Cloud::AWS::Notifier.subscribe(
                 arn: arn,
                 endpoint: sub['endpoint'],
@@ -139,7 +145,7 @@ module MU
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
-
+pp cloud_desc if @cloud_id == "Espier-Publish-Domains"
           bok['name'] = cloud_desc["DisplayName"].empty? ? @cloud_id : cloud_desc["DisplayName"]
           svcmap = {
             "lambda" => "functions",
@@ -171,6 +177,7 @@ module MU
               }
             end
           }
+pp bok['subscriptions'] if @cloud_id == "Espier-Publish-Domains"
 
           bok
         end
@@ -220,7 +227,6 @@ module MU
                   elsif sub['resource']['type'] == "msg_queues"
                     "sqs"
                   end
-                  exit
                 elsif sub['endpoint']
                   if sub["endpoint"].match(/^http:/i)
                     "http"
@@ -278,8 +284,8 @@ module MU
           end
 
           unless already_subscribed
+            MU.log "Subscribing #{endpoint} (#{protocol}) to SNS topic #{arn}"
             MU::Cloud::AWS.sns(region: region, credentials: credentials).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
-            MU.log "Subscribed #{endpoint} to SNS topic #{arn}"
           end
         end
 

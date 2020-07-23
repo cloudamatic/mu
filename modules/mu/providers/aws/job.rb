@@ -50,6 +50,7 @@ module MU
 
           if params.size > 0
             MU.log "Updating CloudWatch Event #{@cloud_id}", MU::NOTICE, details: params
+            params[:name] = @cloud_id
             MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(params)
           end
 
@@ -133,7 +134,18 @@ module MU
                (flags and flags['known'] and flags['known'].include?(id))
               MU.log "Deleting CloudWatch Event #{id}"
               if !noop
-                # XXX purge all targets first
+                resp = MU::Cloud::AWS.cloudwatchevents(region: region, credentials: credentials).list_targets_by_rule(
+                  rule: id,
+                  event_bus_name: desc.event_bus_name,
+                )
+                if resp and resp.targets and !resp.targets.empty?
+                  MU::Cloud::AWS.cloudwatchevents(region: region, credentials: credentials).remove_targets(
+                    rule: id,
+                    event_bus_name: desc.event_bus_name,
+                    ids: resp.targets.map { |t| t.id }
+                  )
+                end
+
                 MU::Cloud::AWS.cloudwatchevents(region: region, credentials: credentials).delete_rule(
                   name: id,
                   event_bus_name: desc.event_bus_name

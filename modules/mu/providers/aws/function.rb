@@ -110,7 +110,7 @@ module MU
                 statement_id: "#{@mu_name}-ID-1",
               }
 
-              MU.log trigger_properties, MU::DEBUG
+#              MU.log "trigger properties", MU::NOTICE, details: trigger_properties
               begin
                 MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
@@ -157,11 +157,13 @@ module MU
             arn = nil
             case svc.downcase
             when 'sns'
-              arn = "arn:aws:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
+              sib_sns = @deploy.findLitterMate(name: name, type: "notifiers")
+              arn = sib_sns ? sib_sns.arn : "arn:aws:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 'alarm','events', 'event', 'cloudwatch_event'
               arn = "arn:aws:events:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:rule/#{name}"
             when 'apigateway'
-              arn = "arn:aws:apigateway:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
+              sib_apig = @deploy.findLitterMate(name: name, type: "endpoints")
+              arn = sib_apig ? sib_apig.arn : "arn:aws:apigateway:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 's3'
               arn = ''
             end
@@ -180,11 +182,12 @@ module MU
           when 'sns'
            # XXX don't do this, use MU::Cloud::AWS::Notification 
             sns_client = MU::Cloud::AWS.sns(region: region, credentials: @config['credentials'])
-            sns_client.subscribe({
-              topic_arn: trig_arn,
-              protocol: protocol,
-              endpoint: func_arn
-            })
+            MU.log "Would try to subscribe #{@mu_name} to #{trig_arn} (#{protocol}) here but I shouldn't have to", MU::WARN
+#            sns_client.subscribe({
+#              topic_arn: trig_arn,
+#              protocol: protocol,
+#              endpoint: func_arn
+#            })
           when 'event','cloudwatch_event', 'events'
            # XXX don't do this, use MU::Cloud::AWS::Log
             MU::Cloud::AWS.cloudwatch_events(region: region, credentials: @config['credentials']).put_targets({
@@ -292,6 +295,20 @@ module MU
           bok['timeout'] = cloud_desc.timeout
 
           function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
+#          event_srcs = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).list_event_source_mappings(function_name: @cloud_id)
+#          if event_srcs and !event_srcs.event_source_mappings.empty?
+#            MU.log "dem mappings tho #{@cloud_id}", MU::WARN, details: event_srcs
+#          end
+
+#          begin
+#            invoke_cfg = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function_event_invoke_config(function_name: @cloud_id)
+#            MU.log "invoke config #{@cloud_id}", MU::WARN, details: invoke_cfg
+#          rescue ::Aws::Lambda::Errors::ResourceNotFoundException
+#          end
+
+#          MU.log @cloud_id, MU::WARN, details: cloud_desc if @cloud_id == "Espier-Scheduled-Scanner"
+#          MU.log "configuration #{@cloud_id}", MU::WARN, details: MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function_configuration(function_name: @cloud_id) if @cloud_id == "Espier-Scheduled-Scanner"
+
 
           if function.code.repository_type == "S3"
             bok['code'] = {}
@@ -357,8 +374,22 @@ module MU
               type: "roles"
             )
           end
+
+          begin
+            pol = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_policy(function_name: @cloud_id).policy
+            if pol
+              bok['triggers'] ||= []
+              JSON.parse(pol)["Statement"].each { |s|
+                bok['triggers'] << {
+                  "service" => s["Principal"]["Service"].sub(/\..*/, ''),
+                  "name" => s["Resource"].sub(/.*?[:\/]([^:\/]+)$/, '\1')
+                }
+              }
+            end
+          rescue ::Aws::Lambda::Errors::ResourceNotFoundException
+          end
 #MU.log @cloud_id, MU::NOTICE, details: function
-# XXX triggers, permissions
+# XXX permissions
 
           bok
         end
@@ -379,7 +410,7 @@ module MU
                 "properties" => {
                   "service" => {
                     "type" => "string",
-                    "enum" => %w{apigateway events s3 sns sqs dynamodb kinesis ses cognito alexa iot},
+                    "enum" => %w{apigateway events s3 sns sqs dynamodb kinesis ses cognito alexa iot lex},
                     "description" => "The name of the AWS service that will trigger this function"
                   },
                   "name" => {
@@ -437,6 +468,28 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(function, configurator)
           ok = true
+
+          if function['triggers']
+            function['triggers'].each { |t|
+              mu_type = if t["service"] == "sns"
+                "notifiers"
+              elsif t["service"] == "apigateway"
+                "endpoints"
+              elsif t["service"] == "s3"
+                "buckets"
+              elsif t["service"] == "dynamodb"
+                "nosqldbs"
+              elsif t["service"] == "events"
+                "jobs"
+              elsif t["service"] == "sqs"
+                "msg_queues"
+              end
+
+              if mu_type
+                MU::Config.addDependency(function, t['name'], mu_type, no_create_wait: true)
+              end
+            }
+          end
 
           if function['vpc']
             fwname = "lambda-#{function['name']}"
