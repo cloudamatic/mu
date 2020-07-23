@@ -62,6 +62,11 @@ module MU
             @cloud_id = resp.function_name
           }
 
+          # why do we have to do this?
+          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @credentials).create_log_group(
+            log_group_name: "/aws/lambda/#{@cloud_id}",
+            tags: @tags
+          )
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -189,11 +194,14 @@ module MU
             stream = MU::Cloud::AWS.dynamostream(region: @config['region'], credentials: @config['credentials']).list_streams(table_name: trig_arn.sub(/.*?:table\//, '')).streams.first
 # XXX  guard this
             MU.log "Adding DynamoDB Stream from #{stream.stream_arn} as trigger for #{@cloud_id}"
+            begin
             MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_event_source_mapping(
               event_source_arn: stream.stream_arn,
               function_name: @cloud_id,
               starting_position: "TRIM_HORIZON" # ...whatever that is
             )
+            rescue ::Aws::Lambda::Errors::ResourceConflictException
+            end
             
 #            MU::Cloud.resourceClass("AWS", "NoSQLDB").subscribe(trig_arn, arn, "lambda", region: @config['region'], credentials: @credentials)
           when 'event','cloudwatch_event', 'events'
