@@ -306,7 +306,10 @@ module MU
           Dir.mkdir(dir)
         end
       }
-      if status or (Process.uid != 0 and $MU_CFG['overridden_keys'].include?("mommacat_port") and status(true))
+      if (Process.uid != 0 and
+           (!$MU_CFG['overridden_keys'] or !$MU_CFG['overridden_keys'].include?("mommacat_port")) and
+            status(true)
+         ) or status
         return 0
       end
     
