@@ -100,7 +100,7 @@ module MU
           ### triggers must exist prior
           if @config['triggers']
             @config['triggers'].each { |tr|
-              trigger_arn = assume_trigger_arns(tr['service'], tr['name'])
+              trigger_arn = resolveARN(tr['service'], tr['name'])
 
               trigger_properties = {
                 action: "lambda:InvokeFunction", 
@@ -151,8 +151,8 @@ module MU
         end
 
         # Look up an ARN for a given trigger type and resource name
-        def assume_trigger_arns(svc, name)
-          supported_triggers = %w(apigateway sns events event cloudwatch_event)
+        def resolveARN(svc, name)
+          supported_triggers = %w(apigateway sns events event cloudwatch_event dynamodb)
           if supported_triggers.include?(svc.downcase)
             arn = nil
             case svc.downcase
@@ -160,7 +160,11 @@ module MU
               sib_sns = @deploy.findLitterMate(name: name, type: "notifiers")
               arn = sib_sns ? sib_sns.arn : "arn:aws:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
             when 'alarm','events', 'event', 'cloudwatch_event'
-              arn = "arn:aws:events:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:rule/#{name}"
+              sib_event = @deploy.findLitterMate(name: name, type: "job")
+              arn = sib_event ? sib_event.arn : "arn:aws:events:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:rule/#{name}"
+            when 'dynamodb'
+              sib_dynamo = @deploy.findLitterMate(name: name, type: "nosqldb")
+              arn = sib_dynamo ? sib_dynamo.arn : "arn:aws:dynamodb:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:table/#{name}"
             when 'apigateway'
               sib_apig = @deploy.findLitterMate(name: name, type: "endpoints")
               arn = sib_apig ? sib_apig.arn : "arn:aws:apigateway:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
@@ -180,14 +184,18 @@ module MU
           case trig_type
           
           when 'sns'
-           # XXX don't do this, use MU::Cloud::AWS::Notification 
-            sns_client = MU::Cloud::AWS.sns(region: region, credentials: @config['credentials'])
-            MU.log "Would try to subscribe #{@mu_name} to #{trig_arn} (#{protocol}) here but I shouldn't have to", MU::WARN
-#            sns_client.subscribe({
-#              topic_arn: trig_arn,
-#              protocol: protocol,
-#              endpoint: func_arn
-#            })
+            MU::Cloud.resourceClass("AWS", "Notifier").subscribe(trig_arn, arn, "lambda", region: @config['region'], credentials: @credentials)
+          when 'dynamodb'
+            stream = MU::Cloud::AWS.dynamostream(region: @config['region'], credentials: @config['credentials']).list_streams(table_name: trig_arn.sub(/.*?:table\//, '')).streams.first
+# XXX  guard this
+            MU.log "Adding DynamoDB Stream from #{stream.stream_arn} as trigger for #{@cloud_id}"
+            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_event_source_mapping(
+              event_source_arn: stream.stream_arn,
+              function_name: @cloud_id,
+              starting_position: "TRIM_HORIZON" # ...whatever that is
+            )
+            
+#            MU::Cloud.resourceClass("AWS", "NoSQLDB").subscribe(trig_arn, arn, "lambda", region: @config['region'], credentials: @credentials)
           when 'event','cloudwatch_event', 'events'
            # XXX don't do this, use MU::Cloud::AWS::Log
             MU::Cloud::AWS.cloudwatch_events(region: region, credentials: @config['credentials']).put_targets({

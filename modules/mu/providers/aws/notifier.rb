@@ -43,17 +43,39 @@ module MU
                 }
                 sub['endpoint'] = endpoint_obj.arn
               end
-# XXX guard this
-              MU.log "Subscribing #{sub['endpoint']} to SNS topic #{arn}", MU::NOTICE
-              MU::Cloud::AWS::Notifier.subscribe(
-                arn: arn,
-                endpoint: sub['endpoint'],
-                region: @config['region'],
-                credentials: @config['credentials'],
-                protocol: sub['type']
-              )
+              subscribe(sub['endpoint'], sub['type'])
             }
           end
+        end
+
+        # Subscribe something to this SNS topic
+        # @param endpoint [String]: The address, identifier, or ARN of the resource being subscribed
+        # @param protocol [String]: The protocol being subscribed
+        def subscribe(endpoint, protocol)
+          self.class.subscribe(arn, endpoint, protocol, region: @config['region'], credentials: @credentials)
+        end
+
+        # Subscribe something to an SNS topic
+        # @param cloud_id [String]: The short name or ARN of an existing SNS topic
+        # @param endpoint [String]: The address, identifier, or ARN of the resource being subscribed
+        # @param protocol [String]: The protocol being subscribed
+        # @param region [String]: The region of the target SNS topic
+        # @param credentials [String]: 
+        def self.subscribe(cloud_id, endpoint, protocol, region: nil, credentials: nil)
+          topic = find(cloud_id: cloud_id, region: region, credentials: credentials).values.first
+          if !topic
+            raise MuError, "Failed to find SNS Topic #{cloud_id} in #{region}"
+          end
+          arn = topic["TopicArn"]
+
+          resp = MU::Cloud::AWS.sns(region: region, credentials: credentials).list_subscriptions_by_topic(topic_arn: arn).subscriptions
+
+          resp.each { |subscription|
+            return subscription if subscription.protocol == protocol and subscription.endpoint == endpoint
+          }
+
+          MU.log "Subscribing #{endpoint} (#{protocol}) to SNS topic #{arn}", MU::NOTICE
+          MU::Cloud::AWS.sns(region: region, credentials: credentials).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -111,7 +133,11 @@ module MU
           found = {}
 
           if args[:cloud_id]
-            arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
+            arn = if args[:cloud_id].match(/^arn:/)
+              args[:cloud_id] 
+            else
+              "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
+            end
             desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
             found[args[:cloud_id]] = desc if desc
           else
@@ -254,40 +280,6 @@ pp bok['subscriptions'] if @cloud_id == "Espier-Publish-Domains"
           ok
         end
 
-
-        # Subscribe to a notifier group. This can either be an email address, SQS queue, application endpoint, etc...
-        # Will create the subscription only if it doesn't already exist.
-        # @param arn [String]: The cloud provider's identifier of the notifier group.
-        # @param protocol [String]: The type of the subscription (eg. email,https, etc..).
-        # @param endpoint [String]: The endpoint of the subscription. This will depend on the 'protocol' (as an example if protocol is email, endpoint will be the email address) ..
-        # @param region [String]: The cloud provider region.
-        def self.subscribe(arn: nil, protocol: nil, endpoint: nil, region: MU.curRegion, credentials: nil)
-          retries = 0
-          begin 
-            resp = MU::Cloud::AWS.sns(region: region, credentials: credentials).list_subscriptions_by_topic(topic_arn: arn).subscriptions
-          rescue Aws::SNS::Errors::NotFound
-            if retries < 5
-              MU.log "Couldn't find topic #{arn}, retrying several times in case of a lagging resource"
-              retries += 1
-              sleep 30
-              retry
-            else
-              raise MuError, "Couldn't find topic #{arn}, giving up"
-            end
-          end
-
-          already_subscribed = false
-          if resp && !resp.empty?
-            resp.each { |subscription|
-             already_subscribed = true if subscription.protocol == protocol && subscription.endpoint == endpoint
-            }
-          end
-
-          unless already_subscribed
-            MU.log "Subscribing #{endpoint} (#{protocol}) to SNS topic #{arn}"
-            MU::Cloud::AWS.sns(region: region, credentials: credentials).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
-          end
-        end
 
         # Test if a notifier group exists
         # Create a new notifier group. Will check if the group exists before creating it.

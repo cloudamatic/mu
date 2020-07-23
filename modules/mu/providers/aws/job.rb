@@ -50,8 +50,7 @@ module MU
 
           if params.size > 0
             MU.log "Updating CloudWatch Event #{@cloud_id}", MU::NOTICE, details: params
-            params[:name] = @cloud_id
-            MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(params)
+            MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(new_props)
           end
 
           if @config['targets']
