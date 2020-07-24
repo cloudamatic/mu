@@ -172,6 +172,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           tagTable if !@config['scrub_mu_isms']
+          MU.log "NoSQL Table #{@config['name']}: #{@cloud_id}", MU::SUMMARY
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
