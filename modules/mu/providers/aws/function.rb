@@ -62,7 +62,8 @@ module MU
             @cloud_id = resp.function_name
           }
 
-          # why do we have to do this?
+          # the console does this and docs expect it to be there, so mimic the
+          # behavior
           MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @credentials).create_log_group(
             log_group_name: "/aws/lambda/#{@cloud_id}",
             tags: @tags
@@ -638,7 +639,6 @@ module MU
             siblings = @deploy.findLitterMate(return_all: true, type: sib_type, cloud: "AWS")
             if siblings
               siblings.each_value { |sibling|
-                pp sibling.cloud_desc(use_cache: false)
                 metadata = sibling.notify
                 if !metadata
                   MU.log "Failed to extract metadata from sibling #{sibling}", MU::WARN

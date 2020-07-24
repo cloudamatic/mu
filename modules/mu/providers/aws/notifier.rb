@@ -138,8 +138,11 @@ module MU
             else
               "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
             end
-            desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
-            found[args[:cloud_id]] = desc if desc
+            begin
+              desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
+              found[args[:cloud_id]] = desc if desc
+            rescue ::Aws::SNS::Errors::NotFound
+            end
           else
             next_token = nil
             begin
