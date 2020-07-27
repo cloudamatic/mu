@@ -125,6 +125,23 @@ module MU
             }
           
           end 
+
+          if @config['invoke_on_completion']
+            invoke_params = {
+              function_name: @cloud_id,
+              invocation_type: @config['invoke_on_completion']['invocation_type'],
+              log_type: "Tail"
+            }
+            if @config['invoke_on_completion']['payload']
+              invoke_params[:payload] = JSON.generate(@config['invoke_on_completion']['payload'])
+            end
+            resp = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).invoke(invoke_params)
+            if resp.status_code == 200
+              MU.log "Invoked #{@cloud_id}", MU::NOTICE, details: Base64.decode64(resp.log_result)
+            else
+              MU.log "Invoked #{@cloud_id} and got #{resp.status_code} (#{resp.function_error})", MU::WARN, details: Base64.decode64(resp.log_result)
+            end
+          end
         end
 
         # Intended to be called by other Mu resources, such as Endpoints (API
@@ -418,6 +435,22 @@ module MU
         def self.schema(_config)
           toplevel_required = ["runtime"]
           schema = {
+            "invoke_on_completion" => {
+              "type" => "object",
+              "description" => "Setting this will cause this Lambda function to be invoked when its groom phase is complete.",
+              "required" => ["invocation_type"],
+              "properties" => {
+                "invocation_type" => {
+                  "type" => "string",
+                  "enum" => ["RequestResponse", "Event", "Dryrun"],
+                  "default" => "RequestReponse"
+                },
+                "payload" => {
+                  "type" => "object",
+                  "description" => "Optional input to the function, which will be formatted as JSON and sent for execution"
+                }
+              }
+            },
             "triggers" => {
               "type" => "array",
               "items" => {
