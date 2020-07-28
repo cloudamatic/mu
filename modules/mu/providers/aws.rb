@@ -1181,6 +1181,14 @@ end
         @@kms_api[credentials][region]
       end
 
+      # Amazon's CloudFront API
+      def self.cloudfront(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@cloudfront_api[credentials] ||= {}
+        @@cloudfront_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "CloudFront", region: region, credentials: credentials)
+        @@cloudfront_api[credentials][region]
+      end
+
       # Amazon's Organizations API
       def self.orgs(credentials: nil)
         @@organizations_api ||= {}
@@ -1618,6 +1626,7 @@ end
       @@organization_api ={}
       @@dynamo_api ={}
       @@dynamostream_api ={}
+      @@cloudfront_api ={}
     end
   end
 end
