@@ -121,6 +121,10 @@ module MU
           @deploy_id = @mommacat.deploy_id
         end
 
+        # canonicalize the 'type' argument
+        _shortclass, _cfg_name, cfg_plural, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+        @type = cfg_plural if cfg_plural
+
         kitten(shallow: true) if @mommacat # try to populate the actual cloud object for this
       end
 
@@ -140,6 +144,13 @@ module MU
         end
       end
 
+      # Lets callers set attributes like a {Hash}
+      # @param attribute [String,Symbol]
+      def []=(attribute, value)
+        instance_variable_set("@#{attribute.to_s}".to_sym, value)
+        self.class.define_reader(attribute)
+      end
+
       # Unset an attribute. Sort of. We can't actually do that, so nil it out
       # and we get the behavior we want.
       def delete(attribute)
@@ -150,7 +161,7 @@ module MU
       # Base configuration schema for declared kittens referencing other cloud objects. This is essentially a set of filters that we're going to pass to {MU::MommaCat.findStray}.
       # @param aliases [Array<Hash>]: Key => value mappings to set backwards-compatibility aliases for attributes, such as the ubiquitous +vpc_id+ (+vpc_id+ => +id+).
       # @return [Hash]
-      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil, omit_fields: [])
+      def self.schema(aliases = [], type: nil, parent_obj: nil, desc: nil, omit_fields: [], any_type: false)
         parent_obj ||= caller[1].gsub(/.*?\/([^\.\/]+)\.rb:.*/, '\1')
         desc ||= "Reference a #{type ? "'#{type}' resource" : "resource" } from this #{parent_obj ? "'#{parent_obj}'" : "" } resource"
         schema = {
@@ -205,7 +216,9 @@ module MU
           }
         end
 
-        if !type.nil?
+        if any_type
+          schema["properties"]["type"].delete("enum")
+        elsif !type.nil?
           schema["required"] = ["type"]
           schema["properties"]["type"]["default"] = type
           schema["properties"]["type"]["enum"] = [type]
@@ -223,6 +236,13 @@ module MU
         }
 
         schema
+      end
+
+      # Is our +@type+ attribute a Mu-supported type, or some rando string?
+      # @return [Boolean]
+      def is_mu_type?
+        _shortclass, _cfg_name, type, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+        !type.nil?
       end
 
       # Decompose into a plain-jane {MU::Config::BasketOfKittens} hash fragment,
@@ -266,9 +286,22 @@ module MU
       # called in a live deploy, which is to say that if called during initial
       # configuration parsing, results may be incorrect.
       # @param mommacat [MU::MommaCat]: A deploy object which will be searched for the referenced resource if provided, before restoring to broader, less efficient searches.
-      def kitten(mommacat = @mommacat, shallow: false, debug: false)
-        return nil if !@cloud or !@type
+      def kitten(mommacat = @mommacat, shallow: false, debug: false, cloud: nil)
+        cloud ||= @cloud
+        return nil if !cloud or !@type
+
+        _shortclass, _cfg_name, cfg_plural, _classname, _attrs = MU::Cloud.getResourceNames(@type, false)
+        if cfg_plural
+          @type = cfg_plural # make sure this is the thing we expect
+        else
+          return nil # we don't do non-muish resources
+        end
+
         loglevel = debug ? MU::NOTICE : MU::DEBUG
+
+        if debug
+          MU.log "this mf kitten", MU::WARN, details: caller
+        end
 
         if @obj
           @deploy_id ||= @obj.deploy_id
@@ -309,7 +342,7 @@ end
           end
         end
 
-        if !@obj and !(@cloud == "Google" and @id and @type == "users" and MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(@id)) and !shallow
+        if !@obj and !(cloud == "Google" and @id and @type == "users" and MU::Cloud.resourceClass("Google", "User").cannedServiceAcctName?(@id)) and !shallow
           try_deploy_id = @deploy_id
 
           begin
@@ -323,8 +356,20 @@ end
               [@habitat.to_s]
             end
 
+            MU.log "Ref#kitten calling findStray", loglevel, details: {
+              cloud: cloud,
+              type: @type,
+              name: @name,
+              cloud_id: @id,
+              deploy_id: try_deploy_id,
+              region: @region,
+              habitats: hab_arg,
+              credentials: @credentials,
+              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
+            }
+
             found = MU::MommaCat.findStray(
-              @cloud,
+              cloud,
               @type,
               name: @name,
               cloud_id: @id,
@@ -334,10 +379,11 @@ end
               credentials: @credentials,
               dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
             )
+            MU.log "Ref#kitten results from findStray", loglevel, details: found
             @obj ||= found.first if found
           rescue MU::MommaCat::MultipleMatches => e
             if try_deploy_id.nil? and MU.deploy_id
-              MU.log "Attempting to narrow down #{@cloud} #{@type} to #{MU.deploy_id}", MU::NOTICE
+              MU.log "Attempting to narrow down #{cloud} #{@type} to #{MU.deploy_id}", MU::NOTICE
               try_deploy_id = MU.deploy_id
               retry
             else

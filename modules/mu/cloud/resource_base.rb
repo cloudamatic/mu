@@ -893,10 +893,11 @@ module MU
             elsif method == :notify
               if retval.nil?
                 MU.log self.to_s+" didn't return any metadata from notify", MU::WARN, details: @cloudobj.cloud_desc
+              else
+                retval['cloud_id'] = @cloudobj.cloud_id.to_s if !@cloudobj.cloud_id.nil?
+                retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
+                @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
               end
-              retval['cloud_id'] = @cloudobj.cloud_id.to_s if !@cloudobj.cloud_id.nil?
-              retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-              @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             end
             @method_semaphore.synchronize {
               @method_locks.delete(method)

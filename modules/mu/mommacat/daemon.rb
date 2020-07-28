@@ -288,8 +288,8 @@ module MU
 
     # Path to the PID file used by the Momma Cat daemon
     # @return [String]
-    def self.daemonPidFile
-      base = (Process.uid == 0 and !MU.localOnly) ? "/var" : MU.dataDir
+    def self.daemonPidFile(root = false)
+      base = ((Process.uid == 0 or root) and !MU.localOnly) ? "/var" : MU.dataDir
       "#{base}/run/mommacat.pid"
     end
 
@@ -306,8 +306,14 @@ module MU
           Dir.mkdir(dir)
         end
       }
-      return 0 if status
+      if (Process.uid != 0 and
+           (!$MU_CFG['overridden_keys'] or !$MU_CFG['overridden_keys'].include?("mommacat_port")) and
+            status(true)
+         ) or status
+        return 0
+      end
     
+      File.unlink(daemonPidFile) if File.exists?(daemonPidFile)
       MU.log "Starting Momma Cat on port #{MU.mommaCatPort}, logging to #{daemonLogFile}, PID file #{daemonPidFile}"
       origdir = Dir.getwd
       Dir.chdir(MU.myRoot+"/modules")
@@ -346,12 +352,12 @@ module MU
 
     # Return true if the Momma Cat daemon appears to be running
     # @return [Boolean]
-    def self.status
+    def self.status(root = false)
       if MU.inGem? and MU.muCfg['disable_mommacat']
         return true
       end
-      if File.exist?(daemonPidFile)
-        pid = File.read(daemonPidFile).chomp.to_i
+      if File.exist?(daemonPidFile(root))
+        pid = File.read(daemonPidFile(root)).chomp.to_i
         begin
           Process.getpgid(pid)
           MU.log "Momma Cat running with pid #{pid.to_s}", (@@notified_on_pid[pid] ? MU::DEBUG : MU::INFO) # shush
@@ -360,7 +366,7 @@ module MU
         rescue Errno::ESRCH
         end
       end
-      MU.log "Momma Cat daemon not running", MU::NOTICE, details: daemonPidFile
+      MU.log "Momma Cat daemon not running", MU::NOTICE, details: daemonPidFile(root)
       false
     end
     

@@ -287,6 +287,7 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [OpenStruct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           @cloud_desc_cache = if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
@@ -406,17 +407,17 @@ MU.log c.name, MU::NOTICE, details: t
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::ContainerCluster.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS ContainerCluster artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
-          purge_ecs_clusters(noop: noop, region: region, credentials: credentials)
+          purge_ecs_clusters(noop: noop, region: region, credentials: credentials, deploy_id: deploy_id)
 
-          purge_eks_clusters(noop: noop, region: region, credentials: credentials)
+          purge_eks_clusters(noop: noop, region: region, credentials: credentials, deploy_id: deploy_id)
 
         end
 
-        def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil)
+        def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions(credentials, region: region).include?(region)
           resp = begin
             MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
@@ -429,7 +430,7 @@ MU.log c.name, MU::NOTICE, details: t
           return if !resp or !resp.clusters
 
           resp.clusters.each { |cluster|
-            if cluster.match(/^#{MU.deploy_id}-/)
+            if cluster.match(/^#{deploy_id}-/)
 
               desc = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
                 name: cluster
@@ -473,13 +474,13 @@ MU.log c.name, MU::NOTICE, details: t
         end
         private_class_method :purge_eks_clusters
 
-        def self.purge_ecs_clusters(noop: false, region: MU.curRegion, credentials: nil)
+        def self.purge_ecs_clusters(noop: false, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
           resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
 
           return if !resp or !resp.cluster_arns or resp.cluster_arns.empty?
 
           resp.cluster_arns.each { |arn|
-            if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
+            if arn.match(/:cluster\/(#{deploy_id}[^:]+)$/)
               cluster = Regexp.last_match[1]
 
               svc_resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
@@ -525,7 +526,7 @@ MU.log c.name, MU::NOTICE, details: t
           }
 
           tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
-            family_prefix: MU.deploy_id
+            family_prefix: deploy_id
           )
 
           if tasks and tasks.task_definition_arns

@@ -124,7 +124,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Alarm.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Alarm artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
           alarms = []
@@ -132,7 +132,7 @@ module MU
           # This can miss alarms in some cases (eg. cache_cluster) so we might want to delete alarms from each API as well.
           MU::Cloud::AWS.cloudwatch(credentials: credentials, region: region).describe_alarms.each { |page|
             page.metric_alarms.map(&:alarm_name).each { |alarm_name|
-              alarms << alarm_name if alarm_name.match(MU.deploy_id)
+              alarms << alarm_name if alarm_name.match(deploy_id)
             }
           }
 

@@ -299,8 +299,8 @@ module MU
   # Wrapper class for temporary Exceptions. Gives our internals something to
   # inherit that will log a notice message appropriately before bubbling up.
   class MuNonFatal < StandardError
-    def initialize(message = nil, silent: false)
-      MU.log message, MU::NOTICE if !message.nil? and !silent
+    def initialize(message = nil, silent: false, details: nil)
+      MU.log message, MU::NOTICE, details: details if !message.nil? and !silent
       if MU.verbosity == MU::Logger::SILENT
         super ""
       else

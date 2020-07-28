@@ -21,6 +21,10 @@ module MU
         @@region_cache = {}
         @@region_cache_semaphore = Mutex.new
 
+        MIME_MAP = {
+          ".svg" => "image/svg+xml"
+        }
+
         # Initialize this cloud resource object. Calling +super+ will invoke the initializer defined under {MU::Cloud}, which should set the attribtues listed in {MU::Cloud::PUBLIC_ATTRS} as well as applicable dependency shortcuts, like +@vpc+, for us.
         # @param args [Hash]: Hash of named arguments passed via Ruby's double-splat
         def initialize(**args)
@@ -146,6 +150,32 @@ module MU
               }
             )
           end
+
+          if @config['upload']
+            @config['upload'].each { |batch|
+              urlbase = "s3://"+@cloud_id+batch['destination']
+              urlbase += "/" if urlbase !~ /\/$/
+              upload_me = if File.directory?(batch['source'])
+                Dir[batch['source']+'/**/*'].reject {|d|
+                  File.directory?(d)
+                }.map { |f|
+                  [ f, urlbase+f.sub(/^#{Regexp.quote(batch['source'])}\/?/, '') ]
+                }
+              else
+                batch['source'].match(/([^\/]+)$/)
+                [ [batch['source'], urlbase+Regexp.last_match[1]] ]
+              end
+
+              Hash[upload_me].each_pair { |file, url|
+                self.class.upload(url, file: file, credentials: @credentials, region: @config['region'])
+              }
+            }
+          end
+
+          MU.log "Bucket #{@config['name']}: s3://#{@cloud_id}", MU::SUMMARY
+          if @config['web']
+            MU.log "Bucket #{@config['name']} web access: http://#{@cloud_id}.s3-website-#{@config['region']}.amazonaws.com/", MU::SUMMARY
+          end
         end
 
         # Upload a file to a bucket.
@@ -160,7 +190,7 @@ module MU
 
           if file and !file.empty?
             if !File.exist?(file) or !File.readable?(file)
-              raise MuError, "Unable to read #{file} for upload to #{url}"
+              raise MuError, "Unable to read #{file} for upload to #{url} (I'm at #{Dir.pwd}"
             else
               data = File.read(file)
             end
@@ -177,12 +207,19 @@ module MU
 
           begin
             MU.log "Writing #{path} to S3 bucket #{bucket}"
-            MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(
+            params = {
               acl: acl,
               bucket: bucket,
               key: path,
               body: data
-            )
+            }
+
+            MIME_MAP.each_pair { |extension, content_type|
+              if path =~ /#{Regexp.quote(extension)}$/i
+                params[:content_type] = content_type
+              end
+            }
+            MU::Cloud::AWS.s3(region: region, credentials: credentials).put_object(params)
           rescue Aws::S3::Errors => e
             raise MuError, "Got #{e.inspect} trying to write #{path} to #{bucket} (region: #{region}, credentials: #{credentials})"
           end
@@ -207,7 +244,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Bucket.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           resp = MU::Cloud::AWS.s3(credentials: credentials, region: region).list_buckets
@@ -242,7 +279,7 @@ module MU
                 deploy_match = false
                 master_match = false
                 tags.each { |tag|
-                  if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                  if tag.key == "MU-ID" and tag.value == deploy_id
                     deploy_match = true
                   elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
                     master_match = true
@@ -253,6 +290,21 @@ module MU
                   if !noop
                     MU::Cloud::AWS.s3(credentials: credentials, region: region).delete_bucket(bucket: bucket.name)
                   end
+                end
+              rescue Aws::S3::Errors::BucketNotEmpty => e
+                if flags["skipsnapshots"]
+                  del = MU::Cloud::AWS.s3(credentials: credentials, region: region).list_objects(bucket: bucket.name).contents.map { |o| { key: o.key } }
+                  del.concat(MU::Cloud::AWS.s3(credentials: credentials, region: region).list_object_versions(bucket: bucket.name).versions.map { |o| { key: o.key, version_id: o.version_id } })
+
+                  MU.log "Purging #{del.size.to_s} objects and versions from #{bucket.name}"
+                  begin
+                    batch = del.slice!(0, (del.length >= 1000 ? 1000 : del.length))
+                    MU::Cloud::AWS.s3(credentials: credentials, region: region).delete_objects(bucket: bucket.name, delete: { objects: batch } ) if !noop
+                  end while del.size > 0
+
+                  retry if !noop
+                else
+                  MU.log "Bucket #{bucket.name} is non-empty, will preserve it and its contents. Use --skipsnapshots to forcibly remove.", MU::WARN
                 end
               rescue Aws::S3::Errors::NoSuchTagSet, Aws::S3::Errors::PermanentRedirect
                 next

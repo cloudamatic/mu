@@ -1029,6 +1029,14 @@ end
         @@cloudwatchlogs_api[credentials][region]
       end
 
+      # Amazon's CloudWatchEvents API
+      def self.cloudwatchevents(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@cloudwatchevents_api[credentials] ||= {}
+        @@cloudwatchevents_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "CloudWatchEvents", region: region, credentials: credentials)
+        @@cloudwatchevents_api[credentials][region]
+      end
+
       # Amazon's CloudFront API
       def self.cloudfront(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1115,6 +1123,14 @@ end
         @@dynamo_api[credentials] ||= {}
         @@dynamo_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "DynamoDB", region: region, credentials: credentials)
         @@dynamo_api[credentials][region]
+      end
+
+      # Amazon's DynamoStream API
+      def self.dynamostream(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@dynamostream_api[credentials] ||= {}
+        @@dynamostream_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "DynamoDBStreams", region: region, credentials: credentials)
+        @@dynamostream_api[credentials][region]
       end
 
       # Amazon's Pricing API
@@ -1461,6 +1477,7 @@ end
           require "aws-sdk-core/ecs"
           require "aws-sdk-core/eks"
           require "aws-sdk-core/cloudwatchlogs"
+          require "aws-sdk-core/cloudwatchevents"
           require "aws-sdk-core/elasticloadbalancing"
           require "aws-sdk-core/elasticloadbalancingv2"
           require "aws-sdk-core/autoscaling"
@@ -1481,13 +1498,17 @@ end
 
             if !retval.nil?
               begin
-              page_markers = [:marker, :next_token]
+              page_markers = {
+                :marker => :marker,
+                :next_token => :next_token,
+                :next_marker => :marker
+              }
               paginator = nil
               new_page = nil
-              [:next_token, :marker].each { |m|
+              page_markers.each_key { |m|
                 if !retval.nil? and retval.respond_to?(m)
                   paginator = m
-                  new_page = retval.send(paginator)
+                  new_page = retval.send(m)
                   break
                 end
               }
@@ -1506,12 +1527,12 @@ end
                     if new_args.is_a?(Array)
                       new_args << {} if new_args.empty?
                       if new_args.size == 1 and new_args.first.is_a?(Hash)
-                        new_args[0][paginator] = new_page
+                        new_args[0][page_markers[paginator]] = new_page
                       else
                         MU.log "I don't know how to insert a #{paginator} into these arguments for #{method_sym}", MU::WARN, details: new_args
                       end
                     elsif new_args.is_a?(Hash)
-                      new_args[paginator] = new_page
+                      new_args[page_markers[paginator]] = new_page
                     end
 
                     MU.log "Attempting magic pagination for #{method_sym}", MU::DEBUG, details: new_args
@@ -1535,7 +1556,7 @@ end
             end
 
             return retval
-          rescue Aws::RDS::Errors::Throttling, Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException, Net::ReadTimeout, Faraday::TimeoutError, Aws::CloudWatchLogs::Errors::ThrottlingException => e
+          rescue Aws::Lambda::Errors::TooManyRequestsException, Aws::RDS::Errors::Throttling, Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException, Net::ReadTimeout, Faraday::TimeoutError, Aws::CloudWatchLogs::Errors::ThrottlingException => e
             if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
               MU.log e.inspect, MU::ERR
               raise e
@@ -1577,6 +1598,7 @@ end
       @@wafglobal = {}
       @@waf = {}
       @@cloudwatchlogs_api = {}
+      @@cloudwatchevents_api = {}
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
@@ -1595,6 +1617,7 @@ end
       @@kms_api ={}
       @@organization_api ={}
       @@dynamo_api ={}
+      @@dynamostream_api ={}
     end
   end
 end

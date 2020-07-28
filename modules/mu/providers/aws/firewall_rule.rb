@@ -381,14 +381,14 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           filters = if flags and flags["vpc_id"]
             [
               {name: "vpc-id", values: [flags["vpc_id"]]}
             ]
           else
             filters = [
-              {name: "tag:MU-ID", values: [MU.deploy_id]}
+              {name: "tag:MU-ID", values: [deploy_id]}
             ]
             if !ignoremaster
               filters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
@@ -860,8 +860,11 @@ module MU
                 p_start = rule['port'].to_i
                 p_end = rule['port'].to_i
               elsif rule['proto'] != "icmp"
-                raise MuError, "Can't create a TCP or UDP security group rule without specifying ports: #{rule}"
+                MU.log "Can't create a TCP or UDP security group rule without specifying ports, assuming 'all'", MU::WARN, details: rule
+                p_start = "0"
+                p_end = "65535"
               end
+
               if rule['proto'] != "icmp"
                 if p_start.nil? or p_end.nil?
                   raise MuError, "Got nil ports out of rule #{rule}"

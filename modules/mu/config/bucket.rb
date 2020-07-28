@@ -50,6 +50,24 @@ module MU
               "default" => "index.html",
               "description" => "If +web_enabled+, return this object when \"diretory\" (a path not ending in a key/object) is invoked."
             },
+            "upload" => {
+              "type" => "array",
+              "description" => "Upload objects to a bucket, where supported",
+              "items" => {
+                "type" => "object",
+                "required" => ["source", "destination"],
+                "properties" => {
+                  "source" => {
+                    "type" => "string",
+                    "description" => "A file or directory to upload. If a directory is specified, it will be recursively mirrored to the bucket +destination+."
+                  },
+                  "destination" => {
+                    "type" => "string",
+                    "description" => "Path to which +source+ file(s) will be uploaded in the bucket, relative to +/+"
+                  }
+                }
+              }
+            },
             "policies" => {
               "type" => "array",
               "items" => MU::Config::Role.policy_primitive(subobjects: true, grant_to: true, permissions_optional: true, targets_optional: true)
@@ -59,11 +77,22 @@ module MU
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::buckets}, bare and unvalidated.
-      # @param _bucket [Hash]: The resource to process and validate
+      # @param bucket [Hash]: The resource to process and validate
       # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
       # @return [Boolean]: True if validation succeeded, False otherwise
-      def self.validate(_bucket, _configurator)
+      def self.validate(bucket, _configurator)
         ok = true
+
+        if bucket['upload']
+          bucket['upload'].each { |batch|
+            if !File.exists?(batch['source'])
+              MU.log "Bucket '#{bucket['name']}' specifies upload for file/directory that does not exist", MU::ERR, details: batch
+              ok = false
+              next
+            end
+            batch['source'] = File.realpath(File.expand_path(batch['source']))
+          }
+        end
 
         ok
       end

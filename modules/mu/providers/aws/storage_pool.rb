@@ -333,7 +333,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::StoragePool.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           supported_regions = %w{us-west-2 us-east-1 eu-west-1}
@@ -358,7 +358,7 @@ module MU
                 found_muid = false
                 found_master = false
                 tags.each { |tag|
-                  found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
+                  found_muid = true if tag.key == "MU-ID" && tag.value == deploy_id
                   found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
                 }
                 next if !found_muid

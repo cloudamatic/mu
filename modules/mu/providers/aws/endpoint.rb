@@ -21,13 +21,11 @@ module MU
             }
           )
           @cloud_id = resp.id
-          generate_methods
-
-
+          generate_methods(false)
         end
 
         # Create/update all of the methods declared for this endpoint
-        def generate_methods
+        def generate_methods(integrations = true)
           resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
             rest_api_id: @cloud_id,
           )
@@ -38,13 +36,14 @@ module MU
             m["auth"] ||= m["iam_role"] ? "AWS_IAM" : "NONE"
 
             method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
+            path_part = ["", "/"].include?(m['path']) ? nil : m['path']
 
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
               rest_api_id: @cloud_id
             )
             ext_resource = nil
             resp.items.each { |resource|
-              if resource.path_part == m['path']
+              if resource.path_part == path_part
                 ext_resource = resource.id
               end
             }
@@ -69,7 +68,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_resource(
                 rest_api_id: @cloud_id,
                 parent_id: root_resource,
-                path_part: m['path']
+                path_part: path_part
               )
             end
             parent_id = resp.id
@@ -100,6 +99,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 }
                 if r['headers']
                   params[:response_parameters] = r['headers'].map { |h|
+                    h['required'] ||= false
                     ["method.response.header."+h['header'], h['required']]
                   }.to_h
                 end
@@ -115,7 +115,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               # fine to ignore
             end
 
-            if m['integrate_with']
+            if integrations and m['integrate_with']
 #              role_arn = if m['iam_role']
 #                if m['iam_role'].match(/^arn:/)
 #                  m['iam_role']
@@ -131,9 +131,12 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
               uri, type = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
                 ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", "AWS"]
-              elsif m['integrate_with']['type'] == "function"
-                function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions").cloudobj
-                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.arn+"/invocations", "AWS"]
+              elsif m['integrate_with']['type'] == "functions"
+                function_obj = nil
+                MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { function_obj.nil? }) {
+                  function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
+                }
+                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.cloudobj.arn+"/invocations", "AWS"]
               elsif m['integrate_with']['type'] == "mock"
                 [nil, "MOCK"]
               end
@@ -223,6 +226,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         # @return [Struct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           @cloud_desc_cache = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_rest_api(
             rest_api_id: @cloud_id
           )
@@ -232,7 +236,9 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         # Return the metadata for this API
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(cloud_desc)
+          return nil if !@cloud_id or !cloud_desc(use_cache: false)
+          deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
+          deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com/"+@config['deploy_to']
 # XXX stages and whatnot
           return deploy_struct
         end
@@ -242,7 +248,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Endpoint.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Endpoint artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
@@ -250,7 +256,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           if resp and resp.items
             resp.items.each { |api|
               # The stupid things don't have tags
-              if api.description == MU.deploy_id
+              if api.description == deploy_id
                 MU.log "Deleting API Gateway #{api.name} (#{api.id})"
                 if !noop
                   MU::Cloud::AWS.apig(region: region, credentials: credentials).delete_rest_api(
@@ -281,6 +287,123 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           end
 
           found
+        end
+
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc.name
+
+          resources = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
+            rest_api_id: @cloud_id,
+          ).items
+
+          resources.each { |r|
+            bok['deploy_to'] ||= r.path if r.path != "/" # XXX this is wrong/inadequate
+            next if !r.respond_to?(:resource_methods) or r.resource_methods.nil?
+            r.resource_methods.each_pair { |http_type, m|
+              bok['methods'] ||= []
+              method = {}
+              m_desc = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_method(
+                rest_api_id: @cloud_id,
+                resource_id: r.id,
+                http_method: http_type 
+              )
+              method['type'] = http_type
+              method['path'] = r.path_part || r.path
+              if m_desc.method_responses
+                m_desc.method_responses.each_pair { |code, resp_desc|
+                  method['responses'] ||= []
+                  resp = { "code" => code.to_i }
+                  if resp_desc.response_parameters
+                    resp_desc.response_parameters.each_pair { |hdr, reqd|
+                      resp['headers'] ||= []
+                      if hdr.match(/^method\.response\.header\.(.*)/)
+                        resp['headers'] << {
+                          "header" => Regexp.last_match[1],
+                          "required" => reqd
+                        }
+                      else
+                        MU.log "I don't know what to do with APIG response parameter #{hdr}", MU::ERR, details: resp_desc
+                      end
+
+                    }
+                  end
+                  if resp_desc.response_models
+                    resp_desc.response_models.each_pair { |content_type, body|
+                      resp['body'] ||= []
+                      resp['body'] << {
+                        "content_type" => content_type,
+                        "is_error" => (body == "Error")
+                      }
+                    }
+
+                  end
+                  method['responses'] << resp
+
+                }
+              end
+
+              if m_desc.method_integration
+                if ["AWS", "AWS_PROXY"].include?(m_desc.method_integration.type)
+                  if m_desc.method_integration.uri.match(/:lambda:path\/\d{4}-\d{2}-\d{2}\/functions\/arn:.*?:function:(.*?)\/invocations$/)
+                    method['integrate_with'] = MU::Config::Ref.get(
+                      id: Regexp.last_match[1],
+                      type: "functions",
+                      cloud: "AWS",
+                      integration_http_method: m_desc.method_integration.http_method
+                    )
+                  elsif m_desc.method_integration.uri.match(/#{@config['region']}:([^:]+):action\/(.*)/)
+                    method['integrate_with'] = {
+                      "type" => "aws_generic",
+                      "integration_http_method" => m_desc.method_integration.http_method,
+                      "aws_generic_action" => Regexp.last_match[1]+":"+Regexp.last_match[2]
+                    }
+                  else
+                    MU.log "I don't know what to do with #{m_desc.method_integration.uri}", MU::ERR
+                  end
+                  if m_desc.method_integration.http_method
+                    method['integrate_with']['backend_http_method'] = m_desc.method_integration.http_method
+                  end
+                elsif m_desc.method_integration.type == "MOCK"
+                  method['integrate_with'] = {
+                    "type" => "mock"
+                  }
+                else
+                  MU.log "I don't know what to do with this integration", MU::ERR, details: m_desc.method_integration
+                  next
+                end
+
+                if m_desc.method_integration.passthrough_behavior
+                  method['integrate_with']['passthrough_behavior'] = m_desc.method_integration.passthrough_behavior
+                end
+
+                if m_desc.method_integration.request_templates and
+                   !m_desc.method_integration.request_templates.empty?
+                   method['integrate_with'] = m_desc.method_integration.request_templates.keys.map { |rt_content_type, template|
+                    { "content_type" => rt_content_type, "template" => template }
+                   }
+                end
+              end
+
+              bok['methods'] << method
+            }
+          }
+
+          bok
         end
 
         # Cloud-specific configuration properties.
@@ -387,7 +510,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                       "type" => {
                         "type" => "string",
                         "description" => "A Mu resource type, for integrations with a sibling resource (e.g. a function), or the string +aws_generic+, which we can use in combination with +aws_generic_action+ to integrate with arbitrary AWS services.",
-                        "enum" => ["aws_generic"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_name] }.sort)
+                        "enum" => ["aws_generic"].concat(MU::Cloud.resource_types.values.map { |t| t[:cfg_plural] }.sort)
                       },
                       "aws_generic_action" => {
                         "type" => "string",

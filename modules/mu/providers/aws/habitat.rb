@@ -90,7 +90,7 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
           return if !orgMasterCreds?(credentials)
           MU.log "AWS::Habitat.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Habitat artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
@@ -99,7 +99,7 @@ module MU
 
           if resp and resp.accounts
             resp.accounts.each { |acct|
-              if acct.name.match(/^#{Regexp.quote(MU.deploy_id)}/) or acct.name.match(/BUNS/)
+              if acct.name.match(/^#{Regexp.quote(deploy_id)}/) or acct.name.match(/BUNS/)
                 if !noop
                   pp acct
                 end

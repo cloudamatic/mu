@@ -47,7 +47,11 @@ module MU
             }
           end
 
+          type_map = {}
+
           @config['attributes'].each { |attr|
+            type_map[attr['name']] = attr['type']
+
             params[:attribute_definitions] << {
               :attribute_name => attr['name'],
               :attribute_type => attr['type']
@@ -66,6 +70,11 @@ module MU
                 :key_type => "RANGE"
               }
             end
+          }
+          # apparently the HASH key always has to be before RANGE, so sort it
+          # lexically by that field and call it a day
+          params[:key_schema].sort! { |a, b|
+            a[:key_type] <=> b[:key_type]
           }
 
           if @config['secondary_indexes']
@@ -99,7 +108,11 @@ module MU
             }
           end
 
-          MU.log "Creating DynamoDB table #{@mu_name}", details: params
+          if @tags
+            params[:tags] = @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+          end
+
+          MU.log "Creating DynamoDB table #{@mu_name}", MU::NOTICE, details: params
 
           resp = MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).create_table(params)
           @cloud_id = @mu_name
@@ -109,8 +122,24 @@ module MU
             sleep 5 if resp.table.table_status == "CREATING"
           end while resp.table.table_status == "CREATING"
 
-
           tagTable if !@config['scrub_mu_isms']
+
+          if @config['populate'] and !@config['populate'].empty?
+            MU.log "Preloading #{@mu_name} with #{@config['populate'].size.to_s} items"
+            items_to_write = @config['populate'].dup
+            begin
+              batch = items_to_write.slice!(0, (items_to_write.length >= 25 ? 25 : items_to_write.length))
+              begin
+                MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).batch_write_item(
+                  request_items: {
+                    @cloud_id => batch.map { |i| { put_request: { item: i } } }
+                  }
+                )
+              rescue ::Aws::DynamoDB::Errors::ValidationException => e
+                MU.log e.message, MU::ERR, details: item
+              end
+            end while !items_to_write.empty?
+          end
         end
 
         # Apply tags to this DynamoDB table
@@ -143,6 +172,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           tagTable if !@config['scrub_mu_isms']
+          MU.log "NoSQL Table #{@config['name']}: #{@cloud_id}", MU::SUMMARY
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -163,7 +193,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::NoSQLDb.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           resp = MU::Cloud::AWS.dynamo(credentials: credentials, region: region).list_tables
@@ -183,7 +213,7 @@ module MU
                   deploy_match = false
                   master_match = false
                   tags.tags.each { |tag|
-                    if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                    if tag.key == "MU-ID" and tag.value == deploy_id
                       deploy_match = true
                     elsif tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
                       master_match = true
@@ -214,7 +244,8 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          MU.structToHash(cloud_desc)
+          return nil if !@cloud_id or !cloud_desc(use_cache: false)
+          MU.structToHash(cloud_desc, stringify_keys: true)
         end
 
         # Locate an existing DynamoDB table
@@ -244,6 +275,59 @@ module MU
           found
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+          bok['name'] = cloud_desc.table_name
+          bok['read_capacity'] = cloud_desc.provisioned_throughput.read_capacity_units
+          bok['write_capacity'] = cloud_desc.provisioned_throughput.write_capacity_units
+
+
+          cloud_desc.attribute_definitions.each { |attr|
+            bok['attributes'] ||= []
+            newattr = {
+              "name" => attr.attribute_name,
+              "type" => attr.attribute_type
+            }
+            if cloud_desc.key_schema
+              cloud_desc.key_schema.each { |key|
+                next if key.attribute_name == attr.attribute_name
+                if key.key_type == "RANGE"
+                  newattr["primary_partition"] = true
+                elsif key.key_type == "HASH"
+                  newattr["primary_sort"] = true
+                end
+              }
+            end
+            bok['attributes'] << newattr
+          }
+
+          if cloud_desc.stream_specification and cloud_desc.stream_specification.stream_enabled
+MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+            bok['stream'] = cloud_desc.stream_specification.stream_view_type
+            cloud_desc.latest_stream_arn
+            pp MU::Cloud::AWS.dynamostream(credentials: @credentials, region: @config['region']).list_streams
+          end
+
+          bok["populate"] = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @config['region']).scan(
+            table_name: @cloud_id
+          ).items
+
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -252,6 +336,13 @@ module MU
 
 
           schema = {
+            "populate" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Key-value pairs, compatible with the +attributes+ schema, with which to populate this +table+ during its initial creation."
+              }
+            },
             "attributes" => {
               "type" => "array",
               "minItems" => 1,

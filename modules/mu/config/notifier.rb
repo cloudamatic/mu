@@ -36,12 +36,12 @@ module MU
               "items" => {
                 "type" => "object",
                 "description" => "A list of people or resources which should receive notifications",
-                "required" => ["endpoint"],
                 "properties" => {
                   "endpoint" => {
                     "type" => "string",
-                    "description" => "The endpoint which should be subscribed to this notifier, typically an email address or SMS-enabled phone number."
-                  }
+                    "description" => "Shorthand for an endpoint which should be subscribed to this notifier, typically an email address or SMS-enabled phone number. For complex cases, such as referencing an AWS Lambda function defined elsewhere in your Mu stack, use +resource+ instead."
+                  },
+                  "resource" => MU::Config::Ref.schema(desc: "A cloud resource that is a valid notification target for this notifier. For simple use cases, such as external email addresses or SMS, use +endpoint+ instead.")
                 }
               }
             }
@@ -56,23 +56,12 @@ module MU
       def self.validate(notifier, _configurator)
         ok = true
 
+
         if notifier['subscriptions']
           notifier['subscriptions'].each { |sub|
-            if !sub["type"]
-              if sub["endpoint"].match(/^http:/i)
-                sub["type"] = "http"
-              elsif sub["endpoint"].match(/^https:/i)
-                sub["type"] = "https"
-              elsif sub["endpoint"].match(/^sqs:/i)
-                sub["type"] = "sqs"
-              elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
-                sub["type"] = "sms"
-              elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
-                sub["type"] = "email"
-              else
-                MU.log "Notifier #{notifier['name']} subscription #{sub['endpoint']} did not specify a type, and I'm unable to guess one", MU::ERR
-                ok = false
-              end
+            if !sub['endpoint'] and !sub['resource']
+              MU.log "Notifier '#{notifier['name']}' must specify either resource or endpoint in subscription", MU::ERR, details: sub
+              ok = false
             end
           }
         end
