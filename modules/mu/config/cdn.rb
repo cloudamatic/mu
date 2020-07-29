@@ -28,7 +28,21 @@ module MU
             "name" => {
               "type" => "string"
             },
-            "credentials" => MU::Config.credentials_primitive
+            "credentials" => MU::Config.credentials_primitive,
+            "origins" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "properties" => {
+                  "domain_name" => {
+                    "type" => "string"
+                  },
+                  "origin_path" => {
+                    "type" => "string"
+                  }
+                }
+              }
+            }
           }
         }
       end

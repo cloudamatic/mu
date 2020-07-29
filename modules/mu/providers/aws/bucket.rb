@@ -331,9 +331,27 @@ module MU
         def self.find(**args)
           found = {}
 
+          args[:region] ||= MU::Cloud::AWS.myRegion(args[:credentials])
+
+          location = Proc.new { |name|
+            begin
+              loc_resp = MU::Cloud::AWS.s3(credentials: args[:credentials], region: args[:region]).get_bucket_location(bucket: name)
+  
+              if loc_resp.location_constraint and !loc_resp.location_constraint.empty?
+                loc_resp.location_constraint
+              else
+                nil
+              end
+            rescue Aws::S3::Errors::AccessDenied
+              nil
+            end
+          }
+
           if args[:cloud_id]
             begin
               found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: true, credentials: args[:credentials], region: args[:region])
+              found[args[:cloud_id]]['region'] ||= location.call(args[:cloud_id])
+              found[args[:cloud_id]]['region'] ||= args[:region]
             rescue ::Aws::S3::Errors::NoSuchBucket
             end
           else
@@ -341,11 +359,13 @@ module MU
             if resp and resp.buckets
               resp.buckets.each { |b|
                 begin
-                  loc_resp = MU::Cloud::AWS.s3(credentials: args[:credentials], region: args[:region]).get_bucket_location(bucket: b.name)
-                  if !loc_resp or loc_resp.location_constraint != args[:region]
+                  bucket_region = location.call(b.name)
+                  if !args[:allregions] and bucket_region != args[:region]
                     next
                   end
-                  found[b.name] = describe_bucket(b.name, minimal: true, credentials: args[:credentials], region: args[:region])
+                  bucket_region ||= args[:region]
+                  found[b.name] = describe_bucket(b.name, minimal: true, credentials: args[:credentials], region: bucket_region)
+                  found[b.name]["region"] ||= bucket_region
                 rescue Aws::S3::Errors::AccessDenied
                 end
               }

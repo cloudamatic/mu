@@ -112,7 +112,26 @@ module MU
             end
           end
 
-          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc
+          cloud_desc.origins.items.each { |o|
+            bok['origins'] ||= []
+            origin = { "origin_path" => o.origin_path }
+            if o.s3_origin_config
+              buckets = MU::Cloud.resourceClass("AWS", "Bucket").find(credentials: @credentials, allregions: true, cloud_id: o.domain_name.sub(/\..*/, ''))
+              if buckets and buckets.size == 1
+                pp buckets
+                origin["bucket"] = MU::Config::Ref.get(
+                  id: buckets.keys.first,
+                  type: "buckets",
+                  region: buckets.values.first["region"],
+                  credentials: @credentials,
+                  cloud: "AWS"
+                )
+              end
+            end
+            origin["domain_name"] = o.domain_name if !origin["bucket"]
+            bok['origins'] << origin
+          }
+
           MU.log @cloud_id+" bok", MU::NOTICE, details: bok
 
           bok
@@ -124,6 +143,16 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(_config)
           toplevel_required = []
+
+          schema = {
+            "origins" => {
+              "items" => {
+                "properties" => {
+                  "bucket" => MU::Config::Ref.schema(type: "buckets", desc: "Reference an S3 bucket for use as an origin")
+                }
+              }
+            }
+          }
 
           [toplevel_required, schema]
         end
