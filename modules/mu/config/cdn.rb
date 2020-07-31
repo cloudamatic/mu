@@ -23,21 +23,54 @@ module MU
         {
           "type" => "object",
           "additionalProperties" => false,
-          "description" => "A cloud provider-specific facility for triggered or scheduled tasks, such as AWS CloudWatch Events or Google Cloud Scheduler.",
+          "required" => ["origins"],
           "properties" => {
             "name" => {
               "type" => "string"
             },
+            "default_object" => {
+              "type" => "string",
+              "default" => "index.html"
+            },
             "credentials" => MU::Config.credentials_primitive,
+            "aliases" => {
+              "type" => "array",
+              "items" => {
+                "type" => "string"
+              }
+            },
             "origins" => {
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "type" => "object",
+                "required" => ["name"],
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "domain_name" => {
+                    "type" => "string"
+                  },
+                  "path" => {
+                    "type" => "string",
+                    "default" => ""
+                  }
+                }
+              }
+            },
+            "behaviors" => {
               "type" => "array",
               "items" => {
                 "type" => "object",
                 "properties" => {
-                  "domain_name" => {
+                  "origin" => {
                     "type" => "string"
                   },
-                  "origin_path" => {
+                  "is_default" => {
+                    "type" => "boolean"
+                  },
+                  "path_pattern" => {
                     "type" => "string"
                   }
                 }

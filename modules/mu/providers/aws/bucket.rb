@@ -85,6 +85,10 @@ module MU
 
         end
 
+        def url
+          "https://#{@cloud_id}.s3.amazonaws.com"
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def groom
 
@@ -111,25 +115,6 @@ module MU
             }
           end
 
-          if @config['web'] and current["website"].nil?
-            MU.log "Enabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_website(
-              bucket: @cloud_id,
-              website_configuration: {
-                error_document: {
-                  key: @config['web_error_object']
-                },
-                index_document: {
-                  suffix: @config['web_index_object']
-                }
-              }
-            )
-          elsif !@config['web'] and !current["website"].nil?
-            MU.log "Disabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).delete_bucket_website(
-              bucket: @cloud_id
-            )
-          end
 
           if @config['versioning'] and current["versioning"].status != "Enabled"
             MU.log "Enabling versioning on S3 bucket #{@cloud_id}", MU::NOTICE
@@ -170,6 +155,43 @@ module MU
                 self.class.upload(url, file: file, credentials: @credentials, region: @config['region'])
               }
             }
+          end
+
+          if @config['web'] and current["website"].nil?
+            MU.log "Enabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_website(
+              bucket: @cloud_id,
+              website_configuration: {
+                error_document: {
+                  key: @config['web_error_object']
+                },
+                index_document: {
+                  suffix: @config['web_index_object']
+                }
+              }
+            )
+            ['web_error_object', 'web_index_object'].each { |key|
+              begin
+                MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).head_object(
+                  bucket: @cloud_id,
+                  key: @config[key]
+                )
+              rescue Aws::S3::Errors::NotFound
+                MU.log "Uploading placeholder #{@config[key]} to bucket #{@cloud_id}"
+                MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_object(
+                  acl: "public-read",
+                  bucket: @cloud_id,
+                  key: @config[key],
+                  body: ""
+                )
+              end
+            }
+# XXX check if error and index objs exist, and if not provide placeholders
+          elsif !@config['web'] and !current["website"].nil?
+            MU.log "Disabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).delete_bucket_website(
+              bucket: @cloud_id
+            )
           end
 
           MU.log "Bucket #{@config['name']}: s3://#{@cloud_id}", MU::SUMMARY
@@ -352,6 +374,7 @@ module MU
               found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: true, credentials: args[:credentials], region: args[:region])
               found[args[:cloud_id]]['region'] ||= location.call(args[:cloud_id])
               found[args[:cloud_id]]['region'] ||= args[:region]
+              found[args[:cloud_id]]['name'] ||= args[:cloud_id]
             rescue ::Aws::S3::Errors::NoSuchBucket
             end
           else
@@ -366,6 +389,7 @@ module MU
                   bucket_region ||= args[:region]
                   found[b.name] = describe_bucket(b.name, minimal: true, credentials: args[:credentials], region: bucket_region)
                   found[b.name]["region"] ||= bucket_region
+                  found[b.name]['name'] ||= b.name
                 rescue Aws::S3::Errors::AccessDenied
                 end
               }
