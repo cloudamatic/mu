@@ -852,21 +852,21 @@ end
       # @param name [String]: The name of the cert. For IAM certs this can be any IAM name; for ACM, it's usually the domain name. If multiple matches are found, or no matches, an exception is raised.
       # @param id [String]: The ARN of a known certificate. We just validate that it exists. This is ignored if a name parameter is supplied.
       # @return [String]: The ARN of a matching certificate that is known to exist. If it is an ACM certificate, we also know that it is not expired.
-      def self.findSSLCertificate(name: nil, id: nil, region: myRegion)
+      def self.findSSLCertificate(name: nil, id: nil, region: myRegion, credentials: nil, raise_on_missing: true)
         if name.nil? and name.empty? and id.nil? and id.empty?
           raise MuError, "Can't call findSSLCertificate without specifying either a name or an id"
         end
 
         if !name.nil? and !name.empty?
           matches = []
-          acmcerts = MU::Cloud::AWS.acm(region: region).list_certificates(
+          acmcerts = MU::Cloud::AWS.acm(region: region, credentials: credentials).list_certificates(
             certificate_statuses: ["ISSUED"]
           )
           acmcerts.certificate_summary_list.each { |cert|
             matches << cert.certificate_arn if cert.domain_name == name
           }
           begin
-            iamcert = MU::Cloud::AWS.iam.get_server_certificate(
+            iamcert = MU::Cloud::AWS.iam(credentials: credentials).get_server_certificate(
               server_certificate_name: name
             )
           rescue Aws::IAM::Errors::ValidationError, Aws::IAM::Errors::NoSuchEntity
@@ -878,7 +878,11 @@ end
           if matches.size == 1
             return matches.first
           elsif matches.size == 0
-            raise MuError, "No IAM or ACM certificate named #{name} was found in #{region}"
+            if raise_on_missing
+              raise MuError, "No IAM or ACM certificate named #{name} was found in #{region}"
+            else
+              return nil
+            end
           elsif matches.size > 1
             raise MuError, "Multiple certificates named #{name} were found in #{region}. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."            
           end

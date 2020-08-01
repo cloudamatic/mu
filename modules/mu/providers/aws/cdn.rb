@@ -48,8 +48,11 @@ module MU
               }
             )
             @cloud_id = resp.distribution.id
+            ready?
           rescue ::Aws::CloudFront::Errors::InvalidOrigin => e
             raise MuError.new e.message, details: params[:origins]
+          rescue ::Aws::CloudFront::Errors::InvalidArgument => e
+            raise MuError.new e.message, details: params
           end
         end
 
@@ -105,6 +108,7 @@ module MU
           resp = MU::Cloud::AWS.cloudfront(credentials: credentials).list_distributions
           if resp and resp.distribution_list and resp.distribution_list.items
             ids = Hash[resp.distribution_list.items.map { |distro| [distro.arn, distro] }]
+            pp ids.keys
             ids.each_key { |arn|
               tags = MU::Cloud::AWS.cloudfront(credentials: credentials).list_tags_for_resource(resource: arn).tags.items
 
@@ -249,6 +253,7 @@ module MU
 
             behavior["origin"] = b.target_origin_id
             behavior["is_default"] = true if default
+            behavior["path_pattern"] = b.path_pattern if b.respond_to?(:path_pattern)
             behavior["protocol_policy"] = b.viewer_protocol_policy
             if b.lambda_function_associations and !b.lambda_function_associations.items.empty?
               b.lambda_function_associations.items.each { |f|
@@ -285,16 +290,12 @@ module MU
              !cloud_desc.cache_behaviors.items.empty?
             cloud_desc.cache_behaviors.items.each { |b|
               add_behavior.call(b, false)
-              bok['behaviors'] << {
-                "origin" => b.target_origin_id,
-                "path_pattern" => b.path_pattern
-              }
             }
           end
 
-if bok['name'] == "espier"
-          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc
-          MU.log @cloud_id+" bok", MU::NOTICE, details: bok
+if @cloud_id == "E2SVQ5DTYCQ22P"
+#          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc
+#          MU.log @cloud_id+" bok", MU::NOTICE, details: bok
 end
           bok
         end
@@ -311,6 +312,7 @@ end
               "type" => "boolean",
               "default" => false
             },
+            "certificate" => MU::Config::Ref.schema(type: "certificate", desc: "Required if any domains have been specified with +aliases+; parser will attempt to autodetect a valid ACM or IAM certificate if not specified.", omit_fields: ["cloud", "tag", "deploy_id"]),
             "behaviors" => {
               "items" => {
                 "properties" => {
@@ -463,8 +465,57 @@ end
             end
           }
 
+          if cdn['certificate']
+            cdn['certificate']['region'] ||= cdn['region'] if !cdn['certificate']['id']
+            cdn['certificate']['credentials'] ||= cdn['credentials']
+            cert_arn = MU::Cloud::AWS.findSSLCertificate(
+              name: cdn['certificate']["name"],
+              id: cdn['certificate']["id"],
+              region: cdn['certificate']['region'],
+              credentials: cdn['certificate']['credentials']
+            )
+            if !cert_arn
+              MU.log "Failed to find an ACM or IAM certificate specified in CloudFront distribution #{cdn['name']}", MU::ERR, details: cdn['certificate'].to_h
+              ok = false
+             else
+              cdn['certificate']['id'] ||= cert_arn
+            end
+          end
+
+          if cdn['aliases']
+            cdn['aliases'].each { |a|
+              if !cdn['certificate']
+                foundcert = MU::Cloud::AWS.findSSLCertificate(name: a, region: cdn['region'], credentials: cdn['credentials'], raise_on_missing: false)
+                if !foundcert
+                  foundcert = MU::Cloud::AWS.findSSLCertificate(name: a.sub(/^[^\.]+\./, '*.'), region: cdn['region'], credentials: cdn['credentials'], raise_on_missing: false)
+                end
+                if !foundcert
+                  MU.log "Failed to find an ACM or IAM certificate matching #{a} for CloudFront distribution #{cdn['name']}", MU::ERR
+                  ok = false
+                else
+                  cdn['certificate'] = {
+                    "id" => foundcert,
+                    "credentials" => cdn['credentials']
+                  }
+                  MU.log "Auto-detected SSL certificate for CloudFront distribution #{cdn['name']} alias #{a}", MU::NOTICE, details: cdn['certificate']['id']
+                end
+              else
+# XXX make sure the certificate we have meshes with the alias name, ugh
+              end
+            }
+          end
+
+          path_patterns = {}
           cdn['behaviors'].each { |b|
-            b['path_pattern'] ||= ""
+            b['path_pattern'] ||= "*"
+            path_patterns[b['path_pattern']] ||= 0
+            path_patterns[b['path_pattern']] += 1
+          }
+          path_patterns.each_pair { |pattern, origins|
+            if origins > 1
+              MU.log "CDN #{cdn['name']} has #{origins.to_s} uses of path_pattern '#{pattern}' in its behavior list (must be unique)", MU::ERR, details: cdn['behaviors']
+              ok = false
+            end
           }
 
           ok
@@ -483,6 +534,20 @@ end
             comment: @deploy.deploy_id,
             enabled: !(@config['disabled'])
           }
+
+          if @config['certificate']
+            params[:viewer_certificate] = {
+              ssl_support_method: "sni-only"
+            }
+            if @config['certificate']['id'] =~ /^arn:aws(?:-us-gov)?:iam/
+              params[:viewer_certificate][:iam_certificate_id] = @config['certificate']['id']
+              params[:viewer_certificate][:certificate_source] = "iam"
+            elsif @config['certificate']['id'] =~ /^arn:aws(?:-us-gov)?:acm/
+              params[:viewer_certificate][:acm_certificate_arn] = @config['certificate']['id']
+              params[:viewer_certificate][:certificate_source] = "acm"
+            end
+
+          end
 
           @config['origins'].each { |o|
             origin = {
@@ -565,7 +630,7 @@ end
               end
             }
 
-            if b['is_default'] or @config['behaviors'].size == 1
+            if b['is_default'] or @config['behaviors'].size == 1 or b['path_pattern'] == "*"
               params[:default_cache_behavior] = behavior
             else
               behavior[:path_pattern] = b['path_pattern']
