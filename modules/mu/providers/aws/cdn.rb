@@ -58,6 +58,17 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          if !@config['dns_records'].nil?
+            # XXX this should be a call to @deploy.nameKitten
+            @config['dns_records'].each { |dnsrec|
+              dnsrec['name'] ||= @mu_name.downcase
+              dnsrec['name'] += ".#{MU.environment.downcase}" if dnsrec["append_environment_name"] and dnsrec['name'] !~ /\.#{MU.environment.downcase}$/
+            }
+
+            if !MU::Cloud::AWS.isGovCloud?
+              MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig(@config['dns_records'], target: cloud_desc.domain_name)
+            end
+          end
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -502,6 +513,13 @@ end
               else
 # XXX make sure the certificate we have meshes with the alias name, ugh
               end
+            }
+          end
+
+          if cdn['dns_records']
+            cdn['dns_records'].each { |rec|
+# XXX if this record's domain name jives with our certificate name, add an
+# automatic alias for it
             }
           end
 
