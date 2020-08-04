@@ -173,11 +173,29 @@ module MU
           return resp.hosted_zone if @config["create_zone"]
         end
 
+        # Resolve a record entry (as in {MU::Config::BasketofKittens::dnszones::record} to the full DNS name we would assign it
+        def self.recordToName(record)
+          shortname = record['name']
+          shortname += ".#{MU.environment.downcase}" if record["append_environment_name"]
+
+          zone = if record['zone'].has_key?("id")
+            MU::Cloud::DNSZone.find(cloud_id: record['zone']['id']).values.first
+          else
+            MU::Cloud::DNSZone.find(cloud_id: record['zone']['name']).values.first
+          end
+
+          if zone.nil?
+            raise MuError.new "Failed to locate Route53 DNS Zone", details: record['zone']
+          end
+
+          shortname+"."+zone.name.sub(/\.$/, '')
+        end
+
         # Wrapper for {MU::Cloud::AWS::DNSZone.manageRecord}. Spawns threads to create all
         # requested records in background and returns immediately.
         # @param cfg [Array]: An array of parsed {MU::Config::BasketofKittens::dnszones::records} objects.
         # @param target [String]: Optional target for the records to be created. Overrides targets embedded in cfg records.
-        def self.createRecordsFromConfig(cfg, target: nil)
+        def self.createRecordsFromConfig(cfg, target: nil, name_only: false)
           return if cfg.nil?
           record_threads = []
 
@@ -190,7 +208,6 @@ module MU
               zone = MU::Cloud::DNSZone.find(cloud_id: record['zone']['name']).values.first
             end
 
-            raise MuError, "Failed to locate Route53 DNS Zone for domain #{record['zone']['name']}" if zone.nil?
 
             healthcheck_id = nil
             record['target'] = target if !target.nil?

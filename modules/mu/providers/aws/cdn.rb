@@ -37,6 +37,7 @@ module MU
           @origin_access_identity = "origin-access-identity/cloudfront/"+resp.cloud_front_origin_access_identity.id
 
           params = get_properties
+
           begin
             MU.log "Creating CloudFront distribution #{@mu_name}", details: params
             resp = MU::Cloud::AWS.cloudfront(credentials: @credentials).create_distribution_with_tags(
@@ -49,6 +50,14 @@ module MU
             )
             @cloud_id = resp.distribution.id
             ready?
+          rescue ::Aws::CloudFront::Errors::InvalidViewerCertificate => e
+            cert_arn, cert_domains = MU::Cloud::AWS.findSSLCertificate(
+              name: @config['certificate']["name"],
+              id: @config['certificate']["id"],
+              region: @config['certificate']['region'],
+              credentials: @config['certificate']['credentials']
+            )
+            raise MuError.new e.message, details: { "aliases" => @config['aliases'], "certificate domains" => cert_domains }
           rescue ::Aws::CloudFront::Errors::InvalidOrigin => e
             raise MuError.new e.message, details: params[:origins]
           rescue ::Aws::CloudFront::Errors::InvalidArgument => e
@@ -58,16 +67,18 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          if !@config['dns_records'].nil?
-            # XXX this should be a call to @deploy.nameKitten
-            @config['dns_records'].each { |dnsrec|
-              dnsrec['name'] ||= @mu_name.downcase
-              dnsrec['name'] += ".#{MU.environment.downcase}" if dnsrec["append_environment_name"] and dnsrec['name'] !~ /\.#{MU.environment.downcase}$/
-            }
+          params = get_properties
 
+          if !@config['dns_records'].nil?
             if !MU::Cloud::AWS.isGovCloud?
               MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig(@config['dns_records'], target: cloud_desc.domain_name)
             end
+          end
+          MU.log "CloudFront Distribution #{@config['name']} at #{cloud_desc.domain_name}", MU::SUMMARY
+          if @config['aliases']
+            @config['aliases'].each { |a|
+              MU.log "Alias for CloudFront Distribution #{@config['name']}: #{a}", MU::SUMMARY
+            }
           end
         end
 
@@ -119,7 +130,7 @@ module MU
           resp = MU::Cloud::AWS.cloudfront(credentials: credentials).list_distributions
           if resp and resp.distribution_list and resp.distribution_list.items
             ids = Hash[resp.distribution_list.items.map { |distro| [distro.arn, distro] }]
-            pp ids.keys
+
             ids.each_key { |arn|
               tags = MU::Cloud::AWS.cloudfront(credentials: credentials).list_tags_for_resource(resource: arn).tags.items
 
@@ -476,10 +487,12 @@ end
             end
           }
 
+          cert_domains = nil
+
           if cdn['certificate']
             cdn['certificate']['region'] ||= cdn['region'] if !cdn['certificate']['id']
             cdn['certificate']['credentials'] ||= cdn['credentials']
-            cert_arn = MU::Cloud::AWS.findSSLCertificate(
+            cert_arn, cert_domains = MU::Cloud::AWS.findSSLCertificate(
               name: cdn['certificate']["name"],
               id: cdn['certificate']["id"],
               region: cdn['certificate']['region'],
@@ -489,16 +502,17 @@ end
               MU.log "Failed to find an ACM or IAM certificate specified in CloudFront distribution #{cdn['name']}", MU::ERR, details: cdn['certificate'].to_h
               ok = false
              else
-              cdn['certificate']['id'] ||= cert_arn
+               cdn['certificate']['id'] ||= cert_arn
             end
+            cdn['certificate'].delete('region') if cdn['certificate']['region'].nil?
           end
 
           if cdn['aliases']
             cdn['aliases'].each { |a|
               if !cdn['certificate']
-                foundcert = MU::Cloud::AWS.findSSLCertificate(name: a, region: cdn['region'], credentials: cdn['credentials'], raise_on_missing: false)
+                foundcert, cert_domains = MU::Cloud::AWS.findSSLCertificate(name: a, region: cdn['region'], credentials: cdn['credentials'], raise_on_missing: false)
                 if !foundcert
-                  foundcert = MU::Cloud::AWS.findSSLCertificate(name: a.sub(/^[^\.]+\./, '*.'), region: cdn['region'], credentials: cdn['credentials'], raise_on_missing: false)
+                  foundcert, cert_domains = MU::Cloud::AWS.findSSLCertificate(name: a.sub(/^[^\.]+\./, '*.'), region: cdn['region'], credentials: cdn['credentials'], raise_on_missing: false)
                 end
                 if !foundcert
                   MU.log "Failed to find an ACM or IAM certificate matching #{a} for CloudFront distribution #{cdn['name']}", MU::ERR
@@ -511,15 +525,22 @@ end
                   MU.log "Auto-detected SSL certificate for CloudFront distribution #{cdn['name']} alias #{a}", MU::NOTICE, details: cdn['certificate']['id']
                 end
               else
-# XXX make sure the certificate we have meshes with the alias name, ugh
+                if !MU::Cloud::AWS.nameMatchesCertificate(a, cdn['certificate']['id'])
+                  MU.log "Alias #{a} in CloudFront distro #{cdn['name']} does not appear to fit any domains on our SSL certificate", MU::ERR, details: cert_domains
+                  ok = false
+                end
               end
             }
           end
 
-          if cdn['dns_records']
+          if cdn['dns_records'] and cdn['certificate']
             cdn['dns_records'].each { |rec|
-# XXX if this record's domain name jives with our certificate name, add an
-# automatic alias for it
+              next if !rec['name']
+              dnsname = MU::Cloud.resourceClass("AWS", "DNSZone").recordToName(rec)
+              if MU::Cloud::AWS.nameMatchesCertificate(dnsname, cdn['certificate']['id'])
+                cdn['aliases'] ||= []
+                cdn['aliases'] << dnsname if !cdn['aliases'].include?(dnsname)
+              end
             }
           end
 
@@ -604,6 +625,22 @@ end
 
             params[:origins][:items] << origin
           }
+
+          # if we have any placeholder DNS records that are intended to be
+          # filled out with our runtime @mu_name, do so, and add an alias if
+          # applicable
+          if @config['dns_records']
+            @config['dns_records'].each { |rec|
+              if !rec['name']
+                rec['name'] = @mu_name.downcase
+                dnsname = MU::Cloud.resourceClass("AWS", "DNSZone").recordToName(rec)
+                if @config['certificate'] and MU::Cloud::AWS.nameMatchesCertificate(dnsname, @config['certificate']['id'])
+                  @config['aliases'] ||= []
+                  @config['aliases'] << dnsname if !@config['aliases'].include?(dnsname)
+                end
+              end
+            }
+          end
 
           if @config['aliases']
             params[:aliases] = {

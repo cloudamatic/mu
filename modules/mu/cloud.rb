@@ -462,7 +462,7 @@ module MU
         :can_live_in_vpc => false,
         :cfg_name => "cdn",
         :cfg_plural => "cdns",
-        :interface => self.const_get("Job"),
+        :interface => self.const_get("CDN"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => @@generic_class_methods,

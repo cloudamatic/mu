@@ -838,7 +838,7 @@ module MU
                (!listener["ssl_certificate_id"].nil? and !listener["ssl_certificate_id"].empty?)
               if lb['cloud'] != "CloudFormation" # XXX or maybe do this anyway?
                 begin
-                  listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s, region: lb['region'])
+                  listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s, region: lb['region']).first
                 rescue MuError
                   ok = false
                   next
