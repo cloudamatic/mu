@@ -85,8 +85,33 @@ module MU
 
         end
 
+        # @return [String]
         def url
           "https://#{@cloud_id}.s3.amazonaws.com"
+        end
+
+        # Grant access via our bucket policy to the specified resource
+        # @param arn [String]
+        # @param permissions [Array<String>]
+        # @param paths [Array<String>]
+        def allowPrincipal(arn, permissions: ["GetObject"], paths: ["/*"])
+          @config['policies'] ||= []
+          @config['policies'] << {
+            "name" => arn.sub(/.*?([0-9a-z\-_]+)$/i, '\1'),
+            "grant_to" => [ { "identifier" => arn } ],
+            "permissions" => permissions.map { |p| "s3:"+p },
+            "flag" => "allow",
+            "targets" => paths.map { |p|
+              {
+                "path" => p,
+                "type" => "bucket",
+                "identifier" => @config['name']
+              }
+            }
+          }
+
+          MU.log "policydoc", MU::NOTICE, details: MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
+          applyPolicies
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -98,23 +123,7 @@ module MU
           tagBucket if !@config['scrub_mu_isms']
 
           current = cloud_desc
-          if @config['policies']
-            @config['policies'].each { |pol|
-              pol['grant_to'] ||= [
-                { "id" => "*" }
-              ]
-            }
-
-            policy_docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
-            policy_docs.each { |doc|
-              MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
-              MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
-                bucket: @cloud_id,
-                policy: JSON.generate(doc.values.first)
-              )
-            }
-          end
-
+          applyPolicies if @config['policies']
 
           if @config['versioning'] and current["versioning"].status != "Enabled"
             MU.log "Enabling versioning on S3 bucket #{@cloud_id}", MU::NOTICE
@@ -478,6 +487,27 @@ module MU
             end
           }
           desc
+        end
+
+        private
+
+        def applyPolicies
+          return if !@config['policies']
+
+          @config['policies'].each { |pol|
+            pol['grant_to'] ||= [
+              { "id" => "*" }
+            ]
+          }
+
+          policy_docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
+          policy_docs.each { |doc|
+            MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
+              bucket: @cloud_id,
+              policy: JSON.generate(doc.values.first)
+            )
+          }
         end
 
       end

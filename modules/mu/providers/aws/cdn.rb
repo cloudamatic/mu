@@ -80,6 +80,17 @@ module MU
               MU.log "Alias for CloudFront Distribution #{@config['name']}: #{a}", MU::SUMMARY
             }
           end
+
+          # Make sure we show up in the bucket policy of our target bucket,
+          # if it's a sibling in this deploy
+          cloud_desc(use_cache: false).origins.items.each { |o|
+            if o.s3_origin_config
+              id = o.s3_origin_config.origin_access_identity.sub(/^origin-access-identity\/cloudfront\//, '')
+              bucketref = get_bucketref_from_domain(o.domain_name)
+              bucketref.kitten.allowPrincipal("arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity "+id)
+            end
+          }
+
         end
 
         # Canonical Amazon Resource Number for this resource
@@ -236,16 +247,7 @@ module MU
               "name" => o.id
             }
             if o.s3_origin_config
-              buckets = MU::Cloud.resourceClass("AWS", "Bucket").find(credentials: @credentials, allregions: true, cloud_id: o.domain_name.sub(/\..*/, ''))
-              if buckets and buckets.size == 1
-                origin["bucket"] = MU::Config::Ref.get(
-                  id: buckets.keys.first,
-                  type: "buckets",
-                  region: buckets.values.first["region"],
-                  credentials: @credentials,
-                  cloud: "AWS"
-                )
-              end
+              origin["bucket"] = get_bucketref_from_domain(domain_name)
             end
             origin["domain_name"] = o.domain_name if !origin["bucket"]
             if o.custom_origin_config
@@ -315,8 +317,8 @@ module MU
             }
           end
 
-if @cloud_id == "E2SVQ5DTYCQ22P"
-#          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc
+if ["espier", "espier-dev-2020080400-zn-front"].include?(bok['name'])
+          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc
 #          MU.log @cloud_id+" bok", MU::NOTICE, details: bok
 end
           bok
@@ -473,9 +475,9 @@ end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::cdns}, bare and unvalidated.
         # @param cdn [Hash]: The resource to process and validate
-        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(cdn, _configurator)
+        def self.validateConfig(cdn, configurator)
           ok = true
 
           cdn['origins'].each { |o|
@@ -698,6 +700,21 @@ end
           }
 
           params
+        end
+
+        def get_bucketref_from_domain(domain_name)
+          buckets = MU::Cloud.resourceClass("AWS", "Bucket").find(credentials: @credentials, allregions: true, cloud_id: domain_name.sub(/\..*/, ''))
+          if buckets and buckets.size == 1
+            return MU::Config::Ref.get(
+              id: buckets.keys.first,
+              type: "buckets",
+              region: buckets.values.first["region"],
+              credentials: @credentials,
+              cloud: "AWS"
+            )
+          end
+
+          nil
         end
 
       end
