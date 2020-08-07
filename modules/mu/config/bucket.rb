@@ -52,9 +52,9 @@ module MU
             },
             "upload" => {
               "type" => "array",
-              "description" => "Upload objects to a bucket, where supported",
               "items" => {
                 "type" => "object",
+                "description" => "Upload objects to a bucket, where supported",
                 "required" => ["source", "destination"],
                 "properties" => {
                   "source" => {

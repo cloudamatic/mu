@@ -21,6 +21,8 @@ module MU
         @@region_cache = {}
         @@region_cache_semaphore = Mutex.new
 
+        # Map some filename extensions to mime types. S3 does most of this on
+        # its own, add to this for cases it doesn't cover.
         MIME_MAP = {
           ".svg" => "image/svg+xml"
         }
@@ -91,14 +93,15 @@ module MU
         end
 
         # Grant access via our bucket policy to the specified resource
-        # @param arn [String]
+        # @param principal [String]
         # @param permissions [Array<String>]
         # @param paths [Array<String>]
-        def allowPrincipal(arn, permissions: ["GetObject"], paths: ["/*"])
+        def allowPrincipal(principal, permissions: ["GetObject", "ListBucket"], paths: [""], doc_id: nil, name: nil)
           @config['policies'] ||= []
+          name ||= principal.sub(/.*?([0-9a-z\-_]+)$/i, '\1')
           @config['policies'] << {
-            "name" => arn.sub(/.*?([0-9a-z\-_]+)$/i, '\1'),
-            "grant_to" => [ { "identifier" => arn } ],
+            "name" => name,
+            "grant_to" => [ { "identifier" => principal } ],
             "permissions" => permissions.map { |p| "s3:"+p },
             "flag" => "allow",
             "targets" => paths.map { |p|
@@ -110,8 +113,7 @@ module MU
             }
           }
 
-          MU.log "policydoc", MU::NOTICE, details: MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
-          applyPolicies
+          applyPolicies(doc_id: doc_id)
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -161,7 +163,7 @@ module MU
               end
 
               Hash[upload_me].each_pair { |file, url|
-                self.class.upload(url, file: file, credentials: @credentials, region: @config['region'])
+                self.class.upload(url, file: file, credentials: @credentials, region: @config['region'], acl: batch['acl'])
               }
             }
           end
@@ -363,6 +365,10 @@ module MU
           found = {}
 
           args[:region] ||= MU::Cloud::AWS.myRegion(args[:credentials])
+          if args[:flags] and args[:flags][:allregions]
+            args[:allregions] = args[:flags][:allregions]
+          end
+          minimal = args[:full] ? false : true
 
           location = Proc.new { |name|
             begin
@@ -380,7 +386,7 @@ module MU
 
           if args[:cloud_id]
             begin
-              found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: true, credentials: args[:credentials], region: args[:region])
+              found[args[:cloud_id]] = describe_bucket(args[:cloud_id], minimal: minimal, credentials: args[:credentials], region: args[:region])
               found[args[:cloud_id]]['region'] ||= location.call(args[:cloud_id])
               found[args[:cloud_id]]['region'] ||= args[:region]
               found[args[:cloud_id]]['name'] ||= args[:cloud_id]
@@ -396,7 +402,7 @@ module MU
                     next
                   end
                   bucket_region ||= args[:region]
-                  found[b.name] = describe_bucket(b.name, minimal: true, credentials: args[:credentials], region: bucket_region)
+                  found[b.name] = describe_bucket(b.name, minimal: minimal, credentials: args[:credentials], region: bucket_region)
                   found[b.name]["region"] ||= bucket_region
                   found[b.name]['name'] ||= b.name
                 rescue Aws::S3::Errors::AccessDenied
@@ -408,6 +414,28 @@ module MU
           found
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id
+          }
+
+if @cloud_id =~ /espier/i
+  MU.log @cloud_id, MU::WARN, details: cloud_desc
+end
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          nil
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -415,10 +443,16 @@ module MU
           toplevel_required = []
           schema = {
             "policies" => MU::Cloud.resourceClass("AWS", "Role").condition_schema,
-            "acl" => {
-              "type" => "string",
-              "enum" => ["private", "public-read", "public-read-write", "authenticated-read"],
-              "default" => "private"
+            "upload" => {
+              "items" => {
+                "properties" => {
+                  "acl" => {
+                    "type" => "string",
+                    "enum" => ["private", "public-read", "public-read-write", "authenticated-read"],
+                    "default" => "private"
+                  }
+                }
+              }
             },
             "storage_class" => {
               "type" => "string",
@@ -491,7 +525,7 @@ module MU
 
         private
 
-        def applyPolicies
+        def applyPolicies(doc_id: nil)
           return if !@config['policies']
 
           @config['policies'].each { |pol|
@@ -500,7 +534,7 @@ module MU
             ]
           }
 
-          policy_docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true)
+          policy_docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true, version: "2008-10-17", doc_id: doc_id)
           policy_docs.each { |doc|
             MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
             MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(

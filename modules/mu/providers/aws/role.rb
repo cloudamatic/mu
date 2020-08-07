@@ -1109,13 +1109,14 @@ end
         # @param policies [Array<Hash>]: One or more policy chunks
         # @param deploy_obj [MU::MommaCat]: Deployment object to use when looking up sibling Mu resources
         # @return [Array<Hash>]
-        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false)
+        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false, version: "2012-10-17", doc_id: nil)
           if policies
             name = nil
             doc = {
-              "Version" => "2012-10-17",
+              "Version" => version,
               "Statement" => []
             }
+            doc["Id"] = doc_id if doc_id
             policies.each { |policy|
               policy["flag"] ||= "Allow"
               statement = {
@@ -1156,7 +1157,14 @@ end
                       raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating IAM policy"
                     end
                   else
-                    bucket_prefix = grantee["identifier"].match(/^[^\.]+\.amazonaws\.com$/) ? "Service" : "AWS"
+                    bucket_prefix = if grantee["identifier"].match(/^[^\.]+\.amazonaws\.com$/)
+                      "Service"
+                    elsif grantee["identifier"] =~ /^[a-f0-9]+$/
+                      "CanonicalUser"
+                    else
+                      "AWS"
+                    end
+
                     if bucket_style
                       statement["Principal"] << { bucket_prefix => grantee["identifier"] }
                     else

@@ -173,7 +173,7 @@ module MU
           return resp.hosted_zone if @config["create_zone"]
         end
 
-        # Resolve a record entry (as in {MU::Config::BasketofKittens::dnszones::record} to the full DNS name we would assign it
+        # Resolve a record entry (as in {MU::Config::BasketofKittens::dnszones::records} to the full DNS name we would assign it
         def self.recordToName(record)
           shortname = record['name']
           shortname += ".#{MU.environment.downcase}" if record["append_environment_name"]

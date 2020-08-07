@@ -87,7 +87,11 @@ module MU
             if o.s3_origin_config
               id = o.s3_origin_config.origin_access_identity.sub(/^origin-access-identity\/cloudfront\//, '')
               bucketref = get_bucketref_from_domain(o.domain_name)
-              bucketref.kitten.allowPrincipal("arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity "+id)
+              next if !bucketref or !bucketref.kitten
+              resp = MU::Cloud::AWS.cloudfront(credentials: @credentials).get_cloud_front_origin_access_identity(id: id)
+              pp resp
+#              bucketref.kitten.allowPrincipal("arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity "+id, doc_id: "PolicyForCloudFrontPrivateContent", permissions: ["GetObject"])
+              bucketref.kitten.allowPrincipal(resp.cloud_front_origin_access_identity.s3_canonical_user_id, doc_id: "PolicyForCloudFrontPrivateContent", permissions: ["GetObject"], name: @mu_name)
             end
           }
 
@@ -247,7 +251,7 @@ module MU
               "name" => o.id
             }
             if o.s3_origin_config
-              origin["bucket"] = get_bucketref_from_domain(domain_name)
+              origin["bucket"] = get_bucketref_from_domain(o.domain_name)
             end
             origin["domain_name"] = o.domain_name if !origin["bucket"]
             if o.custom_origin_config
@@ -276,7 +280,6 @@ module MU
             behavior = {}
 
             behavior["origin"] = b.target_origin_id
-            behavior["is_default"] = true if default
             behavior["path_pattern"] = b.path_pattern if b.respond_to?(:path_pattern)
             behavior["protocol_policy"] = b.viewer_protocol_policy
             if b.lambda_function_associations and !b.lambda_function_associations.items.empty?
@@ -317,8 +320,8 @@ module MU
             }
           end
 
-if ["espier", "espier-dev-2020080400-zn-front"].include?(bok['name'])
-          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc
+if bok["name"] =~ /espier/i
+          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc.origins
 #          MU.log @cloud_id+" bok", MU::NOTICE, details: bok
 end
           bok
@@ -334,6 +337,7 @@ end
           schema = {
             "disabled" => {
               "type" => "boolean",
+              "description" => "Flag this CloudFront distribution as disabled",
               "default" => false
             },
             "certificate" => MU::Config::Ref.schema(type: "certificate", desc: "Required if any domains have been specified with +aliases+; parser will attempt to autodetect a valid ACM or IAM certificate if not specified.", omit_fields: ["cloud", "tag", "deploy_id"]),
@@ -342,14 +346,17 @@ end
                 "properties" => {
                   "min_ttl" => {
                     "type" => "integer",
+                    "description" => "The minimum amount of time that you want objects to stay in CloudFront caches before CloudFront forwards another request to your origin to determine whether the object has been updated.",
                     "default" => 0
                   },
                   "default_ttl" => {
                     "type" => "integer",
+                    "description" => "The default amount of time that you want objects to stay in CloudFront caches before CloudFront forwards another request to your origin to determine whether the object has been updated.",
                     "default" => 86400
                   },
                   "max_ttl" => {
                     "type" => "integer",
+                    "description" => "The maximum amount of time that you want objects to stay in CloudFront caches before CloudFront forwards another request to your origin to determine whether the object has been updated.",
                     "default" => 31536000
                   },
                   "protocol_policy" => {
@@ -363,6 +370,7 @@ end
                   },
                   "forwarded_values" => {
                     "type" => "object",
+                    "description" => "HTTP request artifacts to include in requests passed to our back-end +origin+",
                     "default" => {
                       "query_string" => false,
                       "cookies" => {
@@ -372,18 +380,22 @@ end
                     "properties" => {
                       "query_string" => {
                         "type" => "boolean",
+                        "description" => "Indicates whether you want CloudFront to forward query strings to the origin that is associated with this cache behavior and cache based on the query string parameters.",
                         "default" => false
                       },
                       "cookies" => {
                         "type" => "object",
+                        "description" => "A complex type that specifies whether you want CloudFront to forward cookies to the origin and, if so, which ones.",
                         "properties" => {
                           "forward" => {
                             "type" => "string",
+                            "description" => "Specifies which cookies to forward to the origin for this cache behavior: all, none, or the list of cookies specified in +whitelisted_names+",
                             "enum" => %w{none whitelist all}
                           },
                           "whitelisted_names" => {
                             "type" => "array",
                             "items" => {
+                              "description" => "Required if you specify whitelist for the value of +forward+",
                               "type" => "string"
                             }
                           },
@@ -392,12 +404,14 @@ end
                       "headers" => {
                         "type" => "array",
                         "items" => {
+                          "description" => "Specifies the headers, if any, that you want CloudFront to forward to the origin for this cache behavior (whitelisted headers).",
                           "type" => "string"
                         }
                       },
                       "query_string_cache_keys" => {
                         "type" => "array",
                         "items" => {
+                          "description" => "Indicates whether you want CloudFront to forward query strings to the origin that is associated with this cache behavior and cache based on the query string parameters",
                           "type" => "string"
                         }
                       }
@@ -443,6 +457,7 @@ end
                   "custom_headers" => {
                     "type" => "array",
                     "items" => {
+                      "description" => "A list of HTTP header names and values that CloudFront adds to requests it sends to the origin.",
                       "type" => "object",
                       "required" => ["key", "value"],
                       "properties" => {
@@ -687,7 +702,7 @@ end
               end
             }
 
-            if b['is_default'] or @config['behaviors'].size == 1 or b['path_pattern'] == "*"
+            if @config['behaviors'].size == 1 or b['path_pattern'] == "*"
               params[:default_cache_behavior] = behavior
             else
               behavior[:path_pattern] = b['path_pattern']
@@ -712,6 +727,8 @@ end
               credentials: @credentials,
               cloud: "AWS"
             )
+          else
+            MU.log "Failed to locate or isolate a bucket object from #{domain_name}", MU::WARN, details: buckets.keys
           end
 
           nil

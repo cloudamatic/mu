@@ -45,17 +45,21 @@ module MU
               "minItems" => 1,
               "items" => {
                 "type" => "object",
+                "description" => "One or more back-end sources which this CDN will cache",
                 "required" => ["name"],
                 "properties" => {
                   "name" => {
-                    "type" => "string"
+                    "type" => "string",
+                    "description" => "A unique identifying string which other components of this distribution may use to reference this origin"
                   },
                   "domain_name" => {
-                    "type" => "string"
+                    "type" => "string",
+                    "description" => "Domain name of the back-end web server or other resource behind this CDN"
                   },
                   "path" => {
                     "type" => "string",
-                    "default" => ""
+                    "default" => "",
+                    "description" => "Optional path on back-end service to which to map front-end requests"
                   }
                 }
               }
@@ -63,16 +67,16 @@ module MU
             "behaviors" => {
               "type" => "array",
               "items" => {
+                "description" => "Customize the behavior of requests sent to one of this CDN's configured +origins+",
                 "type" => "object",
                 "properties" => {
                   "origin" => {
-                    "type" => "string"
-                  },
-                  "is_default" => {
-                    "type" => "boolean"
+                    "type" => "string",
+                    "description" => "Which of our +origins+ this set of behaviors should map to, by its +name+ field."
                   },
                   "path_pattern" => {
-                    "type" => "string"
+                    "type" => "string",
+                    "description" => "The request path or paths for which this behavior should be invoked"
                   }
                 }
               }
