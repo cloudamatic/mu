@@ -931,6 +931,11 @@ end
         [id, domains.uniq]
       end
 
+      # Given a domain name and an ACM or IAM certificate identifier, sort out
+      # whether the domain name is "covered" by the certificate
+      # @param name [String]
+      # @param cert_id [String]
+      # @return [Boolean]
       def self.nameMatchesCertificate(name, cert_id)
         _id, domains = findSSLCertificate(id: cert_id)
         return false if !domains

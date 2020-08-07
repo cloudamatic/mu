@@ -636,6 +636,7 @@ module MU
           ok
         end
 
+        # stub
         def self.diskConfig(config, create = true, disk_as_url = true, credentials: nil)
         end
 

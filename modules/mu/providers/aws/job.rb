@@ -278,20 +278,24 @@ module MU
             },
             "run_command_parameters" => {
               "type" => "object",
+              "description" => "Parameters used when you are using the rule to invoke Amazon EC2 Run Command",
               "required" => ["run_command_targets"],
               "properties" => {
                 "run_command_targets" => {
                   "type" => "array",
                   "items" => {
                     "type" => "object",
+                    "description" => "Currently, AWS supports including only one +run_command_targets+ block, which specifies either an array of InstanceIds or a tag.",
                     "required" => ["key", "values"],
                     "properties" => {
                       "key" => {
-                        "type" => "string"
+                        "type" => "string",
+                        "description" => "Can be either +tag: tag-key+ or +InstanceIds+"
                       },
                       "values" => {
                         "type" => "array",
                         "items" => {
+                          "description" => "If +key+ is +tag: tag-key+, +values+ is a list of tag values; if +key+ is +InstanceIds+, +values+ is a list of Amazon EC2 instance IDs.",
                           "type" => "string"
                         }
                       }
@@ -302,38 +306,48 @@ module MU
             },
             "input_transformer" => {
               "type" => "object",
+              "description" => "Settings to enable you to provide custom input to a target based on certain event data. You can extract one or more key-value pairs from the event and then use that data to send customized input to the target.",
               "required" => ["input_template"],
               "properties" => {
                 "input_template" => {
-                  "type" => "string"
+                  "type" => "string",
+                  "description" => "Input template where you specify placeholders that will be filled with the values of the keys from +input_paths_map+ to customize the data sent to the target."
                 },
                 "input_paths_map" => {
                   "type" => "object",
+                  "description" => "Hash representing JSON paths to be extracted from the event"
                 }
               }
             },
             "batch_parameters" => {
               "type" => "object",
+              "description" => "If the event target is an AWS Batch job, this contains the job definition, job name, and other parameters. See: https://docs.aws.amazon.com/batch/latest/userguide/jobs.html",
               "required" => ["job_definition", "job_name"],
               "properties" => {
                 "job_definition" => {
+                  "description" => "The ARN or name of the job definition to use if the event target is an AWS Batch job.",
                   "type" => "string"
                 },
                 "job_name" => {
+                  "description" => "The name to use for this execution of the job, if the target is an AWS Batch job.",
                   "type" => "string"
                 },
                 "array_properties" => {
                   "type" => "object",
+                  "description" => "The array properties for the submitted job, such as the size of the array.",
                   "properties" => {
                     "size" => {
+                      "description" => "Size of the submitted array",
                       "type" => "integer"
                     }
                   }
                 },
                 "retry_strategy" => {
                   "type" => "object",
+                  "description" => "The retry strategy to use for failed jobs, if the target is an AWS Batch job.",
                   "properties" => {
                     "attempts" => {
+                      "description" => "Number of retry attempts, valid values from 1-10",
                       "type" => "integer"
                     }
                   }
@@ -342,6 +356,7 @@ module MU
             },
             "sqs_parameters" => {
               "type" => "object",
+              "description" => "Contains the message group ID to use when the target is an SQS FIFO queue.",
               "required" => ["message_group_id"],
               "properties" => {
                 "message_group_id" => {
@@ -351,6 +366,7 @@ module MU
             },
             "kinesis_parameters" => {
               "type" => "object",
+              "description" => "The custom parameter you can use to control the shard assignment, when the target is a Kinesis data stream.",
               "required" => ["partition_key_path"],
               "properties" => {
                 "partition_key_path" => {
@@ -360,10 +376,12 @@ module MU
             },
             "http_parameters" => {
               "type" => "object",
+              "description" => "Contains the HTTP parameters to use when the target is a API Gateway REST endpoint.",
               "properties" => {
                 "path_parameter_values" => {
                   "type" => "array",
                   "items" => {
+                    "description" => "The path parameter values to be used to populate API Gateway REST API path wildcards (\"*\").",
                     "type" => "string"
                   }
                 },
