@@ -116,10 +116,11 @@ module MU
                 statement_id: "#{@mu_name}-ID-1",
               }
 
-#              MU.log "trigger properties", MU::NOTICE, details: trigger_properties
+              MU.log "trigger properties", MU::NOTICE, details: trigger_properties
               begin
                 MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
+                # just means the permission is already there
               end
               adjust_trigger(tr['service'], trigger_arn, arn, @mu_name) 
             }
@@ -154,7 +155,7 @@ module MU
             source_arn: calling_arn, 
             statement_id: "#{calling_service}-#{calling_name}",
           }
-
+MU.log "addTrigger called from #{caller[0]}", MU::WARN, details: trigger
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
@@ -233,9 +234,8 @@ module MU
                 }
               ]
             })
-#          when 'apigateway'
-# XXX this is actually happening in ::Endpoint... maybe...            
-#            MU.log "Creation of API Gateway integrations not yet implemented, you'll have to do this manually", MU::WARN, details: "(because we'll basically have to implement all of APIG for this)"
+          when 'apigateway'
+            addTrigger(trig_arn, "lambda", trig_arn.sub(/.*?([a-z0-9\-_]+)$/i, '\1'))
           end 
         end
 

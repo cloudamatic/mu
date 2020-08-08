@@ -169,7 +169,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
 
               resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).put_integration(params)
 
-              if m['integrate_with']['type'] == "function"
+              if m['integrate_with']['type'] =~ /^functions?$/
                 function_obj.addTrigger(method_arn, "apigateway", @config['name'])
               end
 
