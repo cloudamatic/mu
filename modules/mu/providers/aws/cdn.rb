@@ -39,16 +39,19 @@ module MU
           params = get_properties
 
           begin
+MU.log @config['name'], MU::NOTICE, details: params
             MU.log "Creating CloudFront distribution #{@mu_name}", details: params
-            resp = MU::Cloud::AWS.cloudfront(credentials: @credentials).create_distribution_with_tags(
-              distribution_config_with_tags: {
-                distribution_config: params,
-                tags: {
-                  items: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+            MU.retrier([Aws::CloudFront::Errors::InvalidOrigin], wait: 10, max: 6) {
+              resp = MU::Cloud::AWS.cloudfront(credentials: @credentials).create_distribution_with_tags(
+                distribution_config_with_tags: {
+                  distribution_config: params,
+                  tags: {
+                    items: @tags.each_key.map { |k| { :key => k, :value => @tags[k] } }
+                  }
                 }
-              }
-            )
-            @cloud_id = resp.distribution.id
+              )
+              @cloud_id = resp.distribution.id
+            }
             ready?
           rescue ::Aws::CloudFront::Errors::InvalidViewerCertificate => e
             cert_arn, cert_domains = MU::Cloud::AWS.findSSLCertificate(
@@ -156,7 +159,7 @@ module MU
                 found_muid = true if tag.key == "MU-ID" && tag.value == deploy_id
                 found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
               }
-
+# XXX launch threads for this so we can keep deleting
               if found_muid and (ignoremaster or found_master)
                 current = MU::Cloud::AWS.cloudfront(credentials: credentials).get_distribution_config(id: ids[arn].id)
                 etag = current.etag
@@ -424,6 +427,7 @@ end
               "items" => {
                 "properties" => {
                   "bucket" => MU::Config::Ref.schema(type: "buckets", desc: "Reference an S3 bucket for use as an origin"),
+                  "endpoint" => MU::Config::Ref.schema(type: "endpoints", desc: "Reference an API Gateway for use as an origin"),
                   "loadbalancer" => MU::Config::Ref.schema(type: "loadbalancers", desc: "Reference a Load Balancer for use as an origin"),
                   "connection_attempts" => {
                     "type" => "integer",
@@ -496,12 +500,20 @@ end
           ok = true
 
           cdn['origins'].each { |o|
-            if o['bucket']
-              target_ref = MU::Config::Ref.get(o['bucket'])
-              if target_ref.name
-                MU::Config.addDependency(cdn, target_ref.name, "buckets", phase: "groom")
+            count = 0
+            ['bucket', 'endpoint', 'loadbalancer'].each { |sib_type|
+              if o[sib_type]
+                if count > 0
+                  ok = false
+                  MU.log "Origin in CloudFront distro #{cdn['name']} may specify at most one of bucket, endpoint, or loadbalancer.", MU::ERR
+                end
+                target_ref = MU::Config::Ref.get(o[sib_type])
+                if target_ref.name
+                  MU::Config.addDependency(cdn, target_ref.name, sib_type, phase: "groom")
+                end
+                count += 1
               end
-            end
+            }
           }
 
           cert_domains = nil
@@ -609,16 +621,33 @@ end
             origin = {
               id: o['name'],
             }
-            if o['bucket']
-              bucket_obj = MU::Config::Ref.get(o['bucket']).kitten(@deploy, cloud: "AWS")
-              if !bucket_obj
-                raise MuError.new "Failed to resolve bucket referenced in CloudFront distribution #{@config['name']}", details: o['bucket'].to_h
+            sib_obj = nil
+            ['bucket', 'endpoint', 'loadbalancer'].each { |sib_type|
+              if o[sib_type]
+                sib_obj = MU::Config::Ref.get(o[sib_type]).kitten(@deploy, cloud: "AWS")
+                if !sib_obj
+                  raise MuError.new "Failed to resolve #{sib_type} referenced in CloudFront distribution #{@config['name']}", details: o[sib_type].to_h
+                end
+                break
               end
-              origin[:domain_name] = bucket_obj.cloud_desc["name"]+".s3.amazonaws.com"
+            }
+            if o['bucket']
+              origin[:domain_name] = sib_obj.cloud_desc["name"]+".s3.amazonaws.com"
               origin[:origin_path] = o['path'] if o['path']
               origin[:s3_origin_config] = {
                 origin_access_identity: @origin_access_identity
               }
+            elsif o['endpoint']
+              origin[:domain_name] = sib_obj.cloud_id+".execute-api."+sib_obj.config['region']+".amazonaws.com"
+              origin[:custom_origin_config] = {
+                origin_protocol_policy: "https-only"
+              }
+              if sib_obj.config['deploy_to']
+                origin[:origin_path] ||= "/"+sib_obj.config['deploy_to']
+              end
+            elsif o['loadbalancer']
+              origin[:domain_name] = sib_obj.cloud_desc.dns_name
+              origin[:origin_path] = o['path'] if o['path']
             else # XXX make sure parser guarantees these are present
               origin[:domain_name] = o['domain_name']
               origin[:origin_path] = o['path']
@@ -637,8 +666,28 @@ end
             end
 
             [:connection_attempts, :connection_timeout].each { |field|
-              origin[field] = o[field.to_s]
+              origin[field] ||= o[field.to_s]
             }
+            if !origin[:s3_origin_config]
+              maplet = {
+                'protocol_policy' => :origin_protocol_policy,
+                'ssl_protocols' => :origin_ssl_protocols,
+                'http_port' => :http_port,
+                'https_port' => :https_port
+              }
+              maplet.each_pair { |field, paramfield|
+                next if !o[field]
+                origin[:custom_origin_config] ||= {}
+                origin[:custom_origin_config][paramfield] ||= if o[field.to_s].is_a?(Array)
+                  {
+                    quantity: o[field].size,
+                    items: o[field]
+                  }
+                else
+                  o[field]
+                end
+              }
+            end
 
             params[:origins][:items] << origin
           }
