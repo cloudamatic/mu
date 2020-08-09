@@ -147,7 +147,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 :resource_id => parent_id,
                 :type => type, # XXX Lambda and Firehose can do AWS_PROXY
                 :content_handling => "CONVERT_TO_TEXT", # XXX expose in BoK
-                :http_method => m['type']
+                :http_method => m['type'],
+                :timeout_in_millis => m['timeout_in_millis']
 #                  credentials: role_arn
               }
               params[:uri] = uri if uri
@@ -211,8 +212,24 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
           # this automatically creates a stage with the same name, so we don't
           # have to deal with that
 
-          my_url = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com/"+@config['deploy_to']
+          my_hostname = @cloud_id+".execute-api."+@config['region']+".amazonaws.com"
+          my_url = "https://"+my_hostname+"/"+@config['deploy_to']
           MU.log "API Endpoint #{@config['name']}: "+my_url, MU::SUMMARY
+
+          # if we have any placeholder DNS records that are intended to be
+          # filled out with our runtime @mu_name, do so, and add an alias if
+          # applicable
+          if @config['dns_records'] and !MU::Cloud::AWS.isGovCloud?
+            @config['dns_records'].each { |rec|
+              if !rec['name']
+                rec['name'] = @mu_name.downcase
+              end
+              dnsname = MU::Cloud.resourceClass("AWS", "DNSZone").recordToName(rec)
+              MU.log "Alias for API Endpoint #{@config['name']}: https://"+dnsname+"/"+@config['deploy_to'], MU::SUMMARY
+            }
+            MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig(@config['dns_records'], target: my_hostname)
+          end
+
 
 #          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).create_authorizer(
 #            rest_api_id: @cloud_id,
@@ -438,6 +455,11 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                         "type" => "string",
                         "description" => "The HTTP method to use when contacting our integrated backend. If not specified, this will be set to match our front end.",
                         "enum" => ["GET", "POST", "PUT", "HEAD", "DELETE", "CONNECT", "OPTIONS", "TRACE"],
+                      },
+                      "timeout_in_millis" => {
+                        "type" => "integer",
+                        "description" => "Custom timeout between +50+ and +29,000+ milliseconds.",
+                        "default" => 29000
                       },
                       "url" => {
                         "type" => "string",
