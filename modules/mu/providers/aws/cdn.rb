@@ -145,8 +145,10 @@ MU.log @config['name'], MU::NOTICE, details: params
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
         def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
+
           resp = MU::Cloud::AWS.cloudfront(credentials: credentials).list_distributions
           if resp and resp.distribution_list and resp.distribution_list.items
+            delete_threads = []
             ids = Hash[resp.distribution_list.items.map { |distro| [distro.arn, distro] }]
 
             ids.each_key { |arn|
@@ -159,30 +161,33 @@ MU.log @config['name'], MU::NOTICE, details: params
                 found_muid = true if tag.key == "MU-ID" && tag.value == deploy_id
                 found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
               }
-# XXX launch threads for this so we can keep deleting
+
               if found_muid and (ignoremaster or found_master)
-                current = MU::Cloud::AWS.cloudfront(credentials: credentials).get_distribution_config(id: ids[arn].id)
-                etag = current.etag
+                delete_threads << Thread.new(arn, name) { |my_arn, my_name|
+                  current = MU::Cloud::AWS.cloudfront(credentials: credentials).get_distribution_config(id: ids[my_arn].id)
+                  etag = current.etag
 
-                if !noop
+                  if !noop
 
-                  if current.distribution_config.enabled
-                    newcfg = MU.structToHash(current.distribution_config)
-                    newcfg[:enabled] = false
-                    MU.log "Disabling CloudFront distribution #{name ? name : ids[arn].id})", MU::NOTICE
-                    updated = MU::Cloud::AWS.cloudfront(credentials: credentials).update_distribution(id: ids[arn].id, distribution_config: newcfg, if_match: etag)
-                    etag = updated.etag
+                    if current.distribution_config.enabled
+                      newcfg = MU.structToHash(current.distribution_config)
+                      newcfg[:enabled] = false
+                      MU.log "Disabling CloudFront distribution #{my_name ? my_name : ids[my_arn].id})", MU::NOTICE
+                      updated = MU::Cloud::AWS.cloudfront(credentials: credentials).update_distribution(id: ids[my_arn].id, distribution_config: newcfg, if_match: etag)
+                      etag = updated.etag
+                    end
+
                   end
 
-                end
-
-                MU.log "Deleting CloudFront distribution #{name ? name : ids[arn].id})"
-                if !noop
-                  ready?(ids[arn].id, credentials: credentials)
-                  MU::Cloud::AWS.cloudfront(credentials: credentials).delete_distribution(id: ids[arn].id, if_match: etag)
-                end
+                  MU.log "Deleting CloudFront distribution #{my_name ? my_name : ids[my_arn].id})"
+                  if !noop
+                    ready?(ids[my_arn].id, credentials: credentials)
+                    MU::Cloud::AWS.cloudfront(credentials: credentials).delete_distribution(id: ids[my_arn].id, if_match: etag)
+                  end
+                }
               end
             }
+            delete_threads.each { |t| t.join }
           end
 
           resp = MU::Cloud::AWS.cloudfront(credentials: credentials).list_cloud_front_origin_access_identities
@@ -194,7 +199,11 @@ MU.log @config['name'], MU::NOTICE, details: params
                 MU.log "Deleting CloudFront origin access identity #{ident.id} (#{ident.comment})"
                 if !noop
                   getresp = MU::Cloud::AWS.cloudfront(credentials: credentials).get_cloud_front_origin_access_identity(id: ident.id)
-                  MU::Cloud::AWS.cloudfront(credentials: credentials).delete_cloud_front_origin_access_identity(id: ident.id, if_match: getresp.etag)
+                  begin
+                    MU::Cloud::AWS.cloudfront(credentials: credentials).delete_cloud_front_origin_access_identity(id: ident.id, if_match: getresp.etag)
+                  rescue ::Aws::CloudFront::Errors::CloudFrontOriginAccessIdentityInUse => e
+                    MU.log "Got #{e.message} deleting #{ident.id}; it likely belongs to a distribution we can't to delete", MU::WARN, details: ident
+                  end
                 end
               end
             }

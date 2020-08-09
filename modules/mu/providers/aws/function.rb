@@ -155,7 +155,7 @@ module MU
             source_arn: calling_arn, 
             statement_id: "#{calling_service}-#{calling_name}",
           }
-MU.log "addTrigger called from #{caller[0]}", MU::WARN, details: trigger
+
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
@@ -411,6 +411,7 @@ MU.log "addTrigger called from #{caller[0]}", MU::WARN, details: trigger
 
           begin
             pol = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_policy(function_name: @cloud_id).policy
+MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV-2020080900-LN-ON-DEMAND-SCANNER"
             if pol
               bok['triggers'] ||= []
               JSON.parse(pol)["Statement"].each { |s|

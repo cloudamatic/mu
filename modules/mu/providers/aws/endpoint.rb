@@ -37,6 +37,7 @@ module MU
 
             method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
             path_part = ["", "/"].include?(m['path']) ? nil : m['path']
+            method_arn.sub!(/\/\/$/, '/')
 
             resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials']).get_resources(
               rest_api_id: @cloud_id
@@ -179,7 +180,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                   :resource_id => parent_id,
                   :http_method => m['type'],
                   :status_code => r['code'].to_s,
-                  :selection_pattern => ""
+                  :selection_pattern => ".*"
                 }
                 if r['headers']
                   params[:response_parameters] = r['headers'].map { |h|
@@ -238,7 +239,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
         def notify
           return nil if !@cloud_id or !cloud_desc(use_cache: false)
           deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
-          deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com/"+@config['deploy_to']
+          deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com"
+          deploy_struct['url'] += "/"+@config['deploy_to'] if @config['deploy_to']
 # XXX stages and whatnot
           return deploy_struct
         end
@@ -322,6 +324,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @config['credentials
                 resource_id: r.id,
                 http_method: http_type 
               )
+MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match(/ESPIER/)
               method['type'] = http_type
               method['path'] = r.path_part || r.path
               if m_desc.method_responses
