@@ -39,7 +39,6 @@ module MU
           params = get_properties
 
           begin
-MU.log @config['name'], MU::NOTICE, details: params
             MU.log "Creating CloudFront distribution #{@mu_name}", details: params
             MU.retrier([Aws::CloudFront::Errors::InvalidOrigin], wait: 10, max: 6) {
               resp = MU::Cloud::AWS.cloudfront(credentials: @credentials).create_distribution_with_tags(
@@ -528,21 +527,11 @@ end
           cert_domains = nil
 
           if cdn['certificate']
-            cdn['certificate']['region'] ||= cdn['region'] if !cdn['certificate']['id']
-            cdn['certificate']['credentials'] ||= cdn['credentials']
-            cert_arn, cert_domains = MU::Cloud::AWS.findSSLCertificate(
-              name: cdn['certificate']["name"],
-              id: cdn['certificate']["id"],
-              region: cdn['certificate']['region'],
-              credentials: cdn['certificate']['credentials']
-            )
+            cert_arn, cert_domains = MU::Cloud::AWS.resolveSSLCertificate(cdn['certificate'], region: cdn['region'], credentials: cdn['credentials'])
             if !cert_arn
               MU.log "Failed to find an ACM or IAM certificate specified in CloudFront distribution #{cdn['name']}", MU::ERR, details: cdn['certificate'].to_h
               ok = false
-             else
-               cdn['certificate']['id'] ||= cert_arn
             end
-            cdn['certificate'].delete('region') if cdn['certificate']['region'].nil?
           end
 
           if cdn['aliases']

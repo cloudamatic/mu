@@ -72,7 +72,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-
+return
           old_props = MU.structToHash(cloud_desc)
 
           new_props = get_properties
@@ -116,7 +116,7 @@ module MU
                 statement_id: "#{@mu_name}-ID-1",
               }
 
-              MU.log "trigger properties", MU::NOTICE, details: trigger_properties
+              MU.log "Adding #{tr['service']} #{tr['name']} trigger to Lambda function #{@cloud_id}", details: trigger_properties
               begin
                 MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException

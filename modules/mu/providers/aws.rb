@@ -948,6 +948,37 @@ end
         false
       end
 
+      # Given a {MU::Config::Ref} block for an IAM or ACM SSL certificate,
+      # look up and validate the specified certificate. This is intended to be
+      # invoked from resource implementations' +validateConfig+ methods.
+      # @param certblock [Hash,MU::Config::Ref]: 
+      # @param region [String]: Default region to use when looking up the certificate, if its configuration block does not specify any
+      # @param credentials [String]: Default credentials to use when looking up the certificate, if its configuration block does not specify any
+      # @return [Boolean]
+      def self.resolveSSLCertificate(certblock, region: nil, credentials: nil)
+        return false if !certblock
+        ok = true
+
+        certblock['region'] ||= region if !certblock['id']
+        certblock['credentials'] ||= credentials
+        cert_arn, cert_domains = MU::Cloud::AWS.findSSLCertificate(
+          name: certblock["name"],
+          id: certblock["id"],
+          region: certblock['region'],
+          credentials: certblock['credentials']
+        )
+
+        if cert_arn
+          certblock['id'] ||= cert_arn
+        end
+
+        ['region', 'credentials'].each { |field|
+          certblock.delete(field) if certblock[field].nil?
+        }
+
+        [cert_arn, cert_domains]
+      end
+
       # Amazon Certificate Manager API
       def self.acm(region: MU.curRegion, credentials: nil)
         region ||= myRegion
