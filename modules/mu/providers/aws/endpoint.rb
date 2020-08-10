@@ -268,13 +268,14 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 
               mappings = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_base_path_mappings(domain_name: dnsname, limit: 500).items
               found = false
-              mappings.each { |m|
-MU.log @cloud_id, MU::WARN, details: m
-                if m.rest_api_id == @cloud_id and stage == @config['deploy_to']
-                  found = true
-                  break
-                end
-              }
+              if mappings
+                mappings.each { |m|
+                  if m.rest_api_id == @cloud_id and stage == @config['deploy_to']
+                    found = true
+                    break
+                  end
+                }
+              end
               if !found
                 MU.log "Mapping #{dnsname} to API Gateway #{@mu_name}"
                 MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_base_path_mapping(
