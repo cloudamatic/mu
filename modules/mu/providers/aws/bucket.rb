@@ -205,6 +205,34 @@ module MU
             )
           end
 
+          symbolify_keys = Proc.new { |parent|
+            if parent.is_a?(Hash)
+              newhash = {}
+              parent.each_pair { |k, v|
+                newhash[k.to_sym] = symbolify_keys.call(v)
+              }
+              newhash
+            elsif parent.is_a?(Array)
+              newarr = []
+              parent.each { |child|
+                newarr << symbolify_keys.call(child)
+              }
+              newarr
+            else
+              parent
+            end
+          }
+
+          if @config['cors']
+            MU.log "Setting CORS rules on #{@cloud_id}", details: @config['cors']
+            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_cors(
+              bucket: @cloud_id,
+              cors_configuration: {
+                cors_rules: symbolify_keys.call(@config['cors'])
+              }
+            )
+          end
+
           MU.log "Bucket #{@config['name']}: s3://#{@cloud_id}", MU::SUMMARY
           if @config['web']
             MU.log "Bucket #{@config['name']} web access: http://#{@cloud_id}.s3-website-#{@config['region']}.amazonaws.com/", MU::SUMMARY
@@ -458,6 +486,52 @@ end
               "type" => "string",
               "enum" => ["STANDARD", "REDUCED_REDUNDANCY", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER"],
               "default" => "STANDARD"
+            },
+            "cors" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "AWS S3 Cross-origin resource sharing policy",
+                "required" => ["allowed_origins"],
+                "properties" => {
+                  "allowed_headers" => {
+                    "type" => "array",
+                    "default" => ["*"],
+                    "items" => {
+                      "type" => "string",
+                      "description" => "Specifies which headers are allowed in a preflight request through the +Access-Control-Request-Headers+ header."
+                    }
+                  },
+                  "allowed_methods" => {
+                    "type" => "array",
+                    "default" => ["GET"],
+                    "items" => {
+                      "type" => "string",
+                      "enum" => %w{GET PUT POST DELETE HEAD},
+                      "description" => "Specifies which HTTP methods for which cross-domain request are permitted"
+                    }
+                  },
+                  "allowed_origins" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "Origins (in URL form) for which cross-domain request are permitted"  
+                    }
+                  },
+                  "expose_headers" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "string",
+                      "description" => "Headers in the response which should be visible to the requesting application"
+                    }
+                  },
+                  "max_age_seconds" => {
+                    "type" => "integer",
+                    "default" => 3600,
+                    "description" => "Maximum cache time for preflight requests"
+                  }
+                }
+              }
             }
           }
           [toplevel_required, schema]
