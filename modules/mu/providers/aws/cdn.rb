@@ -383,10 +383,7 @@ end
                     "type" => "object",
                     "description" => "HTTP request artifacts to include in requests passed to our back-end +origin+",
                     "default" => {
-                      "query_string" => false,
-                      "cookies" => {
-                        "forward" => "none"
-                      }
+                      "query_string" => false
                     },
                     "properties" => {
                       "query_string" => {
@@ -397,6 +394,9 @@ end
                       "cookies" => {
                         "type" => "object",
                         "description" => "A complex type that specifies whether you want CloudFront to forward cookies to the origin and, if so, which ones.",
+                        "default" => {
+                          "forward" => "none"
+                        },
                         "properties" => {
                           "forward" => {
                             "type" => "string",
