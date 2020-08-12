@@ -18,7 +18,8 @@ module MU
             description: @deploy.deploy_id,
             endpoint_configuration: {
               types: ["REGIONAL"] # XXX expose in BoK ["REGIONAL", "EDGE", "PRIVATE"]
-            }
+            },
+            tags: @tags
           )
           @cloud_id = resp.id
           generate_methods(false)

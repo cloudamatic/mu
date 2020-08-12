@@ -227,6 +227,10 @@ module MU
               }
             end
 
+            MU::MommaCat.listOptionalTags.each_pair { |k, v|
+              @tags[k] ||= v if v
+            }
+
             if @cloudparentclass.respond_to?(:resourceInitHook)
               @cloudparentclass.resourceInitHook(self, @deploy)
             end
@@ -265,6 +269,7 @@ module MU
                 attr_accessor :mu_windows_name # XXX might be ok as reader now
               end 
             end
+            @tags["Name"] ||= @mu_name if @mu_name
           end
 
         end
