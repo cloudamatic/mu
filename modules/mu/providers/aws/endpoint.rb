@@ -128,16 +128,17 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 #              end
 
               function_obj = nil
+              aws_int_type = m['integrate_with']['proxy'] ? "AWS_PROXY" : "AWS"
 
               uri, type = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
-                ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",  (m['integrate_with']['proxy'] ? "AWS_PROXY" :"AWS")]
+                ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", aws_int_type]
               elsif m['integrate_with']['type'] == "functions"
                 function_obj = nil
                 MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { function_obj.nil? }) {
                   function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
                 }
-                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.cloudobj.arn+"/invocations", "AWS"]
+                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.cloudobj.arn+"/invocations", aws_int_type]
               elsif m['integrate_with']['type'] == "mock"
                 [nil, "MOCK"]
               end
@@ -483,6 +484,7 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                   if m_desc.method_integration.http_method
                     method['integrate_with']['backend_http_method'] = m_desc.method_integration.http_method
                   end
+                  method['proxy'] = true if m_desc.method_integration.type == "AWS_PROXY"
                 elsif m_desc.method_integration.type == "MOCK"
                   method['integrate_with'] = {
                     "type" => "mock"
