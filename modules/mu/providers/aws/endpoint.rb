@@ -236,11 +236,12 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           if @config['domain_names']
             @config['domain_names'].each { |dom|
               dnsname = if dom['dns_record']
-                dnsname = print_dns_alias.call(dom['dns_record'])
-                MU.log "Alias for API Endpoint #{@config['name']}: https://"+dnsname, MU::SUMMARY
+                print_dns_alias.call(dom['dns_record'])
               else
                 dom['unmanaged_name']
               end
+              MU.log "Alias for API Endpoint #{@config['name']}: https://"+dnsname, MU::SUMMARY
+
               certfield, dnsfield = if dom['endpoint_type'] == "EDGE"
                 [:certificate_arn, :distribution_domain_name]
               else
