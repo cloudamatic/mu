@@ -131,7 +131,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 
               uri, type = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
-                ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", "AWS"]
+                ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}",  (m['integrate_with']['proxy'] ? "AWS_PROXY" :"AWS")]
               elsif m['integrate_with']['type'] == "functions"
                 function_obj = nil
                 MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { function_obj.nil? }) {
@@ -640,9 +640,8 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                         "description" => "A Mu resource name, for integrations with a sibling resource (e.g. a Function)"
                       },
                       "cors" => {
-                        "type" => "boolean",
-                        "description" => "When enabled, this will create an +OPTIONS+ method under this path with request and response header mappings that implement Cross-Origin Resource Sharing",
-                        "default" => true
+                        "type" => "string",
+                        "description" => "When enabled, this will create an +OPTIONS+ method under this path with request and response header mappings that implement Cross-Origin Resource Sharing, setting +Access-Control-Allow-Origin+ to the specified value.",
                       },
                       "type" => {
                         "type" => "string",
@@ -776,13 +775,13 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                   r['headers'] ||= []
                   r['headers'] << {
                     "header" => "Access-Control-Allow-Origin",
-                    "value" => "*",
+                    "value" => m['cors'],
                     "required" => true
                   }
                   r['headers'].uniq!
                 }
 
-                append << cors_option_integrations(m['path'])
+                append << cors_option_integrations(m['path'], m['cors'])
               end
 
               if !m['iam_role']
@@ -824,7 +823,7 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
           ok
         end
 
-        def self.cors_option_integrations(path)
+        def self.cors_option_integrations(path, origins)
           {
             "type" => "OPTIONS",
             "path" => path,
@@ -845,7 +844,7 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                   },
                   {
                     "header" => "Access-Control-Allow-Origin",
-                    "value" => "*",
+                    "value" => origins,
                     "required" => true
                   }
                 ],
