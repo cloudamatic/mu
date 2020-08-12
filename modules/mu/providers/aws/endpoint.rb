@@ -219,7 +219,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           print_dns_alias = Proc.new { |rec|
             rec['name'] ||= @mu_name.downcase
             dnsname = MU::Cloud.resourceClass("AWS", "DNSZone").recordToName(rec)
-            MU.log "Alias for API Endpoint #{@config['name']}: https://"+dnsname+"/"+@config['deploy_to'], MU::SUMMARY
             dnsname
           }
 
@@ -228,7 +227,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           # applicable
           if @config['dns_records'] and !MU::Cloud::AWS.isGovCloud?
             @config['dns_records'].each { |rec|
-              print_dns_alias.call(rec)
+              dnsname = print_dns_alias.call(rec)
+              MU.log "Alias for API Endpoint #{@config['name']}: https://"+dnsname+"/"+@config['deploy_to'], MU::SUMMARY
             }
             MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig(@config['dns_records'], target: my_hostname)
           end
@@ -236,7 +236,8 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           if @config['domain_names']
             @config['domain_names'].each { |dom|
               dnsname = if dom['dns_record']
-                print_dns_alias.call(dom['dns_record'])
+                dnsname = print_dns_alias.call(dom['dns_record'])
+                MU.log "Alias for API Endpoint #{@config['name']}: https://"+dnsname, MU::SUMMARY
               else
                 dom['unmanaged_name']
               end
