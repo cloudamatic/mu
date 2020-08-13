@@ -329,6 +329,16 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                   op: "replace",
                   path: "/description",
                   value: @deploy.deploy_id
+                },
+                {
+                  op: "replace",
+                  path: "/*/*/logging/dataTrace",
+                  value: "true"
+                },
+                {
+                  op: "replace",
+                  path: "/*/*/logging/loglevel",
+                  value: "INFO"
                 }
               ]
             )
@@ -457,7 +467,6 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           ).items
 
           resources.each { |r|
-            bok['deploy_to'] ||= r.path if r.path != "/" # XXX this is wrong/inadequate
             next if !r.respond_to?(:resource_methods) or r.resource_methods.nil?
             r.resource_methods.each_pair { |http_type, m|
               bok['methods'] ||= []
@@ -550,6 +559,32 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
             }
           }
 
+          deployment = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_deployments(
+            rest_api_id: @cloud_id
+          ).items.sort { |a, b| a.created_date <=> b.created_date }.last
+          stages = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_stages(
+            rest_api_id: @cloud_id,
+            deployment_id: deployment.id
+          )
+
+          # XXX we only support a single stage right now, which is a dumb
+          # limitation
+          stage = stages.item.first
+          if stage
+            bok['deploy_to'] = stage.stage_name
+            if stage.access_log_settings
+              bok['log_requests'] = true
+              bok['access_logs'] = MU::Config::Ref.get(
+                id: stage.access_log_settings.destination_arn.sub(/.*?:([^:]+)$/, '\1'),
+                credentials: @credentials,
+                region: @config['region'],
+                type: "logs",
+                cloud: "AWS"
+              )
+            end
+          end
+
+
           bok
         end
 
@@ -592,7 +627,7 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
             },
             "log_requests" => {
               "type" => "boolean",
-              "description" => "Log all requests to CloudWatch Logs to the log group specified by +access_logs+. If +access_logs+ is unspecified, a reasonable group will be created automatically.",
+              "description" => "Log custom access requests to CloudWatch Logs to the log group specified by +access_logs+, as well as enabling built-in CloudWatch Logs at +INFO+ level. If +access_logs+ is unspecified, a reasonable group will be created automatically.",
               "default" => true
             },
             "access_logs" => MU::Config::Ref.schema(type: "logs", desc: "A pre-existing or sibling Mu Cloudwatch Log group reference. If +log_requests+ is specified and this is not, a log group will be generated automatically. Setting this parameter explicitly automatically enables +log_requests+."),
