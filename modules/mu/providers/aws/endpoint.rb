@@ -204,13 +204,19 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
         def groom
           generate_methods
 
-          MU.log "Deploying API Gateway #{@config['name']} to #{@config['deploy_to']}"
-          MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_deployment(
-            rest_api_id: @cloud_id,
-            stage_name: @config['deploy_to']
+          deployment = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_deployments(
+            rest_api_id: @cloud_id
+          ).items.sort { |a, b| a.created_date <=> b.created_date }.last
+
+          if !deployment
+            MU.log "Deploying API Gateway #{@config['name']} to #{@config['deploy_to']}"
+            deployment = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_deployment(
+              rest_api_id: @cloud_id,
+              stage_name: @config['deploy_to']
 #            cache_cluster_enabled: false,
 #            cache_cluster_size: 0.5,
-          )
+            )
+          end
           # this automatically creates a stage with the same name, so we don't
           # have to deal with that
 
@@ -274,7 +280,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
               found = false
               if mappings
                 mappings.each { |m|
-                  if m.rest_api_id == @cloud_id and stage == @config['deploy_to']
+                  if m.rest_api_id == @cloud_id and m.stage == @config['deploy_to']
                     found = true
                     break
                   end
@@ -293,6 +299,39 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                 MU::Cloud.resourceClass("AWS", "DNSZone").createRecordsFromConfig([dom['dns_record']], target: dom_desc.send(dnsfield))
               end
             }
+          end
+
+          # The creation of our deployment should have created a matching stage,
+          # which we're now going to mess with.
+          stage = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_stage(
+            rest_api_id: @cloud_id,
+            stage_name: @config['deploy_to']
+          )
+
+          if @config['access_logs'] and !stage.access_log_settings
+            log_ref = MU::Config::Ref.get(@config['access_logs'])
+            MU.log "Enabling API Gateway access logs to CloudWatch Log Group #{log_ref.cloud_id}"
+            stage = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).update_stage(
+              rest_api_id: @cloud_id,
+              stage_name: @config['deploy_to'],
+              patch_operations: [
+                {
+                  op: "replace",
+                  path: "/accessLogSettings/destinationArn",
+                  value: log_ref.kitten.arn.sub(/:\*$/, '')
+                },
+                {
+                  op: "replace",
+                  path: "/accessLogSettings/format",
+                  value: '$context.identity.sourceIp $context.identity.caller $context.identity.user [$context.requestTime] "$context.httpMethod $context.resourcePath $context.protocol" $context.status $context.responseLength $context.requestId'
+                },
+                {
+                  op: "replace",
+                  path: "/description",
+                  value: @deploy.deploy_id
+                }
+              ]
+            )
           end
 
 
@@ -551,6 +590,12 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
               "type" => "string",
               "description" => "The name of an environment under which to deploy our API. If not specified, will deploy to the name of the global Mu environment for this deployment."
             },
+            "log_requests" => {
+              "type" => "boolean",
+              "description" => "Log all requests to CloudWatch Logs to the log group specified by +access_logs+. If +access_logs+ is unspecified, a reasonable group will be created automatically.",
+              "default" => true
+            },
+            "access_logs" => MU::Config::Ref.schema(type: "logs", desc: "A pre-existing or sibling Mu Cloudwatch Log group reference. If +log_requests+ is specified and this is not, a log group will be generated automatically. Setting this parameter explicitly automatically enables +log_requests+."),
             "methods" => {
               "items" => {
                 "type" => "object",
@@ -728,6 +773,26 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(endpoint, configurator)
           ok = true
+
+          if endpoint['log_requests'] and !endpoint['access_logs']
+            logdesc = {
+              "name" => endpoint['name']+"accesslogs",
+            }
+            logdesc["tags"] = endpoint["tags"] if endpoint['tags']
+            configurator.insertKitten(logdesc, "logs")
+            endpoint['access_logs'] = MU::Config::Ref.get(
+              name: endpoint['name']+"accesslogs",
+              type: "log",
+              cloud: "AWS",
+              credentials: endpoint['credentials'],
+              region: endpoint['region']
+            )
+          end
+
+          if endpoint['access_logs'] and endpoint["access_logs"]["name"]
+            endpoint['log_requests'] = true
+            MU::Config.addDependency(endpoint, endpoint["access_logs"]["name"], "log")
+          end
 
           if endpoint['domain_names']
             endpoint['domain_names'].each { |dom|
