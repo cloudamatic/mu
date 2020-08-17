@@ -170,6 +170,11 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                   params[:request_templates][rt['content_type']] = rt['template']
                 }
               end
+              if m['integrate_with']['parameters']
+                params[:request_parameters] = Hash[m['integrate_with']['parameters'].map { |p|
+                  ["integration.request.#{p['type']}.#{p['name']}", p['value']]
+                }]
+              end
 
               resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).put_integration(params)
 
@@ -476,7 +481,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                 resource_id: r.id,
                 http_method: http_type 
               )
-MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match(/ESPIER/)
+
               method['type'] = http_type
               method['path'] = r.path_part || r.path
               if m_desc.method_responses
@@ -549,9 +554,30 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
 
                 if m_desc.method_integration.request_templates and
                    !m_desc.method_integration.request_templates.empty?
-                   method['integrate_with'] = m_desc.method_integration.request_templates.keys.map { |rt_content_type, template|
+                   method['integrate_with']['request_templates'] = m_desc.method_integration.request_templates.keys.map { |rt_content_type, template|
                     { "content_type" => rt_content_type, "template" => template }
                    }
+                end
+
+                if m_desc.method_integration.request_parameters
+                  m_desc.method_integration.request_parameters.each_pair { |k, v|
+                    if !k.match(/^integration\.request\.(header|querystring|path)\.(.*)/)
+                      MU.log "Don't know how to handle integration request parameter '#{k}', skipping", MU::WARN
+                      next
+                    end
+                    if Regexp.last_match[1] == "header" and
+                       Regexp.last_match[2] == "X-Amz-Invocation-Type" and
+                       v == "'Event'"
+                      method['integrate_with']['async'] = true
+                    else
+                      method['integrate_with']['parameters'] ||= []
+                      method['integrate_with']['parameters'] << {
+                        "type" => Regexp.last_match[1],
+                        "name" => Regexp.last_match[2],
+                        "value" => v
+                      }
+                    end
+                  }
                 end
               end
 
@@ -641,10 +667,37 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                     "type" => "object",
                     "description" => "Specify what application backend to invoke under this path/method combination",
                     "properties" => {
+                      "async" => {
+                        "type" => "boolean",
+                        "default" => false,
+                        "description" => "For non-proxy Lambda integrations, adds a static +X-Amz-Invocation-Type+ with value +'Event'+ to invoke the function asynchronously. See also https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-integration-async.html"
+                      },
+                      "parameters" => {
+                        "type" => "array",
+                        "items" => {
+                          "description" => "One or headers, paths, or query string parameters to pass as request parameters to our back end. See also: https://docs.aws.amazon.com/apigateway/latest/developerguide/request-response-data-mappings.html",
+                          "type" => "object",
+                          "properties" => {
+                            "name" => {
+                              "type" => "string",
+                              "description" => "A valid and unique integration request parameter name."
+                            },
+                            "value" => {
+                              "type" => "string",
+                              "description" => "The name of a method request parameter, or a static value contained in single quotes (+'foo'+)."
+                            },
+                            "type" => {
+                              "type" => "string",
+                              "description" => "Which HTTP artifact to use when presenting the parameter to the back end. ",
+                              "enum" => ["header", "querystring", "path"]
+                            }
+                          }
+                        }
+                      },
                       "proxy" => {
                         "type" => "boolean",
                         "default" => false,
-                        "description" => "For HTTP or AWS integrations, specify whether the target is a proxy (((docs unclear, is that actually what this means?)))" # XXX is that actually what this means?
+                        "description" => "Sets HTTP integrations to HTTP_PROXY and AWS/LAMBDA integrations to AWS_PROXY/LAMBDA_PROXY"
                       },
                       "backend_http_method" => {
                         "type" => "string",
@@ -862,6 +915,22 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
           append = []
           endpoint['deploy_to'] ||= MU.environment || $environment || "dev"
           endpoint['methods'].each { |m|
+            if m['integrate_with']['async']
+              if m['integrate_with']['type'] == "functions" and
+                 m['integrate_with']['async']
+                m['integrate_with']['parameters'] ||= []
+                m['integrate_with']['parameters'] << {
+                  "name" => "X-Amz-Invocation-Type",
+                  "value" => "'Event'", # yes the single quotes are required
+                  "type" => "header"
+                }
+                if m['integrate_with']['proxy']
+                  MU.log "Cannot specify both of proxy and async for API Gateway method integration", MU::ERR
+                  ok = false
+                end
+              end
+            end
+
             if m['integrate_with'] and m['integrate_with']['name']
               if m['integrate_with']['type'] != "aws_generic"
                 MU::Config.addDependency(endpoint, m['integrate_with']['name'], m['integrate_with']['type'])
@@ -887,6 +956,7 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                 append << cors_option_integrations(m['path'], m['cors'])
               end
 
+
               if !m['iam_role']
                 m['uri'] ||= "*" if m['integrate_with']['type'] == "aws_generic"
 
@@ -908,7 +978,7 @@ MU.log bok['name']+" "+http_type, MU::WARN, details: m_desc if bok['name'].match
                       "targets" => [{ "identifier" => m['uri'] }]
                     }
                   ]
-                elsif m['integrate_with']['type'] == "function"
+                elsif m['integrate_with']['type'] == "functions"
                   roledesc["import"] = ["AWSLambdaBasicExecutionRole"]
                 end
                 configurator.insertKitten(roledesc, "roles")
