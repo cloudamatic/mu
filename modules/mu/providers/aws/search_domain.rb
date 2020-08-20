@@ -36,6 +36,7 @@ module MU
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
           @cloud_id = @config['domain_name']
+          pp params # "Resource": "arn:aws:es:us-west-1:987654321098:domain/test-domain/*"
           MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).create_elasticsearch_domain(params).domain_status
 
           tagDomain
@@ -599,7 +600,7 @@ module MU
             params[:snapshot_options][:automated_snapshot_start_hour] = @config['snapshot_hour']
           end
 
-          if @config['access_policies']
+          if @config['access_policies'] and ext
             # TODO check against ext.access_policies.options
             params[:access_policies] = JSON.generate(@config['access_policies'])
           end
