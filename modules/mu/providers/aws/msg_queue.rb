@@ -195,7 +195,15 @@ module MU
 
           # Go fetch its attributes
           fetch = if args[:cloud_id]
-            [args[:cloud_id]]
+            if args[:cloud_id] !~ /^https?:\/\//
+              [begin
+                MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).get_queue_url(queue_name: args[:cloud_id]).queue_url
+              rescue Aws::SQS::Errors::NonExistentQueue
+                return found
+              end]
+            else
+              [args[:cloud_id]]
+            end
           else
             resp = MU::Cloud::AWS.sqs(region: args[:region], credentials: args[:credentials]).list_queues
             resp.queue_urls
