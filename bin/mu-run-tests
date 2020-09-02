@@ -34,6 +34,7 @@ Usage:
 #{$0} [-m <#>] [-f] [-v] [specific test BoK to run [...]]
   EOS
   opt :max_threads, "Environment to set on creation.", :require => false, :default => 3, :type => :integer
+  opt :max_retries, "Number of times to retry failed tests in --dryrun mode.", :require => false, :default => 2, :type => :integer
   opt :full, "Actually run deploys, instead of --dryrun", :require => false, :default => false
   opt :verbose, "Show more information while running", :require => false, :default => false
 end
@@ -121,8 +122,19 @@ def execCommand(cmd, results_stash)
   }
 
   ok = true
-  output = %x{#{cmd} 2>&1}
-  ok = false if $?.exitstatus != 0
+  retries = 0
+  begin
+    output = %x{#{cmd} 2>&1}
+    if $?.exitstatus != 0
+      ok = false
+      retries += 1
+      if $opts[:verbose] and !$opts[:full] and retries <= $opts[:max_retries]
+        puts "#{cmd} RETRY #{retries.to_s}".light_red
+      end
+    else
+      ok = true
+    end
+  end while !ok and !$opts[:full] and retries <= $opts[:max_retries]
 
   results_stash["output"] += output
 
