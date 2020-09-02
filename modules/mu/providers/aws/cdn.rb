@@ -91,7 +91,6 @@ module MU
               bucketref = get_bucketref_from_domain(o.domain_name)
               next if !bucketref or !bucketref.kitten
               resp = MU::Cloud::AWS.cloudfront(credentials: @credentials).get_cloud_front_origin_access_identity(id: id)
-              pp resp
 #              bucketref.kitten.allowPrincipal("arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity "+id, doc_id: "PolicyForCloudFrontPrivateContent", permissions: ["GetObject"])
               bucketref.kitten.allowPrincipal(resp.cloud_front_origin_access_identity.s3_canonical_user_id, doc_id: "PolicyForCloudFrontPrivateContent", permissions: ["GetObject"], name: @mu_name)
             end
@@ -331,10 +330,6 @@ module MU
             }
           end
 
-if bok["name"] =~ /espier/i
-          MU.log @cloud_id+" cloud_desc", MU::NOTICE, details: cloud_desc.origins
-#          MU.log @cloud_id+" bok", MU::NOTICE, details: bok
-end
           bok
         end
 

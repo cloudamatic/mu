@@ -174,7 +174,7 @@ module MU
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
-pp cloud_desc if @cloud_id == "Espier-Publish-Domains"
+
           bok['name'] = cloud_desc["DisplayName"].empty? ? @cloud_id : cloud_desc["DisplayName"]
           svcmap = {
             "lambda" => "functions",
@@ -182,6 +182,7 @@ pp cloud_desc if @cloud_id == "Espier-Publish-Domains"
           }
           MU::Cloud::AWS.sns(region: @config['region'], credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
             bok['subscriptions'] ||= []
+
             bok['subscriptions'] << if sub.endpoint.match(/^arn:[^:]+:(sqs|lambda):([^:]+):(\d+):.*?([^:\/]+)$/)
               _wholestring, service, region, account, id = Regexp.last_match.to_a
               {
@@ -206,7 +207,6 @@ pp cloud_desc if @cloud_id == "Espier-Publish-Domains"
               }
             end
           }
-pp bok['subscriptions'] if @cloud_id == "Espier-Publish-Domains"
 
           bok
         end

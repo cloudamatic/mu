@@ -315,10 +315,10 @@ module MU
           }
 
           if cloud_desc.stream_specification and cloud_desc.stream_specification.stream_enabled
-MU.log @cloud_id, MU::NOTICE, details: cloud_desc
+
             bok['stream'] = cloud_desc.stream_specification.stream_view_type
-            cloud_desc.latest_stream_arn
-            pp MU::Cloud::AWS.dynamostream(credentials: @credentials, region: @config['region']).list_streams
+#            cloud_desc.latest_stream_arn
+#            MU::Cloud::AWS.dynamostream(credentials: @credentials, region: @config['region']).list_streams
           end
 
           bok["populate"] = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @config['region']).scan(

@@ -221,7 +221,6 @@ module MU
           targets.each { |t|
             bok['targets'] ||= []
             _arn, _plat, service, region, account, resource = t.arn.split(/:/, 6)
-            MU.log service+" in "+region+" under "+account, MU::WARN, details: resource
             target_type = if service == "lambda"
               resource.sub!(/^function:/, '')
               "functions"
@@ -252,8 +251,6 @@ module MU
 
             bok['targets'] << MU::Config::Ref.get(ref_params)
           }
-
-          MU.log @cloud_id, MU::NOTICE, details: bok
 
 # XXX cloud_desc.event_pattern - what do we want to do with this?
 

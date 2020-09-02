@@ -1024,6 +1024,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       # @return [Array<OpenStruct>],nil]
       def self.getOrg(credentials = nil, with_id: nil)
         creds = MU::Cloud::Google.credConfig(credentials)
+        return nil if !creds
         credname = if creds and creds['name']
           creds['name']
         else
