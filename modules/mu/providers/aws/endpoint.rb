@@ -882,6 +882,20 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
             MU::Config.addDependency(endpoint, endpoint["access_logs"]["name"], "log")
           end
 
+          if endpoint['access_logs']
+            resp = MU::Cloud::AWS.apig(credentials: endpoint['credentials'], region: endpoint['region']).get_account
+            if !resp.cloudwatch_role_arn
+              MU.log "Endpoint '#{endpoint['name']}' is configured to use CloudWatch Logs, but the account-wide API Gateway log role is not configured", MU::ERR, details: "https://aws.amazon.com/premiumsupport/knowledge-center/api-gateway-cloudwatch-logs/"
+              ok = false
+            else
+              roles = MU::Cloud::AWS::Role.find(cloud_id: resp.cloudwatch_role_arn, credentials: endpoint['credentials'], region: endpoint['region'])
+              if roles.empty?
+                MU.log "Endpoint '#{endpoint['name']}' is configured to use CloudWatch Logs, but the configured account-wide API Gateway log role does not exist", MU::ERR, details: resp.cloudwatch_role_arn
+                ok = false
+              end
+            end
+          end
+
           if endpoint['domain_names']
             endpoint['domain_names'].each { |dom|
               if dom['certificate']
