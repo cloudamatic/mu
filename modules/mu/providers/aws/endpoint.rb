@@ -416,6 +416,15 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
             resp.items.each { |api|
               # The stupid things don't have tags
               if api.description == deploy_id
+                logs = MU::Cloud.resourceClass("AWS", "Log").find(region: region, credentials: credentials)
+                logs.each_pair { |log_id, log_desc|
+                  if log_id =~ /^API-Gateway-Execution-Logs_#{api.id}\//
+                    MU.log "Deleting CloudWatch Log Group #{log_id}"
+                    if !noop
+                      MU::Cloud::AWS.cloudwatchlogs(region: region, credentials: credentials).delete_log_group(log_group_name: log_id)
+                    end
+                  end
+                }
                 MU.log "Deleting API Gateway #{api.name} (#{api.id})"
                 if !noop
                   MU::Cloud::AWS.apig(region: region, credentials: credentials).delete_rest_api(
