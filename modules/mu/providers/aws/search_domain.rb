@@ -79,7 +79,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          cloud_desc.arn
+          cloud_desc.arn.dup
         end
 
         # Return the metadata for this SearchDomain rule
@@ -305,8 +305,8 @@ module MU
             ).elasticsearch_instance_types
           end
 
-          polschema = MU::Config::Role.schema["properties"]["policies"]["items"]
-          polschema.deep_merge!(MU::Cloud.resourceClass("AWS", "Role").condition_schema["items"])
+          polschema = MU::Config::Role.schema["properties"]["policies"]
+          polschema.deep_merge!(MU::Cloud.resourceClass("AWS", "Role").condition_schema)
 
           schema = {
             "name" => {
@@ -328,7 +328,7 @@ module MU
               "default" => 0,
               "description" => "Separate, dedicated master node(s), over and above the search instances specified in instance_count."
             },
-            "policy" => polschema,
+            "policies" => polschema,
             "access_policies" => {
               "type" => "object",
               "description" => "An IAM policy document for access to ElasticSearch (see {policies} for setting complex access policies with runtime dependencies). Our parser expects this to be defined inline like the rest of your YAML/JSON Basket of Kittens, not as raw JSON. For guidance on ElasticSearch IAM capabilities, see: https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-ac.html"
@@ -603,25 +603,51 @@ module MU
           end
 
           if ext
+            # Despite being called access_policies, this parameter actually
+            # only accepts one policy. So, we'll munge everything we have
+            # together into one policy with multiple Statements.
             policy = nil
+            # TODO check against ext.access_policy.options
 
             if @config['access_policies']
-              # TODO check against ext.access_policy.options
               policy = @config['access_policies']
-            end
-
-            if @config['policy']
-              parsed = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument([@config['policy']], deploy_obj: @deploy, bucket_style: true).first.values.first
-
-              if policy and policy["Statement"]
-                policy["Statement"].concat(parsed["Statement"])
-              else
-                policy = parsed
+              # ensure the "Statement" key is cased in a predictable way
+              statement_key = nil
+              policy.each_pair { |k, v|
+                if k.downcase == "statement" and k != "Statement"
+                  statement_key = k
+                  break
+                end
+              }
+              if statement_key
+                policy["Statement"] = policy.delete(statement_key)
+              end
+              if !policy["Statement"].is_a?(Array)
+                policy["Statement"] = [policy["Statement"]]
               end
             end
 
-            params[:access_policies] = JSON.generate(policy) if policy
-MU.log "ES access policies would be:", MU::WARN, details: policy
+            if @config['policies']
+              @config['policies'].each { |p|
+                p['targets'].each { |t|
+                  if t['path']
+                    t['path'].gsub!(/#SELF/, @cloud_id)
+                  end
+                }
+                parsed = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument([p], deploy_obj: @deploy, bucket_style: true).first.values.first
+                pp parsed
+
+                if policy and policy["Statement"]
+                  policy["Statement"].concat(parsed["Statement"])
+                else
+                  policy = parsed
+                end
+              }
+            end
+
+            if policy
+              params[:access_policies] = JSON.generate(policy)
+            end
           end
 
           if @config['slow_logs']
