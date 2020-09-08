@@ -632,11 +632,10 @@ module MU
               @config['policies'].each { |p|
                 p['targets'].each { |t|
                   if t['path']
-                    t['path'].gsub!(/#SELF/, @cloud_id)
+                    t['path'].gsub!(/#SELF/, @mu_name.downcase)
                   end
                 }
                 parsed = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument([p], deploy_obj: @deploy, bucket_style: true).first.values.first
-                pp parsed
 
                 if policy and policy["Statement"]
                   policy["Statement"].concat(parsed["Statement"])
