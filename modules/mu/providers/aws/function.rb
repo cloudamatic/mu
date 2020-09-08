@@ -152,7 +152,7 @@ module MU
             function_name: @mu_name, 
             principal: "#{calling_service}.amazonaws.com", 
             source_arn: calling_arn, 
-            statement_id: "#{calling_service}-#{calling_name.gsub(/[^a-zA-Z0-9-_]/, '_')}",
+            statement_id: "#{calling_service}-#{calling_name.gsub(/[^a-z0-9\-_]/i, '_')}",
           }
 
           begin
