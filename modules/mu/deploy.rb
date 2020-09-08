@@ -312,6 +312,17 @@ module MU
 
         @mommacat.save!
 
+        # XXX Functions have a special behavior where we re-invoke their groom
+        # methods one more time at the end, so we can guarantee their
+        # environments are fully populated with all sibling resource idents
+        # regardless of dependency order. This is, obviously, a disgusting
+        # hack, and we should revisit our dependency language in the next big
+        # release.
+        if !@main_config["functions"].nil? and
+            @main_config["functions"].size > 0
+          createResources(@main_config["functions"], "groom")
+        end
+
       rescue StandardError => e
         MU.log e.class.name, MU::ERR, details: caller
 
@@ -733,7 +744,9 @@ MESSAGE_END
           sleep 10+Random.rand(20)
           retry
         end
+
       end
+
     end
 
   end #class

@@ -152,13 +152,16 @@ module MU
             function_name: @mu_name, 
             principal: "#{calling_service}.amazonaws.com", 
             source_arn: calling_arn, 
-            statement_id: "#{calling_service}-#{calling_name}",
+            statement_id: "#{calling_service}-#{calling_name.gsub(/[^a-zA-Z0-9-_]/, '_')}",
           }
 
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
             MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger)
+          rescue Aws::Lambda::Errors::ValidationException => e
+            MU.log e.message+" (calling_arn: #{calling_arn}, calling_service: #{calling_service}, calling_name: #{calling_name})", MU::ERR, details: trigger
+            raise e
           rescue Aws::Lambda::Errors::ResourceConflictException => e
             if e.message.match(/already exists/)
               MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).remove_permission(
