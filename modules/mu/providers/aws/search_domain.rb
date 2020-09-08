@@ -79,6 +79,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
+          return nil if !cloud_desc
           cloud_desc.arn.dup
         end
 
