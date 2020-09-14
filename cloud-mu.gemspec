@@ -36,7 +36,7 @@ EOF
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
   s.add_runtime_dependency 'addressable', '~> 2.5'
-  s.add_runtime_dependency "aws-sdk-core", "< 3"
+  s.add_runtime_dependency "aws-sdk"
   s.add_runtime_dependency 'azure_sdk', "~> 0.52"
   s.add_runtime_dependency 'bundler', "~> 1.17"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
