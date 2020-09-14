@@ -1653,7 +1653,7 @@ dependencies
 
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor (#{cloud_id})" if db.nil? or cloud_id.nil?
 
-          MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(cluster ? db.status : db.db_instance_status) }) {
+          MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(cluster ? db.status : db.db_instance_status) }, loop_msg: "Waiting for RDS instance #{cloud_id} to delete") {
             db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials, cluster: cluster).values.first
             return if db.nil?
           }
@@ -1688,7 +1688,7 @@ dependencies
                 end
               }
               del_db = nil
-              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and ((!cluster and del_db.db_instance_status != "deleted") or (cluster and del_db.status != "deleted")) }) {
+              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and ((!cluster and del_db.db_instance_status != "deleted") or (cluster and del_db.status != "deleted")) }, loop_msg: "Waiting for RDS cluster #{cloud_id} to delete") {
                 del_db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, cluster: cluster).values.first
               }
             end

@@ -532,14 +532,23 @@ module MU
         if cloud_desc.vpc_zone_identifier and
            !cloud_desc.vpc_zone_identifier.empty?
           nets = cloud_desc.vpc_zone_identifier.split(/,/)
-          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
-          bok['vpc'] = MU::Config::Ref.get(
-            id: resp.vpc_id,
-            cloud: "AWS",
-            credentials: @credentials,
-            type: "vpcs",
-            subnets: nets.map { |s| { "subnet_id" => s } }
-          )
+          begin
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
+            bok['vpc'] = MU::Config::Ref.get(
+              id: resp.vpc_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              type: "vpcs",
+              subnets: nets.map { |s| { "subnet_id" => s } }
+            )
+          rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+            if nets.size > 1 and e.message.match(/The subnet ID '(subnet-[a-f0-9]+)' does not exist/)
+              nets.delete(Regexp.last_match[1])
+              retry
+            else
+              raise e
+            end
+          end
         end
 
 #        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
