@@ -258,7 +258,7 @@ module MU
           if !cleanHabitat(cloud, credset, region, project, global_vs_region_semaphore, global_done)
             had_failures = true
           end
-        } # TYPES_IN_ORDER.each { |t|
+        } # projectthreads.each { |t|
       } # projects.each { |project|
       projectthreads.each do |t|
         t.join

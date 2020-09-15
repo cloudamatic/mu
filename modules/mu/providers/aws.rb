@@ -1569,7 +1569,6 @@ end
           retries = 0
           begin
             MU.log "Calling #{@api_name}.#{method_sym} in #{@region}", MU::DEBUG, details: arguments
-            MU.log "Calling #{@api_name}.#{method_sym} in #{@region}", MU::WARN, details: arguments if method_sym == :delete_security_group
 
               retval = if !arguments.nil? and arguments.size == 1
                 @api.method(method_sym).call(arguments[0])
@@ -1578,7 +1577,6 @@ end
               else
                 @api.method(method_sym).call
               end
-MU.log "#{@api_name}.#{method_sym} in #{@region} retval was", MU::WARN, details: retval if method_sym == :delete_security_group
 
             if !retval.nil?
               begin
@@ -1658,7 +1656,6 @@ MU.log "#{@api_name}.#{method_sym} in #{@region} retval was", MU::WARN, details:
             end
             retries = retries + 1
             debuglevel = MU::DEBUG
-debuglevel = MU::WARN if method_sym == :delete_security_group
             interval = 5 + Random.rand(4) - 2
             if retries < 10 and retries > 2
               debuglevel = MU::NOTICE
@@ -1675,7 +1672,6 @@ debuglevel = MU::WARN if method_sym == :delete_security_group
             retry
           rescue StandardError => e
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region} with credentials #{@credentials}", MU::DEBUG, details: arguments
-MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region} with credentials #{@credentials}", MU::WARN, details: arguments if method_sym == :delete_security_group
             raise e
           end
         end
