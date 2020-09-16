@@ -327,7 +327,7 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         @@eks_versions = {}
-        @@eks_version_semaphore = Mutex.new
+        @@eks_version_semaphores = {}
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
         # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
         # @param flavor [String]: ECS or EKS
@@ -340,24 +340,22 @@ MU.log c.name, MU::NOTICE, details: t
               names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
             )
           else
-            @@eks_version_semaphore.synchronize {
+            @@eks_version_semaphores[region] ||= Mutex.new
+
+            @@eks_version_semaphores[region].synchronize {
               if !@@eks_versions[region]
                 @@eks_versions[region] ||= []
                 versions = {}
-                resp = nil
-                next_token = nil
-                begin
-                  resp = MU::Cloud::AWS.ssm(region: region).get_parameters_by_path(
-                    path: "/aws/service/#{flavor.downcase}",
-                    recursive: true,
-                    next_token: next_token
-                  )
-                  resp.parameters.each { |p|
-                    p.name.match(/\/aws\/service\/eks\/optimized-ami\/([^\/]+?)\//)
-                    versions[Regexp.last_match[1]] = true
-                  }
-                  next_token = resp.next_token
-                end while !next_token.nil?
+                resp = MU::Cloud::AWS.ssm(region: region).get_parameters_by_path(
+                  path: "/aws/service/#{flavor.downcase}/optimized-ami",
+                  recursive: true,
+                  max_results: 10 # as high as it goes, ugh
+                )
+
+                resp.parameters.each { |p|
+                  p.name.match(/\/aws\/service\/eks\/optimized-ami\/([^\/]+?)\//)
+                  versions[Regexp.last_match[1]] = true
+                }
                 @@eks_versions[region] = versions.keys.sort { |a, b| MU.version_sort(a, b) }
               end
             }
@@ -377,16 +375,31 @@ MU.log c.name, MU::NOTICE, details: t
           nil
         end
 
-        # Return the list of regions where we know EKS is supported.
-        def self.EKSRegions(credentials = nil, region: nil)
-          eks_regions = []
-          check_regions = region ? [region] : MU::Cloud::AWS.listRegions(credentials: credentials)
-          check_regions.each { |r|
-            ami = getStandardImage("EKS", r)
-            eks_regions << r if ami
-          }
+        @@supported_eks_region_cache = []
+        @@eks_region_semaphore = Mutex.new
 
-          eks_regions
+        # Return the list of regions where we know EKS is supported.
+        def self.EKSRegions(credentials = nil)
+          @@eks_region_semaphore.synchronize {
+            if @@supported_eks_region_cache and !@@supported_eks_region_cache.empty?
+              return @@supported_eks_region_cache
+            end
+start = Time.now
+            # the SSM API is painfully slow for large result sets, so thread
+            # these and do them in parallel
+            @@supported_eks_region_cache = []
+            region_threads = []
+            MU::Cloud::AWS.listRegions(credentials: credentials).each { |region|
+              region_threads << Thread.new(region) { |r|
+r_start = Time.now
+                ami = getStandardImage("EKS", r)
+                @@supported_eks_region_cache << r if ami
+              }
+            }
+            region_threads.each { |t| t.join }
+
+            @@supported_eks_region_cache
+          }
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -418,12 +431,14 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
-          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions(credentials, region: region).include?(region)
           resp = begin
             MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
           rescue Aws::EKS::Errors::AccessDeniedException
             # EKS isn't actually live in this region, even though SSM lists
             # base images for it
+            if @@supported_eks_region_cache
+              @@supported_eks_region_cache.delete(region)
+            end
             return
           end
 
@@ -475,6 +490,7 @@ MU.log c.name, MU::NOTICE, details: t
         private_class_method :purge_eks_clusters
 
         def self.purge_ecs_clusters(noop: false, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
+start = Time.now
           resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
 
           return if !resp or !resp.cluster_arns or resp.cluster_arns.empty?
@@ -1222,12 +1238,12 @@ start = Time.now
 
           cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)
 
-          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials'], region: cluster['region']).include?(cluster['region'])
+          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials']).include?(cluster['region'])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
           end
 
-          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials'], region: cluster['region']).include?(cluster['region'])
+          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials']).include?(cluster['region'])
             MU.log "EKS is only available in some regions", MU::ERR, details: MU::Cloud::AWS::ContainerCluster.EKSRegions
             ok = false
           end
