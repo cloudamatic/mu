@@ -1,8 +1,12 @@
 # groomers: Chef
 ---
 appname: smoketest
+vpcs:
+- name: wrapper
 servers: 
 - name: centos6
+  vpc:
+    name: wrapper
   platform: centos6
   size: m3.medium
   run_list:

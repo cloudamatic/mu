@@ -7,7 +7,7 @@ vpcs:
 container_clusters:
 - name: ecsplain
   flavor: ECS
-  instance_type: t2.medium
+  instance_type: t3.medium
   vpc:
     name: ecs
   containers:
@@ -15,7 +15,7 @@ container_clusters:
     image: "nginx:1.8"
 - name: ecsfargate
   flavor: Fargate
-  instance_type: t2.medium
+  instance_type: t3.medium
   vpc:
     name: ecs
   containers:

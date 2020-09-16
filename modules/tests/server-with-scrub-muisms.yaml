@@ -13,7 +13,7 @@ servers:
   ssh_user: centos
   cloud: <%= cloud %>
 <% if cloud == "AWS" %>
-  size: t2.medium
+  size: t3.medium
 <% elsif cloud == "Azure" %>
   size: Standard_DS1_v2
 <% elsif cloud == "Google" %>
