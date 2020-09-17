@@ -275,14 +275,15 @@ module MU
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
-          
-          bok["name"] = cloud_desc.group.group_name
 
-          if cloud_desc.group.path != "/"
-            bok["path"] = cloud_desc.group.path
+          group_desc = cloud_desc(use_cache: false).respond_to?(:group) ? cloud_desc.group : cloud_desc
+          bok["name"] = group_desc.group_name
+
+          if group_desc.path != "/"
+            bok["path"] = group_desc.path
           end
 
-          if cloud_desc.users and cloud_desc.users.size > 0
+          if cloud_desc.respond_to?(:users) and cloud_desc.users and cloud_desc.users.size > 0
             bok["members"] = cloud_desc.users.map { |u| u.user_name }
           end
 
