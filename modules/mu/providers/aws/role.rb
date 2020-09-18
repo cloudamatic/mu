@@ -459,7 +459,11 @@ end
             # For some dumb reason, the list output that .find gets doesn't
             # include the tags, so we need to fetch each role individually to
             # check tags. Hardly seems efficient.
-            desc = MU::Cloud::AWS.iam(credentials: credentials).get_role(role_name: r.role_name)
+            desc = begin
+              MU::Cloud::AWS.iam(credentials: credentials).get_role(role_name: r.role_name)
+            rescue Aws::IAM::Errors::NoSuchEntity
+              next
+            end
             if desc.role and desc.role.tags and desc.role.tags
               master_match = false
               deploy_match = false
