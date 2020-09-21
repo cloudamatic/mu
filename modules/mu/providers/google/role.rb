@@ -925,7 +925,9 @@ module MU
               }
 
               MU::Cloud.resourceClass("Google", "Folder").find(credentials: credentials).keys.each { |folder|
-                MU::Cloud.resourceClass("Google", "Folder").bindings(folder, credentials: credentials).each { |binding|
+                folder_bindings = MU::Cloud.resourceClass("Google", "Folder").bindings(folder, credentials: credentials)
+                next if !folder_bindings
+                folder_bindings.each { |binding|
                   insertBinding("folders", folder, binding)
                 }
               }
