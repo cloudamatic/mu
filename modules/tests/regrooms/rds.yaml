@@ -39,7 +39,7 @@ databases:
 #    name: rdstests
 
 - name: maria-base
-  size: db.t2.small
+  size: db.t3.small
   engine: mariadb
   db_parameter_group_parameters:
   - name: autocommit
@@ -55,7 +55,7 @@ databases:
   multi_az_on_create: true
   master_user: Stoki
 - name: maria-from-snap
-  size: db.t2.small
+  size: db.t3.small
   engine: mariadb
   port: 3307
   vpc:
@@ -101,12 +101,12 @@ databases:
     name: oracle-base
 
 - name: sqlserver-base
-  size: db.t2.small
+  size: db.t3.small
   engine: sqlserver-ex
   vpc:
     name: rdstests
 - name: sqlserver-from-snap
-  size: db.t2.small
+  size: db.t3.small
   engine: sqlserver-ex
   vpc:
     name: rdstests
@@ -114,7 +114,7 @@ databases:
   source:
     name: sqlserver-base
 - name: sqlserver-point-in-time
-  size: db.t2.small
+  size: db.t3.small
   engine: sqlserver-ex
   vpc:
     name: rdstests
