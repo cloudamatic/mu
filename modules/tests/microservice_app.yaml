@@ -3,7 +3,7 @@
 # play in.
 # clouds: AWS
 ---
-appname: espier
+appname: SMOKETEST
 parameters:
 - name: domain
   default: "sandbox.egt-labs.com" # this must exist as a Route53 zone and have a corresponding wildcard ACM or IAM SSL certificate

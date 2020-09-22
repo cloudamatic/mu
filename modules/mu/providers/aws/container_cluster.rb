@@ -1501,7 +1501,8 @@ start = Time.now
                   worker_pool[k] = cluster[k]
                 end
               }
-
+            else
+              worker_pool["groom"] = false # don't meddle with ECS workers unnecessarily
             end
 
             configurator.insertKitten(worker_pool, "server_pools")
@@ -1748,7 +1749,7 @@ start = Time.now
             @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           end
           serverpool.listNodes.each { |mynode|
-            resources = resource_lookup[node.cloud_desc.instance_type]
+            resources = resource_lookup[mynode.cloud_desc.instance_type]
             threads << Thread.new(mynode) { |node|
               ident_doc = nil
               ident_doc_sig = nil
@@ -1949,6 +1950,8 @@ start = Time.now
             task_params[:network_mode] = "awsvpc"
             task_params[:cpu] = cpu_total.to_i.to_s
             task_params[:memory] = mem_total.to_i.to_s
+          elsif @config['vpc']
+            task_params[:network_mode] = "awsvpc"
           end
 
           MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"

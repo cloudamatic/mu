@@ -219,7 +219,7 @@ module MU
             bok['master_instance_type'] = cloud_desc.elasticsearch_cluster_config.dedicated_master_type
           end
 
-          if cloud_desc.access_policies
+          if cloud_desc.access_policies and !cloud_desc.access_policies.empty?
             bok['access_policies'] = JSON.parse(cloud_desc.access_policies)
           end
 

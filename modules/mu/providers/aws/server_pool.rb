@@ -193,9 +193,10 @@ module MU
         # @return [Array<MU::Cloud::Server>]
         def listNodes
           nodes = []
-          me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id)
-          if me and me.first and me.first.instances
-            me.first.instances.each { |instance|
+          me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id).values.first
+          pp me
+          if me and me.instances
+            me.instances.each { |instance|
               found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @config["region"], dummy_ok: true)
               nodes.concat(found)
             }
@@ -542,9 +543,11 @@ module MU
               subnets: nets.map { |s| { "subnet_id" => s } }
             )
           rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-            if nets.size > 1 and e.message.match(/The subnet ID '(subnet-[a-f0-9]+)' does not exist/)
+            if e.message.match(/The subnet ID '(subnet-[a-f0-9]+)' does not exist/)
               nets.delete(Regexp.last_match[1])
-              retry
+              if nets.empty?
+                MU.log "Autoscale Group #{@cloud_id} was configured for a VPC, but the configuration held no valid subnets", MU::WARN, details: cloud_desc.vpc_zone_identifier.split(/,/)
+              end
             else
               raise e
             end
