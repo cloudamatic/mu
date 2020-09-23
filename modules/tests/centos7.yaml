@@ -1,9 +1,13 @@
 # groomers: Chef
 ---
 appname: smoketest
+vpcs:
+- name: wrapper
 servers: 
 - name: centos7
   platform: centos7
+  vpc:
+    name: wrapper
   size: m3.medium
   run_list:
   - recipe[mu-tools::apply_security]

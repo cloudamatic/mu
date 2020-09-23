@@ -32,7 +32,7 @@ module MU
 
     # Resource types, in the order in which we generally have to clean them up
     # to disentangle them from one another.
-    TYPES_IN_ORDER = ["Collection", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
+    TYPES_IN_ORDER = ["Collection", "CDN", "Endpoint", "Function", "ServerPool", "ContainerCluster", "SearchDomain", "Server", "MsgQueue", "Database", "CacheCluster", "StoragePool", "LoadBalancer", "NoSQLDB", "FirewallRule", "Alarm", "Notifier", "Log", "Job", "VPC", "Role", "Group", "User", "Bucket", "DNSZone", "Collection"]
 
     # Purge all resources associated with a deployment.
     # @param deploy_id [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).
@@ -52,6 +52,7 @@ module MU
       @onlycloud = onlycloud
       @skipcloud = skipcloud
       @ignoremaster = ignoremaster
+      @deploy_id = deploy_id
 
       if @skipcloud and @onlycloud # you actually mean noop
         @onlycloud = @skipcloud = false
@@ -217,51 +218,69 @@ module MU
       cloudclass = MU::Cloud.cloudClass(cloud)
       habitatclass = MU::Cloud.resourceClass(cloud, "Habitat")
 
-      projects = []
-      if habitats
-        projects = habitats
-      else
+      if !habitats
+        habitats = []
         if $MU_CFG and $MU_CFG[cloud.downcase] and
            $MU_CFG[cloud.downcase][credset] and
            $MU_CFG[cloud.downcase][credset]["project"]
 # XXX GCP credential schema needs an array for projects
-          projects << $MU_CFG[cloud.downcase][credset]["project"]
+          habitats << $MU_CFG[cloud.downcase][credset]["project"]
         end
         begin
-          projects.concat(cloudclass.listHabitats(credset, use_cache: false))
+          habitats.concat(cloudclass.listHabitats(credset, use_cache: false))
         rescue NoMethodError
         end
       end
 
-      if projects == []
-        projects << "" # dummy
+      if habitats == []
+        habitats << "" # dummy
         MU.log "Checking for #{cloud}/#{credset} resources from #{MU.deploy_id} in #{region}", MU::NOTICE
       end
-      projects.uniq!
+      habitats.uniq!
 
       # We do these in an order that unrolls dependent resources
       # sensibly, and we hit :Collection twice because AWS
       # CloudFormation sometimes fails internally.
-      projectthreads = []
-      projects.each { |project|
-        if habitats and !habitats.empty? and project != ""
-          next if !habitats.include?(project)
+      habitat_threads = []
+      habitats.each { |habitat|
+        if habitats and !habitats.empty? and habitat != ""
+          next if !habitats.include?(habitat)
         end
-        if @habitatsused and !@habitatsused.empty? and project != ""
-          next if !@habitatsused.include?(project)
+        if @habitatsused and !@habitatsused.empty? and habitat != ""
+          next if !@habitatsused.include?(habitat)
         end
-        next if !habitatclass.isLive?(project, credset)
+        next if !habitatclass.isLive?(habitat, credset)
 
-        projectthreads << Thread.new {
+        habitat_threads << Thread.new {
+          Thread.current.thread_variable_set("name", "#{cloud}/#{credset}/#{habitat}/#{region}")
           Thread.abort_on_exception = false
-          if !cleanHabitat(cloud, credset, region, project, global_vs_region_semaphore, global_done)
+          if !cleanHabitat(cloud, credset, region, habitat, global_vs_region_semaphore, global_done)
             had_failures = true
           end
         } # TYPES_IN_ORDER.each { |t|
-      } # projects.each { |project|
-      projectthreads.each do |t|
-        t.join
-      end
+      } # habitats.each { |habitat|
+
+      last_checkin = Time.now
+      begin
+        deletia = []
+        habitat_threads.each { |t|
+          if !t.status
+            t.join
+            deletia << t
+          end
+        }
+        deletia.each { |t|
+          habitat_threads.delete(t)
+        }
+        if (Time.now - last_checkin) > 120
+          list = habitat_threads.map { |t|
+            t.thread_variable_get("name") + (t.thread_variable_get("type") ? "/"+t.thread_variable_get("type") : "")
+          }
+          MU.log "Waiting on #{habitat_threads.size.to_s} habitat#{habitat_threads.size > 1 ? "s" : ""} in region #{region}", MU::NOTICE, details: list
+          last_checkin = Time.now
+        end
+        sleep 10 if !habitat_threads.empty?
+      end while !habitat_threads.empty?
 
       had_failures
     end
@@ -311,7 +330,8 @@ module MU
           next
         end
       }
-      had_failures = true
+
+      had_failures
     end
     private_class_method :cleanHabitat
 
@@ -322,6 +342,7 @@ module MU
     # @param flags [Hash]:
     # @param region [String]:
     def self.call_cleanup(type, credset, provider, flags, region)
+      Thread.current.thread_variable_set("type", type)
       if @mommacat.nil? or @mommacat.numKittens(types: [type]) > 0
         if @mommacat
 
@@ -344,7 +365,8 @@ module MU
           region: region,
           cloud: provider,
           flags: flags,
-          credentials: credset
+          credentials: credset,
+          deploy_id: @deploy_id
         )
       else
         true

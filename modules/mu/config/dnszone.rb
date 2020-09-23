@@ -60,7 +60,7 @@ module MU
       # @param default_type [String]: The type of record to make default (e.g. An, CNAME, etc)
       # @param need_zone [Boolean]: Whether to explicitly require a zone be declared
       # @return [Hash]
-      def self.records_primitive(need_target: true, default_type: nil, need_zone: false)
+      def self.records_primitive(need_target: true, default_type: nil, need_zone: false, embedded_type: nil)
         dns_records_primitive = {
           "type" => "array",
           "maxItems" => 100,
@@ -107,8 +107,9 @@ module MU
                   },
                   "mu_type" => {
                     "type" => "string",
-                    "description" => "The Mu resource type to search the deployment for.",
-                      "enum" => ["loadbalancer", "server", "database", "cache_cluster"]
+                    "description" => "The mu type of a resource being targeted.",
+                    "enum" => embedded_type ? [embedded_type] : ["loadbalancer", "server", "database", "cache_cluster", "endpoint", "cdn"],
+                    "default" => embedded_type
                   },
                   "target_type" => {
                       "description" => "If the target is a public or a private resource. This only applies to servers/server_pools when using automatic DNS registration. If set to public but the target only has a private address, the private address will be used",

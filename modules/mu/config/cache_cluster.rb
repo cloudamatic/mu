@@ -54,7 +54,7 @@ module MU
                 "type" => "string",
                 "default" => "redis"
             },
-            "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+            "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true, embedded_type: "cache_cluster"),
             "dns_sync_wait" => {
                 "type" => "boolean",
                 "description" => "Wait for DNS record to propagate in DNS Zone.",

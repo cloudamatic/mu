@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.2.0'
-  s.date        = '2020-06-16'
+  s.version     = '3.3.0'
+  s.date        = '2020-09-22'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -57,7 +57,7 @@ EOF
   s.add_runtime_dependency 'rack', "~> 2.0"
   s.add_runtime_dependency 'ruby-graphviz', "~> 1.2"
   s.add_runtime_dependency 'rubocop', '~> 0.58'
-  s.add_runtime_dependency 'rubyzip', "~> 2.0"
+  s.add_runtime_dependency 'rubyzip', "~> 2.3"
   s.add_runtime_dependency 'simple-password-gen', "~> 0.1"
   s.add_runtime_dependency 'slack-notifier', "~> 2.3"
   s.add_runtime_dependency 'solve', '~> 4.0'

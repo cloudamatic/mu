@@ -30,7 +30,7 @@ module MU
             end
           end
 
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+          @mu_name ||= @deploy.getResourceName(@config["name"], max_length: 64)
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -216,7 +216,22 @@ module MU
         # populated with one or both depending on what this resource has
         # defined.
         def cloud_desc(use_cache: true)
-          return @cloud_desc_cache if @cloud_desc_cache and use_cache
+
+          # we might inherit a naive cached description from the base cloud
+          # layer; rearrange it to our tastes
+          if @cloud_desc_cache.is_a?(::Aws::IAM::Types::Role)
+            new_desc = {
+              "role" => @cloud_desc_cache
+            }
+            @cloud_desc_cache = new_desc
+          elsif @cloud_desc_cache.is_a?(::Aws::IAM::Types::Policy)
+            new_desc = {
+              "policies" => [@cloud_desc_cache]
+            }
+            @cloud_desc_cache = new_desc
+          end
+
+          return @cloud_desc_cache if @cloud_desc_cache and !@cloud_desc_cache.empty? and use_cache
 
           @cloud_desc_cache = {}
           if @config['bare_policies']
@@ -419,14 +434,14 @@ end
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
 
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_policies(
-            path_prefix: "/"+MU.deploy_id+"/"
+            path_prefix: "/"+deploy_id+"/"
           )
           if resp and resp.policies
             resp.policies.each { |policy|
-              MU.log "Deleting IAM policy /#{MU.deploy_id}/#{policy.policy_name}"
+              MU.log "Deleting IAM policy /#{deploy_id}/#{policy.policy_name}"
               if !noop
                 purgePolicy(policy.arn, credentials)
               end
@@ -437,19 +452,23 @@ end
           roles = MU::Cloud::AWS::Role.find(credentials: credentials).values
           roles.each { |r|
             next if !r.respond_to?(:role_name)
-            if r.path.match(/^\/#{Regexp.quote(MU.deploy_id)}/)
+            if r.path.match(/^\/#{Regexp.quote(deploy_id)}/)
               deleteme << r
               next
             end
             # For some dumb reason, the list output that .find gets doesn't
             # include the tags, so we need to fetch each role individually to
             # check tags. Hardly seems efficient.
-            desc = MU::Cloud::AWS.iam(credentials: credentials).get_role(role_name: r.role_name)
+            desc = begin
+              MU::Cloud::AWS.iam(credentials: credentials).get_role(role_name: r.role_name)
+            rescue Aws::IAM::Errors::NoSuchEntity
+              next
+            end
             if desc.role and desc.role.tags and desc.role.tags
               master_match = false
               deploy_match = false
               desc.role.tags.each { |t|
-                if t.key == "MU-ID" and t.value == MU.deploy_id
+                if t.key == "MU-ID" and t.value == deploy_id
                   deploy_match = true
                 elsif t.key == "MU-MASTER-IP" and t.value == MU.mu_public_ip
                   master_match = true
@@ -516,7 +535,7 @@ end
 
             begin
               # managed policies get fetched by ARN, roles by plain name. Ok!
-              if args[:cloud_id].match(/^arn:/)
+              if args[:cloud_id].match(/^arn:.*?:policy\//)
                 resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_policy(
                   policy_arn: args[:cloud_id]
                 )
@@ -525,39 +544,26 @@ end
                 end
               else
                 resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).get_role(
-                  role_name: args[:cloud_id]
+                  role_name: args[:cloud_id].sub(/^arn:.*?\/([^:\/]+)$/, '\1') # XXX if it's an ARN, actually parse it and look in the correct account when applicable
                 )
+
                 if resp and resp.role
-                  found[args[:cloud_id]] = resp.role
+                  found[resp.role.role_name] = resp.role
                 end
               end
             rescue ::Aws::IAM::Errors::NoSuchEntity
             end
 
           else
-            marker = nil
-            begin
-              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_roles(
-                marker: marker
-              )
-              break if !resp or !resp.roles
-              resp.roles.each { |role|
-                found[role.role_name] = role
-              }
-              marker = resp.marker
-            end while marker
+            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_roles
+            resp.roles.each { |role|
+              found[role.role_name] = role
+            }
 
-            begin
-              resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_policies(
-                scope: "Local",
-                marker: marker
-              )
-              break if !resp or !resp.policies
-              resp.policies.each { |pol|
-                found[pol.arn] = pol
-              }
-              marker = resp.marker
-            end while marker
+            resp = MU::Cloud::AWS.iam(credentials: args[:credentials]).list_policies(scope: "Local")
+            resp.policies.each { |pol|
+              found[pol.arn] = pol
+            }
           end
 
           found
@@ -1091,7 +1097,7 @@ end
             role['policies'].each { |policy|
               policy['targets'].each { |target|
                 if target['type']
-                  MU::Config.addDependency(role, target['identifier'], target['type'])
+                  MU::Config.addDependency(role, target['identifier'], target['type'], no_create_wait: true)
                 end
               }
             }
@@ -1107,13 +1113,14 @@ end
         # @param policies [Array<Hash>]: One or more policy chunks
         # @param deploy_obj [MU::MommaCat]: Deployment object to use when looking up sibling Mu resources
         # @return [Array<Hash>]
-        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false)
+        def self.genPolicyDocument(policies, deploy_obj: nil, bucket_style: false, version: "2012-10-17", doc_id: nil)
           if policies
             name = nil
             doc = {
-              "Version" => "2012-10-17",
+              "Version" => version,
               "Statement" => []
             }
+            doc["Id"] = doc_id if doc_id
             policies.each { |policy|
               policy["flag"] ||= "Allow"
               statement = {
@@ -1154,7 +1161,14 @@ end
                       raise MuError, "Couldn't find a #{grantee["type"]} named #{grantee["identifier"]} when generating IAM policy"
                     end
                   else
-                    bucket_prefix = grantee["identifier"].match(/^[^\.]+\.amazonaws\.com$/) ? "Service" : "AWS"
+                    bucket_prefix = if grantee["identifier"].match(/^[^\.]+\.amazonaws\.com$/)
+                      "Service"
+                    elsif grantee["identifier"] =~ /^[a-f0-9]+$/
+                      "CanonicalUser"
+                    else
+                      "AWS"
+                    end
+
                     if bucket_style
                       statement["Principal"] << { bucket_prefix => grantee["identifier"] }
                     else

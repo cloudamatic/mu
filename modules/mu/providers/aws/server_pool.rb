@@ -193,9 +193,10 @@ module MU
         # @return [Array<MU::Cloud::Server>]
         def listNodes
           nodes = []
-          me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id)
-          if me and me.first and me.first.instances
-            me.first.instances.each { |instance|
+          me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id).values.first
+          pp me
+          if me and me.instances
+            me.instances.each { |instance|
               found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @config["region"], dummy_ok: true)
               nodes.concat(found)
             }
@@ -425,6 +426,7 @@ module MU
         # @return [OpenStruct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           @cloud_desc_cache = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(
             auto_scaling_group_names: [@mu_name]
           ).auto_scaling_groups.first
@@ -531,14 +533,25 @@ module MU
         if cloud_desc.vpc_zone_identifier and
            !cloud_desc.vpc_zone_identifier.empty?
           nets = cloud_desc.vpc_zone_identifier.split(/,/)
-          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
-          bok['vpc'] = MU::Config::Ref.get(
-            id: resp.vpc_id,
-            cloud: "AWS",
-            credentials: @credentials,
-            type: "vpcs",
-            subnets: nets.map { |s| { "subnet_id" => s } }
-          )
+          begin
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
+            bok['vpc'] = MU::Config::Ref.get(
+              id: resp.vpc_id,
+              cloud: "AWS",
+              credentials: @credentials,
+              type: "vpcs",
+              subnets: nets.map { |s| { "subnet_id" => s } }
+            )
+          rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+            if e.message.match(/The subnet ID '(subnet-[a-f0-9]+)' does not exist/)
+              nets.delete(Regexp.last_match[1])
+              if nets.empty?
+                MU.log "Autoscale Group #{@cloud_id} was configured for a VPC, but the configuration held no valid subnets", MU::WARN, details: cloud_desc.vpc_zone_identifier.split(/,/)
+              end
+            else
+              raise e
+            end
+          end
         end
 
 #        MU.log @cloud_id, MU::NOTICE, details: cloud_desc
@@ -1050,7 +1063,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::ServerPool.cleanup: need to support flags['known']", MU::DEBUG, details: flags
 
           filters = [{name: "key", values: ["MU-ID"]}]
@@ -1073,7 +1086,7 @@ module MU
             if asg.key == "MU-MASTER-IP" and asg.value != MU.mu_public_ip and !ignoremaster
               no_purge << asg.resource_id
             end
-            if asg.key == "MU-ID" and asg.value == MU.deploy_id
+            if asg.key == "MU-ID" and asg.value == deploy_id
               maybe_purge << asg.resource_id
             end
           }

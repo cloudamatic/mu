@@ -42,7 +42,7 @@ if ping -c 5 8.8.8.8 > /dev/null; then
 <% if !$mu.skipApplyUpdates %>
     set +e
     if [ ! -f /.mu-installer-ran-updates ];then
-      service ssh stop
+      echo "Applying package updates" > /etc/nologin
       apt-get --fix-missing -y upgrade 
       touch /.mu-installer-ran-updates
       if [ $? -eq 0 ]
@@ -58,7 +58,7 @@ if ping -c 5 8.8.8.8 > /dev/null; then
       else
         echo "FAILED PACKAGE UPDATE" >&2
       fi
-      service ssh start
+      rm -f /etc/nologin
     fi
 <% end %>
   elif [ -x /usr/bin/yum ];then
@@ -94,7 +94,7 @@ if ping -c 5 8.8.8.8 > /dev/null; then
 <% if !$mu.skipApplyUpdates %>
     set +e
     if [ ! -f /.mu-installer-ran-updates ];then
-      service sshd stop
+      echo "Applying package updates" > /etc/nologin
       kernel_update=`yum list updates | grep kernel`
       yum -y update
       touch /.mu-installer-ran-updates
@@ -108,7 +108,7 @@ if ping -c 5 8.8.8.8 > /dev/null; then
       else
         echo "FAILED PACKAGE UPDATE" >&2
       fi
-      service sshd start
+      rm -f /etc/nologin
     fi
 <% end %>
   fi
@@ -116,6 +116,7 @@ else
   /bin/logger "***** Unable to verify internet connectivity, skipping package updates from userdata"
   touch /.mu-installer-ran-updates
 fi
+rm -f /etc/nologin
 
 AWSCLI='command -v aws'
 PIP='command -v pip'

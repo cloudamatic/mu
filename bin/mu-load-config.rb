@@ -134,7 +134,7 @@ def loadMuConfig(default_cfg_overrides = nil)
     }
   end
 
-  global_cfg = { "config_files" => [] }
+  global_cfg = { "config_files" => [], "overridden_keys" => [] }
   if File.exist?(cfgPath)
     global_cfg = YAML.load(File.read(cfgPath))
     global_cfg["config_files"] = [cfgPath]
@@ -147,6 +147,7 @@ def loadMuConfig(default_cfg_overrides = nil)
     if localfile
       global_cfg.merge!(localfile)
       global_cfg["config_files"] << "#{home}/.mu.yaml"
+      global_cfg["overridden_keys"] = localfile.keys
     end
   end
   if !global_cfg.has_key?("installdir")

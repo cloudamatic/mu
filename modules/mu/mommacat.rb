@@ -811,6 +811,7 @@ MAIL_HEAD_END
 
       threads = []
       update_servers.each { |sibling|
+        next if sibling.config.has_key?("groom") and !sibling.config["groom"]
         threads << Thread.new {
           Thread.abort_on_exception = true
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)

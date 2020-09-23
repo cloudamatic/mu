@@ -1,0 +1,46 @@
+# clouds: AWS
+---
+appname: smoketest
+jobs:
+- name: event1
+  schedule:
+    minute: '0'
+    hour: '1'
+    day_of_month: '1'
+    month: "*"
+    day_of_week: "?"
+    year: "*"
+  targets:
+  - type: functions
+    name: python-function
+- name: event2
+  disabled: true
+  schedule:
+    minute: '0'
+    hour: '2'
+    day_of_month: '1'
+    month: "*"
+    day_of_week: "?"
+    year: "*"
+  targets:
+  - type: functions
+    name: node-function
+
+functions:
+- name: python-function
+  handler: lambda_function.lambda_handler
+  memory: 128
+  runtime: python3.6
+  timeout: 300
+  code:
+    path: functions/python-function
+  environment_variable:
+  - key: foo
+    value: bar
+- name: node-function
+  runtime: nodejs12.x
+  handler: lambda_function.lambda_handler
+  memory: 256
+  timeout: 60
+  code:
+    path: functions/node-function

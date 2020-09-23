@@ -32,6 +32,7 @@ module MU
           "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
           "vpc" => MU::Config::VPC.reference(MU::Config::VPC::NO_SUBNETS, MU::Config::VPC::NO_NAT_OPTS),
+          "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true, embedded_type: "endpoint"),
           "methods" => {
             "type" => "array",
             "items" => {

@@ -287,6 +287,7 @@ MU.log c.name, MU::NOTICE, details: t
         # @return [OpenStruct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           @cloud_desc_cache = if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
             resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
@@ -326,7 +327,7 @@ MU.log c.name, MU::NOTICE, details: t
         end
 
         @@eks_versions = {}
-        @@eks_version_semaphore = Mutex.new
+        @@eks_version_semaphores = {}
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
         # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
         # @param flavor [String]: ECS or EKS
@@ -339,24 +340,22 @@ MU.log c.name, MU::NOTICE, details: t
               names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
             )
           else
-            @@eks_version_semaphore.synchronize {
+            @@eks_version_semaphores[region] ||= Mutex.new
+
+            @@eks_version_semaphores[region].synchronize {
               if !@@eks_versions[region]
                 @@eks_versions[region] ||= []
                 versions = {}
-                resp = nil
-                next_token = nil
-                begin
-                  resp = MU::Cloud::AWS.ssm(region: region).get_parameters_by_path(
-                    path: "/aws/service/#{flavor.downcase}",
-                    recursive: true,
-                    next_token: next_token
-                  )
-                  resp.parameters.each { |p|
-                    p.name.match(/\/aws\/service\/eks\/optimized-ami\/([^\/]+?)\//)
-                    versions[Regexp.last_match[1]] = true
-                  }
-                  next_token = resp.next_token
-                end while !next_token.nil?
+                resp = MU::Cloud::AWS.ssm(region: region).get_parameters_by_path(
+                  path: "/aws/service/#{flavor.downcase}/optimized-ami",
+                  recursive: true,
+                  max_results: 10 # as high as it goes, ugh
+                )
+
+                resp.parameters.each { |p|
+                  p.name.match(/\/aws\/service\/eks\/optimized-ami\/([^\/]+?)\//)
+                  versions[Regexp.last_match[1]] = true
+                }
                 @@eks_versions[region] = versions.keys.sort { |a, b| MU.version_sort(a, b) }
               end
             }
@@ -376,16 +375,31 @@ MU.log c.name, MU::NOTICE, details: t
           nil
         end
 
-        # Return the list of regions where we know EKS is supported.
-        def self.EKSRegions(credentials = nil, region: nil)
-          eks_regions = []
-          check_regions = region ? [region] : MU::Cloud::AWS.listRegions(credentials: credentials)
-          check_regions.each { |r|
-            ami = getStandardImage("EKS", r)
-            eks_regions << r if ami
-          }
+        @@supported_eks_region_cache = []
+        @@eks_region_semaphore = Mutex.new
 
-          eks_regions
+        # Return the list of regions where we know EKS is supported.
+        def self.EKSRegions(credentials = nil)
+          @@eks_region_semaphore.synchronize {
+            if @@supported_eks_region_cache and !@@supported_eks_region_cache.empty?
+              return @@supported_eks_region_cache
+            end
+start = Time.now
+            # the SSM API is painfully slow for large result sets, so thread
+            # these and do them in parallel
+            @@supported_eks_region_cache = []
+            region_threads = []
+            MU::Cloud::AWS.listRegions(credentials: credentials).each { |region|
+              region_threads << Thread.new(region) { |r|
+r_start = Time.now
+                ami = getStandardImage("EKS", r)
+                @@supported_eks_region_cache << r if ami
+              }
+            }
+            region_threads.each { |t| t.join }
+
+            @@supported_eks_region_cache
+          }
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -406,30 +420,32 @@ MU.log c.name, MU::NOTICE, details: t
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::ContainerCluster.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS ContainerCluster artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
-          purge_ecs_clusters(noop: noop, region: region, credentials: credentials)
+          purge_ecs_clusters(noop: noop, region: region, credentials: credentials, deploy_id: deploy_id)
 
-          purge_eks_clusters(noop: noop, region: region, credentials: credentials)
+          purge_eks_clusters(noop: noop, region: region, credentials: credentials, deploy_id: deploy_id)
 
         end
 
-        def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil)
-          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions(credentials, region: region).include?(region)
+        def self.purge_eks_clusters(noop: false, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
           resp = begin
             MU::Cloud::AWS.eks(credentials: credentials, region: region).list_clusters
           rescue Aws::EKS::Errors::AccessDeniedException
             # EKS isn't actually live in this region, even though SSM lists
             # base images for it
+            if @@supported_eks_region_cache
+              @@supported_eks_region_cache.delete(region)
+            end
             return
           end
 
           return if !resp or !resp.clusters
 
           resp.clusters.each { |cluster|
-            if cluster.match(/^#{MU.deploy_id}-/)
+            if cluster.match(/^#{deploy_id}-/)
 
               desc = MU::Cloud::AWS.eks(credentials: credentials, region: region).describe_cluster(
                 name: cluster
@@ -473,13 +489,14 @@ MU.log c.name, MU::NOTICE, details: t
         end
         private_class_method :purge_eks_clusters
 
-        def self.purge_ecs_clusters(noop: false, region: MU.curRegion, credentials: nil)
+        def self.purge_ecs_clusters(noop: false, region: MU.curRegion, credentials: nil, deploy_id: MU.deploy_id)
+start = Time.now
           resp = MU::Cloud::AWS.ecs(credentials: credentials, region: region).list_clusters
 
           return if !resp or !resp.cluster_arns or resp.cluster_arns.empty?
 
           resp.cluster_arns.each { |arn|
-            if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
+            if arn.match(/:cluster\/(#{deploy_id}[^:]+)$/)
               cluster = Regexp.last_match[1]
 
               svc_resp = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_services(
@@ -525,7 +542,7 @@ MU.log c.name, MU::NOTICE, details: t
           }
 
           tasks = MU::Cloud::AWS.ecs(region: region, credentials: credentials).list_task_definitions(
-            family_prefix: MU.deploy_id
+            family_prefix: deploy_id
           )
 
           if tasks and tasks.task_definition_arns
@@ -1221,12 +1238,12 @@ start = Time.now
 
           cluster["flavor"] = "EKS" if cluster["flavor"].match(/^Kubernetes$/i)
 
-          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials'], region: cluster['region']).include?(cluster['region'])
+          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"]) and !cluster["containers"] and MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials']).include?(cluster['region'])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
           end
 
-          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials'], region: cluster['region']).include?(cluster['region'])
+          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions(cluster['credentials']).include?(cluster['region'])
             MU.log "EKS is only available in some regions", MU::ERR, details: MU::Cloud::AWS::ContainerCluster.EKSRegions
             ok = false
           end
@@ -1484,7 +1501,8 @@ start = Time.now
                   worker_pool[k] = cluster[k]
                 end
               }
-
+            else
+              worker_pool["groom"] = false # don't meddle with ECS workers unnecessarily
             end
 
             configurator.insertKitten(worker_pool, "server_pools")
@@ -1731,7 +1749,7 @@ start = Time.now
             @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           end
           serverpool.listNodes.each { |mynode|
-            resources = resource_lookup[node.cloud_desc.instance_type]
+            resources = resource_lookup[mynode.cloud_desc.instance_type]
             threads << Thread.new(mynode) { |node|
               ident_doc = nil
               ident_doc_sig = nil
@@ -1932,6 +1950,8 @@ start = Time.now
             task_params[:network_mode] = "awsvpc"
             task_params[:cpu] = cpu_total.to_i.to_s
             task_params[:memory] = mem_total.to_i.to_s
+          elsif @config['vpc']
+            task_params[:network_mode] = "awsvpc"
           end
 
           MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"

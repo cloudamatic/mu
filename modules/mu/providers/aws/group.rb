@@ -155,6 +155,7 @@ module MU
         # return [Struct]
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@mu_name
           @cloud_desc_cache = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
             group_name: @mu_name
           )
@@ -186,12 +187,12 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
           MU.log "AWS::Group.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Group artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           resp = MU::Cloud::AWS.iam(credentials: credentials).list_groups(
-            path_prefix: "/"+MU.deploy_id+"/"
+            path_prefix: "/"+deploy_id+"/"
           )
           if resp and resp.groups
             resp.groups.each { |g|
@@ -274,14 +275,15 @@ module MU
             MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
             return nil
           end
-          
-          bok["name"] = cloud_desc.group.group_name
 
-          if cloud_desc.group.path != "/"
-            bok["path"] = cloud_desc.group.path
+          group_desc = cloud_desc(use_cache: false).respond_to?(:group) ? cloud_desc.group : cloud_desc
+          bok["name"] = group_desc.group_name
+
+          if group_desc.path != "/"
+            bok["path"] = group_desc.path
           end
 
-          if cloud_desc.users and cloud_desc.users.size > 0
+          if cloud_desc.respond_to?(:users) and cloud_desc.users and cloud_desc.users.size > 0
             bok["members"] = cloud_desc.users.map { |u| u.user_name }
           end
 

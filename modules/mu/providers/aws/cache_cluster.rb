@@ -569,7 +569,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server.
         # @param region [String]: The cloud provider's region in which to operate.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
           skipsnapshots = flags["skipsnapshots"]
           all_clusters = MU::Cloud::AWS.elasticache(credentials: credentials, region: region).describe_cache_clusters
           our_clusters = []
@@ -577,7 +577,7 @@ module MU
 
           # Because we can't run list_tags_for_resource on a cache cluster that isn't in "available" state we're loading the deploy to make sure we have a cache cluster to cleanup.
           # To ensure we don't miss cache clusters that have been terminated mid creation we'll load the 'original_config'. We might want to find a better approach for this.
-          deploy = MU::MommaCat.getLitter(MU.deploy_id)
+          deploy = MU::MommaCat.getLitter(deploy_id)
           if deploy.original_config && deploy.original_config.has_key?("cache_clusters") && !deploy.original_config["cache_clusters"].empty?
 
             # The ElastiCache API and documentation are a mess, the replication group ARN resource_type is not documented, and is not easily guessable.
@@ -615,14 +615,14 @@ module MU
                   sleep 30
                   retry
                 else
-                  raise MuError, "Failed to get tags for cache cluster #{cluster_id}, MU-ID #{MU.deploy_id}: #{e.inspect}"
+                  raise MuError, "Failed to get tags for cache cluster #{cluster_id}, MU-ID #{deploy_id}: #{e.inspect}"
                 end
               end
 
               found_muid = false
               found_master = false
               tags.each { |tag|
-                found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
+                found_muid = true if tag.key == "MU-ID" && tag.value == deploy_id
                 found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
               }
               next if !found_muid

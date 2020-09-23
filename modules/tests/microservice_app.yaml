@@ -1,0 +1,288 @@
+# Old Sitemonitor, with serial numbers and code filed off. This will *only*
+# work on our own Labs sandbox, unless you feed it a different domain name to
+# play in.
+# clouds: AWS
+---
+appname: SMOKETEST
+parameters:
+- name: domain
+  default: "sandbox.egt-labs.com" # this must exist as a Route53 zone and have a corresponding wildcard ACM or IAM SSL certificate
+jobs:
+- name: clear-scan-data
+  schedule:
+    minute: '0'
+    hour: '1'
+    day_of_month: '*'
+    month: "*"
+    day_of_week: "?"
+    year: "*"
+  targets:
+  - type: functions
+    name: empty-out-table
+- name: run-scans
+  schedule:
+    minute: '0'
+    hour: '2'
+    day_of_month: '*'
+    month: "*"
+    day_of_week: "?"
+    year: "*"
+  targets:
+  - type: functions
+    name: queue-domains
+
+cdns:
+- name: front
+  origins:
+  - name: default
+    bucket:
+      name: bucket
+  certificate:
+    name: "*.<%= domain %>"
+  dns_records:
+  - zone:
+      name: <%= domain %>
+  behaviors:
+  - origin: default
+    forwarded_values:
+      headers:
+      - Origin
+      - Access-Control-Request-Headers
+      - Access-Control-Request-Method
+      - Access-Control-Allow-Origin
+
+roles:
+- name: dynamostream-to-es
+  can_assume:
+  - assume_method: basic
+    entity_type: service
+    entity_id: lambda.amazonaws.com
+  attachable_policies:
+  - id: AWSLambdaInvocation-DynamoDB
+  - id: AWSLambdaBasicExecutionRole
+  policies:
+  - name: allow_es_posting
+    permissions:
+    - es:ESHttpPost
+    targets:
+    - identifier: domains-scan-data
+      type: search_domain
+      path: "/*"
+- name: empty-out-table
+  can_assume:
+  - assume_method: basic
+    entity_type: service
+    entity_id: lambda.amazonaws.com
+  attachable_policies:
+  - id: AmazonDynamoDBFullAccess
+  - id: AWSLambdaBasicExecutionRole
+- name: on-demand-scanner
+  can_assume:
+  - assume_method: basic
+    entity_type: service
+    entity_id: lambda.amazonaws.com
+  attachable_policies:
+  - id: AmazonDynamoDBFullAccess
+  - id: AWSLambdaBasicExecutionRole
+- name: queue-domains
+  can_assume:
+  - assume_method: basic
+    entity_type: service
+    entity_id: lambda.amazonaws.com
+  attachable_policies:
+  - id: AmazonDynamoDBFullAccess
+  - id: AmazonSNSFullAccess
+  - id: AWSLambdaBasicExecutionRole
+- name: scheduled-scanner
+  can_assume:
+  - assume_method: basic
+    entity_type: service
+    entity_id: lambda.amazonaws.com
+  attachable_policies:
+  - id: AmazonDynamoDBFullAccess
+  - id: AWSLambdaBasicExecutionRole
+
+notifiers:
+- name: publish-domains
+  subscriptions:
+  - type: lambda
+    resource:
+      type: functions
+      name: scheduled-scanner
+
+functions:
+- name: dynamostream-to-es
+  handler: lambda_function.lambda_handler
+  memory: 128
+  runtime: python2.7
+  timeout: 900
+  code:
+    path: functions/python-function
+  role:
+    name: dynamostream-to-es
+    type: roles
+  triggers:
+  - service: dynamodb
+    name: scan-data
+  dependencies:
+  - type: search_domain
+    name: domains-scan-data
+    phase: groom
+- name: empty-out-table
+  handler: lambda_function.lambda_handler
+  memory: 128
+  runtime: python3.6
+  timeout: 300
+  code:
+    path: functions/python-function
+  environment_variable:
+  - key: table
+    value: scandata
+  role:
+    name: empty-out-table
+    type: roles
+  dependencies:
+  - type: nosqldb
+    name: scan-data
+  - type: nosqldb
+    name: domain-list
+- name: on-demand-scanner
+  handler: lambda_function.lambda_handler
+  memory: 128
+  runtime: python3.6
+  timeout: 900
+  code:
+    path: functions/python-function
+  role:
+    name: on-demand-scanner
+    type: roles
+  dependencies:
+  - type: nosqldb
+    name: scan-data
+  triggers:
+  - service: apigateway
+    name: api
+- name: queue-domains
+  handler: lambda_function.lambda_handler
+  memory: 128
+  runtime: python3.6
+  timeout: 900
+  code:
+    path: functions/python-function
+  role:
+    name: queue-domains
+    type: roles
+  invoke_on_completion:
+    invocation_type: "RequestResponse"
+  permissions:
+  - basic
+  - dynamo
+  dependencies:
+  - type: function
+    name: dynamostream-to-es
+  - type: nosqldb
+    name: domain-list
+  - type: nosqldb
+    name: scan-data
+  - type: notifier
+    name: publish-domains
+    phase: groom
+- name: scheduled-scanner
+  handler: lambda_function.lambda_handler
+  memory: 256
+  runtime: python3.6
+  timeout: 900
+  code:
+    path: functions/python-function
+  role:
+    name: scheduled-scanner
+    type: roles
+  dependencies:
+  - type: nosqldb
+    name: scan-data
+  triggers:
+  - service: sns
+    name: publish-domains
+
+endpoints:
+- name: api
+  deploy_to: production
+  log_requests: true
+  methods:
+  - path: "/"
+    type: POST
+    cors: "*"
+    responses:
+    - code: 200
+      body:
+      - is_error: false
+        content_type: application/json
+    integrate_with:
+      name: on-demand-scanner
+      type: functions
+      integration_http_method: POST
+      async: true
+      backend_http_method: POST
+      passthrough_behavior: WHEN_NO_MATCH
+  domain_names:
+  - dns_record:
+      zone:
+        name: <%= domain %>
+    certificate:
+      name: "*.<%= domain %>"
+
+buckets:
+- name: bucket
+  web: false
+  cors:
+  - allowed_methods:
+    - GET
+    - POST
+    allowed_origins:
+    - "*"
+  upload:
+#  - source: "code/build"
+  - source: "functions"
+    destination: "/"
+
+search_domains:
+- name: domains-scan-data
+  elasticsearch_version: '7.4'
+  instance_count: 1
+  instance_type: r5.large.elasticsearch
+  ebs_size: 10
+  ebs_type: gp2
+  access_policies:
+    Version: '2012-10-17'
+    Statement:
+    - Effect: Allow
+      Principal:
+        AWS: "*"
+      Action: es:ESHttp*
+nosqldbs:
+- name: scan-data
+  read_capacity: 25
+  write_capacity: 25
+  attributes:
+  - name: domain
+    type: S
+    primary_partition: true
+  - name: last_scanned_date
+    type: S
+    primary_sort: true
+  stream: NEW_IMAGE
+- name: domain-list
+  read_capacity: 100
+  write_capacity: 1
+  attributes:
+  - name: business_owner
+    type: S
+    primary_sort: true
+  - name: domain
+    type: S
+    primary_partition: true
+  populate:
+  - business_owner: TetraTech
+    staff_division: eGT
+    operational_division: eGTLabs
+    domain: egt-labs.com

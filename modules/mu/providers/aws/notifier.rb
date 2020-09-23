@@ -27,8 +27,8 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials']).create_topic(name: @mu_name)
           @cloud_id = @mu_name
+          MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials']).create_topic(name: @cloud_id)
           MU.log "Created SNS topic #{@mu_name}"
         end
 
@@ -36,15 +36,46 @@ module MU
         def groom
           if @config['subscriptions']
             @config['subscriptions'].each { |sub|
-              MU::Cloud::AWS::Notifier.subscribe(
-                arn: arn,
-                endpoint: sub['endpoint'],
-                region: @config['region'],
-                credentials: @config['credentials'],
-                protocol: sub['type']
-              )
+              if sub['resource'] and !sub['endpoint']
+                endpoint_obj = nil
+                MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { endpoint_obj.nil? }) {
+                  endpoint_obj = MU::Config::Ref.get(sub['resource']).kitten(@deploy)
+                }
+                sub['endpoint'] = endpoint_obj.arn
+              end
+              subscribe(sub['endpoint'], sub['type'])
             }
           end
+        end
+
+        # Subscribe something to this SNS topic
+        # @param endpoint [String]: The address, identifier, or ARN of the resource being subscribed
+        # @param protocol [String]: The protocol being subscribed
+        def subscribe(endpoint, protocol)
+          self.class.subscribe(arn, endpoint, protocol, region: @config['region'], credentials: @credentials)
+        end
+
+        # Subscribe something to an SNS topic
+        # @param cloud_id [String]: The short name or ARN of an existing SNS topic
+        # @param endpoint [String]: The address, identifier, or ARN of the resource being subscribed
+        # @param protocol [String]: The protocol being subscribed
+        # @param region [String]: The region of the target SNS topic
+        # @param credentials [String]: 
+        def self.subscribe(cloud_id, endpoint, protocol, region: nil, credentials: nil)
+          topic = find(cloud_id: cloud_id, region: region, credentials: credentials).values.first
+          if !topic
+            raise MuError, "Failed to find SNS Topic #{cloud_id} in #{region}"
+          end
+          arn = topic["TopicArn"]
+
+          resp = MU::Cloud::AWS.sns(region: region, credentials: credentials).list_subscriptions_by_topic(topic_arn: arn).subscriptions
+
+          resp.each { |subscription|
+            return subscription if subscription.protocol == protocol and subscription.endpoint == endpoint
+          }
+
+          MU.log "Subscribing #{endpoint} (#{protocol}) to SNS topic #{arn}", MU::NOTICE
+          MU::Cloud::AWS.sns(region: region, credentials: credentials).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
         end
 
         # Does this resource type exist as a global (cloud-wide) artifact, or
@@ -65,12 +96,12 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Notifier.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Notifier artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           MU::Cloud::AWS.sns(region: region, credentials: credentials).list_topics.topics.each { |topic|
-            if topic.topic_arn.match(MU.deploy_id)
+            if topic.topic_arn.match(deploy_id)
               # We don't have a way to tag our SNS topics, so we will delete any topic that has the MU-ID in its ARN. 
               # This may fail to find notifier groups in some cases (eg. cache_cluster) so we might want to delete from each API as well.
               MU.log "Deleting SNS topic: #{topic.topic_arn}"
@@ -91,6 +122,7 @@ module MU
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
+          return nil if !@cloud_id or !cloud_desc(use_cache: false)
           desc = MU::Cloud::AWS.sns(region: @config["region"], credentials: @config["credentials"]).get_topic_attributes(topic_arn: arn).attributes
           MU.structToHash(desc)
         end
@@ -101,9 +133,16 @@ module MU
           found = {}
 
           if args[:cloud_id]
-            arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
-            desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
-            found[args[:cloud_id]] = desc if desc
+            arn = if args[:cloud_id].match(/^arn:/)
+              args[:cloud_id] 
+            else
+              "arn:"+(MU::Cloud::AWS.isGovCloud?(args[:region]) ? "aws-us-gov" : "aws")+":sns:"+args[:region]+":"+MU::Cloud::AWS.credToAcct(args[:credentials])+":"+args[:cloud_id]
+            end
+            begin
+              desc = MU::Cloud::AWS.sns(region: args[:region], credentials: args[:credentials]).get_topic_attributes(topic_arn: arn).attributes
+              found[args[:cloud_id]] = desc if desc
+            rescue ::Aws::SNS::Errors::NotFound
+            end
           else
             next_token = nil
             begin
@@ -120,6 +159,58 @@ module MU
           found
         end
 
+        # Reverse-map our cloud description into a runnable config hash.
+        # We assume that any values we have in +@config+ are placeholders, and
+        # calculate our own accordingly based on what's live in the cloud.
+        def toKitten(**_args)
+          bok = {
+            "cloud" => "AWS",
+            "credentials" => @config['credentials'],
+            "cloud_id" => @cloud_id,
+            "region" => @config['region']
+          }
+
+          if !cloud_desc
+            MU.log "toKitten failed to load a cloud_desc from #{@cloud_id}", MU::ERR, details: @config
+            return nil
+          end
+
+          bok['name'] = cloud_desc["DisplayName"].empty? ? @cloud_id : cloud_desc["DisplayName"]
+          svcmap = {
+            "lambda" => "functions",
+            "sqs" => "msg_queues"
+          }
+          MU::Cloud::AWS.sns(region: @config['region'], credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
+            bok['subscriptions'] ||= []
+
+            bok['subscriptions'] << if sub.endpoint.match(/^arn:[^:]+:(sqs|lambda):([^:]+):(\d+):.*?([^:\/]+)$/)
+              _wholestring, service, region, account, id = Regexp.last_match.to_a
+              {
+                "type" => sub.protocol,
+                "resource" => MU::Config::Ref.get(
+                  type: svcmap[service],
+                  region: region,
+                  credentials: @credentials,
+                  id: id,
+                  cloud: "AWS",
+                  habitat: MU::Config::Ref.get(
+                    id: account,
+                    cloud: "AWS",
+                    credentials: @credentials
+                  )
+                )
+              }
+            else
+              {
+                "type" => sub.protocol,
+                "endpoint" => sub.endpoint
+              }
+            end
+          }
+
+          bok
+        end
+
         # Cloud-specific configuration properties.
         # @param _config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -130,11 +221,10 @@ module MU
               "type" => "array",
               "items" => {
                 "type" => "object",
-                "required" => ["endpoint"],
                 "properties" => {
                   "type" => {
                     "type" => "string",
-                    "description" => "",
+                    "description" => "Type of endpoint or resource which should receive notifications. If not specified, will attempt to auto-detect.",
                     "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application", "lambda"]
                   }
                 }
@@ -148,26 +238,42 @@ module MU
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::notifier}, bare and unvalidated.
 
         # @param notifier [Hash]: The resource to process and validate
-        # @param _configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(notifier, _configurator)
+        def self.validateConfig(notifier, configurator)
           ok = true
 
           if notifier['subscriptions']
             notifier['subscriptions'].each { |sub|
+              if sub['resource'] and configurator.haveLitterMate?(sub['resource']['name'], sub['resource']['type'])
+                sub['resource']['cloud'] = "AWS"
+                MU::Config.addDependency(notifier, sub['resource']['name'], sub['resource']['type'])
+              end
               if !sub["type"]
-                if sub["endpoint"].match(/^http:/i)
-                  sub["type"] = "http"
-                elsif sub["endpoint"].match(/^https:/i)
-                  sub["type"] = "https"
-                elsif sub["endpoint"].match(/^sqs:/i)
-                  sub["type"] = "sqs"
-                elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
-                  sub["type"] = "sms"
-                elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
-                  sub["type"] = "email"
-                else
-                  MU.log "Notifier #{notifier['name']} subscription #{sub['endpoint']} did not specify a type, and I'm unable to guess one", MU::ERR
+                sub['type'] = if sub['resource']
+                  if sub['resource']['type'] == "functions"
+                    "lambda"
+                  elsif sub['resource']['type'] == "msg_queues"
+                    "sqs"
+                  end
+                elsif sub['endpoint']
+                  if sub["endpoint"].match(/^http:/i)
+                    "http"
+                  elsif sub["endpoint"].match(/^https:/i)
+                    "https"
+                  elsif sub["endpoint"].match(/:sqs:/i)
+                    "sqs"
+                  elsif sub["endpoint"].match(/:lambda:/i)
+                    "lambda"
+                  elsif sub["endpoint"].match(/^\+?[\d\-]+$/)
+                    "sms"
+                  elsif sub["endpoint"].match(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i)
+                    "email"
+                  end
+                end
+
+                if !sub['type']
+                  MU.log "Notifier #{notifier['name']} subscription did not specify a type, and I'm unable to guess one", MU::ERR, details: sub
                   ok = false
                 end
               end
@@ -177,40 +283,6 @@ module MU
           ok
         end
 
-
-        # Subscribe to a notifier group. This can either be an email address, SQS queue, application endpoint, etc...
-        # Will create the subscription only if it doesn't already exist.
-        # @param arn [String]: The cloud provider's identifier of the notifier group.
-        # @param protocol [String]: The type of the subscription (eg. email,https, etc..).
-        # @param endpoint [String]: The endpoint of the subscription. This will depend on the 'protocol' (as an example if protocol is email, endpoint will be the email address) ..
-        # @param region [String]: The cloud provider region.
-        def self.subscribe(arn: nil, protocol: nil, endpoint: nil, region: MU.curRegion, credentials: nil)
-          retries = 0
-          begin 
-            resp = MU::Cloud::AWS.sns(region: region, credentials: credentials).list_subscriptions_by_topic(topic_arn: arn).subscriptions
-          rescue Aws::SNS::Errors::NotFound
-            if retries < 5
-              MU.log "Couldn't find topic #{arn}, retrying several times in case of a lagging resource"
-              retries += 1
-              sleep 30
-              retry
-            else
-              raise MuError, "Couldn't find topic #{arn}, giving up"
-            end
-          end
-
-          already_subscribed = false
-          if resp && !resp.empty?
-            resp.each { |subscription|
-             already_subscribed = true if subscription.protocol == protocol && subscription.endpoint == endpoint
-            }
-          end
-
-          unless already_subscribed
-            MU::Cloud::AWS.sns(region: region, credentials: credentials).subscribe(topic_arn: arn, protocol: protocol, endpoint: endpoint)
-            MU.log "Subscribed #{endpoint} to SNS topic #{arn}"
-          end
-        end
 
         # Test if a notifier group exists
         # Create a new notifier group. Will check if the group exists before creating it.

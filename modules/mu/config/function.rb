@@ -71,6 +71,10 @@ module MU
               "zip_file" => {
                 "type" => "string",
                 "description" => "Path to a zipped deployment package to upload."
+              }, 
+              "path" => {
+                "type" => "string",
+                "description" => "Path to a directory that can be zipped into deployment package to upload."
               } 
             }
           },
@@ -106,13 +110,18 @@ module MU
         if !function['code']
           ok = false
         end
-        if function['code'] and function['code']['zip_file']
-          if !File.readable?(function['code']['zip_file'])
-            MU.log "Can't read Function deployment package #{function['code']['zip_file']}", MU::ERR
-            ok = false
-          else
-            function['code']['zip_file'] = File.realpath(File.expand_path(function['code']['zip_file']))
-          end
+
+        if function['code']
+          ['zip_file', 'path'].each { |src|
+            if function['code'][src]
+              if !File.readable?(function['code'][src]) and !Dir.exists?(function['code'][src])
+                MU.log "Function '#{function['name']}' specifies a deployment package that I can't read at #{function['code'][src]}", MU::ERR
+                ok = false
+              else
+                function['code'][src] = File.realpath(File.expand_path(function['code'][src]))
+              end
+            end
+          }
         end
 
         ok

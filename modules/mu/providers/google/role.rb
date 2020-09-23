@@ -465,7 +465,7 @@ module MU
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, flags: {})
           customer = MU::Cloud::Google.customerID(credentials)
           my_org = MU::Cloud::Google.getOrg(credentials)
 
@@ -925,7 +925,9 @@ module MU
               }
 
               MU::Cloud.resourceClass("Google", "Folder").find(credentials: credentials).keys.each { |folder|
-                MU::Cloud.resourceClass("Google", "Folder").bindings(folder, credentials: credentials).each { |binding|
+                folder_bindings = MU::Cloud.resourceClass("Google", "Folder").bindings(folder, credentials: credentials)
+                next if !folder_bindings
+                folder_bindings.each { |binding|
                   insertBinding("folders", folder, binding)
                 }
               }

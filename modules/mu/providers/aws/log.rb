@@ -202,14 +202,14 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
           MU.log "AWS::Log.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Log artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
           log_groups = self.find(credentials: credentials, region: region).values
           if !log_groups.empty?
             log_groups.each{ |lg|
-              if lg.log_group_name.match(MU.deploy_id)
+              if lg.log_group_name.match(deploy_id)
                 log_streams = MU::Cloud::AWS.cloudwatchlogs(credentials: credentials, region: region).describe_log_streams(log_group_name: lg.log_group_name).log_streams
                 if !log_streams.empty?
                   log_streams.each{ |ls|
@@ -232,7 +232,7 @@ module MU
 
 #          unless noop
 #            MU::Cloud::AWS.iam(credentials: credentials).list_roles.roles.each{ |role|
-#              match_string = "#{MU.deploy_id}.*CloudTrail"
+#              match_string = "#{deploy_id}.*CloudTrail"
               # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud.resourceClass("AWS", "Server").
 #              MU::Cloud.resourceClass("AWS", "Server").removeIAMProfile(role.role_name) if role.role_name.match(match_string)
 #            }

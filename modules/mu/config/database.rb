@@ -62,7 +62,7 @@ module MU
               "default" => false
             },
             "member_of_cluster" => MU::Config::Ref.schema(type: "databases", desc: "Internal use"),
-            "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+            "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "CNAME", need_zone: true, embedded_type: "database"),
             "dns_sync_wait" => {
                 "type" => "boolean",
                 "description" => "Wait for DNS record to propagate in DNS Zone.",

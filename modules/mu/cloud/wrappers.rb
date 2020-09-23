@@ -126,6 +126,10 @@ module MU
             clouds = [params[:cloud]]
             params.delete(:cloud)
           end
+          params[:deploy_id] ||= MU.deploy_id
+          if !params[:deploy_id] or params[:deploy_id].empty?
+            raise MuError, "Can't call cleanup methods without a deploy id"
+          end
 
           clouds.each { |cloud|
             begin

@@ -546,7 +546,7 @@ module MU
           "additionalProperties" => false,
           "description" => "Create individual server instances.",
           "properties" => {
-              "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "A", need_zone: true),
+              "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "A", need_zone: true, embedded_type: "server"),
               "bastion" => {
                 "type" => "boolean",
                 "default" => false,

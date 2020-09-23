@@ -9,9 +9,9 @@ parameters:
   - name: vpc_name
     required: false
   - name: instance_type
-    default: t2.medium
+    default: t3.medium
   - name: db_size
-    default: db.t2.small
+    default: db.t3.small
   - name: vpc_name
     default: superBoK_VPC
   - name: logs_name

@@ -148,6 +148,12 @@ module MU
     # Stub base class; real implementations generated at runtime
     class NoSQLDB;
     end
+    # Stub base class; real implementations generated at runtime
+    class Job;
+    end
+    # Stub base class; real implementations generated at runtime
+    class CDN;
+    end
 
     # Denotes a resource implementation which is missing significant
     # functionality or is largely untested.
@@ -436,7 +442,29 @@ module MU
         :cfg_plural => "nosqldbs",
         :interface => self.const_get("NoSQLDB"),
         :deps_wait_on_my_creation => true,
-        :waits_on_parent_completion => true,
+        :waits_on_parent_completion => false,
+        :class => @@generic_class_methods,
+        :instance => @@generic_instance_methods + [:groom]
+      },
+      :Job => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "job",
+        :cfg_plural => "jobs",
+        :interface => self.const_get("Job"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => @@generic_class_methods,
+        :instance => @@generic_instance_methods + [:groom]
+      },
+      :CDN => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "cdn",
+        :cfg_plural => "cdns",
+        :interface => self.const_get("CDN"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
         :class => @@generic_class_methods,
         :instance => @@generic_instance_methods + [:groom]
       }

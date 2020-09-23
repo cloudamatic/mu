@@ -680,7 +680,7 @@ dependencies
         # Return the metadata for this ContainerCluster
         # @return [Hash]
         def notify
-          deploy_struct = MU.structToHash(cloud_desc)
+          deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
           deploy_struct['cloud_id'] = @cloud_id
           deploy_struct["region"] ||= @config['region']
           deploy_struct["db_name"] ||= @config['db_name']
@@ -761,7 +761,7 @@ dependencies
         end
 
         # @return [Array<Thread>]
-        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster, known: [])
+        def self.threaded_resource_purge(describe_method, list_method, id_method, arn_type, region, credentials, ignoremaster, known: [], deploy_id: MU.deploy_id)
           deletia = []
 
           resp = MU::Cloud::AWS.rds(credentials: credentials, region: region).send(describe_method)
@@ -774,7 +774,7 @@ dependencies
               next
             end
 
-            if should_delete?(tags, resource.send(id_method), ignoremaster, MU.deploy_id, MU.mu_public_ip, known)
+            if should_delete?(tags, resource.send(id_method), ignoremaster, deploy_id, MU.mu_public_ip, known)
               deletia << resource.send(id_method)
             end
           }
@@ -795,18 +795,18 @@ dependencies
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
 
           ["instance", "cluster"].each { |type|
-            threaded_resource_purge("describe_db_#{type}s".to_sym, "db_#{type}s".to_sym, "db_#{type}_identifier".to_sym, (type == "instance" ? "db" : "cluster"), region, credentials, ignoremaster, known: flags['known']) { |id|
-              terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: MU.deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials, cluster: (type == "cluster"), known: flags['known'])
+            threaded_resource_purge("describe_db_#{type}s".to_sym, "db_#{type}s".to_sym, "db_#{type}_identifier".to_sym, (type == "instance" ? "db" : "cluster"), region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
+              terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials, cluster: (type == "cluster"), known: flags['known'])
   
             }.each { |t|
               t.join
             }
           }
 
-          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, known: flags['known']) { |id|
+          threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
             MU.log "Deleting RDS subnet group #{id}"
             MU.retrier([Aws::RDS::Errors::InvalidDBSubnetGroupStateFault], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBSubnetGroupNotFoundFault]) {
               MU::Cloud::AWS.rds(region: region).delete_db_subnet_group(db_subnet_group_name: id) if !noop
@@ -814,7 +814,7 @@ dependencies
           }
 
           ["db", "db_cluster"].each { |type|
-            threads.concat threaded_resource_purge("describe_#{type}_parameter_groups".to_sym, "#{type}_parameter_groups".to_sym, "#{type}_parameter_group_name".to_sym, (type == "db" ? "pg" : "cluster-pg"), region, credentials, ignoremaster, known: flags['known']) { |id|
+            threads.concat threaded_resource_purge("describe_#{type}_parameter_groups".to_sym, "#{type}_parameter_groups".to_sym, "#{type}_parameter_group_name".to_sym, (type == "db" ? "pg" : "cluster-pg"), region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
               MU.log "Deleting RDS #{type} parameter group #{id}"
               MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 5, ignoreme: [Aws::RDS::Errors::DBParameterGroupNotFound]) {
                 MU::Cloud::AWS.rds(region: region).send("delete_#{type}_parameter_group", { "#{type}_parameter_group_name".to_sym => id }) if !noop
@@ -1274,7 +1274,7 @@ dependencies
 
 
         def add_cluster_node
-          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten(@deploy, debug: true)
+          cluster = MU::Config::Ref.get(@config["member_of_cluster"]).kitten(@deploy)
           if cluster.nil? or cluster.cloud_id.nil?
             raise MuError.new "Failed to resolve parent cluster of #{@mu_name}", details: @config["member_of_cluster"].to_h
           end
@@ -1355,7 +1355,7 @@ dependencies
 
         # creation_style = point_in_time
         def create_point_in_time
-          @config["source"].kitten(@deploy, debug: true)
+          @config["source"].kitten(@deploy)
           if !@config["source"].id
             raise MuError.new "Database '#{@config['name']}' couldn't resolve cloud id for source database", details: @config["source"].to_h
           end
@@ -1381,7 +1381,7 @@ dependencies
 
         # creation_style = new, existing and read_replica_of is not nil
         def create_read_replica
-          @config["source"].kitten(@deploy, debug: true)
+          @config["source"].kitten(@deploy)
           if !@config["source"].id
             raise MuError.new "Database '#{@config['name']}' couldn't resolve cloud id for source database", details: @config["source"].to_h
           end

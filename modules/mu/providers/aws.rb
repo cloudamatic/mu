@@ -844,6 +844,8 @@ end
         @@instance_types
       end
 
+      @@certificates = {}
+
       # AWS can stash API-available certificates in Amazon Certificate Manager
       # or in IAM. Rather than make people crazy trying to get the syntax
       # correct in our Baskets of Kittens, let's have a helper that tries to do
@@ -852,21 +854,24 @@ end
       # @param name [String]: The name of the cert. For IAM certs this can be any IAM name; for ACM, it's usually the domain name. If multiple matches are found, or no matches, an exception is raised.
       # @param id [String]: The ARN of a known certificate. We just validate that it exists. This is ignored if a name parameter is supplied.
       # @return [String]: The ARN of a matching certificate that is known to exist. If it is an ACM certificate, we also know that it is not expired.
-      def self.findSSLCertificate(name: nil, id: nil, region: myRegion)
-        if name.nil? and name.empty? and id.nil? and id.empty?
+      def self.findSSLCertificate(name: nil, id: nil, region: myRegion, credentials: nil, raise_on_missing: true)
+        if (name.nil? or name.empty?) and (id.nil? or id.empty?)
           raise MuError, "Can't call findSSLCertificate without specifying either a name or an id"
+        end
+        if id and @@certificates[id]
+          return [id, @@certificates[id]]
         end
 
         if !name.nil? and !name.empty?
           matches = []
-          acmcerts = MU::Cloud::AWS.acm(region: region).list_certificates(
+          acmcerts = MU::Cloud::AWS.acm(region: region, credentials: credentials).list_certificates(
             certificate_statuses: ["ISSUED"]
           )
           acmcerts.certificate_summary_list.each { |cert|
             matches << cert.certificate_arn if cert.domain_name == name
           }
           begin
-            iamcert = MU::Cloud::AWS.iam.get_server_certificate(
+            iamcert = MU::Cloud::AWS.iam(credentials: credentials).get_server_certificate(
               server_certificate_name: name
             )
           rescue Aws::IAM::Errors::ValidationError, Aws::IAM::Errors::NoSuchEntity
@@ -876,20 +881,31 @@ end
             matches << iamcert.server_certificate.server_certificate_metadata.arn
           end
           if matches.size == 1
-            return matches.first
+            id = matches.first
           elsif matches.size == 0
-            raise MuError, "No IAM or ACM certificate named #{name} was found in #{region}"
+            if raise_on_missing
+              raise MuError, "No IAM or ACM certificate named #{name} was found in #{region}"
+            else
+              return nil
+            end
           elsif matches.size > 1
             raise MuError, "Multiple certificates named #{name} were found in #{region}. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."            
           end
         end
 
+        domains = []
+
         if id.match(/^arn:aws(?:-us-gov)?:acm/)
-          resp = MU::Cloud::AWS.acm(region: region).get_certificate(
+          resp = MU::Cloud::AWS.acm(region: region).describe_certificate(
             certificate_arn: id
           )
-          if resp.nil?
+
+          if resp.nil? or resp.certificate.nil?
             raise MuError, "No such ACM certificate '#{id}'"
+          end
+          domains << resp.certificate.domain_name
+          if resp.certificate.subject_alternative_names
+            domains.concat(resp.certificate.subject_alternative_names)
           end
         elsif id.match(/^arn:aws(?:-us-gov)?:iam/)
           resp = MU::Cloud::AWS.iam.list_server_certificates
@@ -897,11 +913,13 @@ end
             raise MuError, "No such IAM certificate '#{id}'"
           end
           resp.server_certificate_metadata_list.each { |cert|
+
             if cert.arn == id
               if cert.expiration < Time.now
                 MU.log "IAM SSL certificate #{cert.server_certificate_name} (#{id}) is EXPIRED", MU::WARN
               end
-              return id
+              @@certificates[id] = [cert.server_certificate_name]
+              return [id, [cert.server_certificate_name]]
             end
           }
           raise MuError, "No such IAM certificate '#{id}'"
@@ -909,7 +927,56 @@ end
           raise MuError, "The format of '#{id}' doesn't look like an ARN for either Amazon Certificate Manager or IAM"
         end
 
-        id
+        @@certificates[id] = domains.uniq
+        [id, domains.uniq]
+      end
+
+      # Given a domain name and an ACM or IAM certificate identifier, sort out
+      # whether the domain name is "covered" by the certificate
+      # @param name [String]
+      # @param cert_id [String]
+      # @return [Boolean]
+      def self.nameMatchesCertificate(name, cert_id)
+        _id, domains = findSSLCertificate(id: cert_id)
+        return false if !domains
+        domains.each { |dom|
+          if dom == name or
+             (dom =~ /^\*/ and name =~ /.*#{Regexp.quote(dom[1..-1])}/)
+            return true
+          end
+        }
+        false
+      end
+
+      # Given a {MU::Config::Ref} block for an IAM or ACM SSL certificate,
+      # look up and validate the specified certificate. This is intended to be
+      # invoked from resource implementations' +validateConfig+ methods.
+      # @param certblock [Hash,MU::Config::Ref]: 
+      # @param region [String]: Default region to use when looking up the certificate, if its configuration block does not specify any
+      # @param credentials [String]: Default credentials to use when looking up the certificate, if its configuration block does not specify any
+      # @return [Boolean]
+      def self.resolveSSLCertificate(certblock, region: nil, credentials: nil)
+        return false if !certblock
+        ok = true
+
+        certblock['region'] ||= region if !certblock['id']
+        certblock['credentials'] ||= credentials
+        cert_arn, cert_domains = MU::Cloud::AWS.findSSLCertificate(
+          name: certblock["name"],
+          id: certblock["id"],
+          region: certblock['region'],
+          credentials: certblock['credentials']
+        )
+
+        if cert_arn
+          certblock['id'] ||= cert_arn
+        end
+
+        ['region', 'credentials'].each { |field|
+          certblock.delete(field) if certblock[field].nil?
+        }
+
+        [cert_arn, cert_domains]
       end
 
       # Amazon Certificate Manager API
@@ -1029,6 +1096,14 @@ end
         @@cloudwatchlogs_api[credentials][region]
       end
 
+      # Amazon's CloudWatchEvents API
+      def self.cloudwatchevents(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@cloudwatchevents_api[credentials] ||= {}
+        @@cloudwatchevents_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "CloudWatchEvents", region: region, credentials: credentials)
+        @@cloudwatchevents_api[credentials][region]
+      end
+
       # Amazon's CloudFront API
       def self.cloudfront(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1117,6 +1192,14 @@ end
         @@dynamo_api[credentials][region]
       end
 
+      # Amazon's DynamoStream API
+      def self.dynamostream(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@dynamostream_api[credentials] ||= {}
+        @@dynamostream_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "DynamoDBStreams", region: region, credentials: credentials)
+        @@dynamostream_api[credentials][region]
+      end
+
       # Amazon's Pricing API
       def self.pricing(region: MU.curRegion, credentials: nil)
         region ||= myRegion
@@ -1163,6 +1246,14 @@ end
         @@kms_api[credentials] ||= {}
         @@kms_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "KMS", region: region, credentials: credentials)
         @@kms_api[credentials][region]
+      end
+
+      # Amazon's CloudFront API
+      def self.cloudfront(region: MU.curRegion, credentials: nil)
+        region ||= myRegion
+        @@cloudfront_api[credentials] ||= {}
+        @@cloudfront_api[credentials][region] ||= MU::Cloud::AWS::AmazonEndpoint.new(api: "CloudFront", region: region, credentials: credentials)
+        @@cloudfront_api[credentials][region]
       end
 
       # Amazon's Organizations API
@@ -1461,6 +1552,7 @@ end
           require "aws-sdk-core/ecs"
           require "aws-sdk-core/eks"
           require "aws-sdk-core/cloudwatchlogs"
+          require "aws-sdk-core/cloudwatchevents"
           require "aws-sdk-core/elasticloadbalancing"
           require "aws-sdk-core/elasticloadbalancingv2"
           require "aws-sdk-core/autoscaling"
@@ -1481,13 +1573,17 @@ end
 
             if !retval.nil?
               begin
-              page_markers = [:marker, :next_token]
+              page_markers = {
+                :marker => :marker,
+                :next_token => :next_token,
+                :next_marker => :marker
+              }
               paginator = nil
               new_page = nil
-              [:next_token, :marker].each { |m|
+              page_markers.each_key { |m|
                 if !retval.nil? and retval.respond_to?(m)
                   paginator = m
-                  new_page = retval.send(paginator)
+                  new_page = retval.send(m)
                   break
                 end
               }
@@ -1506,12 +1602,12 @@ end
                     if new_args.is_a?(Array)
                       new_args << {} if new_args.empty?
                       if new_args.size == 1 and new_args.first.is_a?(Hash)
-                        new_args[0][paginator] = new_page
+                        new_args[0][page_markers[paginator]] = new_page
                       else
                         MU.log "I don't know how to insert a #{paginator} into these arguments for #{method_sym}", MU::WARN, details: new_args
                       end
                     elsif new_args.is_a?(Hash)
-                      new_args[paginator] = new_page
+                      new_args[page_markers[paginator]] = new_page
                     end
 
                     MU.log "Attempting magic pagination for #{method_sym}", MU::DEBUG, details: new_args
@@ -1535,7 +1631,7 @@ end
             end
 
             return retval
-          rescue Aws::RDS::Errors::Throttling, Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException, Net::ReadTimeout, Faraday::TimeoutError, Aws::CloudWatchLogs::Errors::ThrottlingException => e
+          rescue Aws::Lambda::Errors::TooManyRequestsException, Aws::RDS::Errors::Throttling, Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::IAM::Errors::Throttling, Aws::EFS::Errors::ThrottlingException, Aws::Pricing::Errors::ThrottlingException, Aws::APIGateway::Errors::TooManyRequestsException, Aws::ECS::Errors::ThrottlingException, Net::ReadTimeout, Faraday::TimeoutError, Aws::CloudWatchLogs::Errors::ThrottlingException => e
             if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
               MU.log e.inspect, MU::ERR
               raise e
@@ -1577,6 +1673,7 @@ end
       @@wafglobal = {}
       @@waf = {}
       @@cloudwatchlogs_api = {}
+      @@cloudwatchevents_api = {}
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
@@ -1595,6 +1692,8 @@ end
       @@kms_api ={}
       @@organization_api ={}
       @@dynamo_api ={}
+      @@dynamostream_api ={}
+      @@cloudfront_api ={}
     end
   end
 end

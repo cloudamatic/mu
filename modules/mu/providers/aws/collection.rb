@@ -242,7 +242,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @param wait [Boolean]: Block on the removal of this stack; AWS deletion will continue in the background otherwise if false.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false, credentials: nil, flags: {})
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, wait: false, credentials: nil, flags: {})
           MU.log "AWS::Collection.cleanup: need to support flags['known']", MU::DEBUG, details: flags
           MU.log "Placeholder: AWS Collection artifacts do not support tags, so ignoremaster cleanup flag has no effect", MU::DEBUG, details: ignoremaster
 
@@ -251,7 +251,7 @@ module MU
           resp.stacks.each { |stack|
             ok = false
             stack.tags.each { |tag|
-              ok = true if (tag.key == "MU-ID") and tag.value == MU.deploy_id
+              ok = true if (tag.key == "MU-ID") and tag.value == deploy_id
             }
             if ok
               MU.log "Deleting CloudFormation stack #{stack.stack_name})"

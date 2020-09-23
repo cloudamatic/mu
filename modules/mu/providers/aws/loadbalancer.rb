@@ -583,6 +583,7 @@ module MU
         # Wrapper for cloud_desc method that deals with elb vs. elb2 resources.
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
+          return nil if !@cloud_id
           if @config['classic']
             @cloud_desc_cache = MU::Cloud::AWS.elb(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
               load_balancer_names: [@cloud_id]
@@ -671,8 +672,8 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
-          if (MU.deploy_id.nil? or MU.deploy_id.empty?) and (!flags or !flags["vpc_id"])
+        def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, region: MU.curRegion, credentials: nil, flags: {})
+          if (deploy_id.nil? or deploy_id.empty?) and (!flags or !flags["vpc_id"])
             raise MuError, "Can't touch ELBs without MU-ID or vpc_id flag"
           end
 
@@ -682,7 +683,7 @@ module MU
           # @param region [String]: The cloud provider region
           # @param ignoremaster [Boolean]: Whether to ignore the MU-MASTER-IP tag
           # @param classic [Boolean]: Whether to look for a classic ELB instead of an ALB (ELB2)
-          def self.checkForTagMatch(arn, region, ignoremaster, credentials, classic = false)
+          def self.checkForTagMatch(arn, region, ignoremaster, credentials, classic = false, deploy_id: MU.deploy_id)
             tags = []
             if classic
               tags = MU::Cloud::AWS.elb(credentials: credentials, region: region).describe_tags(
@@ -699,7 +700,7 @@ module MU
             if !tags.nil?
               tags.each { |tag|
                 saw_tags << tag.key
-                muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                muid_match = true if tag.key == "MU-ID" and tag.value == deploy_id
                 mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
               }
             end
@@ -725,9 +726,9 @@ module MU
                 matched = true if lb.vpc_id == flags['vpc_id']
               else
                 if classic
-                  matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic)
+                  matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, credentials, classic, deploy_id: deploy_id)
                 else
-                  matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic)
+                  matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, credentials, classic, deploy_id: deploy_id)
                 end
               end
               if matched
@@ -773,7 +774,7 @@ module MU
 
 
                   tgs.each { |tg|
-                    if self.checkForTagMatch(tg.target_group_arn, region, ignoremaster, credentials)
+                    if self.checkForTagMatch(tg.target_group_arn, region, ignoremaster, credentials, deploy_id: deploy_id)
                       MU.log "Removing Load Balancer Target Group #{tg.target_group_name}"
                       retries = 0
                       begin
@@ -837,7 +838,7 @@ module MU
                (!listener["ssl_certificate_id"].nil? and !listener["ssl_certificate_id"].empty?)
               if lb['cloud'] != "CloudFormation" # XXX or maybe do this anyway?
                 begin
-                  listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s, region: lb['region'])
+                  listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s, region: lb['region']).first
                 rescue MuError
                   ok = false
                   next

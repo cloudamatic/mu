@@ -10,7 +10,7 @@ container_clusters:
   vpc:
     vpc_name: eksvpc
   instance_count: 3
-  instance_type: t2.medium
+  instance_type: t3.medium
   kubernetes_resources:
   - apiVersion: apps/v1
     kind: Deployment
