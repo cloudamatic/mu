@@ -705,7 +705,7 @@ MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV
           }
           if @config['tags']
             @config['tags'].each { |tag|
-              lambda_properties[:tags][tag.key.first] = tag.values.first
+              lambda_properties[:tags][tag['key']] = tag['value']
             }
           end
 
