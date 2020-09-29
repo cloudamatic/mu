@@ -92,13 +92,14 @@ module MU
             configured_policies = []
 
             if @config['raw_policies']
+              MU.log "Attaching #{@config['raw_policies'].size.to_s} raw #{@config['raw_policies'].size > 1 ? "policies" : "policy"} to role #{@mu_name}", MU::NOTICE
               configured_policies = @config['raw_policies'].map { |p|
                 @mu_name+"-"+p.keys.first.upcase
               }
             end
 
             if @config['attachable_policies']
-              MU.log "Attaching #{@config['attachable_policies'].size.to_s} #{@config['attachable_policies'].size > 1 ? "policies" : "policy"} to role #{@mu_name}", MU::NOTICE
+              MU.log "Attaching #{@config['attachable_policies'].size.to_s} external #{@config['attachable_policies'].size > 1 ? "policies" : "policy"} to role #{@mu_name}", MU::NOTICE
               configured_policies.concat(@config['attachable_policies'].map { |p|
                 id = if p.is_a?(MU::Config::Ref)
                   p.cloud_id
@@ -109,17 +110,16 @@ module MU
                 end
                 id.gsub(/.*?\/([^:\/]+)$/, '\1')
               })
-              configured_policies.each { |pol|
-              }
             end
 
+            # Purge anything that doesn't belong
             if !@config['bare_policies']
               attached_policies = MU::Cloud::AWS.iam(credentials: @config['credentials']).list_attached_role_policies(
                 role_name: @mu_name
               ).attached_policies
               attached_policies.each { |a|
                 if !configured_policies.include?(a.policy_name)
-                  MU.log "Removing IAM policy #{a.policy_name} from role #{@mu_name}", MU::NOTICE
+                  MU.log "Removing IAM policy #{a.policy_name} from role #{@mu_name}", MU::NOTICE, details: configured_policies
                   MU::Cloud::AWS::Role.purgePolicy(a.policy_arn, @config['credentials'])
                 end
               }
@@ -137,7 +137,7 @@ module MU
 
           if !@config['bare_policies'] and
              (@config['raw_policies'] or @config['attachable_policies'])
-            bindTo("role", @mu_name)
+#            bindTo("role", @mu_name)
           end
         end
 
@@ -153,6 +153,7 @@ module MU
             policy.values.each { |p|
               p["Version"] ||= "2012-10-17"
             }
+
             policy_name = basename+"-"+policy.keys.first.upcase
 
             arn = "arn:"+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+":iam::"+MU::Cloud::AWS.credToAcct(credentials)+":policy#{path}/#{policy_name}"
@@ -811,6 +812,19 @@ end
                   end
                   raise e
                 end
+              }
+            end
+
+            if @config['raw_policies']
+              raw_arns = MU::Cloud::AWS::Role.manageRawPolicies(
+                @config['raw_policies'],
+                basename: @deploy.getResourceName(@config['name']),
+                credentials: @credentials
+              )
+              raw_arns.each { |p_arn|
+                mypolicies << MU::Cloud::AWS.iam(credentials: @config['credentials']).get_policy(
+                  policy_arn: p_arn
+                ).policy
               }
             end
 

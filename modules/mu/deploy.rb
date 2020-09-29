@@ -437,10 +437,10 @@ module MU
           MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
         ensure
           MU.setLogging(@verbosity)
-          MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
+          MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" #{@updating ? "updated" : "complete"}", details: deployment, verbosity: @verbosity
         end
       else
-        MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
+        MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" #{@updating ? "updated" : "complete"}", details: deployment, verbosity: @verbosity
       end
 
 
@@ -450,7 +450,7 @@ module MU
         }
       end
 
-      @mommacat.sendAdminSlack("Deploy completed succesfully", msg: MU.summary.join("\n"))
+      @mommacat.sendAdminSlack("Deploy #{MU.deploy_id} \"#{MU.handle}\" #{@updating ? "updated" : "complete"}", msg: MU.summary.join("\n"))
     end
 
     private
