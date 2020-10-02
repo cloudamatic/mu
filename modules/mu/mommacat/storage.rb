@@ -123,11 +123,12 @@ module MU
       MU::Cloud.resource_types.each_pair { |res_type, attrs|
         next if !@deployment.has_key?(attrs[:cfg_plural])
         deletia = []
+# existing_deploys
         @deployment[attrs[:cfg_plural]].each_pair { |res_name, data|
           orig_cfg = findResourceConfig(attrs[:cfg_plural], res_name, (scrub_with || @original_config))
 
-          if orig_cfg.nil?
-            MU.log "#{res_type} #{res_name} no longer configured, will remove deployment metadata", MU::NOTICE
+          if orig_cfg.nil? and (!data['mu_name'] or data['mu_name'] =~ /^#{Regexp.quote(@deploy_id)}/)
+            MU.log "#{res_type} #{res_name} no longer configured, will remove deployment metadata", MU::NOTICE, details: data
             deletia << res_name
           end
         }
@@ -176,7 +177,7 @@ module MU
     # @param id [String]: The lock identifier to release.
     # @param nonblock [Boolean]: Whether to block while waiting for the lock. In non-blocking mode, we simply return false if the lock is not available.
     # return [false, nil]
-    def self.lock(id, nonblock = false, global = false, deploy_id: MU.deploy_id)
+    def self.lock(id, nonblock = false, global = false, retries: 0, deploy_id: MU.deploy_id)
       raise MuError, "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
 
       if !global
@@ -189,6 +190,7 @@ module MU
         MU.log "Creating #{lockdir}", MU::DEBUG
         Dir.mkdir(lockdir, 0700)
       end
+      nonblock = true if retries > 0
 
       @lock_semaphore.synchronize {
         if @locks[Thread.current.object_id].nil?
@@ -197,11 +199,34 @@ module MU
 
         @locks[Thread.current.object_id][id] = File.open("#{lockdir}/#{id}.lock", File::CREAT|File::RDWR, 0600)
       }
-      MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG
+
+      MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG, details: caller
+      show_relevant = Proc.new {
+        @locks.each_pair { |thread_id, lock|
+          lock.each_pair { |lockid, lockpath|
+            if lockid == id
+              thread = Thread.list.select { |t| t.object_id == thread_id }.first
+              if thread.object_id != Thread.current.object_id
+                MU.log "#{thread_id} sitting on #{id}", MU::WARN, thread.backtrace
+              end
+            end
+          }
+        }
+      }
       begin
         if nonblock
           if !@locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
-            return false
+            if retries > 0
+              success = false
+              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries) {
+                success = @locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
+              show_relevant.call() if !success
+              }
+              show_relevant.call() if !success
+              return success
+            else
+              return false
+            end
           end
         else
           @locks[Thread.current.object_id][id].flock(File::LOCK_EX)

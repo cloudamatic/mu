@@ -125,7 +125,7 @@ module MU
                 end
               end
             end
-          rescue RuntimeError => e
+          rescue RuntimeError, IOError => e
             raise MU::Cloud::BootstrapTempFail, "Got #{e.inspect} performing initial SSH connect tasks, will try again"
           end
 

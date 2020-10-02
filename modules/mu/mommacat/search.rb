@@ -138,7 +138,7 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, debug: false, **flags)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false, credentials: nil, habitat: nil, ignore_missing: false, debug: false, **flags)
       _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type)
 
       # If we specified a habitat, which we may also have done by its shorthand
@@ -173,8 +173,10 @@ module MU
             end
           end
           if @object_load_fails or !@kittens[type]
-            MU.log "#{@deploy_id}'s original config has #{@original_config[type].size == 1 ? "a" : @original_config[type].size.to_s} #{type}, but loadObjects could not populate anything from deployment metadata", MU::ERR if !@object_load_fails
-            @object_load_fails = true
+            if !ignore_missing
+              MU.log "#{@deploy_id}'s original config has #{@original_config[type].size == 1 ? "a" : @original_config[type].size.to_s} #{type}, but loadObjects could not populate anything from deployment metadata", MU::ERR if !@object_load_fails
+              @object_load_fails = true
+            end
             return nil
           end
         end
