@@ -593,13 +593,34 @@ module MU
             @cloud_desc_cache = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_load_balancers(
               names: [@cloud_id]
             ).load_balancers.first
-            if @targetgroups.nil? and !@deploy.nil? and
-                @deploy.deployment['loadbalancers'].has_key?(@config['name']) and
-                @deploy.deployment['loadbalancers'][@config['name']].has_key?("targetgroups")
+            if @targetgroups.nil? 
               @targetgroups = {}
-              @deploy.deployment['loadbalancers'][@config['name']]["targetgroups"].each_pair { |tg_name, tg_arn|
-                @targetgroups[tg_name] = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups(target_group_arns: [tg_arn]).target_groups.first
-              }
+              if !@deploy.nil? and
+                 @deploy.deployment['loadbalancers'] and
+                 @deploy.deployment['loadbalancers'][@config['name']] and
+                 @deploy.deployment['loadbalancers'][@config['name']]["targetgroups"]
+                @deploy.deployment['loadbalancers'][@config['name']]["targetgroups"].each_pair { |tg_name, tg_arn|
+                  @targetgroups[tg_name] = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups(target_group_arns: [tg_arn]).target_groups.first
+                }
+              else
+                pp @config['targetgroups']
+                MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups(load_balancer_arn: @cloud_desc_cache.load_balancer_arn).target_groups.each { |tg|
+                  tg_name = tg.target_group_name
+                  if @config['targetgroups']
+                    @config['targetgroups'].each { |tg_cfg|
+                      if tg_name = @deploy.getResourceName(tg_cfg["name"], max_length: 32, disallowed_chars: /[^A-Za-z0-9-]/)
+                        tg_name = tg_cfg['name']
+                        break
+                      end
+                    }
+                  end
+                  @targetgroups[tg_name] = tg
+                }
+#                @config['targetgroups'].each { |tg|
+#                  tg_name = @deploy.getResourceName(tg["name"], max_length: 32, disallowed_chars: /[^A-Za-z0-9-]/)
+#                  @targetgroups[tg_name] = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups(target_group_arns: [tg_arn]).target_groups.first
+#                }
+              end
             end
 
             return @cloud_desc_cache

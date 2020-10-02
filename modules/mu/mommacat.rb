@@ -547,9 +547,14 @@ module MU
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
+      no_write = (@no_artifacts or caller.grep(/\/mommacat\.rb:\d+:in `notify'/))
 
       begin
-        MU::MommaCat.lock("deployment-notification", deploy_id: @deploy_id) if !@no_artifacts
+        if !no_write
+          if !MU::MommaCat.lock("deployment-notification", deploy_id: @deploy_id, retries: 10)
+            raise MuError, "Failed to get deployment-notifcation lock for #{@deploy_id}"
+          end
+        end
 
         if !@need_deploy_flush or @deployment.nil? or @deployment.empty?
           loadDeploy(true) # make sure we're saving the latest and greatest
@@ -588,7 +593,9 @@ module MU
             @deployment[type][key] = data
             MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
           end
-          save!(key) if !delayed_save and !@no_artifacts
+          if !delayed_save and !no_write
+            save!(key)
+          end
         else
           have_deploy = true
           if @deployment[type].nil? or @deployment[type][key].nil?
@@ -613,10 +620,10 @@ module MU
               end
             }
           end
-          save! if !delayed_save and !@no_artifacts
+          save! if !delayed_save and !no_write
         end
       ensure
-        MU::MommaCat.unlock("deployment-notification", deploy_id: @deploy_id) if !@no_artifacts
+        MU::MommaCat.unlock("deployment-notification", deploy_id: @deploy_id) if !no_write
       end
     end
 
