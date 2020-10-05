@@ -61,6 +61,9 @@ module MU
               target_obj = target_ref.kitten(cloud: "AWS")
               this_target = if target_ref.is_mu_type? and target_obj and
                                !target_obj.arn.nil?
+                if target_ref.type == "functions"
+                  target_obj.addTrigger(arn, "events", @mu_name)
+                end
                 {
                   id: target_obj.cloud_id,
                   arn: target_obj.arn
