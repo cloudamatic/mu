@@ -738,7 +738,7 @@ module MU
                 MU.log "Couldn't find existing resource #{ext_deploy["cloud_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
                 @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: found.mu_name, triggering_node: @mu_name)
               elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
-                MU.log "#{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}"
+                MU.log "#{self}: Importing metadata for #{ext_deploy["cloud_type"]} #{ext_deploy["mu_name"]} from #{ext_deploy["deploy_id"]}"
                 found = MU::MommaCat.findStray(
                   @config['cloud'],
                   ext_deploy["cloud_type"],
@@ -748,8 +748,11 @@ module MU
                   dummy_ok: false
                 ).first
   
-                MU.log "Couldn't find existing resource #{ext_deploy["mu_name"]}/#{ext_deploy["deploy_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
-                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: ext_deploy["mu_name"], triggering_node: @mu_name)
+                if found.nil?
+                  MU.log "Couldn't find existing resource #{ext_deploy["mu_name"]}/#{ext_deploy["deploy_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR
+                else
+                  @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: ext_deploy["mu_name"], triggering_node: @mu_name)
+                end
               else
                 MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
               end

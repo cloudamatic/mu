@@ -634,7 +634,7 @@ MESSAGE_END
             begin
               if myservice['#MUOBJECT'].nil?
                 if @mommacat
-                  ext_obj = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_plural, name: myservice['name'], credentials: myservice['credentials'], created_only: true, return_all: false)
+                  ext_obj = @mommacat.findLitterMate(type: myservice["#MU_CLOUDCLASS"].cfg_plural, name: myservice['name'], credentials: myservice['credentials'], created_only: true, return_all: false, ignore_missing: !@updating)
                   if @updating and ext_obj
                     ext_obj.config!(myservice)
                   end

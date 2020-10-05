@@ -1416,20 +1416,12 @@ module MU
                     # XXX probably have to query API to get the DNS name of this one
                 }
               elsif lb["concurrent_load_balancer"]
-                raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
-                found = false
-                @deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
-                  if lb_name == lb['concurrent_load_balancer']
-                    lbs << deployed_lb["awsname"] # XXX check for classic
-                    if deployed_lb.has_key?("targetgroups")
-                      deployed_lb["targetgroups"].values.each { |tg_arn|
-                        tg_arns << tg_arn
-                      }
-                    end
-                    found = true
-                  end
-                }
-                raise MuError, "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
+                lb = @deploy.findLitterMate(name: lb['concurrent_load_balancer'], type: "loadbalancers")
+                raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !lb
+                lbs << lb.mu_name
+                if lb.targetgroups
+                  tg_arns = lb.targetgroups.values.map { |tg| tg.target_group_arn }
+                end
               end
             }
             if tg_arns.size > 0

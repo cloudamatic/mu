@@ -137,7 +137,7 @@ module MU
 
           if !@config['bare_policies'] and
              (@config['raw_policies'] or @config['attachable_policies'])
-#            bindTo("role", @mu_name)
+            bindTo("role", @mu_name)
           end
         end
 
