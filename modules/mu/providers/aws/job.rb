@@ -57,36 +57,36 @@ module MU
             target_params = []
             @config['targets'].each { |t|
               MU.retrier([MuNonFatal], max:5, wait: 9) {
-              target_ref = MU::Config::Ref.get(t)
-              target_obj = target_ref.kitten(cloud: "AWS")
-              this_target = if target_ref.is_mu_type? and target_obj and
-                               !target_obj.arn.nil?
-                if target_ref.type == "functions"
-                  target_obj.addTrigger(arn, "events", @mu_name)
+                target_ref = MU::Config::Ref.get(t)
+                target_obj = target_ref.kitten(@deploy, cloud: "AWS")
+                this_target = if target_ref.is_mu_type? and target_obj and
+                                 !target_obj.arn.nil?
+                  if target_ref.type == "functions"
+                    target_obj.addTrigger(arn, "events", @mu_name)
+                  end
+                  {
+                    id: target_obj.cloud_id,
+                    arn: target_obj.arn
+                  }
+                elsif target_ref.id and target_ref.id.match(/^arn:/)
+                  {
+                    id: target_ref.id || target_ref.name,
+                    arn: target_ref.id
+                  }
+                else
+                  raise MuNonFatal.new "Failed to retrieve ARN from CLoudWatch Event target descriptor", details: target_ref.to_h
                 end
-                {
-                  id: target_obj.cloud_id,
-                  arn: target_obj.arn
-                }
-              elsif target_ref.id and target_ref.id.match(/^arn:/)
-                {
-                  id: target_ref.id || target_ref.name,
-                  arn: target_ref.id
-                }
-              else
-                raise MuNonFatal.new "Failed to retrieve ARN from CLoudWatch Event target descriptor", details: target_ref.to_h
-              end
-              if t['role']
-                role_obj = MU::Config::Ref.get(t['role']).kitten(@deploy, cloud: "AWS")
-                  raise MuError.new "Failed to fetch object from role reference", details: t['role'].to_h if !role_obj
-                  params[:role_arn] = role_obj.arn
-              end
-              [:input, :input_path, :input_transformer, :kinesis_parameters, :run_command_parameters, :batch_parameters, :sqs_parameters, :ecs_parameters].each { |attr|
-                if t[attr.to_s]
-                  this_target[attr] = MU.structToHash(t[attr.to_s])
+                if t['role']
+                  role_obj = MU::Config::Ref.get(t['role']).kitten(@deploy, cloud: "AWS")
+                    raise MuError.new "Failed to fetch object from role reference", details: t['role'].to_h if !role_obj
+                    params[:role_arn] = role_obj.arn
                 end
-              }
-              target_params << this_target
+                [:input, :input_path, :input_transformer, :kinesis_parameters, :run_command_parameters, :batch_parameters, :sqs_parameters, :ecs_parameters].each { |attr|
+                  if t[attr.to_s]
+                    this_target[attr] = MU.structToHash(t[attr.to_s])
+                  end
+                }
+                target_params << this_target
               }
             }
             MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_targets(

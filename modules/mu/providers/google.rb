@@ -236,7 +236,7 @@ module MU
       # @param sibling_only [Boolean]
       # @return [MU::Config::Habitat,nil]
       def self.projectLookup(name, deploy = MU.mommacat, raise_on_fail: true, sibling_only: false)
-        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy if !caller.grep(/`findLitterMate'/) # XXX the dumbest
+        project_obj = deploy.findLitterMate(type: "habitats", name: name) if deploy and caller.grep(/`findLitterMate'/).empty? # XXX the dumbest
 
         if !project_obj and !sibling_only
           resp = MU::MommaCat.findStray(
