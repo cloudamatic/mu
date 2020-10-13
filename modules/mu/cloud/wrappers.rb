@@ -103,14 +103,23 @@ module MU
                 next
               end
 
-              found = cloudclass.find(args)
-              if !found.nil?
-                if found.is_a?(Hash)
-                  allfound.merge!(found)
-                else
-                  raise MuError, "#{cloudclass}.find returned a non-Hash result"
-                end
+              credsets = if args[:credentials]
+                [args[:credentials]]
+              else
+                cloudbase.listCredentials
               end
+
+              credsets.each { |creds|
+                args[:credentials] = creds
+                found = cloudclass.find(args)
+                if !found.nil?
+                  if found.is_a?(Hash)
+                    allfound.merge!(found)
+                  else
+                    raise MuError, "#{cloudclass}.find returned a non-Hash result"
+                  end
+                end
+              }
             rescue MuCloudResourceNotImplemented
             end
           }

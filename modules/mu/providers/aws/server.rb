@@ -574,7 +574,7 @@ module MU
         regions.each { |r|
           searches.each { |search|
             search_threads << Thread.new(search) { |params|
-              MU.retrier([Aws::EC2::Errors::InvalidInstanceIDNotFound], wait: 5, max: 5, ignoreme: [Aws::EC2::Errors::InvalidInstanceIDNotFound]) {
+              MU.retrier([], wait: 5, max: 5, ignoreme: [Aws::EC2::Errors::InvalidInstanceIDNotFound]) {
                 MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(params).reservations.each { |resp|
                   next if resp.nil? or resp.instances.nil?
                   resp.instances.each { |i|
