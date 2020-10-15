@@ -109,7 +109,7 @@ module MU
       credlist.each { |creds|
         cur_habitats = []
 
-        if habitats and !habitats.empty?
+        if habitats and !habitats.empty? and habitats != [nil]
           valid_habitats = cloudclass.listHabitats(creds)
           cur_habitats = (habitats & valid_habitats)
           next if cur_habitats.empty?
@@ -122,7 +122,6 @@ module MU
         cloud_descs.each_pair.each { |p, regions|
           regions.each_pair.each { |r, results|
             results.each_pair { |kitten_cloud_id, descriptor|
-
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
                 matches << kittens[kitten_cloud_id]

@@ -73,39 +73,39 @@ ubuntu14:
   ap-southeast-1: ami-2855964b
   ap-southeast-2: ami-d19fc4b2
 win2k12r2: &1
-  us-east-1: ami-003aea65bc2e7136a
-  us-east-2: ami-0163293e39ba504c2
-  ca-central-1: ami-055689dd92f29d2aa
-  us-west-2: ami-0ce87dda2c9244e57
-  us-west-1: ami-00d9cf64bd2fafa44
-  eu-west-1: ami-026d7427b9fadad40
-  eu-west-2: ami-036a22c0780551794
-  eu-west-3: ami-05e3d9b79bdc10861
-  eu-north-1: ami-063eb48504c7d73f1
-  sa-east-1: ami-0a8c1829a5e650bc5
-  eu-central-1: ami-0ea20cef52335b008
-  ap-northeast-1: ami-08db2dc67228dbb90
-  ap-south-1: ami-012241411db3f09c3
-  ap-northeast-2: ami-0368c224de1d20502
-  ap-southeast-1: ami-028ef74e1edc3943a
-  ap-southeast-2: ami-09e03eab1b1bc151b
+  us-east-1: ami-017d389024362702d
+  us-east-2: ami-01f6478582802f35a
+  ca-central-1: ami-0accb61a70b8fecd7
+  us-west-2: ami-00e91b10b607a68c4
+  us-west-1: ami-006c24651b62e7c5b
+  eu-west-1: ami-0898fde18a100816a
+  eu-west-2: ami-053446bdf943173cb
+  eu-west-3: ami-04ea68f3b7dcfa90a
+  eu-north-1: ami-0152f85cb5fc15bbc
+  sa-east-1: ami-0644f3b694ca9e2cc
+  eu-central-1: ami-006e764fafbc6c000
+  ap-northeast-1: ami-0ba70fa0fc882d2eb
+  ap-south-1: ami-0f5d9f3ccd03722aa
+  ap-northeast-2: ami-00f426f045b34569b
+  ap-southeast-1: ami-0814efe140f011841
+  ap-southeast-2: ami-0b188ced837705b51
 win2k16: &2
-  us-east-1: ami-02801a2c8dcbfb883
-  us-east-2: ami-0ca4f779a2a58a7ea
-  ca-central-1: ami-05d3854d9d6e9bcc5
-  us-west-2: ami-091f4a88ce32d28b6
-  eu-west-1: ami-0b938c9b23ed7d18c
-  us-west-1: ami-0fd744c3fbe8260f2
-  eu-west-2: ami-071a89b959c5eda27
-  eu-west-3: ami-0b206e3dbda9ff9eb
-  eu-central-1: ami-0dd9bdad31dd0d3ce
-  sa-east-1: ami-0d69b8d6c0f9a7bae
-  ap-northeast-1: ami-02eb4a6f519bc3190
-  ap-south-1: ami-0666fd543ac8b5501
-  ap-northeast-2: ami-01277c81f9b91cf77
-  ap-southeast-2: ami-0426a246f9b0ccadd
-  ap-southeast-1: ami-07ecb0d55c2eb7247
-  eu-north-1: ami-047811530583b6d08
+  us-east-1: ami-04700d7bfd0be57ba
+  us-east-2: ami-055ccb6378353707a
+  ca-central-1: ami-0ad9a48dfe3ccab13
+  us-west-2: ami-04cd140187ce61046
+  eu-west-1: ami-082526061d1543032
+  us-west-1: ami-04736d2b379f9cc16
+  eu-west-2: ami-0e3cfeeb097a2ccab
+  eu-west-3: ami-067da0eedf83602bd
+  eu-central-1: ami-0b7d030b5c9b5aaad
+  sa-east-1: ami-02042996ace525d49
+  ap-northeast-1: ami-0bc8c3ca6d3500d00
+  ap-south-1: ami-0f7f65423f3aecc7f
+  ap-northeast-2: ami-04f7d27b9b66f49d1
+  ap-southeast-2: ami-0759f6c0036075c1d
+  ap-southeast-1: ami-0ef5b0f35f4af4695
+  eu-north-1: ami-04e725c85b17f9274
 win2k19:
   us-east-1: ami-00820419bf212df7e
   us-east-2: ami-0a7916b90aa4629d5

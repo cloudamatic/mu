@@ -1330,6 +1330,9 @@ module MU
         def peerWith(peer)
           peer_ref = MU::Config::Ref.get(peer['vpc'])
           peer_obj = peer_ref.kitten
+          if !peer_obj
+            raise MuError.new "#{@mu_name}: Failed to locate my peer VPC", details: peer_ref.to_h
+          end
           peer_id = peer_ref.kitten.cloud_id
           if peer_id == @cloud_id
             MU.log "#{@mu_name} attempted to peer with itself (#{@cloud_id})", MU::ERR, details: peer

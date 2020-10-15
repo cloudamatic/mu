@@ -63,6 +63,7 @@ end
 now = DateTime.now
 
 exitcode = 0
+succeeded = 0
 $opts[:clouds].each { |cloud|
   current_images = MU::Cloud.getStockImage(cloud, fail_hard: true)
   $opts[:platforms].each { |platform|
@@ -114,6 +115,7 @@ $opts[:clouds].each { |cloud|
           # Scrub any loose metadata left over from our image deployment. It's
           # ok, this won't touch the images we just made.
           MU::Cleanup.run(deployer.mommacat.deploy_id, skipsnapshots: true, verbosity: MU::Logger::QUIET)
+          succeeded += 1
         rescue Exception => e
           MU.log e.message, MU::ERR
           exitcode = 1
@@ -124,7 +126,7 @@ $opts[:clouds].each { |cloud|
 
   if !available_clouds.keys.include?("AWS") # XXX or if we don't have permissions
     puts current_images.to_yaml
-  elsif !$opts[:dryrun]
+  elsif !$opts[:dryrun] and succeeded > 0
     MU::Cloud::AWS::Bucket.upload($opts[:upload_to]+"/"+cloud+".yaml", data: current_images.to_yaml, credentials: $opts[:aws_creds], acl: "public-read")
   end
 }
