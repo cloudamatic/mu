@@ -550,7 +550,9 @@ end
       def self.credToAcct(name = nil)
         creds = credConfig(name)
 
-        return creds['account_number'] if creds['account_number']
+        if creds['account_number'] and !creds['account_number'].empty?
+          return creds['account_number']
+        end
 
         acct_num = MU::Cloud::AWS.iam(credentials: name).list_users.users.first.arn.split(/:/)[4]
         acct_num.to_s
@@ -672,8 +674,8 @@ end
                 next
               end
               acct_num = MU::Cloud::AWS.iam(credentials: acctname).list_users.users.first.arn.split(/:/)[4]
-              if acct_num.to_s ==  name.to_s
-                cfg['account_number'] = acct_num.to_s
+              cfg['account_number'] ||= acct_num.to_s
+              if acct_num.to_s == name.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
                 return name_only ? name.to_s : cfg
               end

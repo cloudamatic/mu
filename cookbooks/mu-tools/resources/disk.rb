@@ -19,7 +19,7 @@ action :create do
     device = "/dev/disk/by-id/google-"+devicename
   end
 
-  mu_tools_mommacat_request "create #{path}" do
+  mu_tools_mommacat_request "create #{device} for #{path}" do
     request "add_volume"
     passparams(
       :dev => devicename,
@@ -63,6 +63,8 @@ action :create do
     if new_resource.reboot_after_create
       notifies :request_reboot, "reboot[Rebooting after adding #{path}]", :delayed
     end
+    retries 5 # sometimes there's a bit of lag
+    retry_delay 6
     not_if guard_cmd
   end
 

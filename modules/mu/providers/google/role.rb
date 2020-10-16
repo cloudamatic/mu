@@ -745,6 +745,7 @@ module MU
                   end
 
                   entity_types.each_pair { |entity_type, entities|
+                    next if entity_type == "deleted"
                     mu_entitytype = (entity_type == "serviceAccount" ? "user" : entity_type)+"s"
                     entities.each { |entity|
                       next if entity.nil?

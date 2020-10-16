@@ -23,7 +23,7 @@ $opts = Optimist::options do
 #{$0} [-c credentials] [-i imagename]
   EOS
   opt :credentials, "Use these AWS credentials from mu.yaml instead of the default set", :required => false, :type => :string
-  opt :image, "Purge a specific image, instead of just scrubing old ones", :required => false, :type => :string
+  opt :image, "Purge a specific image, instead of just scrubbing old ones", :required => false, :type => :string
 end
 
 filters = [
@@ -33,12 +33,14 @@ filters = [
   }
 ]
 
+in_use = MU::Cloud.getStockImage("AWS").values.flatten.map { |h| h.values }.flatten
 
 MU::Cloud::AWS.listRegions.each { | r|
   images = MU::Cloud::AWS.ec2(region: r, credentials: $opts[:credentials]).describe_images(
     filters: filters + [{ "name" => "state", "values" => ["available"]}]
   ).images
   images.each { |ami|
+    next if in_use.include?(ami)
     if ($opts[:image] and ami.name == $opts[:image]) or 
        ((DateTime.now.to_time - DateTime.parse(ami.creation_date).to_time) > 15552000 and ami.name.match(/^MU-(PROD|DEV)/))
       snaps = []
@@ -53,7 +55,13 @@ MU::Cloud::AWS.listRegions.each { | r|
       rescue Aws::EC2::Errors::InvalidAMIIDUnavailable
       end
         snaps.each { |snap_id|
-          MU::Cloud::AWS.ec2(region: r, credentials: $opts[:credentials]).delete_snapshot(snapshot_id: snap_id)
+          begin
+            MU::Cloud::AWS.ec2(region: r, credentials: $opts[:credentials]).delete_snapshot(snapshot_id: snap_id)
+          rescue Aws::EC2::Errors::InvalidSnapshotInUse
+            sleep 5
+            retry
+          rescue Aws::EC2::Errors::InvalidSnapshotNotFound
+          end
         }
     end
   }
