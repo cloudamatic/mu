@@ -23,11 +23,33 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
       include_recipe "mu-tools::aws_api"
       include_recipe "mu-tools::google_api"
   
+      if node['platform_version'].to_i < 6
+        package "policycoreutils"
+      elsif node['platform_version'].to_i < 8
+        package "policycoreutils-python"
+      else
+        package "policycoreutils-python-utils"
+      end
   
-      %w{ policycoreutils-python authconfig ntp aide }.each do |pkg|
+      %w{ authconfig aide }.each do |pkg|
         package "apply_security package #{pkg}" do
           package_name pkg
         end
+      end
+
+      if node['platform_version'].to_i < 8
+        package "ntp"
+        bash "NTP" do
+          user "root"
+          code <<-EOH
+    				chkconfig ntpd on
+  	  			ntpdate pool.ntp.org
+  		  		service ntpd start
+          EOH
+        end
+      else
+        package "chrony"
+        service "chronyd"
       end
 
       execute "enable manual auditd restarts" do
@@ -60,14 +82,6 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
         content "set -r autologout 15\n"
       end
   
-      bash "NTP" do
-        user "root"
-        code <<-EOH
-  				chkconfig ntpd on
-  				ntpdate pool.ntp.org
-  				service ntpd start
-        EOH
-      end
   
       #File integrity checking. Default configuration
       bash "AIDE" do

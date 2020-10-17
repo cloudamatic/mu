@@ -45,6 +45,63 @@ module Mutools
       nil
     end
 
+    # Just list our block devices
+    # @return [Array<String>]
+    def list_disk_devices
+      if File.executable?("/bin/lsblk")
+        %x{/bin/lsblk -i -p -r -n | egrep ' disk( |$)'}.each_line.map { |l|
+          l.chomp.sub(/ .*/, '')
+        }
+      else
+        # XXX something dumber
+        nil
+      end
+    end
+
+    # If we're in AWS and NVME-aware, return a mapping of AWS-side device names
+    # to actual NVME devices.
+    # @return [Hash]
+    def attached_nvme_disks
+      if get_aws_metadata("meta-data/instance-id").nil? or
+         !File.executable?("/bin/lsblk") or !File.executable?("/sbin/nvme")
+        return {}
+      end
+      map = {}
+      devices = list_disk_devices
+      return {} if !devices
+      devices.each { |d|
+        if d =~ /^\/dev\/nvme/
+          %x{/sbin/nvme id-ctrl -v #{d}}.each_line { |desc|
+            if desc.match(/^0000: (?:[0-9a-f]{2} ){16}"(.+?)\./)
+              map[Regexp.last_match[1]] = d
+              break
+            end
+          }
+        end
+      }
+      map
+    end
+
+    def real_devicepath(dev)
+      map = attached_nvme_disks
+      if map[dev]
+        map[dev]
+      else
+        dev # be nice to actually handle this too
+      end
+    end
+
+    def nvme?
+      if File.executable?("/bin/lsblk")
+        %x{/bin/lsblk -i -p -r -n}.each_line { |l|
+          return true if l =~ /^\/dev\/nvme\d/
+        }
+      else
+        return true if File.exists?("/dev/nvme0n1")
+      end
+      false
+    end
+
     @project = nil
     @authorizer = nil
     def set_gcp_cfg_params
@@ -186,12 +243,12 @@ module Mutools
       if cloud == "AWS"
         resp = nil
         begin
+          Chef::Log.info("Fetch deploy secret from s3://#{bucket}/#{filename}")
           resp = s3.get_object(bucket: bucket, key: filename)
         rescue ::Aws::S3::Errors::PermanentRedirect => e
           tmps3 = Aws::S3::Client.new(region: "us-east-1")
           resp = tmps3.get_object(bucket: bucket, key: filename)
         end
-        Chef::Log.info("Fetch deploy secret from s3://#{bucket}/#{filename}")
         secret = resp.body.read
       elsif cloud == "Google"
         include_recipe "mu-tools::gcloud"
@@ -241,6 +298,8 @@ module Mutools
         end
 
         Chef::Log.info("Sending Momma Cat #{action} request to #{uri} from #{get_aws_metadata("meta-data/instance-id")}")
+        disks_before = list_disk_devices if action == "add_volume"
+
         req.set_form_data(
           "mu_id" => mu_get_tag_value("MU-ID"),
           "mu_resource_name" => node['service_name'],
@@ -256,6 +315,22 @@ module Mutools
         response = http.request(req)
         if response.code != "200"
           Chef::Log.error("Got #{response.code} back from #{uri} on #{action} => #{arg}")
+        else
+          if action == "add_volume" and arg.is_a?(Hash)
+            found = false
+            retries = 0
+            begin
+              disks_after = list_disk_devices.map { |d|
+                real_devicepath(d)
+              }
+              if disks_after.include?(arg["dev"])
+                found = true
+              else
+                sleep 5
+                retries += 1
+              end
+            end while !found and retries < 5
+          end
         end
       rescue EOFError => e
         # Sometimes deployment metadata is incomplete and missing a
