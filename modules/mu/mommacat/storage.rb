@@ -380,6 +380,7 @@ module MU
 
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
+MU.log "*********** Saving deployment #{MU.deploy_id}", MU::WARN
 
         if !Dir.exist?(deploy_dir)
           MU.log "Creating #{deploy_dir}", MU::DEBUG
@@ -415,6 +416,7 @@ module MU
           deploy.flock(File::LOCK_UN)
           deploy.close
           @need_deploy_flush = false
+          @last_modified = nil
           MU::MommaCat.updateLitter(@deploy_id, self)
         end
 
@@ -643,6 +645,14 @@ module MU
     def loadDeployFromCache(set_context_to_me = true)
       return false if !File.size?(deploy_dir+"/deployment.json")
 
+      lastmod = File.mtime("#{deploy_dir}/deployment.json")
+      if @last_modified and lastmod < @last_modified
+        MU.log "#{deploy_dir}/deployment.json last written at #{lastmod}, live meta at #{@last_modified}, not loading", MU::WARN if @last_modified
+        # this is a weird place for this
+        setThreadContextToMe if set_context_to_me
+        return true
+      end
+
       deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
       MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
       # deploy.flock(File::LOCK_EX)
@@ -654,6 +664,7 @@ module MU
 
       begin
         @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
+# XXX is it worthwhile to merge fuckery?
       rescue JSON::ParserError => e
         MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR, details: e.message
       end
@@ -663,19 +674,20 @@ module MU
 
       setThreadContextToMe if set_context_to_me
 
-      @timestamp = @deployment['timestamp']
-      @seed = @deployment['seed']
-      @appname = @deployment['appname']
-      @handle = @deployment['handle']
-
       true
     end
+
 
     ###########################################################################
     ###########################################################################
     def loadDeploy(deployment_json_only = false, set_context_to_me: true)
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         success = loadDeployFromCache(set_context_to_me)
+
+        @timestamp ||= @deployment['timestamp']
+        @seed ||= @deployment['seed']
+        @appname ||= @deployment['appname']
+        @handle ||= @deployment['handle']
 
         return if deployment_json_only and success
 
