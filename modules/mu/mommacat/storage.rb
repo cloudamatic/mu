@@ -380,7 +380,6 @@ module MU
 
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
-MU.log "*********** Saving deployment #{MU.deploy_id}", MU::WARN
 
         if !Dir.exist?(deploy_dir)
           MU.log "Creating #{deploy_dir}", MU::DEBUG
