@@ -28,6 +28,8 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
       elsif node['platform_version'].to_i < 8
         package "policycoreutils-python"
       else
+        package "xfsprogs"
+        package "xfsprogs-devel"
         package "policycoreutils-python-utils"
       end
   

@@ -69,10 +69,11 @@ action :create do
     action :nothing
   end
 
-  mkfs_cmd = node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}"
-  guard_cmd = node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null"
+#  mkfs_cmd = node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}"
+#  guard_cmd = node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null"
 
-  execute (node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}") do
+  execute "format #{devicename}" do
+    command (node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}")
     if new_resource.preserve_data
       notifies :mount, "mount[/mnt#{backupname}]", :immediately
       notifies :run, "execute[back up #{backupname}]", :immediately

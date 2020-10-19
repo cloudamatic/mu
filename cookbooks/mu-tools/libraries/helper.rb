@@ -73,7 +73,14 @@ module Mutools
         if d =~ /^\/dev\/nvme/
           %x{/sbin/nvme id-ctrl -v #{d}}.each_line { |desc|
             if desc.match(/^0000: (?:[0-9a-f]{2} ){16}"(.+?)\./)
-              map[Regexp.last_match[1]] = d
+              virt_dev = Regexp.last_match[1]
+              map[virt_dev] = d
+              if !File.exists?(virt_dev)
+                begin
+                  File.symlink(d, virt_dev)
+                rescue Errno::EEXIST # XXX whyyyyy is this needed
+                end
+              end
               break
             end
           }
@@ -287,6 +294,7 @@ module Mutools
     end
 
     def mommacat_request(action, arg)
+      params = Base64.urlsafe_encode64(JSON.generate(arg)) if arg
       uri = URI("https://#{get_mu_master_ips.first}:2260/")
       req = Net::HTTP::Post.new(uri)
       res_type = (node['deployment'].has_key?(:server_pools) and node['deployment']['server_pools'].has_key?(node['service_name'])) ? "server_pool" : "server"
@@ -307,7 +315,7 @@ module Mutools
           "mu_resource_type" => res_type,
           "mu_user" => node['deployment']['mu_user'] || node['deployment']['chef_user'],
           "mu_deploy_secret" => secret,
-          action => arg
+          action => params
         )
         http = Net::HTTP.new(uri.hostname, uri.port)
         http.use_ssl = true
@@ -316,20 +324,21 @@ module Mutools
         if response.code != "200"
           Chef::Log.error("Got #{response.code} back from #{uri} on #{action} => #{arg}")
         else
-          if action == "add_volume" and arg.is_a?(Hash)
-            found = false
+          if action == "add_volume" and arg and arg.is_a?(Hash) and arg[:dev]
+            seen_requested = false
             retries = 0
             begin
-              disks_after = list_disk_devices.map { |d|
-                real_devicepath(d)
+              list_disk_devices.each { |d|
+                if d == arg[:dev] or
+                   (nvme? and d == attached_nvme_disks[arg[:dev]])
+                  seen_requested = true
+                end
               }
-              if disks_after.include?(arg["dev"])
-                found = true
-              else
-                sleep 5
+              if !seen_requested
+                sleep 6
                 retries += 1
               end
-            end while !found and retries < 5
+            end while retries < 5 and !seen_requested
           end
         end
       rescue EOFError => e
