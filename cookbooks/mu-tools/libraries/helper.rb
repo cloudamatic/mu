@@ -49,7 +49,7 @@ module Mutools
     # @return [Array<String>]
     def list_disk_devices
       if File.executable?("/bin/lsblk")
-        %x{/bin/lsblk -i -p -r -n | egrep ' disk( |$)'}.each_line.map { |l|
+        shell_out(%Q{/bin/lsblk -i -p -r -n | egrep ' disk( |$)'}).stdout.each_line.map { |l|
           l.chomp.sub(/ .*/, '')
         }
       else
@@ -71,7 +71,7 @@ module Mutools
       return {} if !devices
       devices.each { |d|
         if d =~ /^\/dev\/nvme/
-          %x{/sbin/nvme id-ctrl -v #{d}}.each_line { |desc|
+          shell_out(%Q{/sbin/nvme id-ctrl -v #{d}}).stdout.each_line { |desc|
             if desc.match(/^0000: (?:[0-9a-f]{2} ){16}"(.+?)\./)
               virt_dev = Regexp.last_match[1]
               map[virt_dev] = d
@@ -100,7 +100,7 @@ module Mutools
 
     def nvme?
       if File.executable?("/bin/lsblk")
-        %x{/bin/lsblk -i -p -r -n}.each_line { |l|
+        shell_out(%Q{/bin/lsblk -i -p -r -n}).stdout.each_line { |l|
           return true if l =~ /^\/dev\/nvme\d/
         }
       else
