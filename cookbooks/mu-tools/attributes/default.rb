@@ -21,6 +21,13 @@ if disk_name_str == "CAP-MASTER" or disk_name_str == "MU-MASTER" and !node['host
   disk_name_str = node['hostname']
 end rescue NoMethodError
 
+diskdevs = :xvd
+if !platform_family?("windows")
+  if default['kernel']['modules'].keys.include?("nvme")
+    diskdevs = :nvme
+  end
+end
+
 default['os_updates_using_chef'] = false
 
 default['application_attributes']['application_volume']['mount_directory'] = '/apps'
