@@ -23,3 +23,7 @@
 		only_if { !get_google_metadata("instance/name").nil? }
   end
 }
+
+package "nvme-cli" do
+  ignore_failure true
+end

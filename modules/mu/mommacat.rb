@@ -547,7 +547,7 @@ module MU
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
-      no_write = (@no_artifacts or caller.grep(/\/mommacat\.rb:\d+:in `notify'/))
+      no_write = (@no_artifacts or !caller.grep(/\/mommacat\.rb:\d+:in `notify'/).empty?)
 
       begin
         if !no_write
@@ -560,7 +560,13 @@ module MU
           loadDeploy(true) # make sure we're saving the latest and greatest
         end
 
-        _shortclass, _cfg_name, type, _classname, attrs = MU::Cloud.getResourceNames(type, false)
+        @timestamp ||= @deployment['timestamp']
+        @seed ||= @deployment['seed']
+        @appname ||= @deployment['appname']
+        @handle ||= @deployment['handle']
+        
+        _shortclass, _cfg_name, mu_type, _classname, attrs = MU::Cloud.getResourceNames(type, false)
+        type = mu_type if mu_type
         has_multiples = attrs[:has_multiples] ? true : false
 
         mu_name ||= if !data.nil? and !data["mu_name"].nil?
@@ -574,6 +580,7 @@ module MU
         end
 
         @need_deploy_flush = true
+        @last_modified = Time.now
 
         if !remove
           if data.nil?
@@ -903,6 +910,7 @@ MAIL_HEAD_END
     ###########################################################################
     ###########################################################################
     def setThreadContextToMe
+
       ["appname", "environment", "timestamp", "seed", "handle"].each { |var|
         @deployment[var] ||= instance_variable_get("@#{var}".to_sym)
         if @deployment[var]

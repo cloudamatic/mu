@@ -1275,7 +1275,7 @@ module MU
         def addVolume(dev, size, type: "gp2", delete_on_termination: false)
 
           if setDeleteOntermination(dev, delete_on_termination)
-            MU.log "A volume #{device} already attached to #{self}, skipping", MU::NOTICE
+            MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
             return
           end
 
@@ -2278,7 +2278,7 @@ module MU
             if vol[:device_name] == device
               if vol[:ebs][:delete_on_termination] != delete_on_termination
                 vol[:ebs][:delete_on_termination] = delete_on_termination
-                MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
+                MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{device}"
                 MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).modify_instance_attribute(
                   instance_id: @cloud_id,
                   block_device_mappings: mappings
@@ -2327,6 +2327,7 @@ module MU
               tags: @config['tags'],
               credentials: @credentials
           )
+
           @deploy.notify("images", @config['name'], ami_ids)
           @config['image_created'] = true
           if img_cfg['image_then_destroy']

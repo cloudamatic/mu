@@ -30,3 +30,7 @@ if platform_family?("rhel") or platform_family?("amazon")
     end
   end
 end
+
+package "nvme-cli" do
+  ignore_failure true
+end
