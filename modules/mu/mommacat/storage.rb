@@ -202,14 +202,16 @@ module MU
 
       MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG, details: caller
       show_relevant = Proc.new {
-        @locks.each_pair { |thread_id, lock|
-          lock.each_pair { |lockid, lockpath|
-            if lockid == id
-              thread = Thread.list.select { |t| t.object_id == thread_id }.first
-              if thread.object_id != Thread.current.object_id
-                MU.log "#{thread_id} sitting on #{id}", MU::WARN, thread.backtrace
+        @lock_semaphore.synchronize {
+          @locks.each_pair { |thread_id, lock|
+            lock.each_pair { |lockid, lockpath|
+              if lockid == id
+                thread = Thread.list.select { |t| t.object_id == thread_id }.first
+                if thread.object_id != Thread.current.object_id
+                  MU.log "#{thread_id} sitting on #{id}", MU::WARN, thread.backtrace
+                end
               end
-            end
+            }
           }
         }
       }
@@ -218,11 +220,13 @@ module MU
           if !@locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
             if retries > 0
               success = false
-              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries) {
+              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries) { |cur_retries, _wait|
                 success = @locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
-              show_relevant.call() if !success
+                if !success and cur_retries > 0 and (cur_retries % 3) == 0
+                  show_relevant.call(cur_retries)
+                end
               }
-              show_relevant.call() if !success
+              show_relevant.call(cur_retries) if !success
               return success
             else
               return false
