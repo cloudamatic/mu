@@ -58,16 +58,19 @@ module MU
           lambda_properties = get_properties
 
           MU.retrier([Aws::Lambda::Errors::InvalidParameterValueException], max: 5, wait: 10) {
-            resp = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_function(lambda_properties)
+            resp = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).create_function(lambda_properties)
             @cloud_id = resp.function_name
           }
 
           # the console does this and docs expect it to be there, so mimic the
           # behavior
-          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @credentials).create_log_group(
-            log_group_name: "/aws/lambda/#{@cloud_id}",
-            tags: @tags
-          )
+          begin
+            MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @credentials).create_log_group(
+              log_group_name: "/aws/lambda/#{@cloud_id}",
+              tags: @tags
+            )
+          rescue Aws::CloudWatchLogs::Errors::ResourceAlreadyExistsException
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}

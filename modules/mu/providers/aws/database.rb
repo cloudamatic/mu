@@ -797,13 +797,16 @@ dependencies
         # @return [void]
         def self.cleanup(noop: false, deploy_id: MU.deploy_id, ignoremaster: false, credentials: nil, region: MU.curRegion, flags: {})
 
+          threads = []
+
           ["instance", "cluster"].each { |type|
-            threaded_resource_purge("describe_db_#{type}s".to_sym, "db_#{type}s".to_sym, "db_#{type}_identifier".to_sym, (type == "instance" ? "db" : "cluster"), region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
+            threads.concat threaded_resource_purge("describe_db_#{type}s".to_sym, "db_#{type}s".to_sym, "db_#{type}_identifier".to_sym, (type == "instance" ? "db" : "cluster"), region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
               terminate_rds_instance(nil, noop: noop, skipsnapshots: flags["skipsnapshots"], region: region, deploy_id: deploy_id, cloud_id: id, mu_name: id.upcase, credentials: credentials, cluster: (type == "cluster"), known: flags['known'])
   
-            }.each { |t|
-              t.join
             }
+          }
+          threads.each { |t|
+            t.join
           }
 
           threads = threaded_resource_purge(:describe_db_subnet_groups, :db_subnet_groups, :db_subnet_group_name, "subgrp", region, credentials, ignoremaster, known: flags['known'], deploy_id: deploy_id) { |id|
@@ -1653,7 +1656,7 @@ dependencies
 
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor (#{cloud_id})" if db.nil? or cloud_id.nil?
 
-          MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(cluster ? db.status : db.db_instance_status) }) {
+          MU.retrier([], wait: 60, loop_if: Proc.new { %w{creating modifying backing-up}.include?(cluster ? db.status : db.db_instance_status) }, loop_msg: "Waiting for RDS #{cluster ? "cluster" : "instance"} #{cloud_id} to be in a valid state for deletion") {
             db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, credentials: credentials, cluster: cluster).values.first
             return if db.nil?
           }
@@ -1673,7 +1676,7 @@ dependencies
               params[:skip_final_snapshot] = false
               params[:final_db_snapshot_identifier] = "#{cloud_id}-mufinal"
             end
-
+sleep 30
             if !noop
               on_retry = Proc.new { |e|
                 if [Aws::RDS::Errors::DBSnapshotAlreadyExists, Aws::RDS::Errors::DBClusterSnapshotAlreadyExistsFault, Aws::RDS::Errors::DBClusterQuotaExceeded].include?(e.class)
@@ -1688,7 +1691,7 @@ dependencies
                 end
               }
               del_db = nil
-              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and ((!cluster and del_db.db_instance_status != "deleted") or (cluster and del_db.status != "deleted")) }) {
+              MU.retrier([], wait: 10, ignoreme: [Aws::RDS::Errors::DBInstanceNotFound], loop_if: Proc.new { del_db and ((!cluster and del_db.db_instance_status != "deleted") or (cluster and del_db.status != "deleted")) }, loop_msg: "Waiting for RDS #{cluster ? "cluster" : "instance"} #{cloud_id} to delete") {
                 del_db = MU::Cloud::AWS::Database.find(cloud_id: cloud_id, region: region, cluster: cluster).values.first
               }
             end

@@ -387,7 +387,7 @@ app = proc do |env|
 
 # XXX We can't assume AWS anymore. What does this look like otherwise?
 # If this is an already-groomed instance, try to get a real object for it
-      instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: false, calling_deploy: kittenpile).first
+      instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: true, calling_deploy: kittenpile).first
       mu_name = nil
       if instance.nil?
         # Now we're just checking for existence in the cloud provider, really
@@ -416,7 +416,7 @@ app = proc do |env|
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))
-MU.log "ADDVOLUME REQUEST", MU::WARN, details: params
+          MU.log "add_volume request", MU::NOTICE, details: params
           instance.addVolume(params["dev"], params["size"], delete_on_termination: params["delete_on_termination"])
         else
           returnval = throw500 "I don't know how to add a volume for #{instance}"

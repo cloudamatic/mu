@@ -310,7 +310,7 @@ module MU
           return @obj
         end
 
-        if mommacat and !caller.grep(/`findLitterMate'/) # XXX the dumbest
+        if mommacat and caller.grep(/`findLitterMate'/).empty? # XXX the dumbest
           MU.log "Looking for #{@type} #{@name} #{@id} in deploy #{mommacat.deploy_id}", loglevel
           begin
             @obj = mommacat.findLitterMate(type: @type, name: @name, cloud_id: @id, credentials: @credentials, debug: debug)

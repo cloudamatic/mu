@@ -550,7 +550,9 @@ end
       def self.credToAcct(name = nil)
         creds = credConfig(name)
 
-        return creds['account_number'] if creds['account_number']
+        if creds['account_number'] and !creds['account_number'].empty?
+          return creds['account_number']
+        end
 
         acct_num = MU::Cloud::AWS.iam(credentials: name).list_users.users.first.arn.split(/:/)[4]
         acct_num.to_s
@@ -672,8 +674,8 @@ end
                 next
               end
               acct_num = MU::Cloud::AWS.iam(credentials: acctname).list_users.users.first.arn.split(/:/)[4]
-              if acct_num.to_s ==  name.to_s
-                cfg['account_number'] = acct_num.to_s
+              cfg['account_number'] ||= acct_num.to_s
+              if acct_num.to_s == name.to_s
                 @@acct_to_profile_map[name.to_s] = cfg
                 return name_only ? name.to_s : cfg
               end
@@ -1516,6 +1518,7 @@ end
         def initialize(region: nil, api: "EC2", credentials: nil)
           @cred_obj = MU::Cloud::AWS.loadCredentials(credentials)
           @credentials = MU::Cloud::AWS.credConfig(credentials, name_only: true)
+          @api_name = api
 
           if !@cred_obj
             raise MuError, "Unable to locate valid AWS credentials for #{api} API. #{credentials ? "Credentials requested were '#{credentials}'": ""}"
@@ -1533,6 +1536,8 @@ end
           params[:credentials] = @cred_obj
 
           MU.log "Initializing #{api} object with credentials #{credentials}", MU::DEBUG, details: params
+          require "aws-sdk-#{api.downcase}"
+
           @api = Object.const_get("Aws::#{api}::Client").new(params)
         end
 
@@ -1541,27 +1546,31 @@ end
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
           # make sure error symbols are loaded for our exception handling later
-          require "aws-sdk-core"
-          require "aws-sdk-core/rds"
-          require "aws-sdk-core/ec2"
-          require "aws-sdk-core/route53"
-          require "aws-sdk-core/iam"
-          require "aws-sdk-core/efs"
-          require "aws-sdk-core/pricing"
-          require "aws-sdk-core/apigateway"
-          require "aws-sdk-core/ecs"
-          require "aws-sdk-core/eks"
-          require "aws-sdk-core/cloudwatchlogs"
-          require "aws-sdk-core/cloudwatchevents"
-          require "aws-sdk-core/elasticloadbalancing"
-          require "aws-sdk-core/elasticloadbalancingv2"
-          require "aws-sdk-core/autoscaling"
-          require "aws-sdk-core/client_waiters"
-          require "aws-sdk-core/waiters/errors"
+          require "aws-sdk-lambda"
+          require "aws-sdk-rds"
+          require "aws-sdk-ec2"
+          require "aws-sdk-route53"
+          require "aws-sdk-iam"
+          require "aws-sdk-efs"
+          require "aws-sdk-pricing"
+          require "aws-sdk-apigateway"
+          require "aws-sdk-ecs"
+          require "aws-sdk-eks"
+          require "aws-sdk-cloudwatchlogs"
+          require "aws-sdk-cloudwatchevents"
+          require "aws-sdk-elasticloadbalancing"
+          require "aws-sdk-elasticloadbalancingv2"
+          require "aws-sdk-autoscaling"
+
+          known_concats = {
+            "Pricing" => {
+              :get_products => :price_list
+            }
+          }
 
           retries = 0
           begin
-            MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments
+            MU.log "Calling #{@api_name}.#{method_sym} in #{@region}", MU::DEBUG, details: arguments
 
               retval = if !arguments.nil? and arguments.size == 1
                 @api.method(method_sym).call(arguments[0])
@@ -1590,11 +1599,22 @@ end
 
               if paginator and new_page and !new_page.empty?
                 resp = retval.respond_to?(:__getobj__) ? retval.__getobj__ : retval
-                concat_to = resp.class.instance_methods(false).reject { |m|
+                concat_to = MU.structToHash(resp).keys.reject { |m|
                   m.to_s.match(/=$/) or m == paginator or resp.send(m).nil? or !resp.send(m).is_a?(Array)
                 }
+
+                if concat_to.empty? and known_concats[@api_name] and
+                   known_concats[@api_name][method_sym]
+                  concat_to << known_concats[@api_name][method_sym]
+                end
+
+                if concat_to.empty? and method_sym.to_s.match(/^(?:describe|list)_(.*)/)
+                  my_attr = Regexp.last_match[1].to_sym
+                  concat_to << my_attr if resp.respond_to?(my_attr)
+                end
+
                 if concat_to.size != 1
-                  MU.log "Tried to figure out where I might append paginated results for a #{resp.class.name}, but failed", MU::DEBUG, details: concat_to
+                  raise MuError.new "Tried to figure out where I might append paginated results for a #{@api_name}.#{method_sym}, but failed", details: MU.structToHash(resp).keys
                 else
                   concat_to = concat_to.first
                   new_args = arguments ? arguments.dup : [{}]

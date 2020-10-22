@@ -107,8 +107,17 @@ module MU
       matches = []
 
       credlist.each { |creds|
-#            next if region and region.is_a?(Array) and !region.empty? and !region.include?(r)
-        cloud_descs = search_cloud_provider(type, cloud, habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds, flags: flags)
+        cur_habitats = []
+
+        if habitats and !habitats.empty? and habitats != [nil]
+          valid_habitats = cloudclass.listHabitats(creds)
+          cur_habitats = (habitats & valid_habitats)
+          next if cur_habitats.empty?
+        else
+          cur_habitats = cloudclass.listHabitats(creds)
+        end
+
+        cloud_descs = search_cloud_provider(type, cloud, cur_habitats, region, cloud_id: cloud_id, tag_key: tag_key, tag_value: tag_value, credentials: creds, flags: flags)
 
         cloud_descs.each_pair.each { |p, regions|
           regions.each_pair.each { |r, results|

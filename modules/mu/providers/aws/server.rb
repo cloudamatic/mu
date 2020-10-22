@@ -85,7 +85,7 @@ module MU
             MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               cloud: "AWS",
-              credentials: @config['credentials'],
+              credentials: @credentials,
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                 "deploySSHKey" => @deploy.ssh_public_key,
@@ -243,7 +243,7 @@ module MU
             MU::Cloud::AWS.createStandardTags(
               instance.instance_id,
               region: @config['region'],
-              credentials: @config['credentials'],
+              credentials: @credentials,
               optional: @config['optional_tags'],
               nametag: @mu_name,
               othertags: @config['tags']
@@ -258,7 +258,7 @@ module MU
               parent_thread_id = Thread.current.object_id
               Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, region: @config['region'], credentials: @config['credentials'], flags: { "skipsnapshots" => true } )
+                MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, region: @config['region'], credentials: @credentials, flags: { "skipsnapshots" => true } )
               }
             end
           end
@@ -307,7 +307,7 @@ module MU
           instance_descriptor[:user_data] = Base64.encode64(@userdata)
         end
 
-        MU::Cloud::AWS::Server.waitForAMI(@config["image_id"], region: @config['region'], credentials: @config['credentials'])
+        MU::Cloud::AWS::Server.waitForAMI(@config["image_id"], region: @config['region'], credentials: @credentials)
 
         instance_descriptor[:block_device_mappings] = MU::Cloud::AWS::Server.configureBlockDevices(image_id: @config["image_id"], storage: @config['storage'], region: @config['region'], credentials: @credentials)
 
@@ -332,7 +332,7 @@ module MU
 
         begin
           MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if, loop_msg: "Waiting for run_instances to return #{@mu_name}") {
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).run_instances(instance_descriptor)
+            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).run_instances(instance_descriptor)
           }
         rescue Aws::EC2::Errors::InvalidRequest => e
           MU.log e.message, MU::ERR, details: instance_descriptor
@@ -351,12 +351,12 @@ module MU
         if hard
           groupname = nil
           if !@config['basis'].nil?
-            resp = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_instances(
+            resp = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @credentials).describe_auto_scaling_instances(
               instance_ids: [@cloud_id]
             )
             groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
             MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).suspend_processes(
+            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @credentials).suspend_processes(
               auto_scaling_group_name: groupname,
               scaling_processes: [
                 "Terminate",
@@ -365,22 +365,22 @@ module MU
           end
           begin
             MU.log "Stopping #{@mu_name} (#{@cloud_id})", MU::NOTICE
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).stop_instances(
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).stop_instances(
               instance_ids: [@cloud_id]
             )
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
               waiter.before_attempt do
                 MU.log "Waiting for #{@mu_name} to stop for hard reboot"
               end
             end
             MU.log "Starting #{@mu_name} (#{@cloud_id})"
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).start_instances(
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).start_instances(
               instance_ids: [@cloud_id]
             )
           ensure
             if !groupname.nil?
               MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
-              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).resume_processes(
+              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @credentials).resume_processes(
                 auto_scaling_group_name: groupname,
                 scaling_processes: [
                   "Terminate",
@@ -390,7 +390,7 @@ module MU
           end
         else
           MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
-          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).reboot_instances(
+          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).reboot_instances(
             instance_ids: [@cloud_id]
           )
         end
@@ -405,7 +405,7 @@ module MU
         return nil if @config.nil? or @deploy.nil?
 
         nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-        if !@config["vpc"].nil? and !MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+        if !@config["vpc"].nil? and !MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @credentials)
           if !@nat.nil?
             if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
               raise MuError, "Configured to use NAT Gateway, but I have no route to instance. Either use Bastion, or configure VPC peering"
@@ -458,7 +458,7 @@ module MU
         MU::Cloud::AWS.createStandardTags(
           @cloud_id,
           region: @config['region'],
-          credentials: @config['credentials'],
+          credentials: @credentials,
           optional: @config['optional_tags'],
           nametag: @mu_name,
           othertags: @config['tags']
@@ -495,7 +495,7 @@ module MU
 
         if !@config['src_dst_check'] and !@config["vpc"].nil?
           MU.log "Disabling source_dest_check #{@mu_name} (making it NAT-worthy)"
-          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+          MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).modify_instance_attribute(
             instance_id: @cloud_id,
             source_dest_check: { value: false }
           )
@@ -503,7 +503,7 @@ module MU
 
         # Set console termination protection. Autoscale nodes won't set this
         # by default.
-        MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+        MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).modify_instance_attribute(
           instance_id: @cloud_id,
           disable_api_termination: { value: true}
         )
@@ -574,7 +574,7 @@ module MU
         regions.each { |r|
           searches.each { |search|
             search_threads << Thread.new(search) { |params|
-              MU.retrier([Aws::EC2::Errors::InvalidInstanceIDNotFound], wait: 5, max: 5, ignoreme: [Aws::EC2::Errors::InvalidInstanceIDNotFound]) {
+              MU.retrier([], wait: 5, max: 5, ignoreme: [Aws::EC2::Errors::InvalidInstanceIDNotFound]) {
                 MU::Cloud::AWS.ec2(region: r, credentials: args[:credentials]).describe_instances(params).reservations.each { |resp|
                   next if resp.nil? or resp.instances.nil?
                   resp.instances.each { |i|
@@ -604,7 +604,7 @@ module MU
       def toKitten(**_args)
         bok = {
           "cloud" => "AWS",
-          "credentials" => @config['credentials'],
+          "credentials" => @credentials,
           "cloud_id" => @cloud_id,
           "region" => @config['region']
         }
@@ -883,7 +883,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":instance/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@credentials)+":instance/"+@cloud_id
         end
 
         @cloud_desc_cache = nil
@@ -896,7 +896,7 @@ module MU
           retries = 0
           if !@cloud_id.nil?
             begin
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(instance_ids: [@cloud_id])
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_instances(instance_ids: [@cloud_id])
               if resp and resp.reservations and resp.reservations.first and
                  resp.reservations.first.instances and
                  resp.reservations.first.instances.first
@@ -943,7 +943,7 @@ module MU
           # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
           # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
           # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
-          if MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials']) or @deploydata["public_ip_address"].nil?
+          if MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @credentials) or @deploydata["public_ip_address"].nil?
             @config['canonical_ip'] = cloud_desc.private_ip_address
             @deploydata["private_ip_address"] = cloud_desc.private_ip_address
             return cloud_desc.private_ip_address
@@ -1170,7 +1170,7 @@ module MU
           retries = 0
           MU.log "Waiting for Windows instance password to be set by Amazon and flagged as available from the API. Note- if you're using a source AMI that already has its password set, this may fail. You'll want to set use_cloud_provider_windows_password to false if this is the case.", MU::NOTICE
           begin
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
               waiter.max_attempts = 60
               waiter.before_attempt do |attempts|
                 MU.log "Waiting for Windows password data to be available for node #{@mu_name}", MU::NOTICE if attempts % 5 == 0
@@ -1190,7 +1190,7 @@ module MU
             end
           end
 
-          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).get_password_data(instance_id: @cloud_id)
+          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).get_password_data(instance_id: @cloud_id)
           encrypted_password = resp.password_data
 
           # Note: This is already implemented in the decrypt_windows_password API call
@@ -1275,19 +1275,19 @@ module MU
         def addVolume(dev, size, type: "gp2", delete_on_termination: false)
 
           if setDeleteOntermination(dev, delete_on_termination)
-            MU.log "A volume #{device} already attached to #{self}, skipping", MU::NOTICE
+            MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
             return
           end
 
           MU.log "Creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
-          creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_volume(
+          creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).create_volume(
             availability_zone: cloud_desc.placement.availability_zone,
             size: size,
             volume_type: type
           )
 
           MU.retrier(wait: 3, loop_if: Proc.new {
-            creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
+            creation = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
             if !["creating", "available"].include?(creation.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
@@ -1299,22 +1299,25 @@ module MU
             MU::Cloud::AWS.createStandardTags(
               creation.volume_id,
               region: @config['region'],
-              credentials: @config['credentials'],
+              credentials: @credentials,
               optional: @config['optional_tags'],
               nametag: @mu_name+"-"+dev.upcase,
               othertags: @config['tags']
             )
           end
 
-          attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_volume(
-            device: dev,
-            instance_id: @cloud_id,
-            volume_id: creation.volume_id
-          )
+          MU.log "Attaching #{creation.volume_id} as #{dev} to #{@cloud_id} in #{@config['region']} (credentials #{@credentials})"
+          attachment = nil
+          MU.retrier([Aws::EC2::Errors::IncorrectState], wait: 15, max: 4) {
+            attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).attach_volume(
+              device: dev,
+              instance_id: @cloud_id,
+              volume_id: creation.volume_id
+            )
+          }
 
           begin
-            sleep 3
-            attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
+            attachment = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
             if !["attaching", "attached"].include?(attachment.state)
               raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
             end
@@ -1334,7 +1337,7 @@ module MU
             return true
           end
           begin
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_instances(
+            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_instances(
                 instance_ids: [@cloud_id]
             ).reservations.each { |resp|
               if !resp.nil? and !resp.instances.nil?
@@ -2085,7 +2088,7 @@ module MU
         def haveElasticIP?
           if !cloud_desc.public_ip_address.nil?
             begin
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(public_ips: [cloud_desc.public_ip_address])
+              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_addresses(public_ips: [cloud_desc.public_ip_address])
               if resp.addresses.size > 0 and resp.addresses.first.instance_id == @cloud_id
                 return true
               end
@@ -2110,7 +2113,7 @@ module MU
             subnet = @vpc.getSubnet(cloud_id: cloud_desc.subnet_id)
 
             _nat_ssh_key, _nat_ssh_user, nat_ssh_host, _canonical_ip, _ssh_user, _ssh_key_name = getSSHConfig
-            if subnet.private? and !nat_ssh_host and !MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @config['credentials'])
+            if subnet.private? and !nat_ssh_host and !MU::Cloud.resourceClass("AWS", "VPC").haveRouteToInstance?(cloud_desc, region: @config['region'], credentials: @credentials)
               raise MuError, "#{@mu_name} is in a private subnet (#{subnet}), but has no bastion host configured, and I have no other route to it"
             end
 
@@ -2127,17 +2130,17 @@ module MU
                   next
                 end
                 MU.log "Adding network interface on subnet #{s.cloud_id} for #{@mu_name}"
-                iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_network_interface(subnet_id: s.cloud_id).network_interface
+                iface = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).create_network_interface(subnet_id: s.cloud_id).network_interface
                 MU::Cloud::AWS.createStandardTags(
                   iface.network_interface_id,
                   region: @config['region'],
-                  credentials: @config['credentials'],
+                  credentials: @credentials,
                   optional: @config['optional_tags'],
                   nametag: @mu_name+"-ETH"+device_index.to_s,
                   othertags: @config['tags']
                 )
 
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).attach_network_interface(
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).attach_network_interface(
                   network_interface_id: iface.network_interface_id,
                   instance_id: cloud_desc.instance_id,
                   device_index: device_index
@@ -2156,7 +2159,7 @@ module MU
             cloud_desc.network_interfaces.each { |int|
               if int.private_ip_address == cloud_desc.private_ip_address and int.private_ip_addresses.size < (@config['add_private_ips'] + 1)
                 MU.log "Adding #{@config['add_private_ips']} extra private IP addresses to #{cloud_desc.instance_id}"
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).assign_private_ip_addresses(
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).assign_private_ip_addresses(
                   network_interface_id: int.network_interface_id,
                   secondary_private_ip_address_count: @config['add_private_ips'],
                   allow_reassignment: false
@@ -2167,14 +2170,14 @@ module MU
         end
 
         def tagVolumes
-          volumes = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_volumes(filters: [name: "attachment.instance-id", values: [@cloud_id]])
+          volumes = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_volumes(filters: [name: "attachment.instance-id", values: [@cloud_id]])
           volumes.each { |vol|
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
                 MU::Cloud::AWS.createStandardTags(
                   attachment.volume_id,
                   region: @config['region'],
-                  credentials: @config['credentials'],
+                  credentials: @credentials,
                   optional: @config['optional_tags'],
                   nametag: ["/dev/sda", "/dev/sda1"].include?(attachment.device) ? "ROOT-"+@mu_name : @mu_name+"-"+attachment.device.upcase,
                   othertags: @config['tags']
@@ -2204,7 +2207,7 @@ module MU
               if alarm["enable_notifications"]
                 # XXX vile, this should be a sibling resource generated by the
                 # parser
-                topic_arn = MU::Cloud.resourceClass("AWS", "Notification").createTopic(alarm["notification_group"], region: @config["region"], credentials: @config['credentials'])
+                topic_arn = MU::Cloud.resourceClass("AWS", "Notification").createTopic(alarm["notification_group"], region: @config["region"], credentials: @credentials)
                 MU::Cloud.resourceClass("AWS", "Notification").subscribe(topic_arn, alarm["notification_endpoint"], alarm["notification_type"], region: @config["region"], credentials: @config["credentials"])
                 alarm["alarm_actions"] = [topic_arn]
                 alarm["ok_actions"]  = [topic_arn]
@@ -2227,7 +2230,7 @@ module MU
                 threshold: alarm["threshold"],
                 comparison_operator: alarm["comparison_operator"],
                 region: @config["region"],
-                credentials: @config['credentials']
+                credentials: @credentials
               )
             }
           end
@@ -2237,7 +2240,10 @@ module MU
 
         def getIAMProfile
           arn = if @config['generate_iam_role']
-            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+            role = @deploy.findLitterMate(name: @config['name'], type: "roles", debug: true)
+            if !role
+              raise MuError, "Failed to find a role matching #{@config['name']}"
+            end
             s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
               'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
             }
@@ -2272,8 +2278,8 @@ module MU
             if vol[:device_name] == device
               if vol[:ebs][:delete_on_termination] != delete_on_termination
                 vol[:ebs][:delete_on_termination] = delete_on_termination
-                MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{dev}"
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_instance_attribute(
+                MU.log "Setting delete_on_termination flag to #{delete_on_termination.to_s} on #{@mu_name}'s #{device}"
+                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).modify_instance_attribute(
                   instance_id: @cloud_id,
                   block_device_mappings: mappings
                 )
@@ -2319,14 +2325,15 @@ module MU
               make_public: img_cfg['public'],
               region: @config['region'],
               tags: @config['tags'],
-              credentials: @config['credentials']
+              credentials: @credentials
           )
+
           @deploy.notify("images", @config['name'], ami_ids)
           @config['image_created'] = true
           if img_cfg['image_then_destroy']
-            MU::Cloud::AWS::Server.waitForAMI(ami_ids[@config['region']], region: @config['region'], credentials: @config['credentials'])
+            MU::Cloud::AWS::Server.waitForAMI(ami_ids[@config['region']], region: @config['region'], credentials: @credentials)
             MU.log "AMI #{ami_ids[@config['region']]} ready, removing source node #{@mu_name}"
-            MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @config['credentials'])
+            MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name, credentials: @credentials)
             destroy
           end
         end

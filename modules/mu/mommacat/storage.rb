@@ -202,14 +202,16 @@ module MU
 
       MU.log "Getting a lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})...", MU::DEBUG, details: caller
       show_relevant = Proc.new {
-        @locks.each_pair { |thread_id, lock|
-          lock.each_pair { |lockid, lockpath|
-            if lockid == id
-              thread = Thread.list.select { |t| t.object_id == thread_id }.first
-              if thread.object_id != Thread.current.object_id
-                MU.log "#{thread_id} sitting on #{id}", MU::WARN, thread.backtrace
+        @lock_semaphore.synchronize {
+          @locks.each_pair { |thread_id, lock|
+            lock.each_pair { |lockid, lockpath|
+              if lockid == id
+                thread = Thread.list.select { |t| t.object_id == thread_id }.first
+                if thread.object_id != Thread.current.object_id
+                  MU.log "#{thread_id} sitting on #{id}", MU::WARN, thread.backtrace
+                end
               end
-            end
+            }
           }
         }
       }
@@ -218,11 +220,13 @@ module MU
           if !@locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
             if retries > 0
               success = false
-              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries) {
+              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries) { |cur_retries, _wait|
                 success = @locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
-              show_relevant.call() if !success
+                if !success and cur_retries > 0 and (cur_retries % 3) == 0
+                  show_relevant.call(cur_retries)
+                end
               }
-              show_relevant.call() if !success
+              show_relevant.call(cur_retries) if !success
               return success
             else
               return false
@@ -415,6 +419,7 @@ module MU
           deploy.flock(File::LOCK_UN)
           deploy.close
           @need_deploy_flush = false
+          @last_modified = nil
           MU::MommaCat.updateLitter(@deploy_id, self)
         end
 
@@ -643,6 +648,14 @@ module MU
     def loadDeployFromCache(set_context_to_me = true)
       return false if !File.size?(deploy_dir+"/deployment.json")
 
+      lastmod = File.mtime("#{deploy_dir}/deployment.json")
+      if @last_modified and lastmod < @last_modified
+        MU.log "#{deploy_dir}/deployment.json last written at #{lastmod}, live meta at #{@last_modified}, not loading", MU::WARN if @last_modified
+        # this is a weird place for this
+        setThreadContextToMe if set_context_to_me
+        return true
+      end
+
       deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
       MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
       # deploy.flock(File::LOCK_EX)
@@ -654,6 +667,7 @@ module MU
 
       begin
         @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
+# XXX is it worthwhile to merge fuckery?
       rescue JSON::ParserError => e
         MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR, details: e.message
       end
@@ -663,19 +677,20 @@ module MU
 
       setThreadContextToMe if set_context_to_me
 
-      @timestamp = @deployment['timestamp']
-      @seed = @deployment['seed']
-      @appname = @deployment['appname']
-      @handle = @deployment['handle']
-
       true
     end
+
 
     ###########################################################################
     ###########################################################################
     def loadDeploy(deployment_json_only = false, set_context_to_me: true)
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         success = loadDeployFromCache(set_context_to_me)
+
+        @timestamp ||= @deployment['timestamp']
+        @seed ||= @deployment['seed']
+        @appname ||= @deployment['appname']
+        @handle ||= @deployment['handle']
 
         return if deployment_json_only and success
 

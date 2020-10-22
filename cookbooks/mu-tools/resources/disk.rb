@@ -10,24 +10,42 @@ actions :create # ~FC092
 default_action :create
 
 action :create do
-  device = new_resource.device
+  devicepath = new_resource.device
   path = new_resource.mountpoint
-  devicename = device
+  devicename = devicepath.dup
 
   if set_gcp_cfg_params
     devicename= devicename.gsub(/.*?\//, "")
-    device = "/dev/disk/by-id/google-"+devicename
+    devicepath = "/dev/disk/by-id/google-"+devicename
   end
 
-  mu_tools_mommacat_request "create #{path}" do
+#  if devicename =~ /^\/dev\/(?:sd|xvd)([a-z])/
+#    if nvme?
+#      map = attached_nvme_disks
+#      if map[devicename]
+#        devicepath = map[devicename]
+#      end
+#    end
+#  end
+
+  mu_tools_mommacat_request "create #{devicepath} for #{path}" do
     request "add_volume"
     passparams(
       :dev => devicename,
       :size => new_resource.size,
       :delete_on_termination => new_resource.delete_on_termination
     )
-    not_if { ::File.exist?(device) }
+    not_if { ::File.exist?(real_devicepath(devicepath)) }
   end
+
+#  if nvme? and device.nil?
+#    map = attached_nvme_disks
+#    if map[devicename]
+#      devicepath = map[devicename]
+#    else
+#      Chef::Application.fatal!("In NVME mode and attempted to allocate disk #{devicename}, but didn't find it in metadata of any of our NVME block devices (#{map.values.join(", ")})")
+#    end
+#  end
 
   reboot "Rebooting after adding #{path}" do
     action :nothing
@@ -38,7 +56,7 @@ action :create do
     action :nothing
   end
   mount "/mnt#{backupname}" do
-    device device
+    device real_devicepath(devicepath)
     options "nodev"
     action :nothing
     notifies :create, "directory[/mnt#{backupname}]", :before
@@ -51,10 +69,11 @@ action :create do
     action :nothing
   end
 
-  mkfs_cmd = node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{device}" : "mkfs.xfs -i size=512 #{device}"
-  guard_cmd = node['platform_version'].to_i == 6 ? "tune2fs -l #{device} > /dev/null" : "xfs_admin -l #{device} > /dev/null"
+#  mkfs_cmd = node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}"
+#  guard_cmd = node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null"
 
-  execute mkfs_cmd do
+  execute "format #{devicename}" do
+    command (node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}")
     if new_resource.preserve_data
       notifies :mount, "mount[/mnt#{backupname}]", :immediately
       notifies :run, "execute[back up #{backupname}]", :immediately
@@ -63,11 +82,13 @@ action :create do
     if new_resource.reboot_after_create
       notifies :request_reboot, "reboot[Rebooting after adding #{path}]", :delayed
     end
-    not_if guard_cmd
+    retries 5 # sometimes there's a bit of lag
+    retry_delay 6
+    not_if (node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null")
   end
 
   if !new_resource.reboot_after_create
-    directory "Ensure existence of #{path} for #{device}" do
+    directory "Ensure existence of #{path} for #{real_devicepath(devicepath)}" do
       recursive true
       path path
     end
@@ -78,7 +99,7 @@ action :create do
     end
 
     mount path do
-      device device
+      device real_devicepath(devicepath)
       options "nodev"
       action [:mount, :enable]
       notifies :run, "execute[/sbin/restorecon -R #{path}]", :immediately
