@@ -17,8 +17,8 @@ end
 
 Gem::Specification.new do |s|
   s.name        = 'cloud-mu'
-  s.version     = '3.3.2'
-  s.date        = '2020-10-04'
+  s.version     = '3.4.0'
+  s.date        = '2020-10-22'
   s.require_paths = ['modules']
   s.required_ruby_version = '>= 2.4'
   s.summary     = "The eGTLabs Mu toolkit for unified cloud deployments"
@@ -36,7 +36,7 @@ EOF
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
   s.add_runtime_dependency 'addressable', '~> 2.5'
-  s.add_runtime_dependency "aws-sdk"
+  s.add_runtime_dependency "aws-sdk", "~> 3.0"
   s.add_runtime_dependency 'azure_sdk', "~> 0.52"
   s.add_runtime_dependency 'bundler', "~> 1.17"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
