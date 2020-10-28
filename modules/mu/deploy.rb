@@ -269,6 +269,7 @@ module MU
           cloudclass = MU::Cloud.cloudClass(cloud)
           cloudclass.initDeploy(@mommacat)
         }
+        @mommacat.writeDeploySecret
 
         # Kick off threads to create each of our new servers.
         @my_threads << Thread.new {

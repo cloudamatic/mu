@@ -542,6 +542,22 @@ module MU
       return Dir.exist?(deploy_path)
     end
 
+    # Write our shared deploy secret out to wherever the cloud provider layers
+    # like to stash it.
+    def writeDeploySecret
+      return if !@deploy_secret
+      credsets = credsUsed
+      return if !credsets
+      if !@original_config['scrub_mu_isms'] and !@no_artifacts
+        cloudsUsed.each { |cloud|
+          credsets.each { |credentials|
+            next if MU::Cloud.cloudClass(cloud).credConfig(credentials).nil? # XXX this is a dumb way to check this, should be able to get credsUsed by cloud
+            MU::Cloud.cloudClass(cloud).writeDeploySecret(self, @deploy_secret, credentials: credentials)
+          }
+        }
+      end
+    end
+
     private
         
     def writeFile(filename, contents)
@@ -552,30 +568,8 @@ module MU
 
     # Helper for +initialize+
     def setDeploySecret
-      credsets = {}
-      MU::Cloud.resource_types.values.each { |attrs|
-        if !@original_config[attrs[:cfg_plural]].nil? and @original_config[attrs[:cfg_plural]].size > 0
-          @original_config[attrs[:cfg_plural]].each { |resource|
-
-            credsets[resource['cloud']] ||= []
-            credsets[resource['cloud']] << resource['credentials']
-            @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
-            @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
-
-          }
-        end
-      }
-
       MU.log "Creating deploy secret for #{MU.deploy_id}"
       @deploy_secret = Password.random(256)
-      if !@original_config['scrub_mu_isms'] and !@no_artifacts
-        credsets.each_pair { |cloud, creds|
-          creds.uniq!
-          creds.each { |credentials|
-            MU::Cloud.cloudClass(cloud).writeDeploySecret(@deploy_id, @deploy_secret, credentials: credentials)
-          }
-        }
-      end
     end
 
     def loadObjects(delay_descriptor_load)

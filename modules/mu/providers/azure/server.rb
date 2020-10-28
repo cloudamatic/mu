@@ -150,7 +150,7 @@ module MU
 
             if !@nat.nil? and @nat.mu_name != @mu_name
               if @nat.cloud_desc.nil?
-                MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
+                MU.log "NAT #{@nat} was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
               end
               _foo, _bar, _baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
@@ -220,6 +220,7 @@ module MU
         # @return [Hash<String,OpenStruct>]: The cloud provider's complete descriptions of matching instances
         def self.find(**args)
           found = {}
+MU.log "Azure::Server.find called", MU::NOTICE, details: args
           # told one, we may have to search all the ones we can see.
           resource_groups = if args[:resource_group]
             [args[:resource_group]]
@@ -417,6 +418,7 @@ module MU
 
         # return [String]: A password string.
         def getWindowsAdminPassword
+          @deploy.fetchSecret(@mu_name, "windows_admin_password")
         end
 
         # Add a volume to this instance
@@ -770,10 +772,23 @@ module MU
 
           os_obj = MU::Cloud::Azure.compute(:OSProfile).new
           if windows?
+            winrm_listen = MU::Cloud::Azure.compute(:WinRMListener).new
+            winrm_listen.certificate_url = "goddamn stupid ass thing"
+            winrm_listen.protocol = "https"
+            winrm = MU::Cloud::Azure.compute(:WinRMConfiguration).new
+            winrm.listeners = [winrm_listen]
+
             win_obj = MU::Cloud::Azure.compute(:WindowsConfiguration).new
+            win_obj.win_rmconfiguration = winrm
             os_obj.windows_configuration = win_obj
             os_obj.admin_username = @config['windows_admin_username']
-            os_obj.admin_password = MU.generateWindowsPassword
+            os_obj.admin_password = begin
+              @deploy.fetchSecret(@mu_name, "windows_admin_password")
+            rescue MU::MommaCat::SecretError
+              pw = MU.generateWindowsPassword
+              @deploy.saveNodeSecret(@mu_name, pw, "windows_admin_password")
+              pw
+            end
             os_obj.computer_name = @deploy.getResourceName(@config["name"], max_length: 15, disallowed_chars: /[~!@#$%^&*()=+_\[\]{}\\\|;:\.'",<>\/\?]/)
           else
             os_obj.admin_username = @config['ssh_user']

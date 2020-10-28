@@ -164,7 +164,7 @@ module MU
     # @param scrub_mu_isms [Boolean]: Don't bother with generating names specific to this deployment. Used to generate generic CloudFormation templates, amongst other purposes.
     # @param disallowed_chars [Regexp]: A pattern of characters that are illegal for this resource name, such as +/[^a-zA-Z0-9-]/+
     # @return [String]: A full name string for this resource
-    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], disallowed_chars: nil)
+    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'], disallowed_chars: nil, never_gen_unique: false)
       if name.nil?
         raise MuError, "Got no argument to MU::MommaCat.getResourceName"
       end
@@ -219,7 +219,7 @@ module MU
           else
             # If we have to strip anything, assume we've lost uniqueness and
             # will have to compensate with #genUniquenessString.
-            need_unique_string = true
+            need_unique_string = true if !never_gen_unique
             reserved = 4
             basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
             basename = basename + "-" + @seed.upcase + "-" + name.upcase

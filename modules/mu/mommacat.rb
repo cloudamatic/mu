@@ -173,6 +173,7 @@ module MU
       @public_key = nil
       @secrets = Hash.new
       @secrets['instance_secret'] = Hash.new
+      @secrets['windows_admin_password'] = Hash.new
       @ssh_key_name = ssh_key_name
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
@@ -512,6 +513,8 @@ module MU
       @ssh_private_key = File.read("#{ssh_dir}/#{@ssh_key_name}")
       @ssh_private_key.chomp!
 
+# XXX the following mess belongs in cloud layers, probably in their initDeploy
+# methods
       if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool", "ContainerCluster"]) > 0
         creds_used = []
         ["servers", "server_pools", "container_clusters"].each { |type|
@@ -884,13 +887,13 @@ MAIL_HEAD_END
         if resource and resource.config and resource.config['cloud']
           cloudclass = MU::Cloud.cloudClass(resource.config['cloud'])
 
-          cloudclass.writeDeploySecret(@deploy_id, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
-          cloudclass.writeDeploySecret(@deploy_id, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])
+          cloudclass.writeDeploySecret(self, cert.to_pem, cert_cn+".crt", credentials: resource.config['credentials'])
+          cloudclass.writeDeploySecret(self, key.to_pem, cert_cn+".key", credentials: resource.config['credentials'])
           if pfx_cert
-            cloudclass.writeDeploySecret(@deploy_id, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
+            cloudclass.writeDeploySecret(self, pfx_cert.to_der, cert_cn+".pfx", credentials: resource.config['credentials'])
           end
           if winrm_cert
-            cloudclass.writeDeploySecret(@deploy_id, winrm_cert.to_pem, cert_cn+"-winrm.crt", credentials: resource.config['credentials'])
+            cloudclass.writeDeploySecret(self, winrm_cert.to_pem, cert_cn+"-winrm.crt", credentials: resource.config['credentials'])
           end
         end
 

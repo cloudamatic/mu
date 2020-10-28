@@ -350,11 +350,40 @@ module MU
           listRegions.each { |region|
             next if !deploy.regionsUsed.include?(region)
             begin
-              createResourceGroup(deploy.deploy_id+"-"+region.upcase, region, credentials: creds)
+              rg_obj = createResourceGroup(deploy.deploy_id+"-"+region.upcase, region, credentials: creds)
+              createVault(rg_obj.name, region, deploy, credentials: creds)
             rescue ::MsRestAzure::AzureOperationError
             end
           }
         }
+      end
+
+      # Arguably this should be a first class resource, but for now we'll do
+      # it here since we're going to have a generic deployment vault in every
+      # resource group.
+      # @param rg [String]: The name of the resource group in which we'll reside
+      # @param region [String]: The region in which we'll reside
+      # @param deploy [MU::MommaCat]: The deployment which we serve
+      # @param credentials [String]:
+      def self.createVault(rg, region, deploy, credentials: nil)
+        cred_hash = MU::Cloud::Azure.getSDKOptions(credentials)
+        vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+        MU::Cloud::Azure.ensureProvider("Microsoft.KeyVault", credentials: credentials)
+        sku = MU::Cloud::Azure.keyvault(:Sku).new
+        sku.name = "standard" # ...I'm angry about this
+
+        props = MU::Cloud::Azure.keyvault(:VaultProperties).new
+        props.tenant_id = cred_hash[:tenant_id]
+        props.enabled_for_deployment = true
+        props.sku = sku
+        props.access_policies = []
+
+        params = MU::Cloud::Azure.keyvault(:VaultCreateOrUpdateParameters).new
+        params.location = region
+        params.properties = props
+
+        MU.log "Creating KeyVault #{vaultname} in #{region}"
+        MU::Cloud::Azure.keyvault(credentials: credentials).vaults.create_or_update(rg, vaultname, params)
       end
 
       @@rg_semaphore = Mutex.new
@@ -400,17 +429,30 @@ module MU
           end
         }
         MU.log "Configuring resource group #{name} in #{region}", details: rg_obj
-        MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
+        rg = MU::Cloud::Azure.resources(credentials: credentials).resource_groups.create_or_update(
           name,
           rg_obj
         )
+
+        rg
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
-      # @param deploy_id [String]: The deploy for which we're writing the secret
+      # @param deploy [MU::MommaCat]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
-      def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
-# XXX this ain't it hoss
+      def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
+        deploy_id = deploy.deploy_id
+
+        listRegions.each { |region|
+          next if !deploy.regionsUsed.include?(region)
+          rg = deploy_id+"-"+region.upcase
+          vaultname = deploy.getResourceName(region, max_length: 23, disallowed_chars: /[^a-z0-9-]/i, never_gen_unique: true)
+
+          resp = MU::Cloud::Azure.keyvault(credentials: credentials).vaults.get(rg, vaultname)
+          next if !resp
+MU.log "vault existence check #{vaultname}", MU::WARN, details: resp
+
+        }
       end
 
       # Return the name strings of all known sets of credentials for this cloud
@@ -777,6 +819,24 @@ module MU
         return @@resources_api[credentials]
       end
 
+      # The Azure KeyVault API
+      # @param model [<Azure::Apis::KeyVault::Mgmt::V2018_02_14::Models>]: If specified, will return the class ::Azure::Apis::KeyVault::Mgmt::V2018_02_14::Models::model instead of an API client instance
+      # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
+      # @param alt_object [String]: Return an instance of something other than the usual API client object
+      # @param credentials [String]: The credential set (subscription, effectively) in which to operate
+      # @return [MU::Cloud::Azure::SDKClient]
+      def self.keyvault(model = nil, alt_object: nil, credentials: nil, model_version: "V2018_02_14")
+        require 'azure_mgmt_key_vault'
+
+        if model and model.is_a?(Symbol)
+          return Object.const_get("Azure").const_get("KeyVault").const_get("Mgmt").const_get(model_version).const_get("Models").const_get(model)
+        else
+          @@keyvault_api[credentials] ||= MU::Cloud::Azure::SDKClient.new(api: "KeyVault", credentials: credentials, subclass: alt_object)
+        end
+
+        return @@keyvault_api[credentials]
+      end
+
       # The Azure Features API
       # @param model [<Azure::Apis::Features::Mgmt::V2015_12_01::Models>]: If specified, will return the class ::Azure::Apis::Features::Mgmt::V2015_12_01::Models::model instead of an API client instance
       # @param model_version [String]: Use an alternative model version supported by the SDK when requesting a +model+
@@ -931,6 +991,7 @@ module MU
       @@resources_api = {}
       @@containers_api = {}
       @@features_api = {}
+      @@keyvault_api = {}
       @@apis_api = {}
       @@marketplace_api = {}
       @@service_identity_api = {}
