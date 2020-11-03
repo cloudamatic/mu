@@ -1,7 +1,7 @@
 Summary: Python for Mu
 BuildArch: x86_64
 Name: muthon
-Version: 2.7.16
+Version: 3.8.3
 Release: 1%{dist}
 Group: Development/Languages
 License: Ruby License/GPL - see COPYING
@@ -16,12 +16,14 @@ AutoReq: no
 #%global __requires_exclude ^/usr/local/bin/python$
 #%global __requires_exclude ^/opt/pythons/Python-%{version}/bin/python.*$
 
+%{?el6:BuildRequires: mussl}
 BuildRequires: zlib-devel
 BuildRequires: tcl-devel
 BuildRequires: gdbm-devel
 BuildRequires: openssl-devel
 BuildRequires: sqlite-devel
 BuildRequires: tk-devel
+%{?el6:Requires: mussl}
 Requires: zlib
 Requires: gdbm
 Requires: tcl
@@ -47,13 +49,21 @@ ln -s %{prefix}/Python-%{version} $RPM_BUILD_ROOT%{prefix}/Python-%{version}
 %build
 cd $RPM_BUILD_DIR/Python-%{version}
 mkdir -p %{prefix}/Python-%{version}
+%if 0%{?el6}
+echo "****************"
+pwd
+ls -la /usr/local/openssl-current/lib
+echo "****************"
+env -i PATH="/bin:/usr/bin" LDFLAGS="-L/usr/local/openssl-current/lib" ./configure --prefix=%{prefix}/Python-%{version} --exec-prefix=%{prefix}/Python-%{version} --enable-shared LDFLAGS=-Wl,-rpath=%{prefix}/Python-%{version}/lib,-rpath=/usr/local/openssl-current/lib --with-openssl=/usr/local/openssl-current
+%else
 env -i PATH="/bin:/usr/bin" ./configure --prefix=%{prefix}/Python-%{version} --exec-prefix=%{prefix}/Python-%{version} --enable-shared LDFLAGS=-Wl,-rpath=%{prefix}/Python-%{version}/lib
+%endif
 env -i PATH="/bin:/usr/bin" make
 
 %install
 cd $RPM_BUILD_DIR/Python-%{version}
 env -i PATH="/bin:/usr/bin" make install
-%{prefix}/Python-%{version}/bin/python $RPM_SOURCE_DIR/get-pip.py --prefix %{prefix}/Python-%{version}/
+%{prefix}/Python-%{version}/bin/python3 $RPM_SOURCE_DIR/get-pip.py --prefix %{prefix}/Python-%{version}/
 mkdir -p $RPM_BUILD_ROOT%{prefix}
 mv %{prefix}/Python-%{version} $RPM_BUILD_ROOT%{prefix}/
 mkdir -p $RPM_BUILD_ROOT/usr/local/
