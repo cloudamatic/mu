@@ -182,11 +182,11 @@ when 'rhel'
 
   case node['platform_version'].split('.')[0].to_i
   when 6
-    basepackages.concat(["cryptsetup-luks", "mysql-devel", "centos-release-scl"])
+    basepackages.concat(["cryptsetup-luks", "mysql-devel", "centos-release-scl", "perl-WWW-Curl"])
     removepackages = ["nagios"]
 
   when 7
-    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup'])
+    basepackages.concat(['libX11', 'mariadb-devel', 'cryptsetup', 'tcl-devel', 'gdbm-devel', 'sqlite-devel', 'tk-devel'])
     removepackages = ['nagios', 'firewalld']
 
   when 8
