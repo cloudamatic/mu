@@ -173,7 +173,7 @@ dpkgs = {}
 
 elversion = node['platform_version'].split('.')[0]
 
-rhelbase = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk"]
+rhelbase = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "tcl", "tk", "xfsprogs"]
 
 case node['platform_family']
 when 'rhel'
