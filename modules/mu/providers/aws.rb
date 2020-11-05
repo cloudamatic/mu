@@ -186,6 +186,7 @@ end
       # @param r [String]
       # @return [String]
       def self.validate_region(r, credentials: nil)
+        require "aws-sdk-ec2"
         begin
           MU::Cloud::AWS.ec2(region: r, credentials: credentials).describe_availability_zones.availability_zones.first.region_name
         rescue ::Aws::EC2::Errors::UnauthorizedOperation => e
