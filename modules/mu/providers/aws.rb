@@ -626,10 +626,13 @@ end
 
           if hosted?
             begin
-              iam_data = JSON.parse(getAWSMetaData("iam/info"))
-              if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
-                @@my_hosted_cfg = hosted_config
-                return name_only ? "#default" : @@my_hosted_cfg
+              iam_blob = getAWSMetaData("iam/info")
+              if iam_blob
+                iam_data = JSON.parse(iam_blob)
+                if iam_data["InstanceProfileArn"] and !iam_data["InstanceProfileArn"].empty?
+                  @@my_hosted_cfg = hosted_config
+                  return name_only ? "#default" : @@my_hosted_cfg
+                end
               end
             rescue JSON::ParserError => e
             end
