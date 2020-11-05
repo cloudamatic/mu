@@ -44,6 +44,7 @@ Usage:
   opt :dns, "Ensure the presence of a private DNS Zone called for internal amongst Mu resources.", :require => false, :default => false, :type => :boolean
   opt :uploadlogs, "Push today's log files to the S3 bucket created by the -l option.", :require => false, :default => false, :type => :boolean
   opt :ephemeral, "Make sure all of our instance store (ephemeral) block devices are mapped and available.", :require => false, :default => false, :type => :boolean
+  opt :optdisk, "Create an EBS volume for /opt and slide our installation onto it", :require => false, :default => false, :type => :boolean
 end
 
 if MU::Cloud::AWS.hosted? and !$MU_CFG['aws']
@@ -234,6 +235,19 @@ elsif $opts[:ip]
 end
 
 $bucketname = MU.adminBucketName
+
+if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
+  if !File.exists?("/sbin/mkfs.xfs")
+    system("/usr/bin/yum -y install xfsprogs")
+  end
+  MU::Master.disk("/dev/xvdm", "/opt_tmp", 30)
+  MU.log "Moving contents of /opt to /opt_tmp", MU::NOTICE
+  system("/bin/mv /opt/* /opt_tmp/")
+  MU.log "Remounting /opt_tmp /opt", MU::NOTICE
+  system("/bin/umount /opt_tmp")
+  system("/bin/mount /dev/xvdm /opt")
+end
+
 
 if $opts[:logs]
   MU::Cloud::AWS.listCredentials.each { |credset|

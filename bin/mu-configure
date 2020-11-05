@@ -504,6 +504,10 @@ if !$NOOP
   rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
   end
 
+  if $IN_AWS and AMROOT and !$IN_GEM
+    system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+  end
+
   KNIFE_TEMPLATE = "log_level                :info
   log_location             STDOUT
   node_name                '<%= chefuser %>'
@@ -1361,7 +1365,7 @@ if !$NOOP
     updateChefRbs
   end
 
-  if $IN_AWS and AMROOT
+  if $IN_AWS and AMROOT# and $IN_GEM
     system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
   # XXX --ip? Do we really care?
   end
