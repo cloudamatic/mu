@@ -504,10 +504,6 @@ if !$NOOP
   rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Errno::EHOSTUNREACH
   end
 
-  if $IN_AWS and AMROOT and !$IN_GEM
-    system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
-  end
-
   KNIFE_TEMPLATE = "log_level                :info
   log_location             STDOUT
   node_name                '<%= chefuser %>'
@@ -1257,6 +1253,10 @@ if !$NOOP
   rescue LoadError
     system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
     require 'mu'
+  end
+
+  if $IN_AWS and AMROOT and !$IN_GEM
+    system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
   end
 
   if $IN_GEM
