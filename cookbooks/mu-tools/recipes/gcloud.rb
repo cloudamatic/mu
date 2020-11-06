@@ -28,7 +28,7 @@ if platform_family?("rhel") or platform_family?("amazon")
     end
     package "google-cloud-sdk"
   elsif node['platform_version'].to_i == 6
-    version = "267.0.0"
+    version = "317.0.0"
     remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.sh" do
       source "https://sdk.cloud.google.com"
       action :nothing
