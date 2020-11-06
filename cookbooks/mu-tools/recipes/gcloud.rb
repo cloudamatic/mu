@@ -42,14 +42,7 @@ if platform_family?("rhel") or platform_family?("amazon")
       code <<-EOH
         rm -rf /opt/google-cloud-sdk/
         tar -xzf #{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz
-        if [ -f /opt/rh/python27/root/usr/bin/python ];then
-          if [ ! -f /etc/ld.so.conf.d/python27.conf ];then
-            echo "/opt/rh/python27/root/usr/lib64" > /etc/ld.so.conf.d/python27.conf
-            echo "/opt/rh/python27/root/usr/lib" >> /etc/ld.so.conf.d/python27.conf
-            /sbin/ldconfig
-          fi
-        fi
-        CLOUDSDK_PYTHON="`/bin/rpm -ql muthon python27-python | grep '/bin/python$'`" ./google-cloud-sdk/install.sh -q
+        CLOUDSDK_PYTHON="`/bin/rpm -ql muthon | grep '/bin/python3$'`" ./google-cloud-sdk/install.sh -q
       EOH
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.sh]", :before
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz]", :before
