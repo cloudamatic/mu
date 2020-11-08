@@ -4,7 +4,7 @@ Name: mussl
 Version: 1.1.1h
 Release: 1%{dist}
 Group: Development/Languages
-License: Ruby License/GPL - see COPYING
+License: https://www.openssl.org/source/license-openssl-ssleay.txt
 URL: https://www.openssl.org/
 Prefix: /opt/openssl
 Source: https://www.openssl.org/source/openssl-%{version}.tar.gz

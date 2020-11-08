@@ -1,0 +1,15 @@
+---
+  appname: mu
+  servers: 
+    - 
+      name: centos7
+      platform: centos7
+      size: m3.medium
+      scrub_groomer: true
+      run_list:
+      - recipe[mu-tools::apply_security]
+      - recipe[mu-tools::updates]
+      - recipe[mu-tools::split_var_partitions]
+      create_image:
+        image_then_destroy: true
+        public: true
