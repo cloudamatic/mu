@@ -54,7 +54,7 @@ mkdir -p %{prefix}/Python-%{version}
 %if 0%{?el6}
 # The SQLite library location logic is dain-bramaged
 sed -i "s/sqlite_inc_paths = \[ '\/usr\/include'/sqlite_inc_paths = \[ '\/usr\/local\/sqlite-current\/include'/" setup.py
-env -i PATH="/bin:/usr/bin" LDFLAGS="-L/usr/local/openssl-current/lib" ./configure --prefix=%{prefix}/Python-%{version} --exec-prefix=%{prefix}/Python-%{version} --enable-shared LDFLAGS=-Wl,-rpath=%{prefix}/Python-%{version}/lib,-rpath=/usr/local/openssl-current/lib --with-openssl=/usr/local/openssl-current --enable-loadable-sqlite-extensions
+env -i PATH="/bin:/usr/bin" LDFLAGS="-L/usr/local/openssl-current/lib" ./configure --prefix=%{prefix}/Python-%{version} --exec-prefix=%{prefix}/Python-%{version} --enable-shared LDFLAGS=-Wl,-rpath=%{prefix}/Python-%{version}/lib,-rpath=/usr/local/openssl-current/lib,-rpath=/usr/local/sqlite-current/lib --with-openssl=/usr/local/openssl-current --enable-loadable-sqlite-extensions
 %else
 env -i PATH="/bin:/usr/bin" ./configure --prefix=%{prefix}/Python-%{version} --exec-prefix=%{prefix}/Python-%{version} --enable-shared LDFLAGS=-Wl,-rpath=%{prefix}/Python-%{version}/lib --enable-loadable-sqlite-extensions
 %endif
