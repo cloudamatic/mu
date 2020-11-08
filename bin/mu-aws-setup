@@ -246,6 +246,7 @@ if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   MU.log "Remounting /opt_tmp /opt", MU::NOTICE
   system("/bin/umount /opt_tmp")
   system("/bin/mount /dev/xvdm /opt")
+  system("echo '/dev/xvdm /opt xfs defaults 0 0' >> /etc/fstab")
 end
 
 
