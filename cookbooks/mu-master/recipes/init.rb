@@ -368,6 +368,7 @@ nginx['ssl_port'] = 7443
 nginx['ssl_ciphers'] = 'HIGH:MEDIUM:!LOW:!kEDH:!aNULL:!ADH:!eNULL:!EXP:!SSLv2:!SEED:!CAMELLIA:!PSK'
 nginx['ssl_protocols'] = 'TLSv1.2'
 bookshelf['external_url'] = 'https://127.0.0.1:7443'
+bookshelf['vip'] = server_name
 bookshelf['vip_port'] = 7443\n"
   not_if { ::File.size?("/etc/opscode/chef-server.rb") }
   notifies :run, "execute[reconfigure Chef server]", :immediately
