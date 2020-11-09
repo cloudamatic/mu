@@ -237,6 +237,11 @@ end
 $bucketname = MU.adminBucketName
 
 if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
+  wd = Dir.getwd
+  Dir.chdir("/")
+  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+    system("/opt/opscode/bin/chef-server-ctl stop")
+  end
   if !File.exists?("/sbin/mkfs.xfs")
     system("/usr/bin/yum -y install xfsprogs")
   end
@@ -247,6 +252,10 @@ if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   system("/bin/umount /opt_tmp")
   system("/bin/mount /dev/xvdm /opt")
   system("echo '/dev/xvdm /opt xfs defaults 0 0' >> /etc/fstab")
+  if File.exists?("/opt/opscode/bin/chef-server-ctl")
+    system("/opt/opscode/bin/chef-server-ctl start")
+  end
+  Dir.chdir(wd)
 end
 
 
