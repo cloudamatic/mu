@@ -702,7 +702,8 @@ module MU
   if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and
      !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
     @@mu_public_addr = $MU_CFG['public_address']
-    if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
+    if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/) and
+       File.exists?("/etc/hostname") and File.exists?("/etc/hosts")
       hostname = IO.readlines("/etc/hostname")[0].gsub(/\n/, '')
 
       hostlines = File.open('/etc/hosts').grep(/.*#{hostname}.*/)
