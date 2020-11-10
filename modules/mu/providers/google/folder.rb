@@ -265,8 +265,12 @@ module MU
 
           if args[:cloud_id]
             raw_id = args[:cloud_id].sub(/^folders\//, "")
-            resp = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
-            found[resp.name] = resp if resp
+            begin
+              resp = MU::Cloud::Google.folder(credentials: args[:credentials]).get_folder("folders/"+raw_id)
+              found[resp.name] = resp if resp
+            rescue ::Google::Apis::ClientError => e
+              raise e if e.message !~ /forbidden: /
+            end
 
           elsif args[:flags] and args[:flags]['display_name']
 

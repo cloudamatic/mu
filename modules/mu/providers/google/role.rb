@@ -581,7 +581,7 @@ module MU
               }
             end
             if args[:cloud_id]
-              found.reject! { |k, _v| k != role.name }
+              found.reject! { |k, _v| k != args[:cloud_id] }
             end
 
             # Now go get everything that's bound here
