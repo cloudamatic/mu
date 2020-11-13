@@ -161,7 +161,17 @@ module example.com/cloudfunction
             File.read("#{dir}/current.zip")
           }
 
-          new = if @config['code']['zip_file']
+          tempfile = nil
+          new = if @config['code']['zip_file'] or @config['code']['path']
+            if @config['code']['path']
+              tempfile = Tempfile.new(["function", ".zip"])
+              MU.log "#{@mu_name} using code at #{@config['code']['path']}"
+              MU::Master.zipDir(@config['code']['path'], tempfile.path)
+              @config['code']['zip_file'] = tempfile.path
+            else
+              MU.log "#{@mu_name} using code packaged at #{@config['code']['zip_file']}"
+            end
+#            @code_sha256 = Base64.encode64(Digest::SHA256.digest(zip)).chomp
             File.read(@config['code']['zip_file'])
           elsif @config['code']['gs_url']
             @config['code']['gs_url'].match(/^gs:\/\/([^\/]+)\/(.*)/)
@@ -172,11 +182,12 @@ module example.com/cloudfunction
               File.read(dir+"/new.zip")
             }
           end
+
           if @config['code']['gs_url'] and
              (@config['code']['gs_url'] != cloud_desc.source_archive_url or
              current != new)
             need_update = true
-          elsif @config['code']['zip_file'] and current != new
+          elsif (@config['code']['zip_file'] or @config['code']['path']) and current != new
             need_update = true
             desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
           end
@@ -206,6 +217,11 @@ module example.com/cloudfunction
 
 #            service_account_email: sa.kitten.cloud_desc.email,
 #            labels: labels,
+
+          if tempfile
+            tempfile.close
+            tempfile.unlink
+          end
 
         end
 
@@ -448,6 +464,7 @@ module example.com/cloudfunction
             content_type: "application/zip",
             name: filename
           )
+
           MU::Cloud::Google.storage(credentials: credentials).insert_object(
             bucket,
             obj_obj,
@@ -487,7 +504,7 @@ module example.com/cloudfunction
           end
 # XXX list_project_locations
 
-          if !function['code'] or (!function['code']['zip_file'] and !function['code']['gs_url'])
+          if !function['code'] or (!function['code']['zip_file'] and !function['code']['gs_url'] and !function['code']['path'])
             MU.log "Must specify a code source in Cloud Function #{function['name']}", MU::ERR
             ok = false
           elsif function['code']['zip_file']
@@ -627,8 +644,22 @@ module example.com/cloudfunction
 #          }
           if @config['code']['gs_url']
             desc[:source_archive_url] = @config['code']['gs_url']
-          elsif @config['code']['zip_file']
+          elsif @config['code']['zip_file'] or @config['code']['path']
+            tempfile = nil
+            if @config['code']['path']
+              tempfile = Tempfile.new(["function", ".zip"])
+              MU.log "#{@mu_name} using code at #{@config['code']['path']}"
+              MU::Master.zipDir(@config['code']['path'], tempfile.path)
+              @config['code']['zip_file'] = tempfile.path
+            else
+              MU.log "#{@mu_name} using code packaged at #{@config['code']['zip_file']}"
+            end
             desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+
+            if tempfile
+              tempfile.close
+              tempfile.unlink
+            end
           end
 
 #          Dir.mktmpdir(@mu_name) { |dir|
