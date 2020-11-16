@@ -614,7 +614,6 @@ module example.com/cloudfunction
           if @config['vpc_connector']
             desc[:vpc_connector] = @config['vpc_connector']
             desc[:vpc_connector_egress_settings] = @config['vpc_connector_allow_all_egress'] ? "ALL_TRAFFIC" : "PRIVATE_RANGES_ONLY"
-            pp desc
           elsif @vpc
             desc[:network] = @vpc.url.sub(/^.*?\/projects\//, 'projects/')
           end
