@@ -194,12 +194,12 @@ module example.com/cloudfunction
 
           if need_update
             func_obj = buildDesc
-            MU.log "Updating Cloud Function #{@mu_name}", MU::NOTICE, details: func_obj
+            MU.log "Updating Cloud Function #{@cloud_id}", MU::NOTICE, details: func_obj
             begin
-#              MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
-#                @cloud_id, 
-#                func_obj
-#              )
+              MU::Cloud::Google.function(credentials: @credentials).patch_project_location_function(
+                @cloud_id, 
+                func_obj
+              )
             rescue ::Google::Apis::ClientError
               MU.log "Error updating Cloud Function #{@mu_name}.", MU::ERR
               if desc[:source_archive_url]
@@ -370,6 +370,7 @@ module example.com/cloudfunction
         def self.schema(config)
           toplevel_required = ["runtime"]
           schema = {
+            "roles" => MU::Cloud.resourceClass("Google", "User").schema(config)[1]["roles"],
             "triggers" => {
               "type" => "array",
               "items" => {
