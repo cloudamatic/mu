@@ -43,7 +43,7 @@ EOF
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'colorize', "~> 0.8"
   s.add_runtime_dependency 'erubis', "~> 2.7"
-  s.add_runtime_dependency 'google-api-client', "~> 0.36.4"
+  s.add_runtime_dependency 'google-api-client', "~> 0.50.0"
   s.add_runtime_dependency 'googleauth', "~> 0.6"
   s.add_runtime_dependency 'inifile', "~> 3.0"
   s.add_runtime_dependency 'json-schema', "~> 2.8"
