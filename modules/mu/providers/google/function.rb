@@ -189,7 +189,13 @@ module example.com/cloudfunction
             need_update = true
           elsif (@config['code']['zip_file'] or @config['code']['path']) and current != new
             need_update = true
-            desc[:source_archive_url] = MU::Cloud::Google::Function.uploadPackage(@config['code']['zip_file'], @mu_name+"-cloudfunction.zip", credentials: @credentials)
+          end
+
+          if @config['vpc_connector']
+            if cloud_desc.vpc_connector != @config['vpc_connector'] or
+               cloud_desc.vpc_connector_egress_settings != (@config['vpc_connector_allow_all_egress'] ? "ALL_TRAFFIC" : "PRIVATE_RANGES_ONLY")
+              need_update = true
+            end
           end
 
           if need_update
