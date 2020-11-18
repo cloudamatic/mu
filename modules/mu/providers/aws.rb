@@ -124,8 +124,12 @@ module MU
           # pull access key and secret from a vault
           begin
             vault, item = cred_cfg["credentials"].split(/:/)
-            data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
-            if data["access_key"] and data["access_secret"]
+            data = if !vault or !item
+              raise MuError.new "AWS #{name} credentials field #{cred_cfg["credentials"]} malformed, should be vaultname:itemname", details: cred_cfg
+            else
+              MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
+            end
+            if data and data["access_key"] and data["access_secret"]
               cred_obj = Aws::Credentials.new(
                 cred_cfg['access_key'], cred_cfg['access_secret']
               )
