@@ -125,13 +125,13 @@ module MU
           begin
             vault, item = cred_cfg["credentials"].split(/:/)
             data = if !vault or !item
-              raise MuError.new "AWS #{name} credentials field #{cred_cfg["credentials"]} malformed, should be vaultname:itemname", details: cred_cfg
+              raise MuError.new "AWS #{name} credentials field value '#{cred_cfg["credentials"]}' malformed, should be vaultname:itemname", details: cred_cfg
             else
               MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
             end
             if data and data["access_key"] and data["access_secret"]
               cred_obj = Aws::Credentials.new(
-                cred_cfg['access_key'], cred_cfg['access_secret']
+                data['access_key'], data['access_secret']
               )
               if name.nil?
 #                Aws.config = {
@@ -141,10 +141,10 @@ module MU
 #                }
               end
             else
-              MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but is missing access_key or access_secret elements", MU::WARN
+              raise MuError.new "AWS #{name} credentials vault:item #{cred_cfg["credentials"]} specified, but is missing access_key or access_secret elements", details: cred_cfg
             end
           rescue MU::Groomer::MuNoSuchSecret
-            MU.log "AWS credentials vault:item #{cred_cfg["credentials"]} specified, but does not exist", MU::WARN
+            raise MuError.new "AWS #{name} credentials vault:item #{cred_cfg["credentials"]} specified, but does not exist", details: cred_cfg
           end
         end
 
