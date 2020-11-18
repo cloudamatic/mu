@@ -918,7 +918,7 @@ if !$NOOP
         if data["named_subentries"]
           if data['subtree']['#entries']
             data['subtree']['#entries'].each_pair { |nameentry, subdata|
-              next if nameentry.match(/^#/)
+              next if nameentry.nil? or nameentry.match(/^#/)
               puts "  "+subdata["#menu"].bold+". "+nameentry.green.on_black
             }
           end
