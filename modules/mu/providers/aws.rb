@@ -387,8 +387,8 @@ end
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
       # @param deploy_id [String]: The deploy for which we're writing the secret
       # @param value [String]: The contents of the secret
-      def self.writeDeploySecret(deploy_id, value, name = nil, credentials: nil)
-        name ||= deploy_id+"-secret"
+      def self.writeDeploySecret(deploy, value, name = nil, credentials: nil)
+        name ||= deploy.deploy_id+"-secret"
         begin
           MU.log "Writing #{name} to S3 bucket #{adminBucketName(credentials)}"
           MU::Cloud::AWS.s3(region: myRegion, credentials: credentials).put_object(
