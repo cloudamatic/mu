@@ -1310,12 +1310,21 @@ module MU
             end
           }
           rolename = nil
+MU.log "before the fuckening", MU::NOTICE, @config['basis']['launch_config']
           ['generate_iam_role', 'iam_policies', 'canned_iam_policies', 'iam_role'].each { |field|
-            @config['basis']['launch_config'][field] ||= @config[field]
+            if !@config['basis']['launch_config'].nil?
+              @config[field] = @config['basis']['launch_config'][field]
+            else
+              @config['basis']['launch_config'][field] = @config[field]
+            end
           }
+MU.log "after the fuckening", MU::NOTICE, @config['basis']['launch_config']
 
           if @config['basis']['launch_config']['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+            if !role
+              raise MuError.new "ServerPool #{@mu_name}: generate_iam_role was set, but I failed to find a role named #{@config['name']}"
+            end
 
             @config['iam_role'] = role.mu_name
 
@@ -1327,6 +1336,7 @@ module MU
           end
 
           @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
+MU.log "launch_options", MU::WARN, details: launch_options
 
           lc_attempts = 0
           begin
