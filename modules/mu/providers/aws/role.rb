@@ -194,7 +194,6 @@ module MU
               )
               MU.retrier([Aws::IAM::Errors::NoSuchEntity], loop_if: Proc.new { desc.nil? }) {
                 desc = MU::Cloud::AWS.iam(credentials: credentials).get_policy(policy_arn: arn)
-                pp desc
               }
               desc
             end
@@ -312,8 +311,8 @@ end
         # Insert a new target entity into an existing policy. 
         # @param policy [String]: The name of the policy to which we're appending, which must already exist as part of this role resource
         # @param targets [Array<String>]: The target resource. If +target_type+ isn't specified, this should be a fully-resolved ARN.
-        def injectPolicyTargets(policy, targets)
-          if !policy.match(/^#{@deploy.deploy_id}/)
+        def injectPolicyTargets(policy, targets, attach: false)
+          if @deploy and !policy.match(/^#{@deploy.deploy_id}/)
             policy = @mu_name+"-"+policy.upcase
           end
           my_policies = cloud_desc(use_cache: false)["policies"]
@@ -335,7 +334,7 @@ end
                 targets.each { |target|
                   target_string = target
 
-                  if target['type']
+                  if target['type'] and @deploy
                     sibling = @deploy.findLitterMate(
                       name: target["identifier"],
                       type: target["type"]
@@ -794,7 +793,7 @@ end
               path_prefix: "/"+@deploy.deploy_id+"/"
             ).policies
             mypolicies.reject! { |p|
-              !p.policy_name.match(/^#{Regexp.quote(@mu_name)}-/)
+              !p.policy_name.match(/^#{Regexp.quote(@mu_name)}(-|$)/)
             }
 
             if @config['attachable_policies']

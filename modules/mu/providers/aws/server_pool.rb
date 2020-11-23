@@ -194,7 +194,6 @@ module MU
         def listNodes
           nodes = []
           me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id).values.first
-          pp me
           if me and me.instances
             me.instances.each { |instance|
               found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @config["region"], dummy_ok: true)
@@ -300,8 +299,7 @@ module MU
           end
 
 # XXX actually compare for changes instead of just blindly updating
-#pp current
-#pp asg_options
+
           asg_options.delete(:tags)
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
@@ -910,13 +908,14 @@ module MU
                 MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
                 ok = false
               end
-            else
+            end
               s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(pool['credentials'])+'/Mu_CA.pem']
 
               role = {
                 "name" => pool["name"],
                 "cloud" => "AWS",
                 "strip_path" => pool["role_strip_path"],
+                "bare_policies" => !launch['generate_iam_role'],
                 "can_assume" => [
                   {
                     "entity_id" => "ec2.amazonaws.com",
@@ -944,7 +943,7 @@ module MU
               role['credentials'] = pool['credentials'] if pool['credentials']
               configurator.insertKitten(role, "roles")
               MU::Config.addDependency(pool, pool['name'], "role")
-            end
+#            end
             launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
               img_id = MU::Cloud.getStockImage("AWS", platform: pool['platform'], region: pool['region'])
@@ -1223,13 +1222,27 @@ module MU
 
           storage.concat(MU::Cloud.resourceClass("AWS", "Server").ephemeral_mappings)
 
+          role_or_policy = @deploy.findLitterMate(name: @config['name'], type: "roles", debug: true)
+
+          s3_objs = [
+            "#{@deploy.deploy_id}-secret",
+            "#{role_or_policy.mu_name}.pfx",
+            "#{role_or_policy.mu_name}.crt",
+            "#{role_or_policy.mu_name}.key",
+            "#{role_or_policy.mu_name}-winrm.crt",
+            "#{role_or_policy.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
+            }
           if @config['basis']['launch_config']['generate_iam_role']
-            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
-            if role
-              s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-                'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
-              }
-              role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
+            role_or_policy.injectPolicyTargets("MuSecrets", s3_objs)
+          elsif @config['basis']['launch_config']['iam_role']
+            realrole = MU::MommaCat.findStray("AWS", "role", cloud_id: @config['basis']['launch_config']['iam_role'], dummy_ok: true, credentials: @credentials).first
+            if !role_or_policy
+              raise MuError, "I should have a bare policy littermate named #{@config['name']} but I can't find it"
+            end
+            if realrole
+              role_or_policy.bindTo("role", realrole.cloud_id)
+              realrole.injectPolicyTargets(role_or_policy.mu_name+"-MUSECRETS", s3_objs)
             end
           end
 
@@ -1310,12 +1323,20 @@ module MU
             end
           }
           rolename = nil
+
           ['generate_iam_role', 'iam_policies', 'canned_iam_policies', 'iam_role'].each { |field|
-            @config['basis']['launch_config'][field] ||= @config[field]
+            if !@config['basis']['launch_config'].nil?
+              @config[field] = @config['basis']['launch_config'][field]
+            else
+              @config['basis']['launch_config'][field] = @config[field]
+            end
           }
 
           if @config['basis']['launch_config']['generate_iam_role']
             role = @deploy.findLitterMate(name: @config['name'], type: "roles")
+            if !role
+              raise MuError.new "ServerPool #{@mu_name}: generate_iam_role was set, but I failed to find a role named #{@config['name']}"
+            end
 
             @config['iam_role'] = role.mu_name
 

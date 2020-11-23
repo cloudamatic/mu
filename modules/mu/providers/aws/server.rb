@@ -1209,7 +1209,7 @@ module MU
         # instead of VPC.
         # @param ip [String]: Request a specific IP address.
         # @param region [String]: The cloud provider region
-        def self.findFreeElasticIp(classic: false, ip: nil, region: MU.curRegion)
+        def self.findFreeElasticIp(classic: false, ip: nil, region: MU.curRegion, credentials: nil)
           filters = Array.new
           if !classic
             filters << {name: "domain", values: ["vpc"]}
@@ -1219,25 +1219,25 @@ module MU
           filters << {name: "public-ip", values: [ip]} if ip != nil
 
           if filters.size > 0
-            resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(filters: filters)
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses(filters: filters)
           else
-            resp = MU::Cloud::AWS.ec2(region: region).describe_addresses()
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses
           end
           resp.addresses.each { |address|
             return address if (address.network_interface_id.nil? || address.network_interface_id.empty?) && !@eips_used.include?(address.public_ip)
           }
           if ip != nil
             if !classic
-              raise MuError, "Requested EIP #{ip}, but no such IP exists or is avaulable in VPC"
+              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in VPC mode#{credentials ? " with credentials #{credentials}" : ""}"
             else
-              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in EC2 Classic"
+              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in EC2 Classic mode#{credentials ? " with credentials #{credentials}" : ""}"
             end
           end
           if !classic
-            resp = MU::Cloud::AWS.ec2(region: region).allocate_address(domain: "vpc")
+            resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).allocate_address(domain: "vpc")
             new_ip = resp.public_ip
           else
-            new_ip = MU::Cloud::AWS.ec2(region: region).allocate_address().public_ip
+            new_ip = MU::Cloud::AWS.ec2(region: region, credentials: credentials).allocate_address().public_ip
           end
           filters = [{name: "public-ip", values: [new_ip]}]
           if resp.domain
@@ -1253,8 +1253,8 @@ module MU
           begin
             begin
               sleep 5
-              resp = MU::Cloud::AWS.ec2(region: region).describe_addresses(
-                  filters: filters
+              resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses(
+                filters: filters
               )
               addr = resp.addresses.first
             end while resp.addresses.size < 1 or addr.public_ip.nil?
@@ -1388,7 +1388,7 @@ module MU
                 }
               end
             end
-            elastic_ip = findFreeElasticIp(classic: classic, ip: ip)
+            elastic_ip = findFreeElasticIp(classic: classic, ip: ip, credentials: credentials)
             if !ip.nil? and (elastic_ip.nil? or ip != elastic_ip.public_ip)
               raise MuError, "Requested EIP #{ip}, but this IP does not exist or is not available"
             end
@@ -2103,9 +2103,9 @@ module MU
         def configureNetworking
           if !@config['static_ip'].nil?
             if !@config['static_ip']['ip'].nil?
-              MU::Cloud::AWS::Server.associateElasticIp(@cloud_id, classic: @vpc.nil?, ip: @config['static_ip']['ip'])
+              MU::Cloud::AWS::Server.associateElasticIp(@cloud_id, classic: @vpc.nil?, ip: @config['static_ip']['ip'], credentials: @credentials)
             elsif !haveElasticIP?
-              MU::Cloud::AWS::Server.associateElasticIp(@cloud_id, classic: @vpc.nil?)
+              MU::Cloud::AWS::Server.associateElasticIp(@cloud_id, classic: @vpc.nil?, credentials: @credentials)
             end
           end
 

@@ -31,6 +31,8 @@ if platform_family?("rhel") or platform_family?("amazon")
   end
 end
 
-package "nvme-cli" do
-  ignore_failure true
+if node['platform_version'].to_i > 6
+  package "nvme-cli" do
+    ignore_failure true
+  end
 end
