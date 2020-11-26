@@ -208,25 +208,26 @@ module MU
               if lockid == id
                 thread = Thread.list.select { |t| t.object_id == thread_id }.first
                 if thread.object_id != Thread.current.object_id
-                  MU.log "#{thread_id} sitting on #{id}", MU::WARN, thread.backtrace
+                  MU.log "#{thread_id} sitting on #{id} (#{thread.thread_variables.map { |v| "#{v.to_s}: #{thread.thread_variable_get(v).to_s}" }.join(", ")})", MU::WARN, thread.backtrace
                 end
               end
             }
           }
         }
       }
+
       begin
         if nonblock
           if !@locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
             if retries > 0
               success = false
-              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries) { |cur_retries, _wait|
+              MU.retrier([], loop_if: Proc.new { !success }, loop_msg: "Waiting for lock on #{lockdir}/#{id}.lock...", max: retries, wait: 1, logmsg_interval: 0) { |cur_retries, _wait|
                 success = @locks[Thread.current.object_id][id].flock(File::LOCK_EX|File::LOCK_NB)
-                if !success and cur_retries > 0 and (cur_retries % 3) == 0
-                  show_relevant.call(cur_retries)
+                if !success and cur_retries > 0 and (cur_retries % 45) == 0
+                  show_relevant.call
                 end
               }
-              show_relevant.call(cur_retries) if !success
+              show_relevant.call if !success
               return success
             else
               return false

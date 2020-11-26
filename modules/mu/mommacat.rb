@@ -554,7 +554,7 @@ module MU
 
       begin
         if !no_write
-          if !MU::MommaCat.lock("deployment-notification", deploy_id: @deploy_id, retries: 10)
+          if !MU::MommaCat.lock("deployment-notification", deploy_id: @deploy_id, retries: 300)
             raise MuError, "Failed to get deployment-notifcation lock for #{@deploy_id}"
           end
         end

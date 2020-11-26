@@ -283,6 +283,10 @@ module MU
                   break
                 end
               }
+              if !mount_target
+                MU.log "Failed to find live mount_target corresponding to configured mount_point", MU::WARN, details: mp
+                next
+              end
 
               targets[mp["name"]] = {
                 "owner_id" => mount_target.owner_id,
