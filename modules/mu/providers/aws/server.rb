@@ -1785,7 +1785,8 @@ module MU
         def self.generateStandardRole(server, configurator)
           role = {
             "name" => server["name"],
-            "credentials" => server["credentials"],
+            "bare_policies" => !server['generate_iam_role'],
+            "strip_path" => server["role_strip_path"],
             "can_assume" => [
               {
                 "entity_id" => "ec2.amazonaws.com",
@@ -1804,6 +1805,7 @@ module MU
               }
             ]
           }
+          role["credentials"] = server["credentials"] if server["credentials"]
           if server['iam_policies']
             role['iam_policies'] = server['iam_policies'].dup
           end
@@ -2266,6 +2268,34 @@ module MU
           end
 
           nil
+        end
+
+        # Ensure that an instance's IAM role somehow, some way, includes
+        # permissions to get its MommaCat credentials from S3.
+        def self.insertMuSecretPermissions(name, deploy, region, credentials: nil, generate: false, rolename: nil)
+          role_or_policy = @deploy.findLitterMate(name: @config['name'], type: "roles")
+
+          s3_objs = [
+            "#{deploy.deploy_id}-secret",
+            "#{role_or_policy.mu_name}.pfx",
+            "#{role_or_policy.mu_name}.crt",
+            "#{role_or_policy.mu_name}.key",
+            "#{role_or_policy.mu_name}-winrm.crt",
+            "#{role_or_policy.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/'+file
+            }
+          if generate
+            role_or_policy.injectPolicyTargets("MuSecrets", s3_objs)
+          elsif rolename
+            realrole = MU::MommaCat.findStray("AWS", "role", cloud_id: rolename, dummy_ok: true, credentials: credentials).first
+            if !role_or_policy
+              raise MuError, "I should have a bare policy littermate named #{name} but I can't find it"
+            end
+            if realrole
+              role_or_policy.bindTo("role", realrole.cloud_id)
+              realrole.injectPolicyTargets(role_or_policy.mu_name+"-MUSECRETS", s3_objs)
+            end
+          end
         end
 
         def setDeleteOntermination(device, delete_on_termination = false)

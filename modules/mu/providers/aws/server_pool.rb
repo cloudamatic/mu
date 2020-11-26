@@ -909,41 +909,12 @@ module MU
                 ok = false
               end
             end
-              s3_objs = ['arn:'+(MU::Cloud::AWS.isGovCloud?(pool['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(pool['credentials'])+'/Mu_CA.pem']
 
-              role = {
-                "name" => pool["name"],
-                "cloud" => "AWS",
-                "strip_path" => pool["role_strip_path"],
-                "bare_policies" => !launch['generate_iam_role'],
-                "can_assume" => [
-                  {
-                    "entity_id" => "ec2.amazonaws.com",
-                    "entity_type" => "service"
-                  }
-                ],
-                "policies" => [
-                  {
-                    "name" => "MuSecrets",
-                    "permissions" => ["s3:GetObject"],
-                    "targets" => s3_objs.map { |f| { "identifier" => f } }
-                  }
-                ]
-              }
-              if launch['iam_policies']
-                role['iam_policies'] = launch['iam_policies'].dup
-              end
-              if pool['canned_iam_policies']
-                role['import'] = pool['canned_iam_policies'].dup
-              end
-              if pool['iam_role']
-# XXX maybe break this down into policies and add those?
-              end
+            ["generate_iam_role", "iam_role", "canned_iam_policies", "iam_policies"].each { |key|
+              pool[key] = launch[key] if !launch[key].nil?
+            }
+            MU::Cloud.resourceClass("AWS", "Server").generateStandardRole(pool, configurator)
 
-              role['credentials'] = pool['credentials'] if pool['credentials']
-              configurator.insertKitten(role, "roles")
-              MU::Config.addDependency(pool, pool['name'], "role")
-#            end
             launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
               img_id = MU::Cloud.getStockImage("AWS", platform: pool['platform'], region: pool['region'])
@@ -1222,29 +1193,14 @@ module MU
 
           storage.concat(MU::Cloud.resourceClass("AWS", "Server").ephemeral_mappings)
 
-          role_or_policy = @deploy.findLitterMate(name: @config['name'], type: "roles", debug: true)
-
-          s3_objs = [
-            "#{@deploy.deploy_id}-secret",
-            "#{role_or_policy.mu_name}.pfx",
-            "#{role_or_policy.mu_name}.crt",
-            "#{role_or_policy.mu_name}.key",
-            "#{role_or_policy.mu_name}-winrm.crt",
-            "#{role_or_policy.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
-            }
-          if @config['basis']['launch_config']['generate_iam_role']
-            role_or_policy.injectPolicyTargets("MuSecrets", s3_objs)
-          elsif @config['basis']['launch_config']['iam_role']
-            realrole = MU::MommaCat.findStray("AWS", "role", cloud_id: @config['basis']['launch_config']['iam_role'], dummy_ok: true, credentials: @credentials).first
-            if !role_or_policy
-              raise MuError, "I should have a bare policy littermate named #{@config['name']} but I can't find it"
-            end
-            if realrole
-              role_or_policy.bindTo("role", realrole.cloud_id)
-              realrole.injectPolicyTargets(role_or_policy.mu_name+"-MUSECRETS", s3_objs)
-            end
-          end
+          MU::Cloud.resourceClass("AWS", "Server").insertMuSecretPermissions(
+            @config['name'],
+            @deploy,
+            @config['region'],
+            credentials: @credentials,
+            generate: @config['basis']['launch_config']['generate_iam_role'],
+            rolename: @config['basis']['launch_config']['iam_role']
+          )
 
           if !oldlaunch.nil?
             olduserdata = Base64.decode64(oldlaunch.user_data)
