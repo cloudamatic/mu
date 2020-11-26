@@ -188,30 +188,32 @@ module MU
         def allocate_eip_for_nat
           MU::MommaCat.lock("nat-gateway-eipalloc")
 
-          eips = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(
-            filters: [
-              {
-                name: "domain",
-                values: ["vpc"]
-              }
-            ]
-          ).addresses
+#          eips = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(
+#            filters: [
+#              {
+#                name: "domain",
+#                values: ["vpc"]
+#              }
+#            ]
+#          ).addresses
 
-          allocation_id = nil
-          eips.each { |eip|
-            next if !eip.association_id.nil? and !eip.association_id.empty?
-            if (eip.private_ip_address.nil? || eip.private_ip_address.empty?) and MU::MommaCat.lock(eip.allocation_id, true, true)
-              if !@eip_allocation_ids.include?(eip.allocation_id)
-                allocation_id = eip.allocation_id
-                break
-              end
-            end
-          }
+#          allocation_id = nil
+#          eips.each { |eip|
+#            next if !eip.association_id.nil? and !eip.association_id.empty?
+#            if (eip.private_ip_address.nil? || eip.private_ip_address.empty?) and MU::MommaCat.lock(eip.allocation_id, true, true)
+#              if !@eip_allocation_ids.include?(eip.allocation_id)
+#                allocation_id = eip.allocation_id
+#                break
+#              end
+#            end
+#          }
 
-          if allocation_id.nil?
+#          if allocation_id.nil?
             allocation_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).allocate_address(domain: "vpc").allocation_id
-            MU::MommaCat.lock(allocation_id, false, true)
-          end
+MU.log "attempting to tag #{allocation_id}", MU::WARN
+            tag_me(allocation_id)
+#            MU::MommaCat.lock(allocation_id, false, true)
+#          end
 
           @eip_allocation_ids << allocation_id
 

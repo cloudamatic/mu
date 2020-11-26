@@ -873,6 +873,7 @@ module MU
           purge_subnets(noop, tagfilters, region: region, credentials: credentials)
           purge_vpcs(noop, tagfilters, region: region, credentials: credentials)
           purge_dhcpopts(noop, tagfilters, region: region, credentials: credentials)
+          purge_eips(noop, tagfilters, region: region, credentials: credentials)
 
 #          unless noop
 #            MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
@@ -1613,6 +1614,40 @@ module MU
           return nil
         end
         private_class_method :purge_nat_gateways
+
+        # Remove all Elastic IPs from the currently loaded deployment.
+        # @param noop [Boolean]: If true, will only print what would be done
+        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+        # @param region [String]: The cloud provider region
+        # @return [void]
+        def self.purge_eips(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion, credentials: nil)
+          eips = MU::Cloud::AWS.ec2(credentials: credentials, region: region).describe_addresses(
+            filters: tagfilters
+          ).addresses
+
+          threads = []
+
+          if !eips.empty?
+            eips.each { |eip|
+              MU.log "Releasing EIP #{eip.public_ip} (#{eip.allocation_id})"
+              next if noop
+              if eip.association_id
+                MU.log "Tags tell me I should release EIP #{eip.public_ip} (#{eip.allocation_id}), but it appears to be associated with something", MU::WARN, details: eip
+                next
+              end
+              threads << Thread.new {
+                MU::Cloud::AWS.ec2(credentials: credentials, region: region).release_address(allocation_id: eip.allocation_id)
+              }
+            }
+          end
+
+          threads.each { |t|
+            t.join
+          }
+
+          return nil
+        end
+        private_class_method :purge_eips
 
         # Remove all VPC endpoints associated with the VPC of the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
