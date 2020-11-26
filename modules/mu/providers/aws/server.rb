@@ -1224,14 +1224,11 @@ module MU
             resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).describe_addresses
           end
           resp.addresses.each { |address|
-            return address if (address.network_interface_id.nil? || address.network_interface_id.empty?) && !@eips_used.include?(address.public_ip)
+            return address if (address.network_interface_id.nil? or address.network_interface_id.empty?) or !@eips_used.include?(address.public_ip)
           }
-          if ip != nil
-            if !classic
-              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in VPC mode#{credentials ? " with credentials #{credentials}" : ""}"
-            else
-              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in EC2 Classic mode#{credentials ? " with credentials #{credentials}" : ""}"
-            end
+          if !ip.nil?
+            mode = classic ? "EC2 Classic" : "VPC"
+            raise MuError.new "Requested EIP #{ip}, but no such IP exists or is available in #{mode} mode#{credentials ? " with credentials #{credentials}" : ""}", details: { "describe_address filters" => filters, "describe_address response" => resp }
           end
           if !classic
             resp = MU::Cloud::AWS.ec2(region: region, credentials: credentials).allocate_address(domain: "vpc")
