@@ -320,14 +320,14 @@ module MU
   # @param always [Proc]: Optional block of code to invoke before returning or failing, a bit like +ensure+
   # @param loop_if [Proc]: Optional block of code to invoke which will cause our block to be rerun until true
   # @param loop_msg [String]: Message to display every third attempt
-  def self.retrier(catchme = nil, wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil, loop_if: nil, loop_msg: nil)
+  def self.retrier(catchme = nil, wait: 30, max: 0, ignoreme: [], on_retry: nil, always: nil, loop_if: nil, loop_msg: nil, logmsg_interval: 3)
 
     loop_if ||= Proc.new { false }
 
     retries = 0
     begin
       retries += 1
-      loglevel = ((retries % 3) == 0) ? MU::NOTICE : MU::DEBUG
+      loglevel = (logmsg_interval > 0 and (retries % logmsg_interval) == 0) ? MU::NOTICE : MU::DEBUG
       log_attempts = retries.to_s
       log_attempts += (max > 0 ? "/"+max.to_s : "")
       yield(retries, wait) if block_given?
