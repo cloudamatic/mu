@@ -187,6 +187,10 @@ module MU
             retry
 #            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, MU::Cloud::NetSSHFail => e
           rescue SystemExit, Timeout::Error, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, Net::SSH::Exception, Errno::ECONNRESET, Errno::EHOSTUNREACH, Errno::ECONNREFUSED, Errno::EPIPE, SocketError, IOError => e
+            if !active?
+              raise MuError, "Server #{@mu_name} disappeared while I was attempting to log into it"
+            end
+
             begin
               session.close if !session.nil?
             rescue Net::SSH::Disconnect, IOError => e

@@ -54,15 +54,15 @@ MU::Cloud::AWS.listRegions.each { | r|
         MU::Cloud::AWS.ec2(region: r, credentials: $opts[:credentials]).deregister_image(image_id: ami.image_id)
       rescue Aws::EC2::Errors::InvalidAMIIDUnavailable
       end
-        snaps.each { |snap_id|
-          begin
-            MU::Cloud::AWS.ec2(region: r, credentials: $opts[:credentials]).delete_snapshot(snapshot_id: snap_id)
-          rescue Aws::EC2::Errors::InvalidSnapshotInUse
-            sleep 5
-            retry
-          rescue Aws::EC2::Errors::InvalidSnapshotNotFound
-          end
-        }
+      snaps.each { |snap_id|
+        begin
+          MU::Cloud::AWS.ec2(region: r, credentials: $opts[:credentials]).delete_snapshot(snapshot_id: snap_id)
+        rescue Aws::EC2::Errors::InvalidSnapshotInUse
+          sleep 5
+          retry
+        rescue Aws::EC2::Errors::InvalidSnapshotNotFound
+        end
+      }
     end
   }
 }

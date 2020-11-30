@@ -1288,22 +1288,14 @@ module MU
             end
           }
 
-          if @config['basis']['launch_config']['generate_iam_role']
-            role = @deploy.findLitterMate(name: @config['name'], type: "roles")
-            if !role
-              raise MuError.new "ServerPool #{@mu_name}: generate_iam_role was set, but I failed to find a role named #{@config['name']}"
-            end
-
-            @config['iam_role'] = role.mu_name
-
-            launch_options[:iam_instance_profile] = role.cloudobj.createInstanceProfile
-          elsif @config['basis']['launch_config']['iam_role'].nil?
-            raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
-          else
-            launch_options[:iam_instance_profile] = @config['basis']['launch_config']['iam_role']
-          end
-
-          @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
+          @config['iam_role'] = @config['basis']['launch_config']['iam_role'] = launch_options[:iam_instance_profile] = MU::Cloud.resourceClass("AWS", "Server").getIAMProfile(
+            @config['name'],
+            @deploy,
+            generated: @config['basis']['launch_config']['generate_iam_role'],
+            role_name: @config['basis']['launch_config']['iam_role'],
+            region: @config['region'],
+            credentials: @credentials
+          ).values.first
 
           lc_attempts = 0
           begin

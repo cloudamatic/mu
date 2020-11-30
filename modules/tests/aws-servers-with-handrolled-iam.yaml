@@ -1,0 +1,37 @@
+# clouds: AWS
+# groomers: Chef
+---
+appname: smoketest
+vpcs:
+- name: svrtest
+roles:
+- name: handrolled
+  scrub_mu_isms: true
+  can_assume:
+  - entity_id: ec2.amazonaws.com
+    entity_type: service
+  import:
+  - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+servers:
+- name: iamtest1
+  size: t3.medium
+  iam_role: handrolled
+  platform: centos6
+  generate_iam_role: false
+  vpc:
+    name: svrtest
+server_pools:
+- name: iamtest2
+  scrub_mu_isms: true
+  min_size: 1
+  max_size: 1
+  wait_for_nodes: 1
+  platform: centos6
+  vpc:
+    name: svrtest
+  basis:
+    launch-config:
+      name: iamtest2
+      size: t3.medium
+      iam_role: handrolled
+      generate_iam_role: false

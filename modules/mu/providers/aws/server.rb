@@ -334,6 +334,16 @@ module MU
           MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if, loop_msg: "Waiting for run_instances to return #{@mu_name}") {
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).run_instances(instance_descriptor)
           }
+        rescue Aws::EC2::Errors::Unsupported => e
+          bad_subnets << instance_descriptor[:subnet_id]
+          if e.message !~ /is not supported in your requested Availability Zone/ or
+             mySubnets.nil? or mySubnets.empty? or
+             mySubnets.size == bad_subnets.size
+            raise MuError.new e.message, details: instance_descriptor
+          end
+          instance_descriptor[:subnet_id] = (mySubnets - bad_subnets).sample
+          MU.log "One or more subnets does not support this instance, attempting with #{instance_descriptor[:subnet_id]} instead", MU::WARN, details: bad_subnets
+          retry
         rescue Aws::EC2::Errors::InvalidRequest => e
           MU.log e.message, MU::ERR, details: instance_descriptor
           raise e
@@ -2235,32 +2245,49 @@ module MU
           end
         end
 
-        # We have issues sometimes where our dns_records are pointing at the wrong node name and IP address.
-
         def getIAMProfile
-          arn = if @config['generate_iam_role']
-            role = @deploy.findLitterMate(name: @config['name'], type: "roles", debug: true)
+          self.class.getIAMProfile(@config['name'], @deploy, generated: @config['generate_iam_profile'], role_name: @config['iam_role'], region: @config['region'], credentials: @credentials, want_arn: true)
+        end
+
+
+# XXX move to public section
+        def self.getIAMProfile(myname, deploy, generated: true, role_name: nil, region: nil, credentials: nil, want_arn: false)
+          arn = if generated
+            role = deploy.findLitterMate(name: myname, type: "roles", debug: true)
             if !role
-              raise MuError, "Failed to find a role matching #{@config['name']}"
+              raise MuError, "Failed to find a role matching #{myname}"
             end
-            s3_objs = ["#{@deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(@credentials)+'/'+file
+            s3_objs = ["#{deploy.deploy_id}-secret", "#{role.mu_name}.pfx", "#{role.mu_name}.crt", "#{role.mu_name}.key", "#{role.mu_name}-winrm.crt", "#{role.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/'+file
             }
-            MU.log "Adding S3 read permissions to #{@mu_name}'s IAM profile", MU::NOTICE, details: s3_objs
+            MU.log "Adding S3 read permissions to #{myname}'s IAM profile", MU::NOTICE, details: s3_objs
             role.cloudobj.injectPolicyTargets("MuSecrets", s3_objs)
   
-            @config['iam_role'] = role.mu_name
+            role_name = role.mu_name
             role.cloudobj.createInstanceProfile
   
-          elsif @config['iam_role'].nil?
-            raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
+          elsif role_name.nil?
+            raise MuError, "#{myname} has generate_iam_role set to false, but no iam_role assigned."
+          else
+            begin
+              ext_prof = MU::Cloud::AWS.iam(credentials: credentials).get_instance_profile(instance_profile_name: role_name)
+              pp ext_prof
+              role_name = ext_prof.instance_profile.instance_profile_name
+              ext_prof.instance_profile.arn
+            rescue Aws::IAM::Errors::NoSuchEntity
+              role = MU::MommaCat.findStray("AWS", "role", cloud_id: role_name, dummy_ok: true, credentials: credentials).first
+              if !role
+                raise MuError, "#{myname} specified iam_role '#{role_name}', but I can't find a role with that name to use when creating an instance profile"
+              end
+              role.cloudobj.createInstanceProfile
+            end
           end
 
-          if !@config["iam_role"].nil?
-            if arn
+          if !role_name.nil?
+            if arn and want_arn
               return {arn: arn}
             else
-              return {name: @config["iam_role"]}
+              return {name: role_name}
             end
           end
 
@@ -2270,7 +2297,7 @@ module MU
         # Ensure that an instance's IAM role somehow, some way, includes
         # permissions to get its MommaCat credentials from S3.
         def self.insertMuSecretPermissions(name, deploy, region, credentials: nil, generate: false, rolename: nil)
-          role_or_policy = @deploy.findLitterMate(name: @config['name'], type: "roles")
+          role_or_policy = deploy.findLitterMate(name: name, type: "roles")
 
           s3_objs = [
             "#{deploy.deploy_id}-secret",

@@ -210,7 +210,6 @@ module MU
 
 #          if allocation_id.nil?
             allocation_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).allocate_address(domain: "vpc").allocation_id
-MU.log "attempting to tag #{allocation_id}", MU::WARN
             tag_me(allocation_id)
 #            MU::MommaCat.lock(allocation_id, false, true)
 #          end
