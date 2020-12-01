@@ -1193,15 +1193,6 @@ module MU
 
           storage.concat(MU::Cloud.resourceClass("AWS", "Server").ephemeral_mappings)
 
-          MU::Cloud.resourceClass("AWS", "Server").insertMuSecretPermissions(
-            @config['name'],
-            @deploy,
-            @config['region'],
-            credentials: @credentials,
-            generate: @config['basis']['launch_config']['generate_iam_role'],
-            rolename: @config['basis']['launch_config']['iam_role']
-          )
-
           if !oldlaunch.nil?
             olduserdata = Base64.decode64(oldlaunch.user_data)
             if userdata == olduserdata and

@@ -69,26 +69,60 @@ action :create do
     action :nothing
   end
 
-#  mkfs_cmd = node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}"
-#  guard_cmd = node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null"
+  fstype = node['platform_version'].to_i == 6 ? "ext4" : "xfs"
+  mkfs_cmd = fstype == "xfs" ? "mkfs.xfs -i size=512" : "mkfs.ext4 -F"
+  have_fs_cmd = fstype == "xfs" ? "xfs_admin -l " : "tune2fs -l"
 
-  execute "format #{devicename}" do
-    command (node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}")
-    if new_resource.preserve_data
-      notifies :mount, "mount[/mnt#{backupname}]", :immediately
-      notifies :run, "execute[back up #{backupname}]", :immediately
-      notifies :unmount, "mount[/mnt#{backupname}]", :immediately
+  ruby_block "format #{path} by its real device name" do
+    block do
+      guard_cmd = have_fs_cmd+" "+real_devicepath(devicepath)
+      format_cmd = mkfs_cmd+" "+real_devicepath(devicepath)
+
+      %x{#{guard_cmd}}
+      if $?.exitstatus != 0
+        %x{#{format_cmd}}
+      end
     end
-    if new_resource.reboot_after_create
-      notifies :request_reboot, "reboot[Rebooting after adding #{path}]", :delayed
-    end
-    retries 5 # sometimes there's a bit of lag
-    retry_delay 6
-    not_if (node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null")
+    not_if "grep ' #{path} ' /etc/mtab"
   end
 
+  ruby_block "mount #{path} by its real device name" do
+    block do
+      have = false
+      ::File.read("/etc/fstab").each_line { |l|
+        if l =~ /^#{real_devicepath(devicepath)}\s+#{path}\s+#{fstype}\s+/
+          have = true
+          break
+        end
+      }
+
+      if !have
+        ::File.open("/etc/fstab", "a") { |f|
+          f.puts "#{real_devicepath(devicepath)} #{path} #{fstype} nodev 0 2"
+        }
+      end
+      %x{/bin/mount -a}
+    end
+    not_if "grep ' #{path} ' /etc/mtab && grep ' #{path} ' /etc/fstab"
+  end
+
+#  execute "format #{devicename}" do
+#    command (node['platform_version'].to_i == 6 ? "mkfs.ext4 -F #{real_devicepath(devicepath)}" : "mkfs.xfs -i size=512 #{real_devicepath(devicepath)}")
+#    if new_resource.preserve_data
+#      notifies :mount, "mount[/mnt#{backupname}]", :immediately
+#      notifies :run, "execute[back up #{backupname}]", :immediately
+#      notifies :unmount, "mount[/mnt#{backupname}]", :immediately
+#    end
+#    if new_resource.reboot_after_create
+#      notifies :request_reboot, "reboot[Rebooting after adding #{path}]", :delayed
+#    end
+#    retries 5 # sometimes there's a bit of lag
+#    retry_delay 6
+#    not_if (node['platform_version'].to_i == 6 ? "tune2fs -l #{real_devicepath(devicepath)} > /dev/null" : "xfs_admin -l #{real_devicepath(devicepath)} > /dev/null")
+#  end
+
   if !new_resource.reboot_after_create
-    directory "Ensure existence of #{path} for #{real_devicepath(devicepath)}" do
+    directory "Ensure existence of #{path}" do
       recursive true
       path path
     end
@@ -96,13 +130,6 @@ action :create do
     execute "/sbin/restorecon -R #{path}" do
       only_if { ::File.exist?("/sbin/restorecon") }
       action :nothing
-    end
-
-    mount path do
-      device real_devicepath(devicepath)
-      options "nodev"
-      action [:mount, :enable]
-      notifies :run, "execute[/sbin/restorecon -R #{path}]", :immediately
     end
 
   end

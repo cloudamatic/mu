@@ -459,6 +459,9 @@ module MU
         raise MuError, "Couldn't find instance #{@mu_name} (#{@cloud_id})" if !cloud_desc
         return false if !MU::MommaCat.lock(@cloud_id+"-orchestrate", true)
         return false if !MU::MommaCat.lock(@cloud_id+"-groom", true)
+
+        getIAMProfile
+
         finish = Proc.new { |status|
           MU::MommaCat.unlock(@cloud_id+"-orchestrate")
           MU::MommaCat.unlock(@cloud_id+"-groom")
@@ -526,7 +529,6 @@ module MU
           notify
         end
 
-        getIAMProfile
         finish.call(false) if !bootstrapGroomer
 
         # Make sure we got our name written everywhere applicable
@@ -1747,6 +1749,7 @@ module MU
             return size
           end
 
+
           return size if types.has_key?(size)
 
           if size.nil? or !types.has_key?(size)
@@ -1846,9 +1849,10 @@ module MU
               MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
               ok = false
             end
-          else
-            generateStandardRole(server, configurator)
           end
+
+          generateStandardRole(server, configurator)
+
           if !server['create_image'].nil?
             if server['create_image'].has_key?('copy_to_regions') and
                 (server['create_image']['copy_to_regions'].nil? or
@@ -2246,12 +2250,20 @@ module MU
         end
 
         def getIAMProfile
-          self.class.getIAMProfile(@config['name'], @deploy, generated: @config['generate_iam_profile'], role_name: @config['iam_role'], region: @config['region'], credentials: @credentials, want_arn: true)
+          self.class.getIAMProfile(
+            @config['name'],
+            @deploy,
+            generated: @config['generate_iam_profile'],
+            role_name: @config['iam_role'],
+            region: @config['region'],
+            credentials: @credentials,
+            want_arn: true
+          )
         end
-
 
 # XXX move to public section
         def self.getIAMProfile(myname, deploy, generated: true, role_name: nil, region: nil, credentials: nil, want_arn: false)
+
           arn = if generated
             role = deploy.findLitterMate(name: myname, type: "roles", debug: true)
             if !role
@@ -2271,7 +2283,6 @@ module MU
           else
             begin
               ext_prof = MU::Cloud::AWS.iam(credentials: credentials).get_instance_profile(instance_profile_name: role_name)
-              pp ext_prof
               role_name = ext_prof.instance_profile.instance_profile_name
               ext_prof.instance_profile.arn
             rescue Aws::IAM::Errors::NoSuchEntity
@@ -2280,6 +2291,31 @@ module MU
                 raise MuError, "#{myname} specified iam_role '#{role_name}', but I can't find a role with that name to use when creating an instance profile"
               end
               role.cloudobj.createInstanceProfile
+            end
+          end
+
+          role_or_policy = deploy.findLitterMate(name: myname, type: "roles")
+
+          # Make sure our permissions to read our identity secrets are set
+          s3_objs = [
+            "#{deploy.deploy_id}-secret",
+            "#{role_or_policy.mu_name}.pfx",
+            "#{role_or_policy.mu_name}.crt",
+            "#{role_or_policy.mu_name}.key",
+            "#{role_or_policy.mu_name}-winrm.crt",
+            "#{role_or_policy.mu_name}-winrm.key"].map { |file| 
+              'arn:'+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/'+file
+            }
+          if generated
+            role_or_policy.injectPolicyTargets("MuSecrets", s3_objs)
+          elsif role_name
+            realrole = MU::MommaCat.findStray("AWS", "role", cloud_id: role_name, dummy_ok: true, credentials: credentials).first
+            if !role_or_policy
+              raise MuError, "I should have a bare policy littermate named #{name} but I can't find it"
+            end
+            if realrole
+              role_or_policy.bindTo("role", realrole.cloud_id)
+              realrole.injectPolicyTargets(role_or_policy.mu_name+"-MUSECRETS", s3_objs)
             end
           end
 
@@ -2292,34 +2328,6 @@ module MU
           end
 
           nil
-        end
-
-        # Ensure that an instance's IAM role somehow, some way, includes
-        # permissions to get its MommaCat credentials from S3.
-        def self.insertMuSecretPermissions(name, deploy, region, credentials: nil, generate: false, rolename: nil)
-          role_or_policy = deploy.findLitterMate(name: name, type: "roles")
-
-          s3_objs = [
-            "#{deploy.deploy_id}-secret",
-            "#{role_or_policy.mu_name}.pfx",
-            "#{role_or_policy.mu_name}.crt",
-            "#{role_or_policy.mu_name}.key",
-            "#{role_or_policy.mu_name}-winrm.crt",
-            "#{role_or_policy.mu_name}-winrm.key"].map { |file| 
-              'arn:'+(MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws")+':s3:::'+MU::Cloud::AWS.adminBucketName(credentials)+'/'+file
-            }
-          if generate
-            role_or_policy.injectPolicyTargets("MuSecrets", s3_objs)
-          elsif rolename
-            realrole = MU::MommaCat.findStray("AWS", "role", cloud_id: rolename, dummy_ok: true, credentials: credentials).first
-            if !role_or_policy
-              raise MuError, "I should have a bare policy littermate named #{name} but I can't find it"
-            end
-            if realrole
-              role_or_policy.bindTo("role", realrole.cloud_id)
-              realrole.injectPolicyTargets(role_or_policy.mu_name+"-MUSECRETS", s3_objs)
-            end
-          end
         end
 
         def setDeleteOntermination(device, delete_on_termination = false)
