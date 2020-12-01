@@ -98,6 +98,11 @@ module Mutools
       end
     end
 
+    def uuid_line(dev)
+      realdev = real_devicepath(dev)
+      %x{/sbin/blkid #{realdev} -o export | grep ^UUID=}.chomp
+    end
+
     def nvme?
       if File.executable?("/bin/lsblk")
         shell_out(%Q{/bin/lsblk -i -p -r -n}).stdout.each_line { |l|
@@ -297,7 +302,7 @@ module Mutools
       params = Base64.urlsafe_encode64(JSON.generate(arg)) if arg
       uri = URI("https://#{get_mu_master_ips.first}:2260/")
       req = Net::HTTP::Post.new(uri)
-      res_type = (node['deployment'].has_key?(:server_pools) and node['deployment']['server_pools'].has_key?(node['service_name'])) ? "server_pool" : "server"
+      res_type = (node['deployment'].has_key?('server_pools') and node['deployment']['server_pools'].has_key?(node['service_name'])) ? "server_pool" : "server"
       response = nil
       begin
         secret = get_deploy_secret
@@ -344,6 +349,7 @@ module Mutools
       rescue EOFError => e
         # Sometimes deployment metadata is incomplete and missing a
         # server_pool entry. Try to help it out.
+        # XXX find some awsmetadata way to determine that we're in an Autoscale Group before trying this
         if res_type == "server"
           res_type = "server_pool"
           retry
