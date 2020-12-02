@@ -114,6 +114,11 @@ default['sec']['pwd'] = {
   end
 }
 
+default['application_attributes']['swap']["volume_size_gb"] = 4
+default['application_attributes']['swap']['mount_device'] = "/dev/xvdm"
+default['application_attributes']['swap']['label'] = "#{disk_name_str} swap"
+default['application_attributes']['swap']['mount_directory'] = "swap"
+
 default['application_attributes']['home']["volume_size_gb"] = 2
 default['application_attributes']['home']['mount_device'] = "/dev/xvdn"
 default['application_attributes']['home']['label'] = "#{disk_name_str} /home"

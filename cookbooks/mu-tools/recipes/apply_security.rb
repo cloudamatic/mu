@@ -345,6 +345,12 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
         end
       }
 
+      mu_tools_disk "swap" do
+        device node['application_attributes']['swap']['mount_device']
+        size node['application_attributes']['swap']['volume_size_gb']
+        swap true
+      end
+
       mu_tools_disk "/home" do
         device node['application_attributes']['home']['mount_device']
         size node['application_attributes']['home']['volume_size_gb']

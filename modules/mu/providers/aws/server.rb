@@ -337,9 +337,9 @@ module MU
           }
         rescue Aws::EC2::Errors::Unsupported => e
           bad_subnets << instance_descriptor[:subnet_id]
-          if e.message !~ /is not supported in your requested Availability Zone/ or
-             mySubnets.nil? or mySubnets.empty? or
-             mySubnets.size == bad_subnets.size
+          if e.message !~ /is not supported in your requested Availability Zone/ and
+             (mySubnets.nil? or mySubnets.empty? or
+             mySubnets.size == bad_subnets.size)
             raise MuError.new e.message, details: instance_descriptor
           end
           instance_descriptor[:subnet_id] = (mySubnets - bad_subnets).sample
