@@ -2254,7 +2254,7 @@ module MU
           self.class.getIAMProfile(
             @config['name'],
             @deploy,
-            generated: @config['generate_iam_profile'],
+            generated: @config['generate_iam_role'],
             role_name: @config['iam_role'],
             region: @config['region'],
             credentials: @credentials,
