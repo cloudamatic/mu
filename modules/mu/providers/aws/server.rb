@@ -331,7 +331,9 @@ module MU
         }
 
         bad_subnets = []
-        mysubnet_ids = mySubnets.map { |s| s.cloud_id }
+        mysubnet_ids = if mySubnets
+          mySubnets.map { |s| s.cloud_id }
+        end
         begin
           MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if, loop_msg: "Waiting for run_instances to return #{@mu_name}") {
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).run_instances(instance_descriptor)
@@ -342,7 +344,7 @@ module MU
           if e.message !~ /is not supported in your requested Availability Zone/ and
              (mysubnet_ids.nil? or mysubnet_ids.empty? or
               mysubnet_ids.size == bad_subnets.size or
-              better_subnet.nil? or better_subnet = "")
+              better_subnet.nil? or better_subnet == "")
             raise MuError.new e.message, details: mysubnet_ids
           end
           instance_descriptor[:subnet_id] = (mysubnet_ids - bad_subnets).sample
