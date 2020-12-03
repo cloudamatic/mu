@@ -334,6 +334,9 @@ rpms.each_pair { |pkg, src|
     end
     if pkg == "epel-release" 
       notifies :run, "execute[yum makecache]", :immediately
+      if elversion.to_i == 6
+        not_if "rpm -q epel-release"
+      end
     end
     if pkg == "chef-server-core"
       notifies :stop, "service[iptables]", :before
