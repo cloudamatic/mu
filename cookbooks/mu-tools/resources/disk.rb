@@ -64,10 +64,10 @@ action :create do
       guard_cmd = have_fs_cmd+" "+real_devicepath(devicepath)+" 2>&1 > /dev/null"
       format_cmd = mkfs_cmd+" "+real_devicepath(devicepath)
 
-      %x{#{guard_cmd}}
+      shell_out(%Q{#{guard_cmd}})
       if $?.exitstatus != 0
         puts "\n"+format_cmd
-        %x{#{format_cmd}}
+        shell_out(%Q{#{format_cmd}})
       end
     end
     not_if "grep ' #{path} ' /etc/mtab"
@@ -109,10 +109,10 @@ action :create do
       if !have_mtab and new_resource.preserve_data and path != "swap"
         backupname = path.gsub(/[^a-z0-9]/i, "_")
         puts "\nPreserving data from #{path}"
-        %x{mkdir -p /mnt#{backupname}}
-        %x{mount #{real_devicepath(devicepath)} /mnt#{backupname}}
-        %x{( cd #{path} && tar -cpf - . | su -c 'cd /mnt#{backupname}/ && tar -xpf -' ) && find #{path}/ -type f -exec rm -f {} \\;}
-        %x{umount /mnt#{backupname}}
+        shell_out(%Q{mkdir -p /mnt#{backupname}})
+        shell_out(%Q{mount #{real_devicepath(devicepath)} /mnt#{backupname}})
+        shell_out(%Q{( cd #{path} && tar -cpf - . | su -c 'cd /mnt#{backupname}/ && tar -xpf -' ) && find #{path}/ -type f -exec rm -f {} \\;})
+        shell_out(%Q{umount /mnt#{backupname}})
       end
 
 
@@ -138,9 +138,9 @@ action :create do
       end
 
       if !new_resource.reboot_after_create and !new_resource.swap
-        %x{mkdir -p #{path}}
-        %x{/bin/mount -a}
-        %x{/sbin/restorecon -R #{path}}
+        shell_out(%Q{mkdir -p #{path}})
+        shell_out(%Q{/bin/mount -a})
+        shell_out(%Q{/sbin/restorecon -R #{path}})
       end
     end
     not_if "grep ' #{path} ' /etc/mtab && grep ' #{path} ' /etc/fstab"

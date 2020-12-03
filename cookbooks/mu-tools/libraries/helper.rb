@@ -93,6 +93,8 @@ module Mutools
       map = attached_nvme_disks
       if map[dev]
         map[dev]
+      elsif map[dev.gsub(/.*?\//, '')]
+        map[dev.gsub(/.*?\//, '')]
       else
         dev # be nice to actually handle this too
       end
@@ -100,7 +102,7 @@ module Mutools
 
     def uuid_line(dev)
       realdev = real_devicepath(dev)
-      %x{/sbin/blkid #{realdev} -o export | grep ^UUID=}.chomp
+      shell_out(%Q{/sbin/blkid #{realdev} -o export | grep ^UUID=}).stdout.chomp
     end
 
     def nvme?

@@ -331,6 +331,7 @@ module MU
         }
 
         bad_subnets = []
+        mysubnet_ids = mySubnets.map { |s| s.cloud_id }
         begin
           MU.retrier([Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue], loop_if: loop_if, loop_msg: "Waiting for run_instances to return #{@mu_name}") {
             resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).run_instances(instance_descriptor)
@@ -342,7 +343,7 @@ module MU
              mySubnets.size == bad_subnets.size)
             raise MuError.new e.message, details: instance_descriptor
           end
-          instance_descriptor[:subnet_id] = (mySubnets - bad_subnets).sample
+          instance_descriptor[:subnet_id] = (mysubnet_ids - bad_subnets).sample
           MU.log "One or more subnets does not support this instance type, attempting with #{instance_descriptor[:subnet_id]} instead", MU::WARN, details: bad_subnets
           retry
         rescue Aws::EC2::Errors::InvalidRequest => e
