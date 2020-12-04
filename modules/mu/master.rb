@@ -195,9 +195,12 @@ module MU
       temp_dev = "/dev/#{ramdisk}"
 
       if !File.open("/etc/mtab").read.match(/ #{path} /)
-        realdevice = device.dup
-        if MU::Cloud::Google.hosted?
-          realdevice = "/dev/disk/by-id/google-"+device.gsub(/.*?\/([^\/]+)$/, '\1')
+        realdevice = if MU::Cloud::Google.hosted?
+          "/dev/disk/by-id/google-"+device.gsub(/.*?\/([^\/]+)$/, '\1')
+        elsif MU::Cloud::AWS.hosted?
+          MU::Cloud::AWS.realDevicePath(device.dup)
+        else
+          device.dup
         end
         alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
 
@@ -216,6 +219,8 @@ module MU
               tag_name: "Name",
               tag_value: "#{$MU_CFG['hostname']} #{path}"
             )
+            # the device might be on some arbitrary NVMe slot
+            realdevice = MU::Cloud::AWS.realDevicePath(realdevice)
           elsif MU::Cloud::Google.hosted?
             dummy_svr = MU::Cloud::Google::Server.new(
               mu_name: "MU-MASTER",
@@ -900,6 +905,40 @@ module MU
         addpath.call("", srcdir)
       }
     end
+
+    # Just list our block devices
+    # @return [Array<String>]
+    def self.listBlockDevices
+      if File.executable?("/bin/lsblk")
+        %x{/bin/lsblk -i -p -r -n | egrep ' disk( |$)'}.each_line.map { |l|
+          l.chomp.sub(/ .*/, '')
+        }
+      else
+        # XXX something dumber
+        nil
+      end
+    end
+
+
+    # Retrieve the UUID of a block device, if available
+    # @param dev [String]
+    def self.diskUUID(dev)
+      realdev = MU::Cloud::AWS.hosted? ? MU::Cloud::AWS.realDevicePath(dev) : dev
+      %x{/sbin/blkid #{realdev} -o export | grep ^UUID=}.chomp
+    end
+
+    # Determine whether we're running in an NVMe-enabled environment
+    def self.nvme?
+      if File.executable?("/bin/lsblk")
+        shell_out(%Q{/bin/lsblk -i -p -r -n}).stdout.each_line { |l|
+          return true if l =~ /^\/dev\/nvme\d/
+        }
+      else
+        return true if File.exists?("/dev/nvme0n1")
+      end
+      false
+    end
+
 
   end
 end

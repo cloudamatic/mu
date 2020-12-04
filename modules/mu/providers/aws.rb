@@ -445,6 +445,46 @@ end
         MU::Cloud::AWS.hosted?
       end
 
+      # If we're in AWS and NVME-aware, return a mapping of AWS-side device
+      # names to actual NVME devices.
+      # @return [Hash]
+      def self.attachedNVMeDisks
+        if !hosted? or !File.executable?("/bin/lsblk") or !File.executable?("/sbin/nvme")
+          return {}
+        end
+        map = {}
+        devices = list_disk_devices
+        return {} if !devices
+        devices.each { |d|
+          if d =~ /^\/dev\/nvme/
+            %x{/sbin/nvme id-ctrl -v #{d}}.each_line { |desc|
+              if desc.match(/^0000: (?:[0-9a-f]{2} ){16}"(.+?)\./)
+                virt_dev = Regexp.last_match[1]
+                map[virt_dev] = d
+                break
+              end
+            }
+          end
+        }
+        map
+      end
+
+      # Map our own idea of what a block device is called back to whatever AWS
+      # and the operating system decided on amongst themselves. This currently
+      # exists to map generic "xvd[a-z]" style names back to real NVMe devices.
+      # @param dev [String]
+      def self.realDevicePath(dev)
+        return dev if !hosted?
+        map = attachedNVMeDisks
+        if map[dev]
+          map[dev]
+        elsif map[dev.gsub(/.*?\//, '')]
+          map[dev.gsub(/.*?\//, '')]
+        else
+          dev # be nice to actually handle this too
+        end
+      end
+
       # Determine whether we (the Mu master, presumably) are hosted in this
       # cloud.
       # @return [Boolean]
