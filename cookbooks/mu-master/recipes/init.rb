@@ -227,7 +227,10 @@ if elversion.to_i == 6
   rpms["openssl"] = "https://s3.amazonaws.com/cloudamatic/mussl-1.1.1h-1.el6.x86_64.rpm"
   rpms["sqlite"] = "https://s3.amazonaws.com/cloudamatic/muqlite-3.33-1.el6.x86_64.rpm"
 end
-rpms["python38"] = "https://s3.amazonaws.com/cloudamatic/muthon-3.8.3-1.el#{elversion}.x86_64.rpm"
+# this takes up a huge amount of space, save it until we're fully operational
+if !RUNNING_STANDALONE
+  rpms["python38"] = "https://s3.amazonaws.com/cloudamatic/muthon-3.8.3-1.el#{elversion}.x86_64.rpm"
+end
 
 package basepackages
 
