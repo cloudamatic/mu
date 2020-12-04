@@ -247,10 +247,16 @@ if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   end
   MU::Master.disk("/dev/xvdj", "/opt_tmp", 30)
   uuid = MU::Master.diskUUID("/dev/xvdj")
+  if !uuid or uuid.empty?
+    MU.log "Failed to retrieve UUID of block device xvdj", MU::ERR, details: MU::Cloud::AWS.realDevicePath("/dev/xvdj")
+    exit 1
+  end
   MU.log "Moving contents of /opt to /opt_tmp", MU::NOTICE
   system("/bin/mv /opt/* /opt_tmp/")
+  exit 1 if $?.exitstatus != 0
   MU.log "Remounting /opt_tmp /opt", MU::NOTICE
   system("/bin/umount /opt_tmp")
+  exit 1 if $?.exitstatus != 0
   puts "#{uuid} /opt xfs defaults 0 0"
   system("echo '#{uuid} /opt xfs defaults 0 0' >> /etc/fstab")
   system("/bin/mount -a")
