@@ -417,12 +417,55 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
+# Skip this during initial installs, it's space-hungry
 if !RUNNING_STANDALONE
   bash "install modules for our built-in Python" do
     code <<-EOH
       /usr/local/python-current/bin/pip install -r #{MU_BASE}/lib/requirements.txt
     EOH
   end
+end
+
+# bundle a less heavy version of our Gemfile during initial installation, so we
+# can actually fit on normal root disks until we have enough code and
+# credentials to roll a dedicated /opt.
+tmpdir = nil
+gemfile_dir = "#{MU_BASE}/lib/modules"
+if RUNNING_STANDALONE
+  tmpdir = Dir.mktmpdir
+  exclude_gems = %w{aws-sdk azure_sdk google-api-client}
+
+  ["/sys/hypervisor/uuid",
+   "/sys/devices/virtual/dmi/id/product_uuid",
+   "/sys/devices/virtual/dmi/id/board_asset_tag"].each { |src|
+    if File.exists?(src)
+      uuid = File.read(src).chomp
+      if uuid and uuid =~ /^ec2/i
+        exclude_gems.delete("aws-sdk")
+      end
+      break
+    end
+  }
+  # XXX need GCP and Azure checks, somehow
+
+  f = File.open("#{tmpdir}/cloud-mu.gemspec", "w")
+  File.read("#{MU_BASE}/lib/cloud-mu.gemspec").each_line { |l|
+    skipme = false
+    if l=~ /s\.add_runtime_dependency/
+      exclude_gems.each { |gem|
+        if l =~ /\b#{gem}\b/
+          skipme = true
+        end
+      }
+      next if skipme
+    end
+    f.puts l.chomp
+  }
+  f.close
+
+  Dir.mkdir("#{tmpdir}/modules")
+  gemfile_dir = "#{tmpdir}/modules"
+  FileUtils.cp("#{MU_BASE}/lib/modules/Gemfile", "#{tmpdir}/modules")
 end
 
 rubies = ["/usr/local/ruby-current"]
@@ -441,6 +484,7 @@ rubies.each { |rubydir|
     EOH
     action :nothing
   end
+
   gem_package bundler_path do
     gem_binary gembin
     package_name "bundler"
@@ -450,8 +494,9 @@ rubies.each { |rubydir|
     end
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
-  execute "#{bundler_path} install" do
-    cwd "#{MU_BASE}/lib/modules"
+  execute "#{bundler_path} install from #{gemfile_dir}" do
+    command "#{bundler_path} install"
+    cwd gemfile_dir
     umask 0022
     not_if "#{bundler_path} check"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
@@ -480,7 +525,7 @@ rubies.each { |rubydir|
 # This is mostly to make sure Berkshelf has a clean and current environment to
 # live with.
 execute "/usr/local/ruby-current/bin/bundle clean --force" do
-  cwd "#{MU_BASE}/lib/modules"
+  cwd gemfile_dir
   only_if { RUNNING_STANDALONE }
 end
 
@@ -604,4 +649,11 @@ bash "fix misc permissions" do
     find #{MU_BASE}/lib -not -path "#{MU_BASE}/.git/*" -type f -exec chmod go+r {} \\;
     chmod go+rx #{MU_BASE}/lib/bin/* #{MU_BASE}/lib/extras/*-stock-* #{MU_BASE}/lib/extras/vault_tools/*.sh
   EOH
+end
+
+if RUNNING_STANDALONE and tmpdir
+  directory tmpdir do
+    action :delete
+    recursive true
+  end
 end

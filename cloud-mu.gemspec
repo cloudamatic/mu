@@ -31,14 +31,16 @@ EOF
   s.authors     = ["John Stange", "Robert Patt-Corner", "Ryan Bolyard", "Zach Rowe"]
   s.email       = 'eGTLabs@eglobaltech.com'
   s.files       = build_file_list(whereami)
-  s.executables = Dir.entries(whereami+"/bin").reject { |f| File.directory?(f) }
+  if Dir.exists?(whereami+"/bin")
+    s.executables = Dir.entries(whereami+"/bin").reject { |f| File.directory?(f) }
+  end
   s.homepage    =
     'https://github.com/cloudamatic/mu'
   s.license       = 'BSD-3-Clause-Attribution'
   s.add_runtime_dependency 'addressable', '~> 2.5'
   s.add_runtime_dependency "aws-sdk", "~> 3.0"
   s.add_runtime_dependency 'azure_sdk', '~> 0.65'
-  s.add_runtime_dependency 'bundler', "~> 1.17"
+  s.add_runtime_dependency 'bundler', "~> 2.1.4"
   s.add_runtime_dependency 'chronic_duration', "~> 0.10"
   s.add_runtime_dependency 'color', "~> 1.8"
   s.add_runtime_dependency 'colorize', "~> 0.8"
