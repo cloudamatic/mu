@@ -417,10 +417,12 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
-bash "install modules for our built-in Python" do
-  code <<-EOH
-    /usr/local/python-current/bin/pip install -r #{MU_BASE}/lib/requirements.txt
-  EOH
+if !RUNNING_STANDALONE
+  bash "install modules for our built-in Python" do
+    code <<-EOH
+      /usr/local/python-current/bin/pip install -r #{MU_BASE}/lib/requirements.txt
+    EOH
+  end
 end
 
 ["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
