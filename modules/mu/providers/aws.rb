@@ -453,7 +453,7 @@ end
           return {}
         end
         map = {}
-        devices = list_disk_devices
+        devices = MU::Master.listBlockDevices
         return {} if !devices
         devices.each { |d|
           if d =~ /^\/dev\/nvme/
