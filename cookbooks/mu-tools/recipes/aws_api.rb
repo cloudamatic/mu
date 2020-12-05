@@ -16,9 +16,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-chef_gem "aws-sdk-core" do
+chef_gem "aws-sdk" do
   compile_time true
-  version "2.11.24"
+  version "3.0.1"
   action :install
 end
 

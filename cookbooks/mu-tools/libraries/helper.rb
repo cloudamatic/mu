@@ -136,7 +136,7 @@ module Mutools
     @region = nil
     def set_aws_cfg_params
       begin
-        require 'aws-sdk-core'
+        require 'aws-sdk'
         instance_identity = get_aws_metadata("dynamic/instance-identity/document")
         return false if instance_identity.nil? # Not in AWS, most likely
         @region = JSON.parse(instance_identity)["region"]
@@ -161,6 +161,7 @@ module Mutools
 
     @ec2 = nil
     def ec2
+      require 'aws-sdk-ec2'
       if set_aws_cfg_params
         @ec2 ||= Aws::EC2::Client.new(region: @region)
       end
@@ -168,6 +169,7 @@ module Mutools
     end
     @s3 = nil
     def s3
+      require 'aws-sdk-s3'
       if set_aws_cfg_params
         @s3 ||= Aws::S3::Client.new(region: @region)
       end
