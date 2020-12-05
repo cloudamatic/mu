@@ -429,47 +429,47 @@ end
 # bundle a less heavy version of our Gemfile during initial installation, so we
 # can actually fit on normal root disks until we have enough code and
 # credentials to roll a dedicated /opt.
-tmpdir = nil
-gemfile_dir = "#{MU_BASE}/lib/modules"
-if RUNNING_STANDALONE
+TMPDIR = Dir.mktmpdir
+gemfile_dir = if RUNNING_STANDALONE
   ruby_block "set up alternate install-time Gemfile" do
-    block <<EOH
-  tmpdir = Dir.mktmpdir
-  exclude_gems = %w{aws-sdk azure_sdk google-api-client}
+    block do
+      exclude_gems = %w{aws-sdk azure_sdk google-api-client}
 
-  ["/sys/hypervisor/uuid",
-   "/sys/devices/virtual/dmi/id/product_uuid",
-   "/sys/devices/virtual/dmi/id/board_asset_tag"].each { |src|
-    if File.exists?(src)
-      uuid = File.read(src).chomp
-      if uuid and uuid =~ /^ec2/i
-        exclude_gems.delete("aws-sdk")
-      end
-      break
-    end
-  }
-  # XXX need GCP and Azure checks, somehow
-
-  f = File.open("#{tmpdir}/cloud-mu.gemspec", "w")
-  File.read("#{MU_BASE}/lib/cloud-mu.gemspec").each_line { |l|
-    skipme = false
-    if l=~ /s\.add_runtime_dependency/
-      exclude_gems.each { |gem|
-        if l =~ /\b#{gem}\b/
-          skipme = true
+      ["/sys/hypervisor/uuid",
+       "/sys/devices/virtual/dmi/id/product_uuid",
+       "/sys/devices/virtual/dmi/id/board_asset_tag"].each { |src|
+        if File.exists?(src)
+          uuid = File.read(src).chomp
+          if uuid and uuid =~ /^ec2/i
+            exclude_gems.delete("aws-sdk")
+          end
+          break
         end
       }
-      next if skipme
-    end
-    f.puts l.chomp
-  }
-  f.close
+      # XXX need GCP and Azure checks, somehow
 
-  Dir.mkdir("#{tmpdir}/modules")
-  gemfile_dir = "#{tmpdir}/modules"
-  FileUtils.cp("#{MU_BASE}/lib/modules/Gemfile", "#{tmpdir}/modules")
-EOH
+      f = File.open("#{TMPDIR}/cloud-mu.gemspec", "w")
+      File.read("#{MU_BASE}/lib/cloud-mu.gemspec").each_line { |l|
+        skipme = false
+        if l=~ /s\.add_runtime_dependency/
+          exclude_gems.each { |gem|
+            if l =~ /\b#{gem}\b/
+              skipme = true
+            end
+          }
+          next if skipme
+        end
+        f.puts l.chomp
+      }
+      f.close
+
+      Dir.mkdir("#{TMPDIR}/modules")
+      FileUtils.cp("#{MU_BASE}/lib/modules/Gemfile", "#{TMPDIR}/modules")
+    end
   end
+  "#{TMPDIR}/modules"
+else
+  "#{MU_BASE}/lib/modules"
 end
 
 rubies = ["/usr/local/ruby-current"]
@@ -655,9 +655,7 @@ bash "fix misc permissions" do
   EOH
 end
 
-if RUNNING_STANDALONE and tmpdir
-  directory tmpdir do
-    action :delete
-    recursive true
-  end
+directory TMPDIR do
+  action :delete
+  recursive true
 end
