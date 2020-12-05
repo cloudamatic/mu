@@ -1281,6 +1281,7 @@ if !$NOOP
   if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
     MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
     %x{/sbin/service iptables stop} if $INITIALIZE
+    system("/usr/bin/chef-server-ctl start")
     output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
     if $?.exitstatus != 0
       puts output
