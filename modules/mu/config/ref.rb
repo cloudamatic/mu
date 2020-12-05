@@ -365,7 +365,7 @@ end
               region: @region,
               habitats: hab_arg,
               credentials: @credentials,
-              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
+              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type) or @id)
             }
 
             found = MU::MommaCat.findStray(
@@ -377,7 +377,7 @@ end
               region: @region,
               habitats: hab_arg,
               credentials: @credentials,
-              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type))
+              dummy_ok: (["habitats", "folders", "users", "groups", "vpcs"].include?(@type) or @id)
             )
             MU.log "Ref#kitten results from findStray", loglevel, details: found
             @obj ||= found.first if found

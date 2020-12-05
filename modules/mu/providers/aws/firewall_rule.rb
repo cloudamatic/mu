@@ -151,8 +151,11 @@ module MU
             rule["firewall_rules"].concat(sgs.map { |s|
               MU::Config::Ref.get(
                 id: s,
+                region: @config['region'],
+                credentials: @credentials,
                 cloud: "AWS",
-                type: "firewall_rule"
+                type: "firewall_rule",
+                dummy_ok: true
               )
             })
           end
