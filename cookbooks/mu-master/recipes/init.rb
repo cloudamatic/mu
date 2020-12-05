@@ -39,16 +39,16 @@ CHEF_SERVER_VERSION="12.17.15-1"
 CHEF_CLIENT_VERSION="14.13.11"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
-MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
-realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD` # ~FC048
 
-if ENV.key?('MU_BRANCH')
-  MU_BRANCH = ENV['MU_BRANCH']
+MU_BRANCH = if ENV.key?('MU_BRANCH')
+  ENV['MU_BRANCH']
 elsif $?.exitstatus == 0
-  MU_BRANCH=realbranch.chomp
+  realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD` # ~FC048
+  realbranch.chomp
 else
-  MU_BRANCH="master"
+  "master"
 end
+
 begin
   resources('service[sshd]')
 rescue Chef::Exceptions::ResourceNotFound
@@ -432,6 +432,8 @@ end
 tmpdir = nil
 gemfile_dir = "#{MU_BASE}/lib/modules"
 if RUNNING_STANDALONE
+  ruby_block "set up alternate install-time Gemfile" do
+    block <<EOH
   tmpdir = Dir.mktmpdir
   exclude_gems = %w{aws-sdk azure_sdk google-api-client}
 
@@ -466,6 +468,8 @@ if RUNNING_STANDALONE
   Dir.mkdir("#{tmpdir}/modules")
   gemfile_dir = "#{tmpdir}/modules"
   FileUtils.cp("#{MU_BASE}/lib/modules/Gemfile", "#{tmpdir}/modules")
+EOH
+  end
 end
 
 rubies = ["/usr/local/ruby-current"]
