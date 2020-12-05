@@ -40,7 +40,7 @@ module MU
             @mu_name = config['mu_name']
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
+            resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
             @az = resp.availability_zone
             @ip_block = resp.cidr_block
             @cloud_desc = resp # XXX this really isn't the cloud implementation's business
@@ -50,11 +50,11 @@ module MU
           # Return the cloud identifier for the default route of this subnet.
           # @return [String,nil]
           def defaultRoute
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_route_tables(
                 filters: [{name: "association.subnet-id", values: [@cloud_id]}]
             )
             if resp.route_tables.size == 0 # use default route table for the VPC
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+              resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_route_tables(
                  filters: [{name: "vpc-id", values: [@parent.cloud_id]}]
               )
             end
@@ -75,11 +75,11 @@ module MU
           # @return [Boolean]
           def private?
             return false if @cloud_id.nil?
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+            resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_route_tables(
                 filters: [{name: "association.subnet-id", values: [@cloud_id]}]
             )
             if resp.route_tables.size == 0 # use default route table for the VPC
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+              resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_route_tables(
                  filters: [{name: "vpc-id", values: [@parent.cloud_id]}]
               )
             end
@@ -106,14 +106,14 @@ module MU
 
           subnetthreads = Array.new
 
-          azs = MU::Cloud::AWS.listAZs(region: @config['region'], credentials: @config['credentials'])
+          azs = MU::Cloud::AWS.listAZs(region: @region, credentials: @credentials)
           @config['subnets'].each { |subnet|
             subnet_name = @config['name']+"-"+subnet['name']
             az = subnet['availability_zone'] ? subnet['availability_zone'] : azs.op
             MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']}) in #{az}", details: subnet
 
             subnetthreads << Thread.new {
-              resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_subnet(
+              resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_subnet(
                 vpc_id: @cloud_id,
                 cidr_block: subnet['ip_block'],
                 availability_zone: az
@@ -123,7 +123,7 @@ module MU
               tag_me(subnet_id, @mu_name+"-"+subnet['name'])
 
               loop_if = Proc.new {
-                resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+                resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_subnets(subnet_ids: [subnet_id]).subnets.first
                 (!resp or resp.state != "available")
               }
 
@@ -141,7 +141,7 @@ module MU
                 end
                 MU.log "Associating Route Table '#{subnet['route_table']}' (#{routes[subnet['route_table']]['route_table_id']}) with #{subnet_name}"
                 MU.retrier([Aws::EC2::Errors::InvalidRouteTableIDNotFound], wait: 10, max: 10) {
-                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).associate_route_table(
+                  MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).associate_route_table(
                     route_table_id: routes[subnet['route_table']]['route_table_id'],
                     subnet_id: subnet_id
                   )
@@ -150,7 +150,7 @@ module MU
 
               if subnet.has_key?("map_public_ips")
                 MU.retrier([Aws::EC2::Errors::InvalidSubnetIDNotFound], wait: 10, max: 10) {
-                  resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).modify_subnet_attribute(
+                  resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).modify_subnet_attribute(
                     subnet_id: subnet_id,
                     map_public_ip_on_launch: {
                       value: subnet['map_public_ips'],
@@ -167,7 +167,7 @@ module MU
                 loggroup = @deploy.findLitterMate(name: @config['name']+"loggroup", type: "logs")
                 logrole = @deploy.findLitterMate(name: @config['name']+"logrole", type: "roles")
                 MU.log "Enabling traffic logging on Subnet #{subnet_name} in VPC #{@mu_name} to log group #{loggroup.mu_name}"
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_flow_logs(
+                MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_flow_logs(
                   resource_ids: [subnet_id],
                   resource_type: "Subnet",
                   traffic_type: subnet["traffic_type_to_log"],
@@ -188,7 +188,7 @@ module MU
         def allocate_eip_for_nat
           MU::MommaCat.lock("nat-gateway-eipalloc")
 
-#          eips = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_addresses(
+#          eips = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_addresses(
 #            filters: [
 #              {
 #                name: "domain",
@@ -209,7 +209,7 @@ module MU
 #          }
 
 #          if allocation_id.nil?
-            allocation_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).allocate_address(domain: "vpc").allocation_id
+            allocation_id = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).allocate_address(domain: "vpc").allocation_id
             tag_me(allocation_id)
 #            MU::MommaCat.lock(allocation_id, false, true)
 #          end
@@ -224,15 +224,15 @@ module MU
         def create_nat_gateway(subnet)
           allocation_id = allocate_eip_for_nat
 
-          nat_gateway_id = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_nat_gateway(
+          nat_gateway_id = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_nat_gateway(
             subnet_id: subnet['subnet_id'],
             allocation_id: allocation_id,
           ).nat_gateway.nat_gateway_id
 
           ensure_unlock = Proc.new { MU::MommaCat.unlock(allocation_id, true) }
-          resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
+          resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
           loop_if = Proc.new {
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
+            resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
             resp.class != Aws::EC2::Types::NatGateway or resp.state == "pending"
           }
 

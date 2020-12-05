@@ -39,20 +39,20 @@ module MU
           bucket_name = @deploy.getResourceName(@config["name"], max_length: 63).downcase
 
           MU.log "Creating S3 bucket #{bucket_name}"
-          MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).create_bucket(
+          MU::Cloud::AWS.s3(credentials: @credentials, region: @region).create_bucket(
             acl: @config['acl'],
             bucket: bucket_name
           )
 
           @cloud_id = bucket_name
-          is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+          is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @region, credentials: @credentials).values.first
           begin
-            is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @config['region'], credentials: @credentials).values.first
+            is_live = MU::Cloud::AWS::Bucket.find(cloud_id: @cloud_id, region: @region, credentials: @credentials).values.first
             sleep 3
           end while !is_live
 
           @@region_cache_semaphore.synchronize {
-            @@region_cache[@cloud_id] ||= @config['region']
+            @@region_cache[@cloud_id] ||= @region
           }
 
           tagBucket if !@config['scrub_mu_isms']
@@ -78,7 +78,7 @@ module MU
             }
           end
 
-          MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_tagging(
+          MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_bucket_tagging(
             bucket: @cloud_id,
             tagging: {
               tag_set: tagset
@@ -120,7 +120,7 @@ module MU
         def groom
 
           @@region_cache_semaphore.synchronize {
-            @@region_cache[@cloud_id] ||= @config['region']
+            @@region_cache[@cloud_id] ||= @region
           }
           tagBucket if !@config['scrub_mu_isms']
 
@@ -129,7 +129,7 @@ module MU
 
           if @config['versioning'] and current["versioning"].status != "Enabled"
             MU.log "Enabling versioning on S3 bucket #{@cloud_id}", MU::NOTICE
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_versioning(
+            MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_bucket_versioning(
               bucket: @cloud_id,
               versioning_configuration: {
                 mfa_delete: "Disabled",
@@ -138,7 +138,7 @@ module MU
             )
           elsif !@config['versioning'] and current["versioning"].status == "Enabled"
             MU.log "Suspending versioning on S3 bucket #{@cloud_id}", MU::NOTICE
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_versioning(
+            MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_bucket_versioning(
               bucket: @cloud_id,
               versioning_configuration: {
                 mfa_delete: "Disabled",
@@ -163,14 +163,14 @@ module MU
               end
 
               Hash[upload_me].each_pair { |file, url|
-                self.class.upload(url, file: file, credentials: @credentials, region: @config['region'], acl: batch['acl'])
+                self.class.upload(url, file: file, credentials: @credentials, region: @region, acl: batch['acl'])
               }
             }
           end
 
           if @config['web'] and current["website"].nil?
             MU.log "Enabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_website(
+            MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_bucket_website(
               bucket: @cloud_id,
               website_configuration: {
                 error_document: {
@@ -183,13 +183,13 @@ module MU
             )
             ['web_error_object', 'web_index_object'].each { |key|
               begin
-                MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).head_object(
+                MU::Cloud::AWS.s3(credentials: @credentials, region: @region).head_object(
                   bucket: @cloud_id,
                   key: @config[key]
                 )
               rescue Aws::S3::Errors::NotFound
                 MU.log "Uploading placeholder #{@config[key]} to bucket #{@cloud_id}"
-                MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_object(
+                MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_object(
                   acl: "public-read",
                   bucket: @cloud_id,
                   key: @config[key],
@@ -200,7 +200,7 @@ module MU
 # XXX check if error and index objs exist, and if not provide placeholders
           elsif !@config['web'] and !current["website"].nil?
             MU.log "Disabling web service on S3 bucket #{@cloud_id}", MU::NOTICE
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).delete_bucket_website(
+            MU::Cloud::AWS.s3(credentials: @credentials, region: @region).delete_bucket_website(
               bucket: @cloud_id
             )
           end
@@ -225,7 +225,7 @@ module MU
 
           if @config['cors']
             MU.log "Setting CORS rules on #{@cloud_id}", details: @config['cors']
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_cors(
+            MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_bucket_cors(
               bucket: @cloud_id,
               cors_configuration: {
                 cors_rules: symbolify_keys.call(@config['cors'])
@@ -235,7 +235,7 @@ module MU
 
           MU.log "Bucket #{@config['name']}: s3://#{@cloud_id}", MU::SUMMARY
           if @config['web']
-            MU.log "Bucket #{@config['name']} web access: http://#{@cloud_id}.s3-website-#{@config['region']}.amazonaws.com/", MU::SUMMARY
+            MU.log "Bucket #{@config['name']} web access: http://#{@cloud_id}.s3-website-#{@region}.amazonaws.com/", MU::SUMMARY
           end
         end
 
@@ -377,13 +377,13 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":s3:::"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":s3:::"+@cloud_id
         end
 
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
-          desc = MU::Cloud::AWS::Bucket.describe_bucket(@cloud_id, credentials: @config['credentials'], region: @config['region'])
+          desc = MU::Cloud::AWS::Bucket.describe_bucket(@cloud_id, credentials: @credentials, region: @region)
           MU.structToHash(desc)
         end
 
@@ -448,7 +448,7 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id
           }
 
@@ -611,7 +611,7 @@ end
           policy_docs = MU::Cloud.resourceClass("AWS", "Role").genPolicyDocument(@config['policies'], deploy_obj: @deploy, bucket_style: true, version: "2008-10-17", doc_id: doc_id)
           policy_docs.each { |doc|
             MU.log "Applying S3 bucket policy #{doc.keys.first} to bucket #{@cloud_id}", MU::NOTICE, details: JSON.pretty_generate(doc.values.first)
-            MU::Cloud::AWS.s3(credentials: @config['credentials'], region: @config['region']).put_bucket_policy(
+            MU::Cloud::AWS.s3(credentials: @credentials, region: @region).put_bucket_policy(
               bucket: @cloud_id,
               policy: JSON.generate(doc.values.first)
             )

@@ -30,13 +30,13 @@ module MU
           @config["log_group_name"] = @mu_name
           @config["log_stream_name"] =
             if @config["enable_cloudtrail_logging"]
-              "#{MU::Cloud::AWS.credToAcct(@config['credentials'])}_CloudTrail_#{@config["region"]}"
+              "#{MU::Cloud::AWS.credToAcct(@credentials)}_CloudTrail_#{@region}"
             else
               @mu_name
             end
 
           MU.log "Creating log group #{@mu_name}"
-          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).create_log_group(
+          MU::Cloud::AWS.cloudwatchlogs(region: @region, credentials: @credentials).create_log_group(
             log_group_name: @config["log_group_name"],
             tags: @tags
           )
@@ -45,7 +45,7 @@ module MU
           retries = 0
           max_retries = 5
           begin
-            resp = MU::Cloud::AWS::Log.getLogGroupByName(@config["log_group_name"], region: @config["region"])
+            resp = MU::Cloud::AWS::Log.getLogGroupByName(@config["log_group_name"], region: @region)
             if resp.nil?
               if retries >= max_retries
                 raise MuError, "Cloudwatch Logs group #{@config["log_group_name"]} creation hasn't succeeded after #{(retries*max_retries).to_s}s"
@@ -56,19 +56,19 @@ module MU
             end
           end while resp.nil?
 
-          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).create_log_stream(
+          MU::Cloud::AWS.cloudwatchlogs(region: @region, credentials: @credentials).create_log_stream(
             log_group_name: @config["log_group_name"],
             log_stream_name: @config["log_stream_name"]
           )
 
-          MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).put_retention_policy(
+          MU::Cloud::AWS.cloudwatchlogs(region: @region, credentials: @credentials).put_retention_policy(
             log_group_name: @config["log_group_name"],
             retention_in_days: @config["retention_period"]
           )
 
           if @config["filters"] && !@config["filters"].empty?
             @config["filters"].each{ |filter|
-              MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @config["credentials"]).put_metric_filter(
+              MU::Cloud::AWS.cloudwatchlogs(region: @region, credentials: @credentials).put_metric_filter(
                 log_group_name: @config["log_group_name"],
                 filter_name: filter["name"],
                 filter_pattern: filter["search_pattern"],
@@ -82,8 +82,8 @@ module MU
           end
 
           if @config["enable_cloudtrail_logging"]
-            trail_resp = MU::Cloud::AWS.cloudtrail(region: @config["region"], credentials: @config["credentials"]).describe_trails.trail_list.first
-            raise MuError, "Can't find a cloudtrail in #{MU::Cloud::AWS.credToAcct(@config['credentials'])}/#{@config["region"]}. Please create cloudtrail before enabling logging on it" unless trail_resp
+            trail_resp = MU::Cloud::AWS.cloudtrail(region: @region, credentials: @credentials).describe_trails.trail_list.first
+            raise MuError, "Can't find a cloudtrail in #{MU::Cloud::AWS.credToAcct(@credentials)}/#{@region}. Please create cloudtrail before enabling logging on it" unless trail_resp
 
             iam_policy = '{
               "Version": "2012-10-17",
@@ -96,7 +96,7 @@ module MU
                     "logs:PutLogEventsBatch",
                     "logs:PutLogEvents"
                   ],
-                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU::Cloud::AWS.credToAcct(@config['credentials'])+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
+                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+':logs:'+@region+':'+MU::Cloud::AWS.credToAcct(@credentials)+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
                 }
               ]
             }'
@@ -132,11 +132,11 @@ module MU
               policy_document: iam_policy
             )
 
-            log_group_resp = MU::Cloud::AWS::Log.getLogGroupByName(@config["log_group_name"], region: @config["region"])
+            log_group_resp = MU::Cloud::AWS::Log.getLogGroupByName(@config["log_group_name"], region: @region)
 
             retries = 0
             begin 
-              MU::Cloud::AWS.cloudtrail(region: @config["region"], credentials: @config["credentials"]).update_trail(
+              MU::Cloud::AWS.cloudtrail(region: @region, credentials: @credentials).update_trail(
                 name: trail_resp.name,
                 cloud_watch_logs_log_group_arn: log_group_resp.arn,
                 cloud_watch_logs_role_arn: iam_resp.role.arn
@@ -270,9 +270,9 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -283,7 +283,7 @@ module MU
           bok['name'] = cloud_desc.log_group_name.sub(/.*?\/([^\/]+)$/, '\1')
 
           if cloud_desc.metric_filter_count > 0
-            resp = MU::Cloud::AWS.cloudwatchlogs(region: @config['region'], credentials: @credentials).describe_metric_filters(
+            resp = MU::Cloud::AWS.cloudwatchlogs(region: @region, credentials: @credentials).describe_metric_filters(
               log_group_name: @cloud_id
             )
             resp.metric_filters.each { |filter|

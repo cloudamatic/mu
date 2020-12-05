@@ -34,7 +34,7 @@ module MU
           end
 
           MU.log "Creating AWS account #{@mu_name} with contact email #{@config['email']}"
-          resp = MU::Cloud::AWS.orgs(credentials: @config['credentials']).create_account(
+          resp = MU::Cloud::AWS.orgs(credentials: @credentials).create_account(
             account_name: @mu_name,
             email: @config['email']
           )
@@ -42,7 +42,7 @@ module MU
           createid = resp.create_account_status.id
 
           begin
-            resp = MU::Cloud::AWS.orgs(credentials: @config['credentials']).describe_create_account_status(
+            resp = MU::Cloud::AWS.orgs(credentials: @credentials).describe_create_account_status(
               create_account_request_id: createid
             )
             if !["SUCCEEDED", "IN_PROGRESS"].include?(resp.create_account_status.state)

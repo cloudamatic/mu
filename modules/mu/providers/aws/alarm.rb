@@ -36,7 +36,7 @@ module MU
                     @dependencies[dimension["depclass"]][dimension["name"]].cloudobj.cloud_id
                   end
                 elsif dimension["mu_name"] and dimension["deploy_id"]
-                  found = MU::MommaCat.findStray("AWS", deps_class, deploy_id: dimension["deploy_id"], mu_name: dimension["mu_name"], region: @config["region"])
+                  found = MU::MommaCat.findStray("AWS", deps_class, deploy_id: dimension["deploy_id"], mu_name: dimension["mu_name"], region: @region)
                   raise MuError, "Couldn't find #{deps_class} #{dimension["mu_name"]}" if found.nil? || found.empty?
                   resp = found.first.deploydata["cloud_id"]
                   resp.downcase if %w{database cache_cluster}.include?(deps_class)
@@ -79,8 +79,8 @@ module MU
             evaluation_periods: @config["evaluation_periods"],
             threshold: @config["threshold"],
             comparison_operator: @config["comparison_operator"],
-            region: @config["region"],
-            credentials: @config['credentials']
+            region: @region,
+            credentials: @credentials
           )
 
           @cloud_id = @mu_name

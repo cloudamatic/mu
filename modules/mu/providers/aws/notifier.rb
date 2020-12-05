@@ -28,7 +28,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           @cloud_id = @mu_name
-          MU::Cloud::AWS.sns(region: @config['region'], credentials: @config['credentials']).create_topic(name: @cloud_id)
+          MU::Cloud::AWS.sns(region: @region, credentials: @credentials).create_topic(name: @cloud_id)
           MU.log "Created SNS topic #{@mu_name}"
         end
 
@@ -52,7 +52,7 @@ module MU
         # @param endpoint [String]: The address, identifier, or ARN of the resource being subscribed
         # @param protocol [String]: The protocol being subscribed
         def subscribe(endpoint, protocol)
-          self.class.subscribe(arn, endpoint, protocol, region: @config['region'], credentials: @credentials)
+          self.class.subscribe(arn, endpoint, protocol, region: @region, credentials: @credentials)
         end
 
         # Subscribe something to an SNS topic
@@ -116,14 +116,14 @@ module MU
         # @return [String]
         def arn
           @cloud_id ||= @mu_name
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sns:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":sns:"+@region+":"+MU::Cloud::AWS.credToAcct(@credentials)+":"+@cloud_id
         end
 
         # Return the metadata for this user cofiguration
         # @return [Hash]
         def notify
           return nil if !@cloud_id or !cloud_desc(use_cache: false)
-          desc = MU::Cloud::AWS.sns(region: @config["region"], credentials: @config["credentials"]).get_topic_attributes(topic_arn: arn).attributes
+          desc = MU::Cloud::AWS.sns(region: @region, credentials: @credentials).get_topic_attributes(topic_arn: arn).attributes
           MU.structToHash(desc)
         end
 
@@ -165,9 +165,9 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -180,7 +180,7 @@ module MU
             "lambda" => "functions",
             "sqs" => "msg_queues"
           }
-          MU::Cloud::AWS.sns(region: @config['region'], credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
+          MU::Cloud::AWS.sns(region: @region, credentials: @credentials).list_subscriptions_by_topic(topic_arn: cloud_desc["TopicArn"]).subscriptions.each { |sub|
             bok['subscriptions'] ||= []
 
             bok['subscriptions'] << if sub.endpoint.match(/^arn:[^:]+:(sqs|lambda):([^:]+):(\d+):.*?([^:\/]+)$/)

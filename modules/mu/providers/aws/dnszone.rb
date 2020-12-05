@@ -25,7 +25,7 @@ module MU
           super
           @mu_name ||= @deploy.getResourceName(@config["name"])
 
-          MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+          MU.setVar("curRegion", @region) if !@region.nil?
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -119,7 +119,7 @@ module MU
                   if @dependencies.has_key?('loadbalancer') and @dependencies['loadbalancer'].has_key?(dnsrec['target']) and !@dependencies['loadbalancer'][dnsrec['target']].cloudobj.nil? and dnsrec['deploy_id'].nil?
                     @dependencies['loadbalancer'][dnsrec['target']].cloudobj.notify['dns']
                   elsif dnsrec['deploy_id']
-                    found = MU::MommaCat.findStray("AWS", "loadbalancer", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                    found = MU::MommaCat.findStray("AWS", "loadbalancer", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @region)
                     raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
                     found.first.deploydata['dns']
                   end
@@ -128,7 +128,7 @@ module MU
                     MU.log "dnsrec['target'] #{dnsrec['target']}"
                     deploydata = @dependencies['server'][dnsrec['target']].deploydata
                   elsif dnsrec['deploy_id']
-                    found = MU::MommaCat.findStray("AWS", "server", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                    found = MU::MommaCat.findStray("AWS", "server", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @region)
                     raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
                     deploydata = found.first.deploydata
                   end
@@ -159,7 +159,7 @@ module MU
                   if @dependencies.has_key?(dnsrec['mu_type']) && dnsrec['deploy_id'].nil?
                     @dependencies[dnsrec['mu_type']][dnsrec['target']].deploydata['endpoint']
                   elsif dnsrec['deploy_id']
-                    found = MU::MommaCat.findStray("AWS", "database", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                    found = MU::MommaCat.findStray("AWS", "database", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @region)
                     raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
                     found.first.deploydata['endpoint']
                   end
@@ -642,7 +642,7 @@ module MU
             # )
             # deploydata.merge!(MU.structToHash(resp.hosted_zone))
             # deploydata['vpcs'] = @config['vpcs'] if !@config['vpcs'].nil?
-            # deploydata["region"] = @config['region'] if !@config['region'].nil?
+            # deploydata["region"] = @region if !@region.nil?
             # @deploy.notify(MU::Cloud::DNSZone.cfg_plural, mu_name, deploydata)
             # return deploydata
 

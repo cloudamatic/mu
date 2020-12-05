@@ -27,7 +27,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+          MU.setVar("curRegion", @region) if !@region.nil?
           
           createUpdateLaunchConfig
 
@@ -37,7 +37,7 @@ module MU
 
           zones_to_try = @config["zones"]
           begin
-            asg = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_auto_scaling_group(asg_options)
+            asg = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_auto_scaling_group(asg_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
             if zones_to_try != nil and zones_to_try.size > 0
               MU.log "#{e.message}, retrying with individual AZs", MU::WARN
@@ -52,7 +52,7 @@ module MU
           if zones_to_try != nil and zones_to_try.size < @config["zones"].size
             zones_to_try.each { |zone|
               begin
-                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).update_auto_scaling_group(
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
                     auto_scaling_group_name: @mu_name,
                     availability_zones: [zone]
                 )
@@ -70,11 +70,11 @@ module MU
           attempts = 0
           begin
             sleep 5
-            desc = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
+            desc = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
             MU.log "Looking for #{desc.min_size} instances in #{@mu_name}, found #{desc.instances.size}", MU::DEBUG
             attempts = attempts + 1
             if attempts > 25 and desc.instances.size == 0
-              MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}", MU::ERR, details: MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_scaling_activities(auto_scaling_group_name: @mu_name).activities
+              MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}", MU::ERR, details: MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_scaling_activities(auto_scaling_group_name: @mu_name).activities
               raise MuError, "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}"
             end
           end while desc.instances.size < desc.min_size
@@ -131,7 +131,7 @@ module MU
               t.join
             }
             MU.log "Setting min_size to #{@config['min_size']} and max_size to #{@config['max_size']}"
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).update_auto_scaling_group(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
               auto_scaling_group_name: @mu_name,
               min_size: @config['min_size'],
               max_size: @config['max_size']
@@ -151,7 +151,7 @@ module MU
         def setScaleInProtection(need_instances = @config['min_size'])
           live_instances = []
           begin
-            desc = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
+            desc = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
 
             live_instances = desc.instances.map { |i| i.instance_id }
             already_set = 0
@@ -163,7 +163,7 @@ module MU
             elsif already_set > need_instances
               unset_me = live_instances.sample(already_set - need_instances)
               MU.log "Disabling scale-in protection for #{unset_me.size.to_s} instances in #{@mu_name}", MU::NOTICE, details: unset_me
-              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).set_instance_protection(
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).set_instance_protection(
                 auto_scaling_group_name: @mu_name,
                 instance_ids: unset_me,
                 protected_from_scale_in: false
@@ -172,7 +172,7 @@ module MU
               live_instances = live_instances.sample(need_instances)
               MU.log "Enabling scale-in protection for #{@config['scale_in_protection']} instances in #{@mu_name}", details: live_instances
               begin
-                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).set_instance_protection(
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).set_instance_protection(
                   auto_scaling_group_name: @mu_name,
                   instance_ids: live_instances,
                   protected_from_scale_in: true
@@ -196,7 +196,7 @@ module MU
           me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id).values.first
           if me and me.instances
             me.instances.each { |instance|
-              found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @config["region"], dummy_ok: true)
+              found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @region, dummy_ok: true)
               nodes.concat(found)
             }
           end
@@ -210,7 +210,7 @@ module MU
             arn = if @config['notifications']['topic'].match(/^arn:/)
               @config['notifications']['topic']
             else
-              "arn:#{MU::Cloud::AWS.isGovCloud?(@config['region']) ? "aws-us-gov" : "aws"}:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{@config['notifications']['topic']}"
+              "arn:#{MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws"}:sns:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{@config['notifications']['topic']}"
             end
             eventmap = {
               "launch" => "autoscaling:EC2_INSTANCE_LAUNCH",
@@ -219,7 +219,7 @@ module MU
               "failed_terminate" => "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
             }
             MU.log "Sending simple notifications (#{@config['notifications']['events'].join(", ")}) to #{arn}"
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_notification_configuration(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).put_notification_configuration(
               auto_scaling_group_name: @mu_name,
               topic_arn: arn,
               notification_types: @config['notifications']['events'].map { |e|
@@ -229,7 +229,7 @@ module MU
           end
 
           if @config['schedule']
-            ext_actions = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_scheduled_actions(
+            ext_actions = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_scheduled_actions(
               auto_scaling_group_name: @mu_name
             ).scheduled_update_group_actions
 
@@ -250,7 +250,7 @@ module MU
                 if s['action_name'] == ext.scheduled_action_name
                   if !MU.hashCmp(MU.structToHash(ext), sched_config, missing_is_default: true)
                     MU.log "Removing scheduled action #{s['action_name']} from AutoScale group #{@mu_name}"
-                    MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).delete_scheduled_action(
+                    MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_scheduled_action(
                       auto_scaling_group_name: @mu_name,
                       scheduled_action_name: s['action_name']
                     )
@@ -262,7 +262,7 @@ module MU
               }
               if !action_already_correct
                 MU.log "Adding scheduled action to AutoScale group #{@mu_name}", MU::NOTICE, details: sched_config
-                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_scheduled_update_group_action(
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).put_scheduled_update_group_action(
                   sched_config
                 )
               end
@@ -290,10 +290,10 @@ module MU
           if need_tag_update
             MU.log "Updating ServerPool #{@mu_name} with new tags", MU::NOTICE, details: tag_conf[:tags]
 
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_or_update_tags(tag_conf)
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_or_update_tags(tag_conf)
             current.instances.each { |instance|
               tag_conf[:tags].each { |t|
-                MU::Cloud::AWS.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'], credentials: @config['credentials'])
+                MU::Cloud::AWS.createTag(instance.instance_id, t[:key], t[:value], region: @region, credentials: @credentials)
               }
             }
           end
@@ -305,14 +305,14 @@ module MU
           asg_options[:max_size] = @config["max_size"]
           asg_options[:new_instances_protected_from_scale_in] = (@config['scale_in_protection'] == "all")
           if asg_options[:target_group_arns]
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).attach_load_balancer_target_groups(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).attach_load_balancer_target_groups(
               auto_scaling_group_name: @mu_name,
               target_group_arns: asg_options[:target_group_arns]
             )
             asg_options.delete(:target_group_arns)
           end
 
-          MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).update_auto_scaling_group(asg_options)
+          MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(asg_options)
 
           if @config['scale_in_protection']
             if @config['scale_in_protection'] == "all"
@@ -326,7 +326,7 @@ module MU
             setScaleInProtection(0)
           end
 
-          ext_pols = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_policies(
+          ext_pols = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_policies(
             auto_scaling_group_name: @mu_name
           ).scaling_policies
           if @config["scaling_policies"] and @config["scaling_policies"].size > 0
@@ -338,7 +338,7 @@ module MU
             ext_pols.each { |ext|
               if !legit_policies.include?(ext.policy_name)
                 MU.log "Scaling policy #{ext.policy_name} is not named in scaling_policies, removing from #{@mu_name}", MU::NOTICE, details: ext
-                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).delete_policy(
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_policy(
                   auto_scaling_group_name: @mu_name,
                   policy_name: ext.policy_name
                 )
@@ -399,7 +399,7 @@ module MU
               ext_pols.each { |ext|
                 if ext.policy_name == policy_name
                   if !MU.hashCmp(MU.structToHash(ext), policy_params, missing_is_default: true)
-                    MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).delete_policy(
+                    MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_policy(
                       auto_scaling_group_name: @mu_name,
                       policy_name: policy_name
                     )
@@ -411,7 +411,7 @@ module MU
               }
               if !policy_already_correct
                 MU.log "Putting scaling policy #{policy_name} for #{@mu_name}", MU::NOTICE, details: policy_params
-                MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).put_scaling_policy(policy_params)
+                MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).put_scaling_policy(policy_params)
               end
 
             }
@@ -425,7 +425,7 @@ module MU
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
           return nil if !@cloud_id
-          @cloud_desc_cache = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_auto_scaling_groups(
+          @cloud_desc_cache = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_auto_scaling_groups(
             auto_scaling_group_names: [@mu_name]
           ).auto_scaling_groups.first
           @cloud_desc_cache
@@ -489,9 +489,9 @@ module MU
       def toKitten(**_args)
         bok = {
           "cloud" => "AWS",
-          "credentials" => @config['credentials'],
+          "credentials" => @credentials,
           "cloud_id" => @cloud_id,
-          "region" => @config['region']
+          "region" => @region
         }
 
         if !cloud_desc
@@ -516,7 +516,7 @@ module MU
         bok['max_size'] = cloud_desc.max_size
 
         if cloud_desc.launch_configuration_name
-          launch = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @credentials).describe_launch_configurations(
+          launch = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_launch_configurations(
             launch_configuration_names: [cloud_desc.launch_configuration_name]
           ).launch_configurations.first
           bok['basis'] = {
@@ -532,7 +532,7 @@ module MU
            !cloud_desc.vpc_zone_identifier.empty?
           nets = cloud_desc.vpc_zone_identifier.split(/,/)
           begin
-            resp = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
+            resp = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_subnets(subnet_ids: nets).subnets.first
             bok['vpc'] = MU::Config::Ref.get(
               id: resp.vpc_id,
               cloud: "AWS",
@@ -1127,20 +1127,20 @@ module MU
             @config['basis']['launch_config']["ami_id"] = MU::Cloud.resourceClass("AWS", "Server").createImage(
               name: @mu_name,
               instance_id: @config['basis']['launch_config']["instance_id"],
-              credentials: @config['credentials'],
-              region: @config['region']
-            )[@config['region']]
+              credentials: @credentials,
+              region: @region
+            )[@region]
           end
-          MU::Cloud.resourceClass("AWS", "Server").waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @config['credentials'])
+          MU::Cloud.resourceClass("AWS", "Server").waitForAMI(@config['basis']['launch_config']["ami_id"], credentials: @credentials)
 
-          oldlaunch = MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).describe_launch_configurations(
+          oldlaunch = MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).describe_launch_configurations(
             launch_configuration_names: [@mu_name]
           ).launch_configurations.first
 
           userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
             cloud: "AWS",
-            credentials: @config['credentials'],
+            credentials: @credentials,
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,
@@ -1209,7 +1209,7 @@ module MU
             # Put our Autoscale group onto a temporary launch config
             begin
 
-              MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_launch_configuration(
+              MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(
                 launch_configuration_name: @mu_name+"-TMP",
                 user_data: Base64.encode64(olduserdata),
                 image_id: oldlaunch.image_id,
@@ -1232,12 +1232,12 @@ module MU
             end
 
 
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).update_auto_scaling_group(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
               auto_scaling_group_name: @mu_name,
               launch_configuration_name: @mu_name+"-TMP"
             )
             # ...now back to an identical one with the "real" name
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).delete_launch_configuration(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_launch_configuration(
               launch_configuration_name: @mu_name
             )
           end
@@ -1284,16 +1284,16 @@ module MU
             @deploy,
             generated: @config['basis']['launch_config']['generate_iam_role'],
             role_name: @config['basis']['launch_config']['iam_role'],
-            region: @config['region'],
+            region: @region,
             credentials: @credentials
           ).values.first
 
           lc_attempts = 0
           begin
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).create_launch_configuration(launch_options)
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).create_launch_configuration(launch_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
             if lc_attempts > 3
-              MU.log "Got error while creating #{@mu_name} Launch Config#{@config['credentials'] ? " with credentials #{@config['credentials']}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,_v | k == :user_data }
+              MU.log "Got error while creating #{@mu_name} Launch Config#{@credentials ? " with credentials #{@credentials}" : ""}: #{e.message}, retrying in 10s", MU::WARN, details: launch_options.reject { |k,_v | k == :user_data }
             end
             sleep 5
             lc_attempts += 1
@@ -1302,11 +1302,11 @@ module MU
 
           if !oldlaunch.nil?
             # Tell the ASG to use the new one, and nuke the old one
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).update_auto_scaling_group(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).update_auto_scaling_group(
               auto_scaling_group_name: @mu_name,
               launch_configuration_name: @mu_name
             )
-            MU::Cloud::AWS.autoscale(region: @config['region'], credentials: @config['credentials']).delete_launch_configuration(
+            MU::Cloud::AWS.autoscale(region: @region, credentials: @credentials).delete_launch_configuration(
               launch_configuration_name: @mu_name+"-TMP"
             )
             MU.log "Launch Configuration #{@mu_name} replaced"
@@ -1446,8 +1446,8 @@ module MU
           # Do the dance of specifying individual zones if we haven't asked to
           # use particular VPC subnets.
           if @config['zones'].nil? and asg_options[:vpc_zone_identifier].nil?
-            @config["zones"] = MU::Cloud::AWS.listAZs(region: @config['region'])
-            MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
+            @config["zones"] = MU::Cloud::AWS.listAZs(region: @region)
+            MU.log "Using zones from #{@region}", MU::DEBUG, details: @config['zones']
           end
           asg_options[:availability_zones] = @config["zones"] if @config["zones"] != nil
           asg_options

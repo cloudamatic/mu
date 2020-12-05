@@ -54,8 +54,12 @@ module MU
       def self.resourceInitHook(cloudobj, _deploy)
         class << self
           attr_reader :cloudformation_data
+          attr_reader :region
         end
+        return if !cloudobj
         cloudobj.instance_variable_set(:@cloudformation_data, {})
+
+        cloudobj.instance_variable_set(:@region, cloudobj.config['region'])
       end
 
       # Load some credentials for using the AWS API

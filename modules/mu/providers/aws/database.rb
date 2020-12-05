@@ -224,7 +224,7 @@ module MU
               }
 
               modify_db_cluster_struct[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster(modify_db_cluster_struct)
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_db_cluster(modify_db_cluster_struct)
               wait_until_available
             end
 
@@ -305,7 +305,7 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "region" => @config['region'],
+            "region" => @region,
             "credentials" => @credentials,
             "cloud_id" => @cloud_id,
           }
@@ -317,8 +317,8 @@ module MU
           end
 
           noun = @config["create_cluster"] ? "cluster" : "db"
-          tags = MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).list_tags_for_resource(
-            resource_name: MU::Cloud::AWS::Database.getARN(@cloud_id, noun, "rds", region: @config['region'], credentials: @credentials)
+          tags = MU::Cloud::AWS.rds(credentials: @credentials, region: @region).list_tags_for_resource(
+            resource_name: MU::Cloud::AWS::Database.getARN(@cloud_id, noun, "rds", region: @region, credentials: @credentials)
           ).tag_list
           if tags and !tags.empty?
             bok['tags'] = MU.structToHash(tags, stringify_keys: true)
@@ -332,11 +332,11 @@ module MU
           bok["create_cluster"] = true if @config['create_cluster']
 
           params = if bok['create_cluster']
-            MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).describe_db_cluster_parameters(
+            MU::Cloud::AWS.rds(credentials: @credentials, region: @region).describe_db_cluster_parameters(
               db_cluster_parameter_group_name: cloud_desc.db_cluster_parameter_group
             ).parameters
           else
-            MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).describe_db_parameters(
+            MU::Cloud::AWS.rds(credentials: @credentials, region: @region).describe_db_parameters(
               db_parameter_group_name: cloud_desc.db_parameter_groups.first.db_parameter_group_name
             ).parameters
           end
@@ -353,7 +353,7 @@ module MU
               id: sg.vpc_security_group_id,
               cloud: "AWS",
               credentials: @credentials,
-              region: @config['region'],
+              region: @region,
               type: "firewall_rules",
             )
           }
@@ -373,7 +373,7 @@ module MU
             # we have no sensible way to handle heterogenous cluster members, so
             # for now just assume they're all the same
             cloud_desc.db_cluster_members.each { |db|
-              member = MU::Cloud::AWS::Database.find(cloud_id: db.db_instance_identifier, region: @config['region'], credentials: @credentials).values.first
+              member = MU::Cloud::AWS::Database.find(cloud_id: db.db_instance_identifier, region: @region, credentials: @credentials).values.first
 
               sizes << member.db_instance_class
               if member.db_subnet_group and member.db_subnet_group.vpc_id
@@ -385,14 +385,14 @@ module MU
             vpcs.uniq!
             bok['size'] = sizes.sort.first if !sizes.empty?
             if !vpcs.empty?
-              myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: vpcs.sort.first.vpc_id, credentials: @credentials, region: @config['region'], dummy_ok: true, no_deploy_search: true).first
+              myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: vpcs.sort.first.vpc_id, credentials: @credentials, region: @region, dummy_ok: true, no_deploy_search: true).first
               bok['vpc'] = myvpc.getReference(vpcs.sort.first.subnets.map { |s| s.subnet_identifier })
             end
           else
             bok['size'] = cloud_desc.db_instance_class
             bok['auto_minor_version_upgrade'] = true if cloud_desc.auto_minor_version_upgrade
             if cloud_desc.db_subnet_group
-              myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: cloud_desc.db_subnet_group.vpc_id, credentials: @credentials, region: @config['region'], dummy_ok: true, no_deploy_search: true).first
+              myvpc = MU::MommaCat.findStray("AWS", "vpc", cloud_id: cloud_desc.db_subnet_group.vpc_id, credentials: @credentials, region: @region, dummy_ok: true, no_deploy_search: true).first
               bok['vpc'] = myvpc.getReference(cloud_desc.db_subnet_group.subnets.map { |s| s.subnet_identifier })
             end
             bok['storage_type'] = cloud_desc.storage_type
@@ -467,13 +467,13 @@ dependencies
             raise MuError, "Couldn't find subnets in #{@vpc} to add to #{@config["subnet_group_name"]}. Make sure the subnets are valid and publicly_accessible is set correctly"
           else
             resp = begin
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_subnet_groups(
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_db_subnet_groups(
                 db_subnet_group_name: @config["subnet_group_name"]
               )
 # XXX ensure subnet group matches our config?
             rescue ::Aws::RDS::Errors::DBSubnetGroupNotFoundFault
               # Create subnet group
-              resp = MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_subnet_group(
+              resp = MU::Cloud::AWS.rds(region: @region, credentials: @credentials).create_db_subnet_group(
                 db_subnet_group_name: @config["subnet_group_name"],
                 db_subnet_group_description: @config["subnet_group_name"],
                 subnet_ids: subnet_ids,
@@ -511,13 +511,13 @@ dependencies
           if create
             MU.log "Creating a #{cluster ? "cluster" : "database" } parameter group #{@config["parameter_group_name"]}"
 
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send(cluster ? :create_db_cluster_parameter_group : :create_db_parameter_group, params)
           end
 
 
           if @config[fieldname] and !@config[fieldname].empty?
 
-            old_values = MU::Cloud::AWS.rds(credentials: @credentials, region: @config['region']).send(cluster ? :describe_db_cluster_parameters : :describe_db_parameters, { name_param => @config["parameter_group_name"] } ).parameters
+            old_values = MU::Cloud::AWS.rds(credentials: @credentials, region: @region).send(cluster ? :describe_db_cluster_parameters : :describe_db_parameters, { name_param => @config["parameter_group_name"] } ).parameters
             old_values.map! { |p| [p.parameter_name, p.parameter_value] }.flatten
             old_values = old_values.to_h
 
@@ -532,12 +532,12 @@ dependencies
 
             MU.retrier([Aws::RDS::Errors::InvalidDBParameterGroupState], wait: 30, max: 10) {
               if cluster
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_cluster_parameter_group(
+                MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_db_cluster_parameter_group(
                   db_cluster_parameter_group_name: @config["parameter_group_name"],
                   parameters: params
                 )
               else
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_parameter_group(
+                MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_db_parameter_group(
                   db_parameter_group_name: @config["parameter_group_name"],
                   parameters: params
                 )
@@ -586,7 +586,7 @@ dependencies
           if @config["create_cluster"]
             @config['cluster_node_count'] ||= 1
             if @config['cluster_mode'] == "serverless"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_current_db_cluster_capacity(
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_current_db_cluster_capacity(
                 db_cluster_identifier: @cloud_id,
                 capacity: @config['cluster_node_count']
               )
@@ -613,7 +613,7 @@ dependencies
             MU.log "Modifying RDS instance #{@cloud_id}", MU::NOTICE, details: mods
             mods[:apply_immediately] = true
             wait_until_available
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @credentials).send("modify_db_#{noun}".to_sym, mods)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("modify_db_#{noun}".to_sym, mods)
             wait_until_available
           end
 
@@ -660,7 +660,7 @@ dependencies
           if !cloud_desc.db_security_groups.empty?
             cloud_desc.db_security_groups.each { |rds_sg|
               begin
-                MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).authorize_db_security_group_ingress(
+                MU::Cloud::AWS.rds(region: @region, credentials: @credentials).authorize_db_security_group_ingress(
                     db_security_group_name: rds_sg.db_security_group_name,
                     cidrip: cidr
                 )
@@ -682,7 +682,7 @@ dependencies
         def notify
           deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
           deploy_struct['cloud_id'] = @cloud_id
-          deploy_struct["region"] ||= @config['region']
+          deploy_struct["region"] ||= @region
           deploy_struct["db_name"] ||= @config['db_name']
           deploy_struct
         end
@@ -708,14 +708,14 @@ dependencies
           end
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidDBClusterStateFault], wait: 60, max: 10) {
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("create_db_#{@config['create_cluster'] ? "cluster_" : ""}snapshot".to_sym, params)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("create_db_#{@config['create_cluster'] ? "cluster_" : ""}snapshot".to_sym, params)
           }
 
           loop_if = Proc.new {
             if @config["create_cluster"]
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: snap_id).db_cluster_snapshots.first.status != "available"
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: snap_id).db_cluster_snapshots.first.status != "available"
             else
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_snapshots(db_snapshot_identifier: snap_id).db_snapshots.first.status != "available"
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_db_snapshots(db_snapshot_identifier: snap_id).db_snapshots.first.status != "available"
             end
           }
 
@@ -732,9 +732,9 @@ dependencies
           src_ref = MU::Config::Ref.get(@config["source"])
           resp =
             if @config["create_cluster"]
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: src_ref.id)
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: src_ref.id)
             else
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).describe_db_snapshots(db_snapshot_identifier: src_ref.id)
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).describe_db_snapshots(db_snapshot_identifier: src_ref.id)
             end
 
           snapshots = @config["create_cluster"] ? resp.db_cluster_snapshots : resp.db_snapshots
@@ -1262,7 +1262,7 @@ dependencies
         def add_basic
 
           getPassword
-          if @config['source'].nil? or @config['region'] != @config['source'].region
+          if @config['source'].nil? or @region != @config['source'].region
             manageSubnetGroup if @vpc
           else
             MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
@@ -1347,11 +1347,11 @@ dependencies
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
               clean_parent_opts.call
               MU.log "Creating database #{noun} #{@cloud_id} from snapshot #{@config["snapshot_id"]}"
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("restore_db_#{noun}_from_#{noun == "instance" ? "db_" : ""}snapshot".to_sym, params)
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("restore_db_#{noun}_from_#{noun == "instance" ? "db_" : ""}snapshot".to_sym, params)
             else
               clean_parent_opts.call if noun == "instance" and params[:db_cluster_identifier]
-              MU.log "Creating pristine database #{noun} #{@cloud_id} (#{@config['name']}) in #{@config['region']}", MU::NOTICE, details: params
-              MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("create_db_#{noun}".to_sym, params)
+              MU.log "Creating pristine database #{noun} #{@cloud_id} (#{@config['name']}) in #{@region}", MU::NOTICE, details: params
+              MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("create_db_#{noun}".to_sym, params)
             end
           }
         end
@@ -1378,7 +1378,7 @@ dependencies
 
           MU.retrier([Aws::RDS::Errors::InvalidParameterValue], max: 15, wait: 20) {
             MU.log "Creating database #{@config['create_cluster'] ? "cluster" : "instance" } #{@cloud_id} based on point in time backup '#{@config['restore_time']}' of #{@config['source'].id}"
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).send("restore_db_#{@config['create_cluster'] ? "cluster" : "instance"}_to_point_in_time".to_sym, params)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).send("restore_db_#{@config['create_cluster'] ? "cluster" : "instance"}_to_point_in_time".to_sym, params)
           }
         end
 
@@ -1399,8 +1399,8 @@ dependencies
             db_subnet_group_name: @config["subnet_group_name"],
             storage_type: @config["storage_type"]
           }
-          if @config["source"].region and @config['region'] != @config["source"].region
-            params[:source_db_instance_identifier] = MU::Cloud::AWS::Database.getARN(@config["source"].id, "db", "rds", region: @config["source"].region, credentials: @config['credentials'])
+          if @config["source"].region and @region != @config["source"].region
+            params[:source_db_instance_identifier] = MU::Cloud::AWS::Database.getARN(@config["source"].id, "db", "rds", region: @config["source"].region, credentials: @credentials)
           end
 
           params[:port] = @config["port"] if @config["port"]
@@ -1415,7 +1415,7 @@ dependencies
 
           MU.retrier([Aws::RDS::Errors::InvalidDBInstanceState, Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::DBSubnetGroupNotAllowedFault], max: 10, wait: 30, on_retry: on_retry) {
             MU.log "Creating read replica database instance #{@cloud_id} for #{@config['source'].id}"
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).create_db_instance_read_replica(params)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).create_db_instance_read_replica(params)
           }
         end
 
@@ -1474,7 +1474,7 @@ dependencies
             end
             mod_config[:vpc_security_group_ids] << localdeploy_rule.cloud_id
 
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_db_instance(mod_config)
             MU.log "Modified database #{@cloud_id} with new security groups: #{mod_config}", MU::NOTICE
           end
 
@@ -1486,7 +1486,7 @@ dependencies
               db_instance_identifier: @cloud_id,
               apply_immediately: true
             }
-            if !@config["read_replica_of"] or @config['region'] == @config['source'].region
+            if !@config["read_replica_of"] or @region == @config['source'].region
               mod_config[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
             end
 
@@ -1503,7 +1503,7 @@ dependencies
               mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"]
             end
 
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(mod_config)
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_db_instance(mod_config)
             wait_until_available
           end
 
@@ -1511,7 +1511,7 @@ dependencies
           if @config['allow_major_version_upgrade'] && @config["creation_style"] == "new"
             MU.log "Setting major database version upgrade on #{@cloud_id}'"
 
-            MU::Cloud::AWS.rds(region: @config['region'], credentials: @config['credentials']).modify_db_instance(
+            MU::Cloud::AWS.rds(region: @region, credentials: @credentials).modify_db_instance(
               db_instance_identifier: @cloud_id,
               apply_immediately: true,
               allow_major_version_upgrade: true

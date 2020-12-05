@@ -38,10 +38,10 @@ module MU
         end
 
         # Tag this Lambda function
-        def assign_tag(resource_arn, tag_list, region=@config['region'])
+        def assign_tag(resource_arn, tag_list, region=@region)
           begin
             tag_list.each do |each_pair|
-              MU::Cloud::AWS.lambda(region: region, credentials: @config['credentials']).tag_resource({
+              MU::Cloud::AWS.lambda(region: region, credentials: @credentials).tag_resource({
                 resource: resource_arn,
                 tags: each_pair
               })
@@ -58,14 +58,14 @@ module MU
           lambda_properties = get_properties
 
           MU.retrier([Aws::Lambda::Errors::InvalidParameterValueException], max: 5, wait: 10) {
-            resp = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).create_function(lambda_properties)
+            resp = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).create_function(lambda_properties)
             @cloud_id = resp.function_name
           }
 
           # the console does this and docs expect it to be there, so mimic the
           # behavior
           begin
-            MU::Cloud::AWS.cloudwatchlogs(region: @config["region"], credentials: @credentials).create_log_group(
+            MU::Cloud::AWS.cloudwatchlogs(region: @region, credentials: @credentials).create_log_group(
               log_group_name: "/aws/lambda/#{@cloud_id}",
               tags: @tags
             )
@@ -86,14 +86,14 @@ module MU
           }
           if !changes.empty?
             MU.log "Updating Lambda #{@mu_name}", MU::NOTICE, details: changes
-            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).update_function_configuration(new_props)
+            MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).update_function_configuration(new_props)
           end
 
           if @code_sha256 and @code_sha256 != cloud_desc.code_sha_256.chomp
             MU.log "Updating code in Lambda #{@mu_name}", MU::NOTICE, details: { "old" => @code_sha256, "new" => cloud_desc.code_sha_256 }
             code_block[:publish] = true
             code_block[:function_name] = @cloud_id
-            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).update_function_code(code_block)
+            MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).update_function_code(code_block)
           end
 
 #          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
@@ -120,7 +120,7 @@ module MU
 
               MU.log "Adding #{tr['service']} #{tr['name']} trigger to Lambda function #{@cloud_id}", details: trigger_properties
               begin
-                MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger_properties)
+                MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).add_permission(trigger_properties)
               rescue Aws::Lambda::Errors::ResourceConflictException
                 # just means the permission is already there
               end
@@ -138,7 +138,7 @@ module MU
             if @config['invoke_on_completion']['payload']
               invoke_params[:payload] = JSON.generate(@config['invoke_on_completion']['payload'])
             end
-            resp = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).invoke(invoke_params)
+            resp = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).invoke(invoke_params)
             if resp.status_code == 200
               MU.log "Invoked #{@cloud_id}", MU::NOTICE, details: Base64.decode64(resp.log_result)
             else
@@ -161,13 +161,13 @@ module MU
           begin
             # XXX There doesn't seem to be an API call to list or view existing
             # permissions, wtaf. This means we can't intelligently guard this.
-            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).add_permission(trigger)
+            MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).add_permission(trigger)
           rescue Aws::Lambda::Errors::ValidationException => e
             MU.log e.message+" (calling_arn: #{calling_arn}, calling_service: #{calling_service}, calling_name: #{calling_name})", MU::ERR, details: trigger
             raise e
           rescue Aws::Lambda::Errors::ResourceConflictException => e
             if e.message.match(/already exists/)
-              MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).remove_permission(
+              MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).remove_permission(
                 function_name: @mu_name,
                 statement_id: "#{calling_service}-#{calling_name}"
               )
@@ -187,16 +187,16 @@ module MU
             case svc.downcase
             when 'sns'
               sib_sns = @deploy.findLitterMate(name: name, type: "notifiers")
-              arn = sib_sns ? sib_sns.arn : "arn:aws:sns:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
+              arn = sib_sns ? sib_sns.arn : "arn:aws:sns:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{name}"
             when 'alarm','events', 'event', 'cloudwatch_event'
               sib_event = @deploy.findLitterMate(name: name, type: "job")
-              arn = sib_event ? sib_event.arn : "arn:aws:events:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:rule/#{name}"
+              arn = sib_event ? sib_event.arn : "arn:aws:events:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:rule/#{name}"
             when 'dynamodb'
               sib_dynamo = @deploy.findLitterMate(name: name, type: "nosqldb")
-              arn = sib_dynamo ? sib_dynamo.arn : "arn:aws:dynamodb:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:table/#{name}"
+              arn = sib_dynamo ? sib_dynamo.arn : "arn:aws:dynamodb:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:table/#{name}"
             when 'apigateway'
               sib_apig = @deploy.findLitterMate(name: name, type: "endpoints")
-              arn = sib_apig ? sib_apig.arn : "arn:aws:apigateway:#{@config['region']}:#{MU::Cloud::AWS.credToAcct(@config['credentials'])}:#{name}"
+              arn = sib_apig ? sib_apig.arn : "arn:aws:apigateway:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{name}"
             when 's3'
               arn = ''
             end
@@ -208,18 +208,18 @@ module MU
         end
         
         # XXX placeholder, really; this is going end up being done from Endpoint, Log and Notification resources, I think
-        def adjust_trigger(trig_type, trig_arn, func_arn, func_id=nil, protocol='lambda',region=@config['region'])
+        def adjust_trigger(trig_type, trig_arn, func_arn, func_id=nil, protocol='lambda',region=@region)
           
           case trig_type
           
           when 'sns'
-            MU::Cloud.resourceClass("AWS", "Notifier").subscribe(trig_arn, arn, "lambda", region: @config['region'], credentials: @credentials)
+            MU::Cloud.resourceClass("AWS", "Notifier").subscribe(trig_arn, arn, "lambda", region: @region, credentials: @credentials)
           when 'dynamodb'
-            stream = MU::Cloud::AWS.dynamostream(region: @config['region'], credentials: @config['credentials']).list_streams(table_name: trig_arn.sub(/.*?:table\//, '')).streams.first
+            stream = MU::Cloud::AWS.dynamostream(region: @region, credentials: @credentials).list_streams(table_name: trig_arn.sub(/.*?:table\//, '')).streams.first
 # XXX  guard this
             MU.log "Adding DynamoDB Stream from #{stream.stream_arn} as trigger for #{@cloud_id}"
             begin
-            MU::Cloud::AWS.lambda(region: @config['region'], credentials: @config['credentials']).create_event_source_mapping(
+            MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).create_event_source_mapping(
               event_source_arn: stream.stream_arn,
               function_name: @cloud_id,
               starting_position: "TRIM_HORIZON" # ...whatever that is
@@ -227,10 +227,10 @@ module MU
             rescue ::Aws::Lambda::Errors::ResourceConflictException
             end
             
-#            MU::Cloud.resourceClass("AWS", "NoSQLDB").subscribe(trig_arn, arn, "lambda", region: @config['region'], credentials: @credentials)
+#            MU::Cloud.resourceClass("AWS", "NoSQLDB").subscribe(trig_arn, arn, "lambda", region: @region, credentials: @credentials)
           when 'event','cloudwatch_event', 'events'
            # XXX don't do this, use MU::Cloud::AWS::Log
-            MU::Cloud::AWS.cloudwatch_events(region: region, credentials: @config['credentials']).put_targets({
+            MU::Cloud::AWS.cloudwatch_events(region: region, credentials: @credentials).put_targets({
               rule: @config['trigger']['name'],
               targets: [
                 {
@@ -317,9 +317,9 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -333,20 +333,20 @@ module MU
           bok['runtime'] = cloud_desc.runtime
           bok['timeout'] = cloud_desc.timeout
 
-          function = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function(function_name: bok['name'])
-#          event_srcs = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).list_event_source_mappings(function_name: @cloud_id)
+          function = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_function(function_name: bok['name'])
+#          event_srcs = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).list_event_source_mappings(function_name: @cloud_id)
 #          if event_srcs and !event_srcs.event_source_mappings.empty?
 #            MU.log "dem mappings tho #{@cloud_id}", MU::WARN, details: event_srcs
 #          end
 
 #          begin
-#            invoke_cfg = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function_event_invoke_config(function_name: @cloud_id)
+#            invoke_cfg = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_function_event_invoke_config(function_name: @cloud_id)
 #            MU.log "invoke config #{@cloud_id}", MU::WARN, details: invoke_cfg
 #          rescue ::Aws::Lambda::Errors::ResourceNotFoundException
 #          end
 
 #          MU.log @cloud_id, MU::WARN, details: cloud_desc if @cloud_id == "Espier-Scheduled-Scanner"
-#          MU.log "configuration #{@cloud_id}", MU::WARN, details: MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_function_configuration(function_name: @cloud_id) if @cloud_id == "Espier-Scheduled-Scanner"
+#          MU.log "configuration #{@cloud_id}", MU::WARN, details: MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_function_configuration(function_name: @cloud_id) if @cloud_id == "Espier-Scheduled-Scanner"
 
 
           if function.code.repository_type == "S3"
@@ -415,7 +415,7 @@ module MU
           end
 
           begin
-            pol = MU::Cloud::AWS.lambda(region: @config['region'], credentials: @credentials).get_policy(function_name: @cloud_id).policy
+            pol = MU::Cloud::AWS.lambda(region: @region, credentials: @credentials).get_policy(function_name: @cloud_id).policy
 MU.log @cloud_id, MU::WARN, details: JSON.parse(pol) if @cloud_id == "ESPIER-DEV-2020080900-LN-ON-DEMAND-SCANNER"
             if pol
               bok['triggers'] ||= []

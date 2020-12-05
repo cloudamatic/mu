@@ -25,15 +25,15 @@ module MU
         def initialize(**args)
           super
           @mu_name ||= @deploy.getResourceName(@config['name'], need_unique_string: true)
-          MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+          MU.setVar("curRegion", @region) if !@region.nil?
         end
 
 
         # Called automatically by {MU::Deploy#createResources}
         def create
           flag="SUCCESS"
-          MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
-          region = @config['region']
+          MU.setVar("curRegion", @region) if !@region.nil?
+          region = @region
           server=@config["name"]
           stack_name = getStackName(@config["name"])
 
@@ -108,10 +108,10 @@ module MU
             end
 
             MU.log "Creating CloudFormation stack '#{@config['name']}'", details: stack_descriptor
-            MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).create_stack(stack_descriptor);
+            MU::Cloud::AWS.cloudformation(region: region, credentials: @credentials).create_stack(stack_descriptor);
 
             sleep(10);
-            stack_response = MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).describe_stacks({:stack_name => stack_name}).stacks.first
+            stack_response = MU::Cloud::AWS.cloudformation(region: region, credentials: @credentials).describe_stacks({:stack_name => stack_name}).stacks.first
             attempts = 0
             begin
               if attempts % 5 == 0
@@ -119,7 +119,7 @@ module MU
               else
                 MU.log "Waiting for CloudFormation stack '#{@config['name']}' to be ready...", MU::DEBUG
               end
-              stack_response =MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).describe_stacks({:stack_name => stack_name}).stacks.first
+              stack_response =MU::Cloud::AWS.cloudformation(region: region, credentials: @credentials).describe_stacks({:stack_name => stack_name}).stacks.first
               sleep 60
             end while stack_response.stack_status == "CREATE_IN_PROGRESS"
 
@@ -135,14 +135,14 @@ module MU
           end
 
           if flag == "FAIL" then
-            MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).delete_stack({:stack_name => stack_name})
+            MU::Cloud::AWS.cloudformation(region: region, credentials: @credentials).delete_stack({:stack_name => stack_name})
             exit 1
           end
 
           MU.log "CloudFormation stack '#{@config['name']}' complete"
 
           begin
-            resources = MU::Cloud::AWS.cloudformation(region: region, credentials: @config['credentials']).describe_stack_resources(:stack_name => stack_name)
+            resources = MU::Cloud::AWS.cloudformation(region: region, credentials: @credentials).describe_stack_resources(:stack_name => stack_name)
 
             resources[:stack_resources].each { |resource|
 
@@ -150,7 +150,7 @@ module MU
                 when "AWS::EC2::Instance"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
                   instance_name = MU.deploy_id+"-"+@config['name']+"-"+resource.logical_resource_id
-                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", instance_name, credentials: @credentials)
 
                   instance = MU::Cloud.resourceClass("AWS", "Server").notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
@@ -177,14 +177,14 @@ module MU
 
                 when "AWS::EC2::SecurityGroup"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @credentials)
                   MU::Cloud.resourceClass("AWS", "FirewallRule").notifyDeploy(
                       @config['name']+"-"+resource.logical_resource_id,
                       resource.physical_resource_id
                   )
                 when "AWS::EC2::Subnet"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @credentials)
                   data = {
                       "collection" => @config["name"],
                       "subnet_id" => resource.physical_resource_id,
@@ -192,7 +192,7 @@ module MU
                   @deploy.notify("subnets", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::VPC"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @credentials)
                   data = {
                       "collection" => @config["name"],
                       "vpc_id" => resource.physical_resource_id,
@@ -200,10 +200,10 @@ module MU
                   @deploy.notify("vpcs", @config['name']+"-"+resource.logical_resource_id, data)
                 when "AWS::EC2::InternetGateway"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @credentials)
                 when "AWS::EC2::RouteTable"
                   MU::Cloud::AWS.createStandardTags(resource.physical_resource_id)
-                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @config['credentials'])
+                  MU::Cloud::AWS.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id, credentials: @credentials)
 
                 # The rest of these aren't anything we act on
                 when "AWS::EC2::Route"

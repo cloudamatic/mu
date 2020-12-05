@@ -36,7 +36,7 @@ module MU
 
           MU.log "Creating ElasticSearch domain #{@config['domain_name']}", details: params
           @cloud_id = @config['domain_name']
-          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).create_elasticsearch_domain(params).domain_status
+          MU::Cloud::AWS.elasticsearch(region: @region, credentials: @credentials).create_elasticsearch_domain(params).domain_status
 
           tagDomain
 
@@ -52,7 +52,7 @@ module MU
             waitWhileProcessing # wait until the create finishes, if still going
 
             MU.log "Updating ElasticSearch domain #{@config['domain_name']}", MU::NOTICE, details: params
-            MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).update_elasticsearch_domain_config(params)
+            MU::Cloud::AWS.elasticsearch(region: @region, credentials: @credentials).update_elasticsearch_domain_config(params)
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
@@ -68,7 +68,7 @@ module MU
           @cloud_id ||= @config['domain_name']
           return nil if !@cloud_id
           MU.retrier([::Aws::ElasticsearchService::Errors::ResourceNotFoundException], wait: 10, max: 12) {
-            @cloud_desc_cache = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).describe_elasticsearch_domain(
+            @cloud_desc_cache = MU::Cloud::AWS.elasticsearch(region: @region, credentials: @credentials).describe_elasticsearch_domain(
               domain_name: @cloud_id
             ).domain_status
           }
@@ -88,7 +88,7 @@ module MU
         def notify
           return nil if !cloud_desc(use_cache: false)
           deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
-          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: arn).tag_list
+          tags = MU::Cloud::AWS.elasticsearch(region: @region, credentials: @credentials).list_tags(arn: arn).tag_list
           deploy_struct['tags'] = tags.map { |t| { t.key => t.value } }
           if deploy_struct['endpoint']
             deploy_struct['kibana'] = deploy_struct['endpoint']+"/_plugin/kibana/"
@@ -200,7 +200,7 @@ module MU
             "cloud" => "AWS",
             "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -241,7 +241,7 @@ module MU
             bok['identity_pool_id'] = cloud_desc.cognito_options.identity_pool_id
           end
 
-          tags = MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).list_tags(arn: cloud_desc.arn).tag_list
+          tags = MU::Cloud::AWS.elasticsearch(region: @region, credentials: @credentials).list_tags(arn: cloud_desc.arn).tag_list
           if tags and !tags.empty?
             bok['tags'] = MU.structToHash(tags)
           end
@@ -252,7 +252,7 @@ module MU
               cloud: "AWS",
               credentials: @credentials,
               type: "vpcs",
-              region: @config['region'],
+              region: @region,
               subnets: cloud_desc.vpc_options.subnet_ids.map { |s| { "subnet_id" => s } }
             )
             if cloud_desc.vpc_options.security_group_ids and
@@ -262,7 +262,7 @@ module MU
                   id: sg,
                   cloud: "AWS",
                   credentials: @credentials,
-                  region: @config['region'],
+                  region: @region,
                   type: "firewall_rules",
                 )
               }
@@ -683,7 +683,7 @@ module MU
               params[:log_publishing_options]["SEARCH_SLOW_LOGS"] = {}
               params[:log_publishing_options]["SEARCH_SLOW_LOGS"][:enabled] = true
               params[:log_publishing_options]["SEARCH_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] = arn
-              MU::Cloud.resourceClass("AWS", "Log").allowService("es.amazonaws.com", arn, @config['region'])
+              MU::Cloud.resourceClass("AWS", "Log").allowService("es.amazonaws.com", arn, @region)
             end
           end
 
@@ -813,7 +813,7 @@ module MU
             raise MU::MuError, "Can't tag ElasticSearch domain, cloud descriptor came back without an ARN"
           end
 
-          MU::Cloud::AWS.elasticsearch(region: @config['region'], credentials: @credentials).add_tags(
+          MU::Cloud::AWS.elasticsearch(region: @region, credentials: @credentials).add_tags(
             arn: domain.arn,
             tag_list: tags
           )

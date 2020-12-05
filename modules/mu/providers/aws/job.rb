@@ -33,7 +33,7 @@ module MU
 
           MU.log "Creating CloudWatch Event #{@mu_name}", MU::NOTICE, details: params
 
-          MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(params)
+          MU::Cloud::AWS.cloudwatchevents(region: @region, credentials: @credentials).put_rule(params)
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -50,7 +50,7 @@ module MU
 
           if params.size > 0
             MU.log "Updating CloudWatch Event #{@cloud_id}", MU::NOTICE, details: params
-            MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_rule(new_props)
+            MU::Cloud::AWS.cloudwatchevents(region: @region, credentials: @credentials).put_rule(new_props)
           end
 
           if @config['targets']
@@ -89,7 +89,7 @@ module MU
                 target_params << this_target
               }
             }
-            MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).put_targets(
+            MU::Cloud::AWS.cloudwatchevents(region: @region, credentials: @credentials).put_targets(
               rule: @cloud_id,
               event_bus_name: cloud_desc.event_bus_name,
               targets: target_params
@@ -176,9 +176,9 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -217,7 +217,7 @@ module MU
             )
           end
 
-          targets = MU::Cloud::AWS.cloudwatchevents(region: @config['region'], credentials: @credentials).list_targets_by_rule(
+          targets = MU::Cloud::AWS.cloudwatchevents(region: @region, credentials: @credentials).list_targets_by_rule(
             rule: @cloud_id,
             event_bus_name: cloud_desc.event_bus_name
           ).targets

@@ -801,7 +801,7 @@ end
               @config['attachable_policies'].each { |policy_hash|
                 policy = policy_hash["id"]
                 p_arn = if !policy.match(/^arn:/i)
-                  "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
+                  "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":iam::aws:policy/"+policy
                 else
                   policy
                 end
@@ -813,7 +813,7 @@ end
                   ).policy
                 rescue Aws::IAM::Errors::NoSuchEntity => e
                   if subpaths.size > 0
-                    p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":iam::aws:policy/#{subpaths.shift}/"+policy
+                    p_arn = "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":iam::aws:policy/#{subpaths.shift}/"+policy
                     retry
                   end
                   raise e

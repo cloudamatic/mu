@@ -33,7 +33,7 @@ module MU
           namestr += ".fifo" if attrs['FifoQueue']
 
           MU.log "Creating SQS queue #{namestr}", details: attrs
-          resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).create_queue(
+          resp = MU::Cloud::AWS.sqs(region: @region, credentials: @credentials).create_queue(
             queue_name: namestr,
             attributes: attrs
           )
@@ -60,7 +60,7 @@ module MU
           }
           if changed
             MU.log "Updating SQS queue #{@mu_name}", MU::NOTICE, details: new_attrs
-            MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).set_queue_attributes(
+            MU::Cloud::AWS.sqs(region: @region, credentials: @credentials).set_queue_attributes(
               queue_url: @cloud_id,
               attributes: new_attrs
             )
@@ -71,7 +71,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":sqs:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":sqs:"+@region+":"+MU::Cloud::AWS.credToAcct(@credentials)+":"+@cloud_id
         end
 
         @cloud_desc_cache = nil
@@ -83,7 +83,7 @@ module MU
           return nil if !@cloud_id
 
           if !@cloud_id
-            resp = MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).list_queues(
+            resp = MU::Cloud::AWS.sqs(region: @region, credentials: @credentials).list_queues(
               queue_name_prefix: @mu_name
             )
             return nil if !resp or !resp.queue_urls
@@ -98,8 +98,8 @@ module MU
           return nil if !@cloud_id
           @cloud_desc_cache = MU::Cloud::AWS::MsgQueue.find(
             cloud_id: @cloud_id.dup,
-            region: @config['region'],
-            credentials: @config['credentials']
+            region: @region,
+            credentials: @credentials
           )
           @cloud_desc_cache
         end
@@ -110,8 +110,8 @@ module MU
           cloud_desc
           deploy_struct = MU::Cloud::AWS::MsgQueue.find(
             cloud_id: @cloud_id,
-            region: @config['region'],
-            credentials: @config['credentials']
+            region: @region,
+            credentials: @credentials
           )
           return deploy_struct
         end
@@ -426,7 +426,7 @@ module MU
             if sibling # resolve sibling queues to something useful
               id = sibling.cloud_id
             end
-            desc = MU::Cloud::AWS::MsgQueue.find(cloud_id: id, credentials: @config['credentials'])
+            desc = MU::Cloud::AWS::MsgQueue.find(cloud_id: id, credentials: @credentials)
             if !desc
               raise MuError, "Failed to get cloud descriptor for SQS queue #{@config['failqueue']['name']}"
             end
@@ -484,7 +484,7 @@ module MU
           end
 
           begin
-            MU::Cloud::AWS.sqs(region: @config['region'], credentials: @config['credentials']).tag_queue(
+            MU::Cloud::AWS.sqs(region: @region, credentials: @credentials).tag_queue(
               queue_url: url,
               tags: tags
             )

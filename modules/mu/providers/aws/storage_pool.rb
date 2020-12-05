@@ -29,7 +29,7 @@ module MU
         # @return [String]: The cloud provider's identifier for this storage pool.
         def create
           MU.log "Creating storage pool #{@mu_name}"
-          resp = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).create_file_system(
+          resp = MU::Cloud::AWS.efs(region: @region, credentials: @credentials).create_file_system(
             creation_token: @mu_name,
             performance_mode: @config['storage_type']
           )
@@ -37,7 +37,7 @@ module MU
           attempts = 0
           loop do
             MU.log "Waiting for #{@mu_name}: #{resp.file_system_id} to become available" if attempts % 5 == 0
-            storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
+            storage_pool = MU::Cloud::AWS.efs(region: @region, credentials: @credentials).describe_file_systems(
               creation_token: @mu_name
             ).file_systems.first
             break if storage_pool.life_cycle_state == "available"
@@ -47,7 +47,7 @@ module MU
             raise MuError, "timed out waiting for #{resp.mount_target_id }" if attempts >= 20
           end
 
-          addStandardTags(cloud_id: resp.file_system_id, region: @config['region'], credentials: @config['credentials'])
+          addStandardTags(cloud_id: resp.file_system_id, region: @region, credentials: @credentials)
           @cloud_id = resp.file_system_id
 
           if @config['mount_points'] && !@config['mount_points'].empty?
@@ -82,8 +82,8 @@ module MU
                   ip_address: target['ip_address'],
                   subnet_id: target['vpc']['subnet_id'],
                   security_groups: sgs,
-                  credentials: @config['credentials'],
-                  region: @config['region']
+                  credentials: @credentials,
+                  region: @region
                 )
                 target['cloud_id'] = mount_target.mount_target_id
               }
@@ -100,7 +100,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":elasticfilesystem:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":file-system/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":elasticfilesystem:"+@region+":"+MU::Cloud::AWS.credToAcct(@credentials)+":file-system/"+@cloud_id
         end
 
         # Locate an existing storage pool and return an array containing matching AWS resource descriptors for those that match.
@@ -254,14 +254,14 @@ module MU
 
         # Register a description of this storage pool with this deployment's metadata.
         def notify
-          storage_pool = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_file_systems(
+          storage_pool = MU::Cloud::AWS.efs(region: @region, credentials: @credentials).describe_file_systems(
             creation_token: @mu_name
           ).file_systems.first
 
           targets = {}
 
           if @config['mount_points'] && !@config['mount_points'].empty?
-            mount_targets = MU::Cloud::AWS.efs(region: @config['region'], credentials: @config['credentials']).describe_mount_targets(
+            mount_targets = MU::Cloud::AWS.efs(region: @region, credentials: @credentials).describe_mount_targets(
               file_system_id: storage_pool.file_system_id
             ).mount_targets
 
@@ -298,7 +298,7 @@ module MU
                 "availability_zone" => subnet.availability_zone,
                 "state" => mount_target.life_cycle_state,
                 "ip_address" => mount_target.ip_address,
-                "endpoint" => "#{subnet.availability_zone}.#{mount_target.file_system_id}.efs.#{@config['region']}.amazonaws.com",
+                "endpoint" => "#{subnet.availability_zone}.#{mount_target.file_system_id}.efs.#{@region}.amazonaws.com",
                 "network_interface_id" => mount_target.network_interface_id
               }
             }

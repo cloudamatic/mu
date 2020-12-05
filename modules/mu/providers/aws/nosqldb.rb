@@ -114,11 +114,11 @@ module MU
 
           MU.log "Creating DynamoDB table #{@mu_name}", MU::NOTICE, details: params
 
-          resp = MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).create_table(params)
+          resp = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @region).create_table(params)
           @cloud_id = @mu_name
 
           begin
-            resp = MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).describe_table(table_name: @cloud_id)
+            resp = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @region).describe_table(table_name: @cloud_id)
             sleep 5 if resp.table.table_status == "CREATING"
           end while resp.table.table_status == "CREATING"
 
@@ -130,7 +130,7 @@ module MU
             begin
               batch = items_to_write.slice!(0, (items_to_write.length >= 25 ? 25 : items_to_write.length))
               begin
-                MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).batch_write_item(
+                MU::Cloud::AWS.dynamo(credentials: @credentials, region: @region).batch_write_item(
                   request_items: {
                     @cloud_id => batch.map { |i| { put_request: { item: i } } }
                   }
@@ -162,7 +162,7 @@ module MU
             }
           end
 
-          MU::Cloud::AWS.dynamo(credentials: @config['credentials'], region: @config['region']).tag_resource(
+          MU::Cloud::AWS.dynamo(credentials: @credentials, region: @region).tag_resource(
             resource_arn: arn,
             tags: tagset
           )
@@ -281,9 +281,9 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -318,10 +318,10 @@ module MU
 
             bok['stream'] = cloud_desc.stream_specification.stream_view_type
 #            cloud_desc.latest_stream_arn
-#            MU::Cloud::AWS.dynamostream(credentials: @credentials, region: @config['region']).list_streams
+#            MU::Cloud::AWS.dynamostream(credentials: @credentials, region: @region).list_streams
           end
 
-          bok["populate"] = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @config['region']).scan(
+          bok["populate"] = MU::Cloud::AWS.dynamo(credentials: @credentials, region: @region).scan(
             table_name: @cloud_id
           ).items
 

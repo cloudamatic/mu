@@ -32,7 +32,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           begin
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
+            MU::Cloud::AWS.iam(credentials: @credentials).get_group(
               group_name: @mu_name,
               path: @config['path']
             )
@@ -42,7 +42,7 @@ module MU
           rescue Aws::IAM::Errors::NoSuchEntity
             @config['path'] ||= "/"+@deploy.deploy_id+"/"
             MU.log "Creating IAM group #{@config['path']}#{@mu_name}"
-            MU::Cloud::AWS.iam(credentials: @config['credentials']).create_group(
+            MU::Cloud::AWS.iam(credentials: @credentials).create_group(
               group_name: @mu_name,
               path: @config['path']
             )
@@ -64,7 +64,7 @@ module MU
               if found.size == 1
                 userdesc = found.values.first
                 MU.log "Adding IAM user #{userdesc.path}#{userdesc.user_name} to group #{@mu_name}", MU::NOTICE
-                MU::Cloud::AWS.iam(credentials: @config['credentials']).add_user_to_group(
+                MU::Cloud::AWS.iam(credentials: @credentials).add_user_to_group(
                   user_name: userid,
                   group_name: @mu_name
                 )
@@ -77,7 +77,7 @@ module MU
               extras = cloud_desc.users.map { |u| u.user_name } - @config['members']
               extras.each { |user_name|
                 MU.log "Purging user #{user_name} from IAM group #{@cloud_id}", MU::NOTICE
-                MU::Cloud::AWS.iam(credentials: @config['credentials']).remove_user_from_group(
+                MU::Cloud::AWS.iam(credentials: @credentials).remove_user_from_group(
                   user_name: user_name,
                   group_name: @cloud_id
                 )
@@ -156,7 +156,7 @@ module MU
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
           return nil if !@mu_name
-          @cloud_desc_cache = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_group(
+          @cloud_desc_cache = MU::Cloud::AWS.iam(credentials: @credentials).get_group(
             group_name: @mu_name
           )
           @cloud_desc_cache
@@ -267,7 +267,7 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id
           }
 

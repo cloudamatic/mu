@@ -52,14 +52,14 @@ module MU
           begin
             MU.log "Creating EC2 Security Group #{groupname}", details: sg_struct
 
-            secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).create_security_group(sg_struct)
+            secgroup = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
           rescue Aws::EC2::Errors::InvalidGroupDuplicate
             MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
             filters = [{name: "group-name", values: [groupname]}]
             filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
 
-            secgroup = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(filters: filters).security_groups.first
+            secgroup = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_security_groups(filters: filters).security_groups.first
             if secgroup.nil?
               raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
             end
@@ -67,25 +67,25 @@ module MU
           end
 
           begin
-            MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_security_groups(group_ids: [secgroup.group_id])
+            MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_security_groups(group_ids: [secgroup.group_id])
           rescue Aws::EC2::Errors::InvalidGroupNotFound
             MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
             sleep 10
             retry
           end
 
-          MU::Cloud::AWS.createStandardTags(secgroup.group_id, region: @config['region'], credentials: @config['credentials'])
-          MU::Cloud::AWS.createTag(secgroup.group_id, "Name", groupname, region: @config['region'], credentials: @config['credentials'])
+          MU::Cloud::AWS.createStandardTags(secgroup.group_id, region: @region, credentials: @credentials)
+          MU::Cloud::AWS.createTag(secgroup.group_id, "Name", groupname, region: @region, credentials: @credentials)
 
           if @config['optional_tags']
             MU::MommaCat.listOptionalTags.each { |key, value|
-              MU::Cloud::AWS.createTag(secgroup.group_id, key, value, region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(secgroup.group_id, key, value, region: @region, credentials: @credentials)
             }
           end
 
           if @config['tags']
             @config['tags'].each { |tag|
-              MU::Cloud::AWS.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'], credentials: @config['credentials'])
+              MU::Cloud::AWS.createTag(secgroup.group_id, tag['key'], tag['value'], region: @region, credentials: @credentials)
             }
           end
 
@@ -123,7 +123,7 @@ module MU
         # Log metadata about this ruleset to the currently running deployment
         def notify
           sg_data = MU.structToHash(
-              MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
+              MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @region)
           )
           sg_data["group_id"] = @cloud_id
           sg_data["cloud_id"] = @cloud_id
@@ -151,7 +151,7 @@ module MU
             rule["firewall_rules"].concat(sgs.map { |s|
               MU::Config::Ref.get(
                 id: s,
-                region: @config['region'],
+                region: @region,
                 credentials: @credentials,
                 cloud: "AWS",
                 type: "firewall_rule",
@@ -172,12 +172,12 @@ module MU
 
           begin
             if egress
-              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
+              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).authorize_security_group_egress(
                 group_id: @cloud_id,
                 ip_permissions: ec2_rule
               )
             else
-              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).authorize_security_group_ingress(
                 group_id: @cloud_id,
                 ip_permissions: ec2_rule
               )
@@ -188,12 +188,12 @@ module MU
             # existing rules
             if comment
               if egress
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).update_security_group_rule_descriptions_egress(
+                MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).update_security_group_rule_descriptions_egress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
                 )
               else
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).update_security_group_rule_descriptions_ingress(
+                MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).update_security_group_rule_descriptions_ingress(
                   group_id: @cloud_id,
                   ip_permissions: ec2_rule
                 )
@@ -205,7 +205,7 @@ module MU
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:"+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+":ec2:"+@config['region']+":"+MU::Cloud::AWS.credToAcct(@config['credentials'])+":security-group/"+@cloud_id
+          "arn:"+(MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws")+":ec2:"+@region+":"+MU::Cloud::AWS.credToAcct(@credentials)+":security-group/"+@cloud_id
         end
 
         # Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
@@ -251,9 +251,9 @@ module MU
         def toKitten(**_args)
           bok = {
             "cloud" => "AWS",
-            "credentials" => @config['credentials'],
+            "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -734,7 +734,7 @@ module MU
                 end
               }
               MU.log "Removing unconfigured rule in #{@mu_name}", MU::WARN, details: ext_rule
-              MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_ingress(
+              MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).revoke_security_group_ingress(
                 group_id: @cloud_id,
                 ip_permissions: [ext_rule]
               )
@@ -800,7 +800,7 @@ module MU
               if ingress
                 if haverule
                   begin
-                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_ingress(
+                    MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).revoke_security_group_ingress(
                       group_id: @cloud_id,
                       ip_permissions: [haverule]
                     )
@@ -808,7 +808,7 @@ module MU
                   end
                 end
                 begin
-                  MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_ingress(
+                  MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).authorize_security_group_ingress(
                     group_id: @cloud_id,
                     ip_permissions: [rule]
                   )
@@ -821,14 +821,14 @@ module MU
               if egress
                 if haverule
                   begin
-                    MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).revoke_security_group_egress(
+                    MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).revoke_security_group_egress(
                       group_id: @cloud_id,
                       ip_permissions: [haverule]
                     )
                   rescue Aws::EC2::Errors::InvalidPermissionNotFound
                   end
                 end
-                MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).authorize_security_group_egress(
+                MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).authorize_security_group_egress(
                   group_id: @cloud_id,
                   ip_permissions: [rule]
                 )

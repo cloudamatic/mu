@@ -13,7 +13,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_rest_api(
+          resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_rest_api(
             name: @mu_name,
             description: @deploy.deploy_id,
             endpoint_configuration: {
@@ -27,7 +27,7 @@ module MU
 
         # Create/update all of the methods declared for this endpoint
         def generate_methods(integrations = true)
-          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_resources(
+          resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resources(
             rest_api_id: @cloud_id,
           )
           root_resource = resp.items.first.id
@@ -36,11 +36,11 @@ module MU
           @config['methods'].each { |m|
             m["auth"] ||= m["iam_role"] ? "AWS_IAM" : "NONE"
 
-            method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
+            method_arn = "arn:#{MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws"}:execute-api:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{@cloud_id}/*/#{m['type']}/#{m['path']}"
             path_part = ["", "/"].include?(m['path']) ? nil : m['path']
             method_arn.sub!(/\/\/$/, '/')
 
-            resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_resources(
+            resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resources(
               rest_api_id: @cloud_id
             )
             ext_resource = nil
@@ -51,11 +51,11 @@ module MU
             }
 
             resp = if ext_resource
-MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_resource(
+MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resource(
   rest_api_id: @cloud_id,
   resource_id: ext_resource,
 )
-#              MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).update_resource(
+#              MU::Cloud::AWS.apig(region: @region, credentials: @credentials).update_resource(
 #                rest_api_id: @cloud_id,
 #                resource_id: ext_resource,
 #                patch_operations: [
@@ -67,7 +67,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 #                ]
 #              )
             else
-              MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_resource(
+              MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_resource(
                 rest_api_id: @cloud_id,
                 parent_id: root_resource,
                 path_part: path_part
@@ -76,13 +76,13 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
             parent_id = resp.id
 
             resp = begin
-              MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_method(
+              MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_method(
                 rest_api_id: @cloud_id,
                 resource_id: parent_id,
                 http_method: m['type']
               )
             rescue Aws::APIGateway::Errors::NotFoundException
-              resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).put_method(
+              resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).put_method(
                 rest_api_id: @cloud_id,
                 resource_id: parent_id,
                 authorization_type: m['auth'],
@@ -111,7 +111,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                   params[:response_models] = r['body'].map { |b| [b['content_type'], b['is_error'] ? "Error" : "Empty"] }.to_h
                 end
 
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).put_method_response(params)
+                MU::Cloud::AWS.apig(region: @region, credentials: @credentials).put_method_response(params)
               }
             rescue Aws::APIGateway::Errors::ConflictException
               # fine to ignore
@@ -133,13 +133,13 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 
               uri, type = if m['integrate_with']['type'] == "aws_generic"
                 svc, action = m['integrate_with']['aws_generic_action'].split(/:/)
-                ["arn:aws:apigateway:"+@config['region']+":#{svc}:action/#{action}", aws_int_type]
+                ["arn:aws:apigateway:"+@region+":#{svc}:action/#{action}", aws_int_type]
               elsif m['integrate_with']['type'] == "functions"
                 function_obj = nil
                 MU.retrier([], max: 5, wait: 9, loop_if: Proc.new { function_obj.nil? }) {
                   function_obj = @deploy.findLitterMate(name: m['integrate_with']['name'], type: "functions")
                 }
-                ["arn:aws:apigateway:"+@config['region']+":lambda:path/2015-03-31/functions/"+function_obj.cloudobj.arn+"/invocations", aws_int_type]
+                ["arn:aws:apigateway:"+@region+":lambda:path/2015-03-31/functions/"+function_obj.cloudobj.arn+"/invocations", aws_int_type]
               elsif m['integrate_with']['type'] == "mock"
                 [nil, "MOCK"]
               end
@@ -176,7 +176,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                 }]
               end
 
-              resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).put_integration(params)
+              resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).put_integration(params)
 
               if m['integrate_with']['type'] =~ /^functions?$/
                 function_obj.addTrigger(method_arn, "apigateway", @config['name'])
@@ -196,7 +196,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                   }.to_h
                 end
 
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).put_integration_response(params)
+                MU::Cloud::AWS.apig(region: @region, credentials: @credentials).put_integration_response(params)
 
               }
 
@@ -209,13 +209,13 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
         def groom
           generate_methods
 
-          deployment = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_deployments(
+          deployment = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_deployments(
             rest_api_id: @cloud_id
           ).items.sort { |a, b| a.created_date <=> b.created_date }.last
 
           if !deployment
             MU.log "Deploying API Gateway #{@config['name']} to #{@config['deploy_to']}"
-            deployment = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_deployment(
+            deployment = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_deployment(
               rest_api_id: @cloud_id,
               stage_name: @config['deploy_to']
 #            cache_cluster_enabled: false,
@@ -225,7 +225,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           # this automatically creates a stage with the same name, so we don't
           # have to deal with that
 
-          my_hostname = @cloud_id+".execute-api."+@config['region']+".amazonaws.com"
+          my_hostname = @cloud_id+".execute-api."+@region+".amazonaws.com"
           my_url = "https://"+my_hostname+"/"+@config['deploy_to']
           MU.log "API Endpoint #{@config['name']}: "+my_url, MU::SUMMARY
 
@@ -262,7 +262,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
               end
 
               dom_desc = begin
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_domain_name(domain_name: dnsname)
+                MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_domain_name(domain_name: dnsname)
               rescue ::Aws::APIGateway::Errors::NotFoundException
 
                 params = {
@@ -278,10 +278,10 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                 end
 
                 MU.log "Creating API Gateway Domain Name #{dnsname}", MU::NOTICE, details: params
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_domain_name(params)
+                MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_domain_name(params)
               end
 
-              mappings = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_base_path_mappings(domain_name: dnsname, limit: 500).items
+              mappings = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_base_path_mappings(domain_name: dnsname, limit: 500).items
               found = false
               if mappings
                 mappings.each { |m|
@@ -293,7 +293,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
               end
               if !found
                 MU.log "Mapping #{dnsname} to API Gateway #{@mu_name}"
-                MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_base_path_mapping(
+                MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_base_path_mapping(
                   domain_name: dnsname,
                   rest_api_id: @cloud_id,
                   stage: @config['deploy_to']
@@ -308,7 +308,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 
           # The creation of our deployment should have created a matching stage,
           # which we're now going to mess with.
-          stage = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_stage(
+          stage = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_stage(
             rest_api_id: @cloud_id,
             stage_name: @config['deploy_to']
           )
@@ -316,7 +316,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           if @config['access_logs'] and !stage.access_log_settings
             log_ref = MU::Config::Ref.get(@config['access_logs'])
             MU.log "Enabling API Gateway access logs to CloudWatch Log Group #{log_ref.cloud_id}"
-            stage = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).update_stage(
+            stage = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).update_stage(
               rest_api_id: @cloud_id,
               stage_name: @config['deploy_to'],
               patch_operations: [
@@ -350,11 +350,11 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
           end
 
 
-#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_authorizer(
+#          resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_authorizer(
 #            rest_api_id: @cloud_id,
 #          )
 
-#          resp = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).create_vpc_link(
+#          resp = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).create_vpc_link(
 #          )
  
         end
@@ -364,7 +364,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
         def cloud_desc(use_cache: true)
           return @cloud_desc_cache if @cloud_desc_cache and use_cache
           return nil if !@cloud_id
-          @cloud_desc_cache = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_rest_api(
+          @cloud_desc_cache = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_rest_api(
             rest_api_id: @cloud_id
           )
           @cloud_desc_cache
@@ -375,7 +375,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
         def notify
           return nil if !@cloud_id or !cloud_desc(use_cache: false)
           deploy_struct = MU.structToHash(cloud_desc, stringify_keys: true)
-          deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@config['region']+".amazonaws.com"
+          deploy_struct['url'] = "https://"+@cloud_id+".execute-api."+@region+".amazonaws.com"
           deploy_struct['url'] += "/"+@config['deploy_to'] if @config['deploy_to']
 # XXX stages and whatnot
           return deploy_struct
@@ -466,7 +466,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
             "cloud" => "AWS",
             "credentials" => @credentials,
             "cloud_id" => @cloud_id,
-            "region" => @config['region']
+            "region" => @region
           }
 
           if !cloud_desc
@@ -476,7 +476,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
 
           bok['name'] = cloud_desc.name
 
-          resources = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_resources(
+          resources = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_resources(
             rest_api_id: @cloud_id,
           ).items
 
@@ -485,7 +485,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
             r.resource_methods.each_pair { |http_type, m|
               bok['methods'] ||= []
               method = {}
-              m_desc = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_method(
+              m_desc = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_method(
                 rest_api_id: @cloud_id,
                 resource_id: r.id,
                 http_method: http_type 
@@ -535,7 +535,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
                       cloud: "AWS",
                       integration_http_method: m_desc.method_integration.http_method
                     )
-                  elsif m_desc.method_integration.uri.match(/#{@config['region']}:([^:]+):action\/(.*)/)
+                  elsif m_desc.method_integration.uri.match(/#{@region}:([^:]+):action\/(.*)/)
                     method['integrate_with'] = {
                       "type" => "aws_generic",
                       "integration_http_method" => m_desc.method_integration.http_method,
@@ -594,10 +594,10 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
             }
           }
 
-          deployment = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_deployments(
+          deployment = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_deployments(
             rest_api_id: @cloud_id
           ).items.sort { |a, b| a.created_date <=> b.created_date }.last
-          stages = MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_stages(
+          stages = MU::Cloud::AWS.apig(region: @region, credentials: @credentials).get_stages(
             rest_api_id: @cloud_id,
             deployment_id: deployment.id
           )
@@ -612,7 +612,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
               bok['access_logs'] = MU::Config::Ref.get(
                 id: stage.access_log_settings.destination_arn.sub(/.*?:([^:]+)$/, '\1'),
                 credentials: @credentials,
-                region: @config['region'],
+                region: @region,
                 type: "logs",
                 cloud: "AWS"
               )
@@ -860,7 +860,7 @@ MU::Cloud::AWS.apig(region: @config['region'], credentials: @credentials).get_re
         # Canonical Amazon Resource Number for this resource
         # @return [String]
         def arn
-          "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:execute-api:#{@config["region"]}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{@cloud_id}"
+          "arn:#{MU::Cloud::AWS.isGovCloud?(@region) ? "aws-us-gov" : "aws"}:execute-api:#{@region}:#{MU::Cloud::AWS.credToAcct(@credentials)}:#{@cloud_id}"
         end
 
 

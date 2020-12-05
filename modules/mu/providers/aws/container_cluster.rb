@@ -65,7 +65,7 @@ module MU
 
             on_retry = Proc.new { |e|
               # soul-crushing, yet effective
-              if e.message.match(/because (#{Regexp.quote(@config['region'])}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
+              if e.message.match(/because (#{Regexp.quote(@region)}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
                 bad_az = Regexp.last_match(1)
                 deletia = []
                 mySubnets.each { |subnet|
@@ -81,7 +81,7 @@ module MU
 
             MU.retrier([Aws::EKS::Errors::UnsupportedAvailabilityZoneException, Aws::EKS::Errors::InvalidParameterException], on_retry: on_retry, max: subnet_ids.size) {
               MU.log "Creating EKS cluster #{@mu_name}", details: params
-              MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_cluster(params)
+              MU::Cloud::AWS.eks(region: @region, credentials: @credentials).create_cluster(params)
             }
             @cloud_id = @mu_name
 
@@ -100,7 +100,7 @@ module MU
 
             MU.log "Creation of EKS cluster #{@mu_name} complete"
           else
-            MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_cluster(
+            MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).create_cluster(
               cluster_name: @mu_name
             )
             @cloud_id = @mu_name
@@ -118,7 +118,7 @@ module MU
             # this account; EKS applications might want one, but will fail in
             # confusing ways if this hasn't been done.
             begin
-              MU::Cloud::AWS.iam(credentials: @config['credentials']).create_service_linked_role(
+              MU::Cloud::AWS.iam(credentials: @credentials).create_service_linked_role(
                 aws_service_name: "elasticloadbalancing.amazonaws.com"
               )
             rescue ::Aws::IAM::Errors::InvalidInput
@@ -170,7 +170,7 @@ module MU
             if tasks.size > 0
               tasks_failing = false
               MU.retrier(wait: 15, max: 10, loop_if: Proc.new { tasks_failing }){ |retries, _wait|
-                tasks_failing = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @config['region'], credentials: @config['credentials'])
+                tasks_failing = !MU::Cloud::AWS::ContainerCluster.tasksRunning?(@mu_name, log: (retries > 0), region: @region, credentials: @credentials)
               }
 
               if tasks_failing
@@ -290,12 +290,12 @@ MU.log c.name, MU::NOTICE, details: t
           return nil if !@cloud_id
           @cloud_desc_cache = if @config['flavor'] == "EKS" or
              (@config['flavor'] == "Fargate" and !@config['containers'])
-            resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_cluster(
+            resp = MU::Cloud::AWS.eks(region: @region, credentials: @credentials).describe_cluster(
               name: @cloud_id
             )
             resp.cluster
           else
-            resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_clusters(
+            resp = MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).describe_clusters(
               clusters: [@cloud_id]
             )
             resp.clusters.first
@@ -318,7 +318,7 @@ MU.log c.name, MU::NOTICE, details: t
         def notify
           deploy_struct = MU.structToHash(cloud_desc)
           deploy_struct['cloud_id'] = @mu_name
-          deploy_struct["region"] = @config['region']
+          deploy_struct["region"] = @region
           if @config['flavor'] == "EKS"
             deploy_struct["max_pods"] = @config['kubernetes']['max_pods'].to_s
 # XXX if FargateKS, get the Fargate Profile artifact
@@ -1580,7 +1580,7 @@ start = Time.now
           @cacert = cloud_desc.certificate_authority.data
           @cluster = @mu_name
           if @config['flavor'] != "Fargate"
-            resp = MU::Cloud::AWS.iam(credentials: @config['credentials']).get_role(role_name: @mu_name+"WORKERS")
+            resp = MU::Cloud::AWS.iam(credentials: @credentials).get_role(role_name: @mu_name+"WORKERS")
             @worker_role_arn = resp.role.arn
           end
           kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
@@ -1647,7 +1647,7 @@ start = Time.now
               :tags => @tags
             }
             begin
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+              resp = MU::Cloud::AWS.eks(region: @region, credentials: @credentials).describe_fargate_profile(
                 cluster_name: @mu_name,
                 fargate_profile_name: profname
               )
@@ -1660,7 +1660,7 @@ start = Time.now
                 old_desc["subnets"].sort!
                 if !old_desc.eql?(new_desc)
                   MU.log "Deleting Fargate profile #{profname} in order to apply changes", MU::WARN, details: desc 
-                  MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profname, @mu_name, @config['region'], @credentials)
+                  MU::Cloud::AWS::ContainerCluster.purge_fargate_profile(profname, @mu_name, @region, @credentials)
                 else
                   next
                 end
@@ -1669,9 +1669,9 @@ start = Time.now
               # This is just fine!
             end
             MU.log "Creating EKS Fargate profile #{profname}", details: desc
-            resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).create_fargate_profile(desc)
+            resp = MU::Cloud::AWS.eks(region: @region, credentials: @credentials).create_fargate_profile(desc)
             begin
-              resp = MU::Cloud::AWS.eks(region: @config['region'], credentials: @config['credentials']).describe_fargate_profile(
+              resp = MU::Cloud::AWS.eks(region: @region, credentials: @credentials).describe_fargate_profile(
                 cluster_name: @mu_name,
                 fargate_profile_name: profname
               )
@@ -1711,19 +1711,19 @@ start = Time.now
             tagme << s.cloud_id
             tagme_elb << s.cloud_id if !s.private?
           }
-          rtbs = MU::Cloud::AWS.ec2(region: @config['region'], credentials: @config['credentials']).describe_route_tables(
+          rtbs = MU::Cloud::AWS.ec2(region: @region, credentials: @credentials).describe_route_tables(
             filters: [ { name: "vpc-id", values: [@vpc.cloud_id] } ]
           ).route_tables
           tagme.concat(rtbs.map { |r| r.route_table_id } )
           main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}workers")
           tagme << main_sg.cloud_id if main_sg
           MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
-          MU::Cloud::AWS.createTag(tagme, "kubernetes.io/cluster/#{@mu_name}", "shared", credentials: @config['credentials'])
-          MU::Cloud::AWS.createTag(tagme_elb, "kubernetes.io/cluster/elb", @mu_name, credentials: @config['credentials'])
+          MU::Cloud::AWS.createTag(tagme, "kubernetes.io/cluster/#{@mu_name}", "shared", credentials: @credentials)
+          MU::Cloud::AWS.createTag(tagme_elb, "kubernetes.io/cluster/elb", @mu_name, credentials: @credentials)
         end
 
         def manage_ecs_workers
-          resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_container_instances({
+          resp = MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).list_container_instances({
             cluster: @mu_name
           })
           existing = {}
@@ -1733,7 +1733,7 @@ start = Time.now
               uuids << arn.sub(/^.*?:container-instance\//, "")
             }
             if uuids.size > 0
-              resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).describe_container_instances({
+              resp = MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).describe_container_instances({
                 cluster: @mu_name,
                 container_instances: uuids
               })
@@ -1744,7 +1744,7 @@ start = Time.now
           end
 
           threads = []
-          resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
+          resource_lookup = MU::Cloud::AWS.listInstanceTypes(@region)[@region]
           serverpool = if ['EKS', 'ECS'].include?(@config['flavor'])
             @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"workers")
           end
@@ -1789,7 +1789,7 @@ start = Time.now
                 params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
                 MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
               end
-              MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_container_instance(params)
+              MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).register_container_instance(params)
 
             }
           }
@@ -1805,7 +1805,7 @@ start = Time.now
             @loadbalancers.each {|lb|
               MU.log "Mapping LB #{lb.mu_name} to service #{c['name']}", MU::INFO
               if lb.cloud_desc.type != "classic"
-                elb_groups = MU::Cloud::AWS.elb2(region: @config['region'], credentials: @config['credentials']).describe_target_groups({
+                elb_groups = MU::Cloud::AWS.elb2(region: @region, credentials: @credentials).describe_target_groups({
                     load_balancer_arn: lb.cloud_desc.load_balancer_arn
                   })
                   matching_target_groups = []
@@ -1957,7 +1957,7 @@ start = Time.now
           MU.log "Registering task definition #{service_name} with #{container_definitions.size.to_s} containers"
 
 # XXX this helpfully keeps revisions, but let's compare anyway and avoid cluttering with identical ones
-          resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).register_task_definition(task_params)
+          resp = MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).register_task_definition(task_params)
 
           resp.task_definition.task_definition_arn
         end
@@ -1965,7 +1965,7 @@ start = Time.now
         def list_ecs_services
           svc_resp = nil
           MU.retrier([Aws::ECS::Errors::ClusterNotFoundException], wait: 5, max: 10){
-            svc_resp = MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).list_services(
+            svc_resp = MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).list_services(
               cluster: arn
             )
           }
@@ -2005,14 +2005,14 @@ start = Time.now
           if !existing_svcs.include?(service_name)
             MU.log "Creating Service #{service_name}"
 
-            MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).create_service(service_params)
+            MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).create_service(service_params)
           else
             service_params[:service] = service_params[:service_name].dup
             service_params.delete(:service_name)
             service_params.delete(:launch_type)
             MU.log "Updating Service #{service_name}", MU::NOTICE, details: service_params
 
-            MU::Cloud::AWS.ecs(region: @config['region'], credentials: @config['credentials']).update_service(service_params)
+            MU::Cloud::AWS.ecs(region: @region, credentials: @credentials).update_service(service_params)
           end
         end
 
