@@ -472,9 +472,7 @@ else
   "#{MU_BASE}/lib/modules"
 end
 
-rubies = ["/usr/local/ruby-current"]
-
-rubies << "/opt/chef/embedded" if !RUNNING_STANDALONE
+rubies = ["/usr/local/ruby-current", "/opt/chef/embedded"]
 
 rubies.each { |rubydir|
   gembin = rubydir+"/bin/gem"
