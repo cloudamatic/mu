@@ -556,11 +556,13 @@ execute "create mu Chef user" do
   command "/opt/opscode/bin/chef-server-ctl user-create mu Mu Master root@example.com #{Password.pronounceable} -f #{MU_BASE}/var/users/mu/mu.user.key"
   umask 0277
   not_if "/opt/opscode/bin/chef-server-ctl user-list | grep '^mu$'"
+  notifies :start, "service[chef-server]", :before
 end
 execute "create mu Chef org" do
   command "/opt/opscode/bin/chef-server-ctl org-create mu mu -a mu -f #{MU_BASE}/var/orgs/mu/mu.org.key"
   umask 0277
   not_if "/opt/opscode/bin/chef-server-ctl org-list | grep '^mu$'"
+  notifies :start, "service[chef-server]", :before
 end
 # TODO copy in ~/.chef/mu.*.key to /opt/mu/var/users/mu if the stuff already exists
 file "initial root knife.rb" do
@@ -624,6 +626,7 @@ execute "create MU-MASTER Chef client" do
   only_if "/opt/chef/bin/knife ssl check" # make sure we don't wipe ourselves due to unrelated SSL issues
   notifies :delete, "file[/etc/chef/client.pem]", :before
   notifies :delete, "file[/etc/chef/validation.pem]", :before
+  notifies :start, "service[chef-server]", :before
   only_if { RUNNING_STANDALONE }
 end
 
