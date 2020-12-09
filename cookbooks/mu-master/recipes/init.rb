@@ -431,7 +431,7 @@ end
 # credentials to roll a dedicated /opt.
 TMPDIR = Dir.mktmpdir
 gemfile_dir = if RUNNING_STANDALONE
-  ruby_block "set up alternate install-time Gemfile" do
+  ruby_block "set up alternate install-time Gemfile" do # ~FC014
     block do
       exclude_gems = %w{aws-sdk azure_sdk google-api-client}
 

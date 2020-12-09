@@ -64,17 +64,17 @@ action :create do
       guard_cmd = have_fs_cmd+" "+real_devicepath(devicepath)+" 2>&1 > /dev/null"
       format_cmd = mkfs_cmd+" "+real_devicepath(devicepath)
 
-      shell_out(%Q{#{guard_cmd}})
+      shell_out(guard_cmd)
       if $?.exitstatus != 0
         puts "\n"+format_cmd
-        shell_out(%Q{#{format_cmd}})
+        shell_out(format_cmd)
       end
     end
     not_if "grep ' #{path} ' /etc/mtab"
   end
 
 
-  ruby_block "mount #{path} by its real device name" do
+  ruby_block "mount #{path} by its real device name" do # ~FC014
     block do
 
       def sort_fstab(a, b)
