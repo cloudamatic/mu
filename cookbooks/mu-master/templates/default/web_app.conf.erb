@@ -1,12 +1,12 @@
-<VirtualHost *:<%= @params[:server_port] || node['apache']['listen'].first %>>
-  ServerName <%= @params[:server_name] %>
-  ServerAlias <% @params[:server_aliases].each do |a| %><%= a %> <% end %>
+<VirtualHost *:<%= @server_port || (node['apache'] and node['apache']['listen'].first) %>>
+  ServerName <%= @server_name %>
+  ServerAlias <% @server_aliases.each do |a| %><%= a %> <% end %>
+  DocumentRoot <%= @docroot %>
   FileETag -INode
-  DocumentRoot <%= @params[:docroot] %>
   RewriteEngine On
   RewriteRule ^/(nagios|jenkins|scratchpad)$ https://%{HTTP_HOST}/$1/ [R=301,NC,L]
 
-<% if @params[:server_port].to_s.match(/443$/) %>
+<% if @server_port.to_s.match(/443$/) %>
   SSLEngine On
   SSLCertificateFile <%= $MU_CFG['ssl']['cert'] %>
   SSLCertificateKeyFile <%= $MU_CFG['ssl']['key'] %>
@@ -15,12 +15,7 @@
 <% end %>
   SSLProxyEngine on
   <Proxy *>
-<% if node['apache']['version'] == "2.2" %>
-    Order allow,deny
-    Allow from all
-<% elsif node['apache']['version'] == "2.4" %>
     Require all granted
-<% end %>
   </Proxy>
 
   ProxyPreserveHost on
@@ -48,19 +43,14 @@
   RewriteRule ^/(nagios|jenkins|scratchpad)/(.*) https://%{HTTP_HOST}/$1/$2 [R=301,NC,L]
 <% end %>
 
-	RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
-	RewriteRule .* - [F]
+  RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
+  RewriteRule .* - [F]
 
-  <Directory <%= @params[:docroot] %>>
-    Options <%= [@params[:directory_options] || "FollowSymLinks" ].flatten.join " " %>
-    AllowOverride <%= [@params[:allow_override] || "None" ].flatten.join " " %>
-<% if node['apache']['version'] == "2.2" %>
-    Order allow,deny
-    Allow from all
-<% elsif node['apache']['version'] == "2.4" %>
-	Require all granted
-<% end %>
-  </Directory>
+  <DirectoryMatch "<%= @docroot %>\/.*">
+    Options <%= [@directory_options || "FollowSymLinks" ].flatten.join " " %>
+    AllowOverride <%= [@allow_override || "None" ].flatten.join " " %>
+    Require all granted
+  </DirectoryMatch>
 
   <Directory />
     Options FollowSymLinks
@@ -69,18 +59,12 @@
 
   <Location /server-status>
     SetHandler server-status
-<% if node['apache']['version'] == "2.2" %>
-    Order Deny,Allow
-    Deny from all
-    Allow from 127.0.0.1
-<% elsif node['apache']['version'] == "2.4" %>
     Require host 127.0.0.1
-<% end %>
   </Location>
 
 
-  <% if @params[:directory_index] -%>
-  DirectoryIndex <%= [@params[:directory_index]].flatten.join " " %>
+  <% if @directory_index -%>
+  DirectoryIndex <%= [@directory_index].flatten.join " " %>
   <% end -%>
 
 </VirtualHost>

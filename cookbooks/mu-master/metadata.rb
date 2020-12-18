@@ -7,7 +7,7 @@ long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
-version '0.9.6'
+version '0.9.7'
 
 %w( centos amazon redhat ).each do |os|
 	supports os
@@ -28,4 +28,4 @@ depends 'consul-cluster', '~> 2.0.0'
 depends 'chef-sugar' # undeclared dependency of consul 2.1, which can't be upgraded without creating a conflict with consul-cluster and vault-cluster -zr2d2
 depends 'hostsfile', '~> 3.0.1'
 depends 'chef-vault', '~> 3.1.1'
-depends 'apache2', '< 6.0.0'
+depends 'apache2', '< 8.0.0'

@@ -982,7 +982,7 @@ MU.log e.message, MU::WARN, details: e.inspect
       end
 
       # Google's Cloud Billing Service API
-      # @param subclass [<Google::Apis::LoggingV2>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
+      # @param subclass [<Google::Apis::CloudbillingV1>]: If specified, will return the class ::Google::Apis::CloudbillingV1::subclass instead of an API client instance
       def self.billing(subclass = nil, credentials: nil)
         require 'google/apis/cloudbilling_v1'
 

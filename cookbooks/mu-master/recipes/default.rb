@@ -218,22 +218,18 @@ if !node['update_nagios_only']
     svrname = $MU_CFG['public_address']
   end
 
+  apache2_mod_proxy ""
+  apache2_mod_ldap ""
+#  apache2_mod "proxy_http"
+#  apache2_mod "rewrite"
+#  apache2_mod "authnz_ldap"
+  apache2_mod_cgid ""
+  apache2_mod_ssl ""
+  apache2_mod "php"
+
   # nagios keeps disabling the default vhost, so let's make another one
-  include_recipe "apache2::mod_proxy"
-  include_recipe "apache2::mod_proxy_http"
-  include_recipe "apache2::mod_rewrite"
-
-  if node['platform_family'] == "rhel" and node['platform_version'].split('.')[0].to_i == 6
-    package "httpd24-mod_ldap"
-    apache_module 'ldap' do
-      conf true
-    end
-  else
-    include_recipe "apache2::mod_authnz_ldap"
-  end
-
-  apache_site "default" do
-    enable false
+  apache2_default_site "" do
+    action :disable
   end
   execute "Allow net connect to local for apache" do
     command "/usr/sbin/setsebool -P httpd_can_network_connect on"
@@ -242,22 +238,94 @@ if !node['update_nagios_only']
     notifies :reload, "service[apache2]", :delayed
   end
 
+  aliases = [node['fqdn'], node['hostname'], node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
+  if node['ec2']
+    aliases << node['ec2']['local_ipv4']
+    aliases << node['ec2']['local_hostname']
+    aliases << node['ec2']['public_ipv4']
+    aliases << node['ec2']['public_hostname']
+  end
+  aliases.uniq!
+  aliases.reject! { |a| a.nil? or a.empty? }
 
-  web_app "mu_docs" do
-    server_name svrname
-    server_aliases [node['fqdn'], node['hostname'], node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
-    docroot "/var/www/html"
-    cookbook "mu-master"
+  service 'apache2' do
+    extend Apache2::Cookbook::Helpers
+    service_name lazy { apache_platform_service_name }
+    supports restart: true, status: true, reload: true
+    action :nothing
+  end
+
+  template '/etc/httpd/sites-available/mu_docs.conf' do
+    variables(
+      server_name: svrname,
+      server_port: "80",
+      server_aliases: aliases,
+      docroot: "/var/www/html"
+    )
+    cookbook 'mu-master'
+    source 'web_app.conf.erb'
     notifies :reload, "service[apache2]", :delayed
   end
-  web_app "https_proxy" do
-    server_name svrname
-    server_port "443"
-    server_aliases [node['fqdn'], node['hostname'], node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
-    docroot "/var/www/html"
-    cookbook "mu-master"
+  apache2_site "mu_docs"
+  template '/etc/httpd/sites-available/https_proxy.conf' do
+    variables(
+      server_name: svrname,
+      server_port: "443",
+      server_aliases: aliases,
+      docroot: "/var/www/html"
+    )
+    cookbook 'mu-master'
+    source 'web_app.conf.erb'
     notifies :reload, "service[apache2]", :delayed
   end
+  apache2_site "https_proxy"
+
+#  apache2_conf "mu_docs" do
+#    server_name svrname
+#    server_aliases aliases
+#    docroot "/var/www/html"
+#    cookbook "mu-master"
+#    notifies :reload, "service[apache2]", :delayed
+#    action :enable
+#  end
+#  apache2_conf "https_proxy" do
+#    server_name svrname
+#    server_port "443"
+#    server_aliases aliases
+#    docroot "/var/www/html"
+#    cookbook "mu-master"
+#    notifies :reload, "service[apache2]", :delayed
+#    action :enable
+#  end
+
+  # configure the appropriate authentication method for the web server
+  case node['nagios']['server_auth_method']
+  when 'openid'
+    apache2_mod 'auth_openid'
+  when 'cas'
+    apache2_mod 'auth_cas'
+  end
+
+#  apache2_conf "nagios" do
+#    server_name svrname
+#    server_aliases aliases
+#    template 'nagios.conf.erb'
+#    cookbook "mu-master"
+#    notifies :reload, "service[apache2]", :delayed
+#    action :enable
+#  end
+  template '/etc/httpd/sites-available/nagios.conf' do
+    variables(
+      server_name: svrname,
+      server_port: "443",
+      server_aliases: aliases,
+      docroot: "/var/www/html"
+    )
+    cookbook 'mu-master'
+    source 'nagios.conf.erb'
+    notifies :reload, "service[apache2]", :delayed
+  end
+  apache2_site "nagios"
 
   link "/etc/nagios3" do
     to "/etc/nagios"
