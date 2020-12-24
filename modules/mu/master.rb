@@ -221,6 +221,7 @@ module MU
             )
             # the device might be on some arbitrary NVMe slot
             realdevice = MU::Cloud::AWS.realDevicePath(realdevice)
+            alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
           elsif MU::Cloud::Google.hosted?
             dummy_svr = MU::Cloud::Google::Server.new(
               mu_name: "MU-MASTER",
