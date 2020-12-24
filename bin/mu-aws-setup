@@ -257,9 +257,10 @@ if $opts[:optdisk] and !File.open("/etc/mtab").read.match(/ \/opt[\s\/]/)
   MU.log "Remounting /opt_tmp /opt", MU::NOTICE
   system("/bin/umount /opt_tmp")
   exit 1 if $?.exitstatus != 0
-  puts "#{uuid} /opt xfs defaults 0 0"
+  MU.log "Appending mount to /etc/fstab", "#{uuid} /opt xfs defaults 0 0"
   system("echo '#{uuid} /opt xfs defaults 0 0' >> /etc/fstab")
   system("/bin/mount -a")
+  exit 1 if $?.exitstatus != 0
   if File.exists?("/opt/opscode/bin/chef-server-ctl")
     system("/opt/opscode/bin/chef-server-ctl start")
   end

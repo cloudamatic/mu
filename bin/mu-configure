@@ -507,6 +507,7 @@ if !$NOOP
   if $IN_AWS and AMROOT and !$IN_GEM
     Dir.chdir("/")
     system("#{MU_BASE}/lib/bin/mu-aws-setup --optdisk")
+    exit 1 if $?.exitstatus != 0
     system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
   end
 
