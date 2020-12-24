@@ -479,14 +479,19 @@ end
       # @param dev [String]
       def self.realDevicePath(dev)
         return dev if !hosted?
-        map = attachedNVMeDisks
-        if map[dev]
-          map[dev]
-        elsif map[dev.gsub(/.*?\//, '')]
-          map[dev.gsub(/.*?\//, '')]
-        else
-          dev # be nice to actually handle this too
-        end
+        should_retry = Proc.new {
+          !map[dev] and MU::Master.nvme?
+        }
+        MU.retrier(loop_if: should_retry, wait: 5, max: 6) {
+          map = attachedNVMeDisks
+          if map[dev]
+            map[dev]
+          elsif map[dev.gsub(/.*?\//, '')]
+            map[dev.gsub(/.*?\//, '')]
+          else
+            dev # be nice to actually handle this too
+          end
+        }
       end
 
       # Determine whether we (the Mu master, presumably) are hosted in this
