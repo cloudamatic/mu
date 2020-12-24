@@ -217,6 +217,7 @@ if !node['update_nagios_only']
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     svrname = $MU_CFG['public_address']
   end
+  apache2_install ""
 
   apache2_mod_proxy ""
   apache2_mod_ldap ""
@@ -224,13 +225,13 @@ if !node['update_nagios_only']
 #  apache2_mod "rewrite"
 #  apache2_mod "authnz_ldap"
   apache2_mod_cgid ""
-  apache2_mod_ssl ""
+#  apache2_mod_ssl ""
   apache2_mod "php"
-
-  # nagios keeps disabling the default vhost, so let's make another one
   apache2_default_site "" do
     action :disable
   end
+
+  # nagios keeps disabling the default vhost, so let's make another one
   execute "Allow net connect to local for apache" do
     command "/usr/sbin/setsebool -P httpd_can_network_connect on"
     not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
