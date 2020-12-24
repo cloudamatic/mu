@@ -930,7 +930,7 @@ module MU
     # Determine whether we're running in an NVMe-enabled environment
     def self.nvme?
       if File.executable?("/bin/lsblk")
-        shell_out(%Q{/bin/lsblk -i -p -r -n}).stdout.each_line { |l|
+        %x{/bin/lsblk -i -p -r -n}.each_line { |l|
           return true if l =~ /^\/dev\/nvme\d/
         }
       else
