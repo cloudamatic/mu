@@ -479,13 +479,13 @@ end
       # @param dev [String]
       def self.realDevicePath(dev)
         return dev if !hosted?
-        map = {}
-        should_retry = Proc.new {
-          !map[dev] and MU::Master.nvme?
-        }
         value = nil
+        should_retry = Proc.new {
+          !value and MU::Master.nvme?
+        }
         MU.retrier(loop_if: should_retry, wait: 5, max: 6) {
           map = attachedNVMeDisks
+          pp map
           value = if map[dev]
             map[dev]
           elsif map[dev.gsub(/.*?\//, '')]
