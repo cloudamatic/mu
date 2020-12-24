@@ -479,6 +479,7 @@ end
       # @param dev [String]
       def self.realDevicePath(dev)
         return dev if !hosted?
+        map = {}
         should_retry = Proc.new {
           !map[dev] and MU::Master.nvme?
         }
