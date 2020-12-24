@@ -485,7 +485,6 @@ end
         }
         MU.retrier(loop_if: should_retry, wait: 5, max: 6) {
           map = attachedNVMeDisks
-          pp map
           value = if map[dev]
             map[dev]
           elsif map[dev.gsub(/.*?\//, '')]
